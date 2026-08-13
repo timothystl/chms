@@ -1061,7 +1061,7 @@ function boardDashboardHtml(d) {
   var projSub = g.projection_vs_budget_cents == null ? methodNote
     : boardMoney(Math.abs(g.projection_vs_budget_cents)) + (g.projection_vs_budget_cents < 0 ? ' under' : ' over') + ' a ' + boardMoney(g.annual_budget_cents) + ' budget';
   var c3 = boardKpiCard('#C9973A', 'Year-end projection', boardMoney(g.projection_cents), '', projSub);
-  // KPI 4 — households, labelled for what the category actually counts (paying households for
+  // KPI 4 — households, labeled for what the category actually counts (paying households for
   // earned income, income sources for passive — "giving households" would misdescribe both).
   var hhDelta = g.households - g.households_prior;
   var hhSub = (g.households_prior > 0 ? (Math.abs(hhDelta) + (hhDelta === 0 ? ' same as ' : hhDelta < 0 ? ' fewer than ' : ' more than ') + d.prior_year + ' · ') : '')
@@ -2109,7 +2109,7 @@ function givLettersToggleMark(i) {
 // than the one that was reviewed.
 //
 // Every figure a recipient sees is in THEIR OWN rhythm — a monthly giver reads "$185 a month",
-// not the weekly-equivalent the analysis normalises to internally. Sends and prints are recorded
+// not the weekly-equivalent the analysis normalizes to internally. Sends and prints are recorded
 // in the same giving_letter_sends ledger the Letters pane uses (letter_type 'nudge'), so a run
 // is resumable and nobody is asked twice.
 var _givNudgesState = { year: 0, scope: 'household', fundId: '', option: 'standard', channel: 'email', lowFreq: 3, recipients: [], counts: null, selected: {} };
@@ -2265,7 +2265,7 @@ function givNudgesLetterHtml(r, churchName) {
   var greeting = (r.kind === 'household') ? 'Dear ' + esc(r.name) : 'Dear ' + esc((r.recipient_name || r.name).split(' ')[0]);
   var givingUrl = (_churchConfig && _churchConfig.online_giving_url) || '';
   var body = '<p>' + greeting + ',</p>'
-    + '<p>Thank you for your faithful giving to ' + esc(churchName) + '. Your generosity is part of everything this congregation is able to do &mdash; worship, teaching, care for our neighbours, and the daily work of the church.</p>'
+    + '<p>Thank you for your faithful giving to ' + esc(churchName) + '. Your generosity is part of everything this congregation is able to do &mdash; worship, teaching, care for our neighbors, and the daily work of the church.</p>'
     + '<p>Over the past year your giving has averaged about <b>' + fmtWholeDollars(r.cadence_amount_cents) + ' ' + esc(adverb) + '</b>.'
     + ' As we look ahead, would you prayerfully consider moving to <b>' + fmtWholeDollars(o.cadence_target_cents) + ' ' + esc(adverb) + '</b>?</p>'
     + '<p>That is a change of ' + fmtWholeDollars(o.cadence_delta_cents) + ' ' + esc(adverb) + ' &mdash; about <b>' + fmtWholeDollars(o.cadence_annual_delta_cents) + '</b> over a year.'

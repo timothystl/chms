@@ -34,7 +34,7 @@ function mediaBlocks(css, bp) {
 const blocks = mediaBlocks(STYLE, 767);
 const phoneBlock = blocks.find((b) => /#tab-people \.toolbar\{/.test(b.text));
 
-/** The declaration that WINS for `prop` on `selector`, honouring source order. */
+/** The declaration that WINS for `prop` on `selector`, honoring source order. */
 function winningDecl(selector, prop) {
   const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(esc + '\\{([^}]*)\\}', 'g');

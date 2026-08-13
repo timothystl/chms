@@ -51,9 +51,9 @@ function finShowSection(section) {
 }
 
 // ── Shared building blocks for the redesigned pages ─────────────────────────────────────────
-// A labelled horizontal bar — the redesign's single most repeated element (revenue streams,
+// A labeled horizontal bar — the redesign's single most repeated element (revenue streams,
 // revenue sources, room occupancy, plan-vs-actual). One helper rather than a dozen hand-built
-// copies, so the track colour, radius and label typography can never drift apart between pages.
+// copies, so the track color, radius and label typography can never drift apart between pages.
 function finBar(label, valueHtml, pct, color, opts) {
   opts = opts || {};
   var h = opts.height || 10;
@@ -93,7 +93,7 @@ function finCardError(what) {
 }
 
 // ── Expense pace (shared by the Church Report and the Financial Health entity card) ─────────
-// _finOverviewDrillOpen keeps the single-open drilldown behaviour the Overview dashboard
+// _finOverviewDrillOpen keeps the single-open drilldown behavior the Overview dashboard
 // introduced; the dashboard itself is gone (its job is now the Financial Health page), but the
 // click-to-see-line-items interaction moved intact onto the Church Report's expense panel.
 var _finOverviewDrillOpen = null; // single-open drilldown category path
@@ -417,7 +417,7 @@ function finRenderImportsCard() {
     + '</div>'
     + '<div id="fin-dc-cb-panel" style="margin-top:14px;">'
       + '<div class="fin-eyebrow">MDO accounts from an imported church budget</div>'
-      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">Pulls the Mother\'s Day Out line items (any account with "MDO" or "Mother\'s Day Out" in its name) out of a Church Report budget already imported for that year, and categorises them into the Daycare Report\'s categories.</p>'
+      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">Pulls the Mother\'s Day Out line items (any account with "MDO" or "Mother\'s Day Out" in its name) out of a Church Report budget already imported for that year, and categorizes them into the Daycare Report\'s categories.</p>'
       + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">'
       + '<label style="font-size:.75rem;color:var(--warm-gray);">Church Budget Year<br><input type="number" id="fin-dc-cb-year" placeholder="2025" style="width:100px;"></label>'
       + '<button class="btn-secondary" onclick="finDaycareChurchBudgetPreview()">Preview</button></div>'
@@ -502,7 +502,7 @@ function finRenderAdjustmentsCard(isAdminUI) {
       + '<tbody id="fin-daycare-body"></tbody></table></div>'
     + '</details>';
 }
-// Revenue-stream classification + the cash policy behind the runway card. Both are judgements
+// Revenue-stream classification + the cash policy behind the runway card. Both are judgments
 // this code cannot make for a church — which account group counts as donor revenue, and how many
 // months of reserve the congregation has decided to hold — so both are editable here rather than
 // hardcoded, and the Health page names what it used.
@@ -572,7 +572,7 @@ function finSaveStreamClassification(count) {
     }).catch(function(err) { finToast(err && err.message || 'Save failed.'); });
 }
 // The five board-facing expense categories are the board's vocabulary, not the chart of accounts,
-// so which GL group lands in which is a judgement an admin makes here. Doubles as the
+// so which GL group lands in which is a judgment an admin makes here. Doubles as the
 // unmapped-account validation report the flow-diagram handoff asks for: any group still resolved
 // by name carries a "guessed" chip.
 var _finExpenseMapData = null;
@@ -629,7 +629,7 @@ function finLoadCashPolicy() {
   el.innerHTML = '<div style="font-size:.8rem;color:var(--warm-gray);">Loading…</div>';
   api('/admin/api/finance/cash-policy').then(function(d) {
     el.innerHTML = '<div class="fin-eyebrow">Cash reserve policy</div>'
-      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">The runway card measures months of operating cash against this floor. Cash on hand is read from the imported balance sheet — name the operating account by its code (this church\'s is <b>11027</b> Lindell Checking) so it can\'t pick up the wrong one. Leave the code blank and it matches any asset account named "checking"; type a figure in <i>Cash on hand</i> only to override the balance sheet entirely. The runway measures <b>church operating expenses only</b> — daycare wages and costs are left out, since they stop when the tuition does. <i>General Fund budget account code</i> is the ledger account family the offering budget is filed under (this church\'s is <b>40085</b>); leave it blank and the giving-pace chart uses the leading code of the funds categorised as the General Fund.</p>'
+      + '<p style="font-size:12.5px;color:var(--warm-ink-label);margin:4px 0 8px;">The runway card measures months of operating cash against this floor. Cash on hand is read from the imported balance sheet — name the operating account by its code (this church\'s is <b>11027</b> Lindell Checking) so it can\'t pick up the wrong one. Leave the code blank and it matches any asset account named "checking"; type a figure in <i>Cash on hand</i> only to override the balance sheet entirely. The runway measures <b>church operating expenses only</b> — daycare wages and costs are left out, since they stop when the tuition does. <i>General Fund budget account code</i> is the ledger account family the offering budget is filed under (this church\'s is <b>40085</b>); leave it blank and the giving-pace chart uses the leading code of the funds categorized as the General Fund.</p>'
       + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">'
       + '<label style="font-size:.75rem;color:var(--warm-gray);">Policy floor (months)<br><input type="number" id="fin-cash-floor" step="0.5" value="' + (d.policy_floor_months != null ? d.policy_floor_months : 3) + '" style="width:100px;"></label>'
       + '<label style="font-size:.75rem;color:var(--warm-gray);">Operating cash account code<br><input type="text" id="fin-cash-acct" placeholder="11027" value="' + esc(d.cash_account_code || '') + '" style="width:120px;"></label>'
@@ -660,7 +660,7 @@ function finSaveCashPolicy() {
 // ── Financial Health ────────────────────────────────────────────────────────────────────────
 // One page a council member can read top to bottom in a meeting, ending in decisions. It answers
 // "how are we doing, and what should we decide?" rather than "what do the ledgers say" — the
-// ledgers are on the other tabs. The organising idea is that the board's authority over the three
+// ledgers are on the other tabs. The organizing idea is that the board's authority over the three
 // entities is different, and the page says so everywhere: donor revenue is the only stream the
 // board can move, MDO earned income is reported to it, and Ivanhoe is a timing decision.
 var _finHealthData = null;          // church this-year payload for the CURRENT year
@@ -817,7 +817,7 @@ function finRenderStreamCards(d) {
 // The reconciliation is the reason this card earns its place. Recorded giving and booked donor
 // income measure different things and will never match on their own; subtracting designated
 // giving is what makes them comparable, and a gap that opens up after that means a fund is
-// miscategorised on one side or the other. That check did not exist before.
+// miscategorized on one side or the other. That check did not exist before.
 function finRenderDesignatedFunds(d) {
   var g = d.designatedFunds;
   if (!g || !g.funds || !g.funds.length) return '';
@@ -919,7 +919,7 @@ var FIN_FLOW_COLS = {
   expenses: { barX: 1064, barW: 10, labelX: 1056, anchor: 'end', ribbonIn: 1064, maxLabelW: 300 },
 };
 var FIN_FLOW_W = 1080, FIN_FLOW_REF_H = 626;
-// Label extents relative to a node's vertical centre. These are what the collision pass reasons
+// Label extents relative to a node's vertical center. These are what the collision pass reasons
 // about, so they must stay in step with the text the renderer actually emits below.
 var FIN_FLOW_LABEL_BOX = {
   two: { top: -13, bottom: 20 },      // name at cy-3, amount at cy+14
@@ -1032,7 +1032,7 @@ function finRenderSankey(diagram, layout) {
   var streamById = {};
   layout.streams.forEach(function(n) { streamById[n.ref.id] = n; });
 
-  // Source colours: each stream's own ramp, in the order its sources appear.
+  // Source colors: each stream's own ramp, in the order its sources appear.
   var tintIdx = { donor: 0, earned: 0, passive: 0 };
   layout.sources.forEach(function(n) {
     var ramp = FIN_FLOW_COLORS.sourceTint[n.ref.stream] || [FIN_FLOW_COLORS.total];
@@ -1367,7 +1367,7 @@ function finRenderGivingPace(d) {
   if (scoped && pace.excludedCents) {
     sub += ' ' + finMoney0(pace.excludedCents) + ' given to designated and pass-through funds is not counted here.';
   } else if (!scoped) {
-    sub += ' Every fund is counted — no fund is categorised as the General Fund yet (Settings → Fund categories).';
+    sub += ' Every fund is counted — no fund is categorized as the General Fund yet (Settings → Fund categories).';
   }
   return '<div class="fin-card">'
     + '<div class="fin-card-title" style="font-size:20px;">' + esc(title) + '</div>'
@@ -2403,7 +2403,7 @@ function finRenderDaycareOtherSourceWarning() {
 }
 // ── Daycare Report ──────────────────────────────────────────────────────────────────────────
 // The board receives MDO; it does not manage it. Two questions only: is it self-sufficient, and
-// is it full. The honest answer to the second is per-room — utilisation varies widely by room and
+// is it full. The honest answer to the second is per-room — utilization varies widely by room and
 // the waitlist sits on the youngest ones while the oldest have open seats — so the ask is staff
 // to open the rooms families want, not more building. That framing depends on room-level data the
 // daycare app does not expose yet (see DAYCARE_API.md); until it does, this page degrades to the
@@ -3054,7 +3054,7 @@ function finRenderNetIncomeByYearChart(multiYear) {
     + '<text x="8" y="' + (axisY + halfH + 4) + '" font-size="10" fill="var(--warm-meta)">-' + finMoney0(maxAbs) + '</text>'
     + bars + '</svg></div>';
 }
-// Revenue by account group, as labelled bars rather than a pie: a pie makes two similar slices
+// Revenue by account group, as labeled bars rather than a pie: a pie makes two similar slices
 // hard to rank and gives no room for the dollar figure, which is the number being read.
 function finRenderRevenueSources(tree, d) {
   var items = finPieItemsFromTree(tree, 'Income', 'totalActualCents');
@@ -5950,7 +5950,7 @@ function finRenderProperty(d) {
     + finRenderPropertyIncomeCard(d, isAdminUI)
     + '<div class="fin-grid-3">'
       + finLedgerStrip('monthly', 'Monthly financials', monthly.length + ' month' + (monthly.length === 1 ? '' : 's') + ' on record', monthlyHtml)
-      + finLedgerStrip('capital', 'Capital &amp; repairs ledger', capitalThisYear ? '$' + finFmtMoney(capitalThisYear / 100) + ' this year' : 'nothing capitalised this year',
+      + finLedgerStrip('capital', 'Capital &amp; repairs ledger', capitalThisYear ? '$' + finFmtMoney(capitalThisYear / 100) + ' this year' : 'nothing capitalized this year',
           finRenderCapitalImprovements(d, isAdminUI) + finRenderRepairs(d, isAdminUI))
       + finLedgerStrip('dists', 'Distributions to church', recentDists || 'none recorded', distHtml)
     + '</div>'
@@ -6399,7 +6399,7 @@ function finCompMigrateSavedShape(saved) {
   }
   if (!saved.compMethod && saved.colaSource) {
     // 'lcms'/'ssa' both meant "grow by a published rate", which is now the COLA method; the old
-    // district-formula behaviour is the separate District Scale column.
+    // district-formula behavior is the separate District Scale column.
     _finCompMethod = saved.colaSource === 'none' ? 'none' : saved.colaSource === 'custom' ? 'custom' : 'cola';
     if (saved.colaSource === 'custom' && saved.colaPct != null && saved.compCustomPct == null) _finCompCustomPct = saved.colaPct * 100;
   }
@@ -7253,7 +7253,7 @@ var FIN_HEALTH_TIERS = [
 // Concordia Plans quote #0560500326, effective 2027. tiersMonthlyCents is the packet's Enrollment
 // and Rates block verbatim; dental and vision are NOT tier-priced there, so they stay annual group
 // figures shared evenly across whoever is enrolled. Medical annual therefore falls out of
-// enrolment x tier rate x 12 rather than being stored — for this church's real enrolment (2 Family)
+// enrollment x tier rate x 12 rather than being stored — for this church's real enrollment (2 Family)
 // that reproduces the packet's own $49,224.00 exactly.
 var HEALTH_PLAN_QUOTE_2027 = {
   effectiveYear: 2027,
@@ -7268,7 +7268,7 @@ var HEALTH_PLAN_QUOTE_2027 = {
     option3: { label: 'Option 3 — Healthy Me HSA-D (BCBS)', tiersMonthlyCents: { self: 68614, selfSpouse: 137914, selfChild: 114585, family: 183886 }, dentalCents: 304680, visionCents: 147168, embedded: true, deductibleFamilyCents: 1100000, oopMaxFamilyCents: 1700000, deductibleIndividualCents: 550000, oopMaxIndividualCents: 850000 }
   }
 };
-// The monthly rate for one tier of one option, honouring an admin override typed on the rates page.
+// The monthly rate for one tier of one option, honoring an admin override typed on the rates page.
 function finHealthTierMonthlyCents(optionKey, tierKey, premiumOverrides) {
   var opt = HEALTH_PLAN_QUOTE_2027.options[optionKey];
   if (!opt) return null;
@@ -7597,7 +7597,7 @@ function finCompSetHealthTier(i, tier) {
   w.healthEnrolled = (tier !== 'optout');
   finRerenderPlanningPreserveFocus();
 }
-// Live enrolment, counted off the roster — the same thing as the count column on Concordia's own
+// Live enrollment, counted off the roster — the same thing as the count column on Concordia's own
 // Enrollment and Rates block. A cash-only worker is below the hours floor and draws nothing, so
 // they are not a contract.
 // A worker whose pay is carried by a different budget entirely — the MDO/daycare payroll, say —
@@ -8354,7 +8354,7 @@ function finCompRenderHealth(computed, totals) {
     + '<tbody>' + rows
     + '<tr class="fin-comp-total-row"><td class="fin-comp-td" colspan="2">Total health cost</td>'
     + '<td class="fin-comp-td num">' + finCompMoney(totals.healthCents) + '</td>'
-    + '<td class="fin-comp-td" style="font-size:.74rem;font-weight:400;color:var(--warm-gray);">Group quote at this enrolment ('
+    + '<td class="fin-comp-td" style="font-size:.74rem;font-weight:400;color:var(--warm-gray);">Group quote at this enrollment ('
     + esc(enrolBreakdown) + ') is ' + finCompMoney(finComputeHealthPlanTotalCents(_finHealthPlanSelectedOption, null, liveCounts).totalCents)
     + ' across ' + enrolledTotal + ' contract' + (enrolledTotal === 1 ? '' : 's') + '; opt-out cash and any hand-entered premium are on top.</td></tr>'
     + '</tbody></table></div>';
@@ -8505,7 +8505,7 @@ function finCompRenderRates() {
     + '<input type="text" id="fin-comp-ref-concordiaSource-' + year + '" value="' + esc(refRow.concordiaSource || '') + '" placeholder="' + esc(finCompSourceDoc('concordiaSource')) + '" oninput="finCompRefTextChange(' + year + ',&quot;concordiaSource&quot;,this.value)" style="width:100%;font-weight:400;">'
     + '</label></div>';
   // Typed the way Concordia publishes it: one MONTHLY rate per coverage tier, per plan option. The
-  // enrolment count beside each tier is read off the roster, not typed — it is the same thing as
+  // enrollment count beside each tier is read off the roster, not typed — it is the same thing as
   // the count column on the packet's own Enrollment and Rates block, and letting it be typed twice
   // is how the two quietly stop agreeing.
   var liveCounts = finCompEnrollmentCounts();
@@ -8538,7 +8538,7 @@ function finCompRenderRates() {
   var quoteCard = '<div class="fin-card">'
     + '<div class="fin-comp-cardhd">'
     + '<div><div class="fin-card-title" style="font-size:20px;margin:0;">Health plan quote, FY' + year + '</div>'
-    + '<div class="fin-card-sub" style="margin:0;">Type the renewal packet&#39;s Enrollment and Rates block straight in &mdash; one <b>monthly</b> rate per coverage tier, per option. Dental and vision are not tier-priced in the packet, so they stay annual figures for the whole group and are shared evenly across whoever is enrolled. Total monthly is the packet&#39;s own Total Monthly Cost (medical only, at the enrolment below); total annual adds dental and vision. Who sits on which tier is set per worker in step 1.</div></div>'
+    + '<div class="fin-card-sub" style="margin:0;">Type the renewal packet&#39;s Enrollment and Rates block straight in &mdash; one <b>monthly</b> rate per coverage tier, per option. Dental and vision are not tier-priced in the packet, so they stay annual figures for the whole group and are shared evenly across whoever is enrolled. Total monthly is the packet&#39;s own Total Monthly Cost (medical only, at the enrollment below); total annual adds dental and vision. Who sits on which tier is set per worker in step 1.</div></div>'
     + '<div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">'
     + '<label class="fin-comp-reflabel">Quote reference<input type="text" id="fin-comp-ref-quoteSource-' + year + '" value="' + esc(finCompRefRow(year).quoteSource || '') + '" placeholder="' + esc(finCompSourceDoc('quoteSource')) + '" oninput="finCompRefTextChange(' + year + ',&quot;quoteSource&quot;,this.value)" style="width:260px;font-weight:400;"></label>'
     + '</div></div>'
@@ -8690,7 +8690,7 @@ function finCompCouncilRows(computed) {
       ? { text: 'part-time &mdash; not comparable', color: 'var(--warm-gray)' }
       : finCompVsMedian(c.salaryCents, lcms && lcms.midCents);
     // An externally funded worker still gets a row — the point of the flag is that their pay stays
-    // visible — but their figures are greyed and in no total, and the scale/median columns are
+    // visible — but their figures are grayed and in no total, and the scale/median columns are
     // blanked rather than filled with a comparison this budget is not making.
     if (finCompIsExternallyFunded(w)) {
       return '<tr class="fin-comp-row" style="color:var(--warm-gray);"><td class="fin-comp-td"><div style="font-weight:700;">' + esc(w.name || '(unnamed)') + '</div>'
@@ -8784,7 +8784,7 @@ function finCompRemoveWorker(i) {
   var name = _finSalaryRoster[i] && _finSalaryRoster[i].name;
   _finSalaryRoster.splice(i, 1);
   // Per-worker method/override maps are keyed by roster INDEX, so a splice would silently shift
-  // every later worker's settings onto their neighbour. Rebuild both against the new indexes.
+  // every later worker's settings onto their neighbor. Rebuild both against the new indexes.
   var method = {}, ov = {};
   Object.keys(_finCompPerWorkerMethod).forEach(function(k) { var n = Number(k); if (n < i) method[n] = _finCompPerWorkerMethod[k]; else if (n > i) method[n - 1] = _finCompPerWorkerMethod[k]; });
   Object.keys(_finCompOverrides).forEach(function(k) { var n = Number(k); if (n < i) ov[n] = _finCompOverrides[k]; else if (n > i) ov[n - 1] = _finCompOverrides[k]; });

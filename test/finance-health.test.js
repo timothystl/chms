@@ -32,7 +32,7 @@ describe('classifyRevenueStream', () => {
     expect(classifyRevenueStream('44 Facility Rentals').stream).toBe('earned');
   });
 
-  it('defaults an unrecognised group to earned, never to donor', () => {
+  it('defaults an unrecognized group to earned, never to donor', () => {
     // Overstating donor revenue overstates how much of the budget the board can influence,
     // which is the one claim the whole page is built to make honestly.
     const r = classifyRevenueStream('91 Miscellaneous Widgets');
@@ -110,7 +110,7 @@ describe('computeRevenueStreams', () => {
 
   it('does not collapse the whole chart of accounts into one "Income" group', () => {
     // The live regression: with every path sharing the classification as segment 0, all revenue
-    // landed in one unrecognised group and defaulted to earned — donor read $0 at 0%.
+    // landed in one unrecognized group and defaulted to earned — donor read $0 at 0%.
     const { streams, map } = computeRevenueStreams(entries, {});
     expect(Object.keys(map).sort()).toEqual(['40 Offerings', '42 Passive Income', '57 MDO Tuition']);
     expect(streams.earned.cents, 'earned must not swallow the offerings').toBe(60000000);

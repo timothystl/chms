@@ -833,9 +833,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-yearend-bar-row.expense .fin-yearend-bar-actual,.fin-yearend-bar-row.expense .fin-yearend-bar-projected{background:var(--color-gold);}
 .fin-yearend-marker{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--color-navy);}
 /* ── Finance Workspace v3 (2026-08 "Finance overview framing" handoff): Financial Health,
-   the restructured report pages, and the new Data & Imports tab. Every colour below is an
+   the restructured report pages, and the new Data & Imports tab. Every color below is an
    existing brand token — the handoff's Design Tokens table was reconciled against :root above
-   and added no new colours. Responsive rules use only the three agreed tiers (see RESPONSIVE
+   and added no new colors. Responsive rules use only the three agreed tiers (see RESPONSIVE
    BREAKPOINTS); every multi-column grid here collapses to 1fr at 767px, and the 3-up grids go
    to two columns at 900px. ── */
 .fin-health-page{display:flex;flex-direction:column;gap:22px;}
@@ -990,7 +990,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .fin-flow-toggle{display:none !important;}
 }
 /* ── Compensation Planner (2026-08 handoff): a persistent header + navy totals strip + five
-   views behind one pill sub-nav. Every colour below is an existing brand token — the handoff's
+   views behind one pill sub-nav. Every color below is an existing brand token — the handoff's
    own Design Tokens table was reconciled against :root above and matched exactly. ── */
 .fin-comp-shell{display:flex;flex-direction:column;gap:14px;margin-bottom:14px;}
 .fin-comp-titlebar{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;}

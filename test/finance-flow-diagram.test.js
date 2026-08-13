@@ -279,7 +279,7 @@ describe('Share view — donuts', () => {
     expect(-offsets[2]).toBeCloseTo(lens[0] + lens[1], 2);
   });
 
-  it('abbreviates the centre total and shows a percent per row', () => {
+  it('abbreviates the center total and shows a percent per row', () => {
     const html = FLOW.finRenderFlowDonut('Money in', [{ label: 'Donor revenue', cents: 43500000, color: '#2E7EA6' }], 116500000, 'TOTAL REVENUE');
     expect(html).toContain('$1.165M');
     expect(html).toContain('37%');
@@ -355,9 +355,9 @@ describe('classifyFlowExpense', () => {
     expect(classifyFlowExpense('66 Youth Program').key).toBe('programs');
   });
 
-  it('puts an unrecognised account somewhere visible rather than dropping it', () => {
+  it('puts an unrecognized account somewhere visible rather than dropping it', () => {
     // Every expense account has to land in exactly one category or the outflow stops matching
-    // total expenses — a silently-dropped account is worse than a visibly-miscategorised one.
+    // total expenses — a silently-dropped account is worse than a visibly-miscategorized one.
     const r = classifyFlowExpense('93 Sundry');
     expect(FLOW_EXPENSE_KEYS).toContain(r.key);
     expect(r.mapped).toBe(false);

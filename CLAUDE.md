@@ -4,6 +4,43 @@ Read this at the start of every session. Update NOTES.md (and this file if neede
 
 ---
 
+## ⚠ American English spelling and conventions
+
+**Everything a human reads is written in American English.** Screen labels, button text, help
+copy, `◆` notes, toasts, error messages, emails and letters sent to members, code comments,
+commit messages, this file, `NOTES.md`, and `manual.html`. This is not a style preference — this
+is a church in St. Louis writing to its own staff and congregation, and "colour" or "behaviour"
+on an admin screen reads as a typo to every one of them.
+
+`-ize` / `-or` / `-er` / `-og`, and American date order (July 24, not 24 July):
+color · behavior · organize · recognize · normalize · sanitize · initialize · serialize ·
+summarize · optimize · categorize · analyze · center · neighbor · gray · license · labeled ·
+honor · judgment · enrollment · defense · utilization · authorized · realize · customize ·
+minimize · fulfill · catalog · while (not "whilst").
+
+**⚠ Four things that look British and must NOT be "corrected":**
+
+| Leave alone | Why |
+|---|---|
+| `aria-labelledby` | An HTML attribute name. Renaming it silently unlabels the element for a screen reader, with nothing to see in a browser. |
+| `auth/cancelled-popup-request` | A Firebase error code compared by string (`slides/index.html`, `volunteer-admin.html`). Ours to read, not to spell. |
+| `vendor/**` | Third-party code (TinyMCE). Not ours to rewrite, and editing it breaks the checksum the asset checks rely on. |
+| `migrations/*.sql` | A record of what was applied to the live D1 database. A migration file's content should match what actually ran. |
+
+Also leave alone the words that only look similar and are already American: `analysis`,
+`analyses`, `analyst`, `optimistic`, `realistic`, `emphasis`, `fulfilled`, `programmed`.
+
+**How to check.** A case-sensitive, word-boundary grep over the tracked files. It should return
+nothing; worth running before opening a PR that adds a screen or a report.
+
+```
+git ls-files | grep -vE '^(vendor|migrations)/|package-lock\.json$' \
+  | xargs grep -nE '\b(colour|neighbour|centre|centred|behaviour|organis[ei]|recognis|initialis|sanitis|normalis|serialis|summaris|optimis[ei]|licence|labelled|labelling|honour|grey|greyed|analyse|analysed|favour|enrolment|categoris|utilisation|judgement|defence|authoris|realise|realised|customis|minimis|whilst)' \
+  | grep -v labelledby
+```
+
+---
+
 ## What This App Is
 
 **Connect** — the Church Management System for Timothy Lutheran Church, used by both staff (full admin access) and members (a filtered, read-only directory view via `role='member'`, tab-hidden in the frontend — see the Connect section under Queued Items). Built on **Cloudflare Workers + D1 (SQLite)**. Single-page admin app assembled from per-tab modules under `src/frontend/` (shell in `src/html-chms.js`). API routes live in domain modules under `src/` — all delegated from `src/api-chms.js` — plus `src/api-admin.js` (auth, users, scheduler).
@@ -472,7 +509,7 @@ it. There were two implementations:
 - `syncPersonAddrToHousehold` was the one live function inside that block — kept; its success
   path called the removed `pvRenderContact()` and now calls `pvfToast()`.
 - Now in the registry: **Baptized / Confirmed** as Yes · No · Not recorded, above their date
-  rows. New `blankVals` on a def makes a real stored `0` render as the card's grey "Not set",
+  rows. New `blankVals` on a def makes a real stored `0` render as the card's gray "Not set",
   so an unanswered field never reads as answered.
 - The inline date editor carries the precision select. **Two controls in one cell**: tabbing
   from picker to select fires blur, and committing there tears the select out from under the
@@ -547,7 +584,7 @@ likely to be on a phone, on cell data, opening it from the Tithe.ly app tab.
   app-staff then app-ext on first open — the same shape as the Scheduler lazy-load. **Both**, not
   ext alone: `js-reports` calls into `js-attendance` (`_buildAttYoYHtml`, `_chartResizeHandle`,
   `MONTH_NAMES`), so loading one would swap one ReferenceError for another.
-- **`chmsHtmlForRole()` fails safe, not small** — an unrecognised or null role gets all three
+- **`chmsHtmlForRole()` fails safe, not small** — an unrecognized or null role gets all three
   bundles. Under-serving scripts to a real account breaks their app; over-serving to a member
   only costs bytes.
 - **ORDER changed and is load-bearing**: people/households now parse before settings/dashboard/
@@ -559,7 +596,7 @@ likely to be on a phone, on cell data, opening it from the Tithe.ly app tab.
   guards (6 injections, 6 correct failures). One of my own tests was weaker than its comment
   claimed — "evaluates standalone" does not catch a missing global, since that only throws when it
   runs — so the boot test was rewritten to **extract the boot call list from the shipped source**
-  and run each one, honouring the existing `_userRole !== 'member'` guard on `loadFunds` rather
+  and run each one, honoring the existing `_userRole !== 'member'` guard on `loadFunds` rather
   than demanding it. `test/asset-cache-policy.test.js` and `test/service-worker.test.js` hardcoded
   `/admin/app-core.js` and were updated. Plus `node --check` on all three bundles and the worker,
   `app.css` brace balance, div balance on both shells. **A backtick in one of my own new comments
@@ -572,7 +609,7 @@ likely to be on a phone, on cell data, opening it from the Tithe.ly app tab.
   for it: it is the single largest remaining item in a member's first load.
 - [ ] **CR9b** — `html-head.js` ships the 39-line `/* ── ROLE-BASED VISIBILITY ── */` block
   **twice** (lines ~138-176 and ~1449-1487, byte-identical, found while tracing `role-member`).
-  ~2 KB in `app.css` for every user. Deleting the FIRST copy is the behaviour-preserving fix —
+  ~2 KB in `app.css` for every user. Deleting the FIRST copy is the behavior-preserving fix —
   the later one currently wins, so keeping it preserves the cascade exactly (the MOB3/v1.121.3
   lesson: a media query adds no specificity, so relocating a block changes which rule wins).
   Left alone here rather than bundled into an unrelated change, with no browser to verify in.
@@ -618,7 +655,7 @@ records. Any giving viewing must be anonymous — planning and reports, just no 
   individual's giving" and is false for anon — that is what keeps `giving_12mo` off the person
   profile and First-Time Givers off the dashboard. The three General Fund dashboard totals are
   congregation-wide and read the separate `canViewGivingSums`, so council keeps them. **Anything
-  new that reads `isFinance` inherits the right behaviour; anything that re-derives it from the
+  new that reads `isFinance` inherits the right behavior; anything that re-derives it from the
   matrix must not.**
 - Front end mirrors it via `.require-giving-named` (12 surfaces) + `body.perm-giving-anon`, and
   `givSetView()` sends an anon role's Offerings/Communications deep links to Reports. **The UI is
@@ -708,9 +745,9 @@ file"** against a budget that IS uploaded and visible on the Planning tab, and t
 counted daycare expenses the congregation would never have to carry ("if we don't take in money we
 don't pay out wages").
 - **Two independent ways the budget lookup lost a real budget.** The account code was read only off
-  a fund literally NAMED "General Fund" — but once funds are categorised by hand that name need not
+  a fund literally NAMED "General Fund" — but once funds are categorized by hand that name need not
   survive, and a null code silently cost the whole lookup; it now falls back to the code the
-  categorised general funds share. And the ledger side matched the code only on `account_name`,
+  categorized general funds share. And the ledger side matched the code only on `account_name`,
   where importers put it variously on the leaf ("40085 Sunday Offering") or an ancestor path
   segment ("40085 Offerings:Sunday Offering") — both are checked now, with a non-digit required
   after the code so "40085" cannot match "400851".
@@ -839,7 +876,7 @@ line however their own names read. The rule already existed as **two hand-inline
 by Fund report, board fund table — G7/G22) and not at all in the three views that read worst
 without it. Now one place, `groupRowsByFundCode()` in `js-core.js`, called by all five, so they
 cannot print different fund lines for the same money. Church Report's panel gets one line per code,
-labelled with the code's highest-total fund, expanding in place to its members (the CSV follows the
+labeled with the code's highest-total fund, expanding in place to its members (the CSV follows the
 same shape). The council narrative and the board print summary combine with no member rows — there
 is no expansion on paper. Consolidating also fixed two small latent things: the report keyed every
 uncoded fund to one shared empty-string group (harmless only via a later `key &&` guard) and the
@@ -872,7 +909,7 @@ deliberate `earned` default. The tests passed because their fixtures used `'40 O
   persisted across imports — it was only useless because the editor had one bogus row to map.
   `computeRevenueStreams()` now returns `map`, and `finReorganizeChurchTree()` groups the Church
   Report's tree from it instead of its hardcoded regexes (falling back to them verbatim when no map
-  is loaded, so the four tests pinning that behaviour pass unchanged).
+  is loaded, so the four tests pinning that behavior pass unchanged).
 - **v1.149.1 — the "Sales" special-casing is gone.** Asked where "Sales" came from; this church
   has no such account. Traced to FIN14 (2026-07-20), which hid any account named exactly "Sales"
   from the Church Report tree while the Total Revenue card kept counting it — a known limitation
@@ -1009,7 +1046,7 @@ xx9105** is the operating account.
   accounts sharing the fund family's numeric code, same source as the board's General Fund card;
   `null` not `0` when absent, so the card draws no line rather than a wrong one. The card names the
   excluded designated/pass-through total, and says so when it is still counting every fund because
-  nothing is categorised General yet. Church Report's all-funds giving reference line unchanged.
+  nothing is categorized General yet. Church Report's all-funds giving reference line unchanged.
 - **Cash on hand prefers the imported balance sheet** over the QuickBooks snapshot (a confirmed
   statement outranks a name match). New `operatingCashFromBalanceSheet()`; account pinned by code in
   Data & Imports → Classification & policy (`cash_account_code`). Assets rows only (the code match
@@ -1143,7 +1180,7 @@ Follow-up to FIN61, from two live screenshots. All three reports were correct.
 - `npm test` (1035/1035, 26 new); **every new test verified non-vacuous** (6 injections — one
   initially passed because a second `isFinite` guard caught it, so it was redone against a full
   revert of the function and correctly failed). **One existing test was updated rather than the
-  code**: its assertion pinned the null-expenses-become-zero behaviour, which was the defect.
+  code**: its assertion pinned the null-expenses-become-zero behavior, which was the defect.
   **Not verified**: a live browser or real D1. (`src/api-finance.js`, `src/frontend/js-finance.js`,
   `test/finance-property-annual-summary.test.js`, `test/finance-property-funds-itself.test.js`,
   `test/finance-property-remittable.test.js`, `test/finance-property.test.js`)
@@ -1403,7 +1440,7 @@ deliberately did **not** change, because each is architectural and needs its own
   CR5 also in play the landing sequence is: 622 KB HTML → JS parse → `/me` → dashboard.
 - [ ] **CR4 — 3,752 inline `style="…"` attributes across `src/frontend/`** (`html-tabs.js` 977,
   `js-finance.js` 958, `js-reports.js` 441, `js-people.js` 304, `js-giving.js` 247…), plus 746
-  hardcoded hex colours, 113 of them inside those inline styles. This is RD2/RD4/PAL5 restated with
+  hardcoded hex colors, 113 of them inside those inline styles. This is RD2/RD4/PAL5 restated with
   current numbers — the count has grown substantially since PAL5 recorded 171, because Finance and the
   Giving redesign were both built in the inline-style idiom. Worth knowing before the redesign that
   the surface is now roughly 4× what the tracked estimate says.
@@ -1851,9 +1888,9 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   paths rather than recompute k. Two phantom-collision bugs in the tests' own measurement (HTML
   entities counted as many chars; `font-size` inherited from a parent `<g>`) were found and fixed.
   Also: the board's five expense categories from an admin-editable GL-account map with the
-  unmapped-account report (an unrecognised account lands in `programs` rather than being dropped —
+  unmapped-account report (an unrecognized account lands in `programs` rather than being dropped —
   otherwise the outflow stops matching total expenses); the donor node split by the ChMS restricted
-  ratio, labelled as the allocation it is; `GET /finance/flow?fy=`; and a visually-hidden data
+  ratio, labeled as the allocation it is; `GET /finance/flow?fy=`; and a visually-hidden data
   table plus a data-built `aria-label`. `npm test` (870/870, 36 new). **Not verified**: a live
   browser. (`src/api-finance.js`, `src/frontend/{html-head,js-finance,js-core}.js`,
   `test/finance-flow-diagram.test.js`)
@@ -1878,7 +1915,7 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   per importer** — staleness visible without opening a report. **Daycare** is built for room-level
   data but **degrades honestly**: the daycare app publishes no per-room endpoint yet, so it falls
   back to the category table and says so, rather than drifting into a blanket "we are full."
-  New server work: `computeRevenueStreams` (config-driven, admin-editable, **unrecognised groups
+  New server work: `computeRevenueStreams` (config-driven, admin-editable, **unrecognized groups
   default to `earned` not `donor`** — overstating donor revenue overstates the board's own leverage,
   the one claim the page exists to make honestly — with every guess surfaced in `unmapped`),
   restricted/unrestricted split reusing `funds.category`, `computeMoneyFlow`, `computeCashRunway`,
@@ -2044,11 +2081,11 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   this church has two Family contracts and nothing else — one worker on Self and it charges them a
   Family share. Now `tiersMonthlyCents` per option (the packet's Enrollment and Rates block
   verbatim), a per-worker tier, and cost = own tier rate x 12 + an even share of dental and vision
-  (not tier-priced in the packet). Enrolment is counted off the roster, not typed. The contracts
+  (not tier-priced in the packet). Enrollment is counted off the roster, not typed. The contracts
   box, `finCompContractCount()` and `finHealthPlanPerContractCents()` are deleted and
   `healthPlanContracts` no longer loads from the save — a stored count with no UI left to clear it
   is the invisible-stuck-state class. **The transcription is self-checking**: tier rates x real
-  enrolment reconstruct the packet's own Total Monthly ($4,102.00) and Total Annual ($49,224.00)
+  enrollment reconstruct the packet's own Total Monthly ($4,102.00) and Total Annual ($49,224.00)
   exactly, and every pre-existing planner health figure reproduces unchanged. Also: the breakeven's
   per-household gap now reads off the two tier rates rather than dividing a group total (still
   $4,045.80 Renewal to Option 1); the dependents checkbox no longer moves anyone between tiers
@@ -2082,12 +2119,12 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   substituting. The old roster-wide pension/disability overrides and the `colaSource` key migrate
   into that shape on read (`finCompMigrateSavedShape`) — left as globals they would have kept
   applying with no UI left to clear them. The Council report is a purpose-built flowing document
-  (drafted motion, cost-to-full-scale alternative labelled as an alternative, a page per worker,
+  (drafted motion, cost-to-full-scale alternative labeled as an alternative, a page per worker,
   group health plan, reference figures with sources), not the workspace with its chrome hidden.
   **Three real problems the tests caught before shipping**: the new CSS added a fourth breakpoint
   (600px), which `test/breakpoints.test.js` correctly rejected — this codebase has exactly three
   tiers (MOB3); removing a worker left `_finCompPerWorkerMethod`/`_finCompOverrides` keyed by the
-  old indexes, silently shifting every later worker's settings onto their neighbour; and the
+  old indexes, silently shifting every later worker's settings onto their neighbor; and the
   employee-only/opt-out premium boxes were editable for a non-admin. `npm test` (729/729; the
   compensation test file rewritten to 42 tests covering the handoff's §10 acceptance checks, with
   §5.12's worked example reproduced to the cent — $103,600 / $107,380 / $106,470 / $107,250,
@@ -2110,9 +2147,9 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   worker added nothing to the total, and a family-tier worker priced at $26,871.24. New
   `finHealthAncillaryPerContractCents()`; the per-worker figure adds them outright and the group
   total multiplies by the covered count. **A plausible wrong turn worth not repeating**: reading the
-  packet figures as the cost *at the quoted 2-contract enrolment* and halving them — it fixes the
-  scaling, reproduces every previously-shipped number at the quoted enrolment (so it looks
-  confirmed), and still prices a worker at $26,871.24. Do not divide these by the quoted enrolment.
+  packet figures as the cost *at the quoted 2-contract enrollment* and halving them — it fixes the
+  scaling, reproduces every previously-shipped number at the quoted enrollment (so it looks
+  confirmed), and still prices a worker at $26,871.24. Do not divide these by the quoted enrollment.
   **Figures that moved**: family-tier worker $26,871.24 → $29,130.48; Renewal at 2 contracts
   $53,742.48 → $58,260.96; Dinger's church cost $147,661 → $149,921. Medical untouched and still
   reconciles to the packet's Total Monthly $4,102.00 / Total Annual $49,224.00. Five existing tests
@@ -2134,14 +2171,14 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   (`w.externallyFunded`, on the "1 · Set pay" drawer): the worker stays on the roster and stays
   visible but is excluded from every church figure — salary, pension, health, disability, FICA, the
   FY total, the health contract count, the scale/median comparisons, the method totals, Send to
-  budget, and the Council report — with their row greyed and both screen and printed report naming
+  budget, and the Council report — with their row grayed and both screen and printed report naming
   who is excluded and why. Stored on the roster row (no endpoint, no migration). **Deliberately not
   applied to `finCompBaselineCents`**, which reads real payroll accounts rather than the roster; the
   note says so. **Subtlety pinned by test**: dental/vision are one group annual figure, so excluding
   an *enrolled* worker re-shares that bill across fewer people rather than shrinking it (does not
   arise for Jacinda, who is not on the church plan). `npm test` (1011/1011, 9 new; non-vacuous —
   stubbing the predicate to false fails 6; two of my own tests initially failed on a wrong premise
-  and were rewritten around the real behaviour). Harness reproducing the reported roster takes FICA
+  and were rewritten around the real behavior). Harness reproducing the reported roster takes FICA
   from $11,319.00 to $8,186.72, matching to the cent. Not verified in a live browser. Done
   2026-08-07 (v1.158.0). (`src/frontend/js-finance.js`,
   `test/finance-compensation-planner.test.js`)
@@ -2222,11 +2259,11 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   normally "None (flat)", which resolves to the BASE year's account budget — so a table whose whole
   purpose is a FY2027 district-formula proposal displayed FY2026 budget figures. New pure
   `finDistrictProposalCents(w)` runs the formula for the target year unconditionally, regardless of
-  active scenario; column labelled "FY2027 District Proposal", footer totals the proposals. The
+  active scenario; column labeled "FY2027 District Proposal", footer totals the proposals. The
   redundant "FY2026 Acct Actual" column is gone (the same figure already drives None above), and
   the three per-worker benefit toggles (SECA / Has Dependents / Health Plan) moved down to Total
   Compensation next to the costs they drive, so the calculator's inputs are formula inputs only.
-  (3) The scenario table is labelled **"Salary Options."** (4) New **"Concordia Plans Comparisons"**
+  (3) The scenario table is labeled **"Salary Options."** (4) New **"Concordia Plans Comparisons"**
   card from the three real Compensation Decision Support Tool reports run 2026-07-21 (Dinger —
   Pastor-Senior Administrative 20 yrs Masters; Knapp — Director of Parish Music 20 yrs; Thompson —
   Director of Christian Education 22 yrs), transcribed verbatim. Per-worker horizontal range chart
@@ -2647,7 +2684,7 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
   the Letters pane uses (new `letter_type` `nudge`), so a run is resumable and nobody is asked
   twice; printing records too, since printing is a send. **Figures are stated in the rhythm each
   giver actually gives in** — the user's own follow-up, and it mattered more than it sounds: the
-  analysis normalises everyone to a weekly-equivalent so a weekly regular and a single December
+  analysis normalizes everyone to a weekly-equivalent so a weekly regular and a single December
   stock gift are comparable, which is right for the analysis and wrong for the letter. New pure
   `classifyGivingCadence()`/`cadenceAmountCents()` + per-giver `cadence*` fields. **Three real bugs
   found by harnesses, not by reading**: (1) `computeGivingPlateaus()` never returned a flat `givers`

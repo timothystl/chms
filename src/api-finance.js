@@ -1910,7 +1910,7 @@ export function computeIncomeExpenseMonthlyTrend(curYearMonthlyRows, throughMont
 // The mapping is per income GROUP (a top-level child of the Income/Other Income classification,
 // e.g. "40 Offerings & Contributions"), keyed by that group's exact label, and is stored in
 // chms_config so an admin can correct it without a deploy — the classification of a church's own
-// chart of accounts is a judgement call this code cannot make for every church. The regex rules
+// chart of accounts is a judgment call this code cannot make for every church. The regex rules
 // below are only the DEFAULT applied to a group nobody has mapped yet; every group resolved that
 // way is also returned in `unmapped` so the Data & Imports tab can show what still needs a human
 // decision rather than silently asserting a guess.
@@ -2013,7 +2013,7 @@ export function computeRevenueStreams(entries, overrides) {
 // every one of these funds, so the parts came out larger than the whole they sat under.
 //
 // The rule is the ACCOUNT NUMBER, deliberately, not a name match or a per-fund flag: the
-// bookkeeper's numbering is the one place this judgement is already recorded, a new fund she adds
+// bookkeeper's numbering is the one place this judgment is already recorded, a new fund she adds
 // is classified correctly the day it appears, and nobody has to maintain a second list that can
 // drift out of agreement with hers. EQUITY_RECLASS_ACCOUNTS' hand-transcribed 25xxx codes all
 // satisfy this prefix, so the balance sheet and this page cannot disagree about what is
@@ -2086,7 +2086,7 @@ export function expenseGroupLabel(categoryPath, accountName) {
 //
 // `programs` is the fallback rather than a null bucket: an unmapped account still has to appear
 // somewhere or the outflow total stops matching total expenses, and a silently-dropped account is
-// far worse than a visibly-miscategorised one.
+// far worse than a visibly-miscategorized one.
 export const FLOW_EXPENSE_CATEGORIES = [
   { key: 'mdo', label: 'MDO', note: 'staffing & operations' },
   { key: 'salaries', label: 'Salaries & Benefits', note: 'church staff' },
@@ -2667,7 +2667,7 @@ async function readCashPolicy(db) {
       // falls back to a name match on "checking".
       cash_account_code: typeof v.cash_account_code === 'string' ? v.cash_account_code.trim() : '',
       // The ledger account family that carries the General Fund's budget ("40085"). Blank falls
-      // back to the leading code of the funds categorised as the General Fund, which is right
+      // back to the leading code of the funds categorized as the General Fund, which is right
       // whenever Giving and the ledger use the same code — this pins it when they don't.
       general_fund_budget_code: typeof v.general_fund_budget_code === 'string' ? v.general_fund_budget_code.trim() : '',
     };
@@ -3419,7 +3419,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     // lens and an admin sets it by hand, which made the donor card's restricted figure whatever
     // somebody had last ticked — reported live 2026-08-12 as $80,308 against a real restricted
     // income of roughly $8,000, because every pass-through fund was sitting in that category. The
-    // account number is the church's own recorded judgement and needs no second maintenance.
+    // account number is the church's own recorded judgment and needs no second maintenance.
     //
     // Balances come from the most recent balance sheet at or before this year, matching the cash
     // card's rule below: a designated fund's money is a liability, so its balance only ever
@@ -3477,7 +3477,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
 
     // Month-by-month giving from ChMS's own records, for the Health page's "giving against budget
     // pace" chart. Deliberately ChMS giving rather than the church ledger's monthly Income, which
-    // also carries MDO tuition and rentals — the chart is about the offering plate, and labelling
+    // also carries MDO tuition and rentals — the chart is about the offering plate, and labeling
     // a mixed figure "giving" would be the kind of near-enough number this page exists to avoid.
     //
     // Scoped to the GENERAL FUND family only (the 40085 group). The rest of what comes through the
@@ -3495,7 +3495,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
        WHERE ge.contribution_date BETWEEN ? AND ?
        GROUP BY m, ge.fund_id ORDER BY m`
     ).bind(`${year}-01-01`, `${year}-12-31`).all()).results || [];
-    // With no General Fund identifiable at all (no categorised fund, no fund named "General
+    // With no General Fund identifiable at all (no categorized fund, no fund named "General
     // Fund"), fall back to every fund rather than charting a flat $0 — and say so on the card,
     // since an all-funds line under a General-Fund heading would be the wrong number stated
     // confidently.

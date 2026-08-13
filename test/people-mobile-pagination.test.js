@@ -52,7 +52,7 @@ function ruleFor(css, selector) {
 }
 
 /**
- * Which declaration actually WINS for `prop` on `selector`, honouring source order.
+ * Which declaration actually WINS for `prop` on `selector`, honoring source order.
  *
  * This exists because the first version of this fix shipped broken and the tests still passed.
  * They asserted the override was *present in a media block* and that the base rule was

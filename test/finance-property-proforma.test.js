@@ -344,7 +344,7 @@ describe('capital allowance assumption', () => {
     expect(fin.finPropertyCapitalSourceNote(cap)).toContain('not a forward assumption');
   });
 
-  it('honours a flat figure, including a deliberate zero', () => {
+  it('honors a flat figure, including a deliberate zero', () => {
     const flat = fin.finComputePropertyCapitalAllowanceCents(
       withCapital({ method: 'flat', annual_allowance_cents: 300000 }));
     expect(flat.source).toBe('flat');
@@ -434,7 +434,7 @@ describe('capital allowance assumption', () => {
 // FIN52's rule, relearned the hard way: the container holding a live input must never be the
 // container a recompute rewrites. The capital editor was first shipped INSIDE the pro-forma body,
 // whose host element is rewritten wholesale on every keystroke — so the field accepted exactly one
-// character before being destroyed and recreated. These pin the structure and the behaviour.
+// character before being destroyed and recreated. These pin the structure and the behavior.
 describe('capital assumption editor does not eat keystrokes', () => {
   // Walks the div nesting for real. An earlier version of this test only checked that the capital
   // id appeared AFTER the pro-forma id in the string, which is equally true when it is nested

@@ -122,7 +122,7 @@ function bootCalls() {
     if (name === 'if') continue;
     all.push(name);
     // loadFunds is deliberately skipped for a member (funds are giving data — a guaranteed
-    // 403), so it is not required to be in the member bundle. Honour that guard rather than
+    // 403), so it is not required to be in the member bundle. Honor that guard rather than
     // demanding every boot call be present, which would block a legitimate future move.
     if (!(guard && /_userRole\s*!==\s*'member'/.test(guard))) memberReached.push(name);
   }
@@ -261,7 +261,7 @@ describe('the shell decides, because the cached assets cannot', () => {
     }
   });
 
-  it('fails safe on an unrecognised role', () => {
+  it('fails safe on an unrecognized role', () => {
     // Under-serving scripts to a real user breaks their app; over-serving to a member costs
     // bytes. An unknown role must land on the harmless side.
     for (const role of [null, undefined, '', 'future-role']) {

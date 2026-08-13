@@ -173,7 +173,7 @@ describe('finComputeRemittableForecast', () => {
     expect(fast.rows[0].operatingCents).toBeGreaterThan(slow.rows[0].operatingCents);
   });
 
-  it('honours an explicit capital allowance override', () => {
+  it('honors an explicit capital allowance override', () => {
     const o = fin.finComputeRemittableForecast(d, { years: 1, capitalAllowanceCents: 500000, now: '2026-08-07' });
     expect(o.rows[0].capitalCents).toBe(500000);
   });
@@ -312,7 +312,7 @@ describe('capital allowance defaults and date robustness', () => {
     expect(set.rows[0].capitalCents).toBe(250000);
   });
 
-  it('still honours an explicit allowance', () => {
+  it('still honors an explicit allowance', () => {
     expect(fin.finComputeRemittableForecast(d, { years: 1, capitalAllowanceCents: 1519626, now: '2026-08-07' }).rows[0].capitalCents).toBe(1519626);
   });
 

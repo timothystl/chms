@@ -269,7 +269,7 @@ describe('the date-precision control round-trips all three shapes', () => {
     });
   }
 
-  it('still honours the old paired checkbox where no precision select exists', () => {
+  it('still honors the old paired checkbox where no precision select exists', () => {
     const ctx = makeCtx();
     ctx.__el('d').value = '2000-04-11';
     ctx.__el('d-noyear').checked = true;
@@ -594,7 +594,7 @@ describe('creating a person inside a household', () => {
 describe('cold-start backfill: a date on file means yes', () => {
   // Requested directly: set baptized/confirmed to yes for anyone who already has a date.
   // The statements live in _doInitDb; they are run here against the real schema so the
-  // behaviour is pinned rather than assumed.
+  // behavior is pinned rather than assumed.
   function runBackfill(sqlite) {
     const src = readFileSync(new URL('../src/db.js', import.meta.url), 'utf8');
     const stmts = [...src.matchAll(/"(UPDATE people SET (?:baptized|confirmed)=1 WHERE[^"]+)"/g)].map(m => m[1]);

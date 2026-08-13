@@ -5,7 +5,7 @@ import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from '../src/html-chms.js';
 // Cover for part-time staff on the Compensation Planner: an FTE marker, and a "cash salary only"
 // flag for someone below Concordia's hours floor.
 //
-// Two things here are judgement calls worth pinning down, because getting either wrong is quietly
+// Two things here are judgment calls worth pinning down, because getting either wrong is quietly
 // expensive:
 //   1. Cash-only removes pension, disability and health — but NOT employer FICA, which is owed on
 //      any W-2 wage however few the hours. Dropping it would understate the real church cost.

@@ -88,7 +88,7 @@ describe('Giving sub-nav consolidation (markup)', () => {
   });
 });
 
-// ── Behaviour, run against the real served script ────────────────────────────
+// ── Behavior, run against the real served script ────────────────────────────
 function makeSandbox() {
   const els = new Map();
   const el = (id) => {
