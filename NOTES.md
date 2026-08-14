@@ -24,6 +24,44 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.178.0 — VOL-MOB1: the Volunteers tab clipped its own buttons on a phone (2026-08-14)
+
+Reported from an iPhone: the Volunteers tab "doesn't seem like it is rendering as native and more
+like it is in a window." **Reproduced before changing anything**, by driving the real built bundles
+in a browser at phone width and measuring `scrollWidth` vs `clientWidth` on every element in the
+tab — not by reading the CSS.
+
+**The "window" is the tab clipping itself.** A signup row laid its name block and its action
+cluster side by side in one flex row; the cluster is `flex-shrink:0`, so at phone width it pushed
+**~100px past the card**. `.vol-shell` is `overflow:hidden` — it has to be, to clip the navy
+sub-nav to the card's own radius — so that overflow was **clipped, not scrollable**: **Link /
+Email / Remove were invisible and unreachable**, with no scrollbar to hint they existed. The sliver
+of a cut-off button at the right edge of the report's screenshot is exactly this.
+
+**⚠ The fix could not be a media query.** The row's layout was an inline `style=`, and an inline
+style beats a media-query rule (VUX15/MOB1, twice before in this codebase). The declarations had to
+MOVE onto a class first — **carried over verbatim, so desktop computes identically** — and only
+then can the phone rule stack them. Same for the tab's wrapper padding.
+
+Also fixed, measured rather than guessed:
+- **The tab padded twice** — `.tab-panel`'s 24px plus an inner wrapper's 20px, i.e. **88px of a
+  390px phone** spent on margins, which is most of why the shell read as a floating window. Phone
+  now trims to 10px (`#tab-volunteers` — an id, so it beats `.tab-panel` with no `!important`).
+- **The sub-nav scrolled for the sake of 4px.** At 390px the four items overshot by *four pixels*,
+  so the strip scrolled and clipped "Signups" mid-word. Tightening padding/gap buys ~28px and it
+  now fits 390 outright. 360 and below still scroll — that is what `overflow-x` is for, and a test
+  pins that it stays.
+
+Verified by re-measuring all four sections (Signups / Ministry Roles / Events / Templates) at 500 /
+430 / 390 / 360 / 320: **every overflow is now 0** except the sub-nav below 390, which is
+deliberate. `npm test` (1346/1346, 9 new in `test/volunteers-mobile.test.js`); **every new test
+verified non-vacuous** by injecting the exact regression it guards (5 injections, 5 correct
+failures — one injection silently failed to apply on a quoting error and was redone before it
+counted). Plus `node --check` on all three bundles, `app.css` brace balance, and div balance on
+both shells and the `#tab-volunteers` subtree. **Not verified**: a real phone.
+(`src/frontend/html-head.js`, `src/frontend/html-tabs.js`, `src/frontend/js-volunteers.js`,
+`test/volunteers-mobile.test.js`)
+
 ### v1.177.0 — Connect logo: use the supplied artwork, not a redraw (2026-08-14)
 
 v1.176.0 shipped a **redrawn** mark, because the concept arrived as images in the conversation and

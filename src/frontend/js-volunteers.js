@@ -111,12 +111,12 @@ function volRenderSignupsList() {
           + Object.keys(VOL_STATUS_LABELS).map(function(st) { return '<option value="' + st + '"' + (st===status?' selected':'') + '>' + VOL_STATUS_LABELS[st] + '</option>'; }).join('')
           + '</select>';
         return '<div style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;">'
-          + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">'
-          + '<div><div style="font-weight:600;font-size:.92rem;">' + esc(s.name) + '</div>'
+          + '<div class="vol-sig-head">'
+          + '<div class="vol-sig-ident"><div style="font-weight:600;font-size:.92rem;">' + esc(s.name) + '</div>'
           + '<div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--sky-steel);">' + esc(s.ministry) + '</div>'
           + '<div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap;">' + personBadge + (contactBadge ? ' ' + contactBadge : '') + '</div>'
           + '</div>'
-          + '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">'
+          + '<div class="vol-sig-actions">'
           + statusSelect
           + '<span style="font-size:.75rem;color:var(--warm-gray);">' + esc((s.created_at||'').slice(0,10)) + '</span>'
           + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;" onclick="volOpenLinkPerson(' + s.id + ',' + volJsAttr(esc(s.name)) + ',' + volJsAttr(esc(s.email)) + ',' + (s.person_id||'null') + ',' + volJsAttr(esc(s.linked_person_name||'')) + ')" title="Link to person record">'
@@ -387,7 +387,7 @@ function volRenderTemplates() {
   }
   listEl.innerHTML = _volTemplates.map(function(t) {
     var ministryLabel = t.ministry ? ' <span style="font-size:.72rem;color:var(--sky-steel);text-transform:uppercase;letter-spacing:.05em;">(' + esc(VOL_MINISTRY_LABELS[t.ministry]||t.ministry) + ')</span>' : '';
-    return '<div style="background:var(--white);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">'
+    return '<div class="vol-tpl-row">'
       + '<div style="min-width:0;">'
       + '<div style="font-weight:600;font-size:.88rem;">' + esc(t.name) + ministryLabel + '</div>'
       + '<div style="font-size:.8rem;color:#6A6880;margin-top:2px;">' + esc(t.subject) + '</div>'

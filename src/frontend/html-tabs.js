@@ -1104,7 +1104,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
 <!-- ═══ VOLUNTEERS TAB ═══ -->
 <div id="tab-volunteers" class="tab-panel">
-  <div style="padding:16px 20px;max-width:1100px;">
+  <div class="vol-tab-wrap">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
       <h2 style="font-size:1.1rem;font-weight:700;color:var(--charcoal);">Volunteers</h2>
     </div>

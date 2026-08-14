@@ -470,6 +470,23 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### VOL-MOB1 — Volunteers tab clipped its own buttons on a phone (2026-08-14, DONE)
+Reported as "not rendering as native, more like it is in a window." **Reproduced by measuring the
+real built app in a browser at phone width, not by reading CSS.**
+- **Cause: the tab clips itself.** A signup row's action cluster is `flex-shrink:0` and shared a
+  flex row with the name block, so it ran ~100px past the card — and `.vol-shell` is
+  `overflow:hidden` (needed to clip the navy sub-nav to the card radius), so **Link / Email /
+  Remove were clipped and unreachable**, with no scrollbar to reveal them.
+- **⚠ A media query could not fix it** — the layout was an inline `style=`, which beats any
+  stylesheet rule (VUX15/MOB1, now the third time). The declarations had to MOVE onto a class,
+  copied verbatim so desktop is unchanged, before the phone rule could stack them.
+- **The tab padded twice** (`.tab-panel` 24px + an inner wrapper 20px = 88px of a 390px phone).
+  Phone trims via `#tab-volunteers` — an id beats `.tab-panel`, so no `!important`.
+- **The sub-nav scrolled over 4px** at 390px, clipping "Signups" mid-word; tightened padding/gap
+  buys ~28px so 390 fits. Below 360 it still scrolls, deliberately, and a test pins that.
+- Verified all four sections at 500/430/390/360/320 — every overflow 0 but the intended one.
+  **Not verified**: a real phone.
+
 ### BRAND2 — Connect logo: the supplied artwork is now the asset (2026-08-14, DONE)
 BRAND1 below shipped a **redraw**; the user's reply was "Can you not use the file I gave you? What
 you recreated is not the same." They were right, and the premise was wrong too:
