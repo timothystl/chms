@@ -470,6 +470,35 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### FIN66 — Compensation "vs FY{base}" compared two different questions (2026-08-14, DONE)
+Reported: "No raise applied to all 7 workers" printed beside **+$111,624 (+34.0%)**. No raise
+cannot cost a third more. The reporter's own guess was right, and there were **two** errors, both
+pulling the same way:
+- **Scope.** FY{target} = salary + pension + disability + health + employer FICA; the FY{base}
+  match found only `/salar|payroll|compensation|wages/` + `/health|medical|dental|vision|
+  disability/`. **Pension and payroll taxes were charged on the plan side and never looked for on
+  the base side.**
+- **Period.** `totalActualCents` for an in-progress base year is YEAR-TO-DATE against a full-year
+  plan — in August, eight months vs twelve.
+- Both fixed in `finCompBaselineDetail()`: match gains pension/retirement/FICA/social security;
+  each account resolves to its own full-year **budget**, else its actual **annualized** by the same
+  52/weeks the Planning tab uses. **⚠ Deliberately NOT `/concordia/`** — "Concordia Children's
+  Services" is benevolence, not staff cost; still not a bare `/insurance|benefit/` (52040 Insurance
+  is property cover); income accounts excluded by classification so "40085 Retirement Distribution"
+  cannot enter through the new `retirement` term.
+- **The card prints its own working now** — accounts counted, each one's basis, what the plan side
+  holds, and the two things it cannot see (an account named some other way; a base year covering
+  whoever was on the payroll then). FIN63's lesson. Same block on the Council report; the motion no
+  longer calls an annualized figure "actual spending".
+- **New `scalepct` method — "X% of Scale"**, beside District Scale: the same figure at a chosen
+  fraction, for a congregation stepping toward scale rather than raising off current pay. Own %
+  box, persisted (`compScalePct`). **Returns null, not 0**, with no district figure — a zero would
+  propose cutting someone to nothing. Add-row colspan now derived from `FIN_COMP_METHODS.length`.
+- `npm test` (1337/1337, 20 new); **every new test verified non-vacuous** (6 injections) — one
+  injection's `perl` escaping silently failed and reported a pass, redone in Python before it
+  counted. **Not verified**: a live browser, or the +34% itself (needs the real ledger).
+  (`src/frontend/js-finance.js`, `src/frontend/html-head.js`, `test/finance-comp-baseline.test.js`)
+
 ### FIN65 — Budget tree reads like QuickBooks; Unapplied Cash hidden (2026-08-14, DONE)
 Three reports off the Planning tab.
 - **Totals moved under their accounts.** QuickBooks prints a group's figures beneath its lines as

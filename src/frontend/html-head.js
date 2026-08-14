@@ -1031,6 +1031,9 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-comp-add{display:inline-flex;align-items:center;gap:7px;font-size:.8rem;font-weight:700;color:var(--color-teal);cursor:pointer;}
 .fin-comp-add-plus{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--color-teal);display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;}
 .fin-comp-cardfoot{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;}
+.fin-comp-basis{margin-top:14px;padding:11px 13px;border-radius:10px;background:var(--warm-surface-page);border:1px solid var(--warm-border);font-size:.75rem;line-height:1.55;color:var(--warm-ink-label);}
+.fin-comp-basis-list{margin:7px 0;padding-left:18px;}
+.fin-comp-basis-list li{margin:1px 0;}
 .fin-comp-cardhd{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
 .fin-comp-drawer{padding:18px 20px;display:flex;flex-direction:column;gap:12px;}
 .fin-comp-drawer-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
