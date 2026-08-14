@@ -11,6 +11,24 @@ const STUDENT_FIELDS = [
   'note', 'active', 'sort_order',
 ];
 
+// `attends_lhs` on CREATE only: absent means "yes" (that is the column's default — it reads
+// "still planning to attend LHS once they get there," true for a new student until someone says
+// otherwise). Anything actually supplied is read for its truthiness. It must NOT be a bare
+// `x === false` test: the frontend sends this field as 1/0, not true/false, and `0 === false` is
+// false in JS — which silently turned every "no" into a "yes". See tapAttendsLhsFlag below for
+// the update paths, where an absent field is never written at all so no default is needed.
+export function tapAttendsLhsDefaultTrue(v) {
+  return (v === undefined || v === null) ? 1 : (v ? 1 : 0);
+}
+// `attends_lhs` on UPDATE (PATCH / bulk): the field is only bound when it is explicitly present,
+// so there is no default to preserve — every falsy form means "no". The string forms are spelled
+// out because this is a boolean arriving over JSON, where '0'/'false' are both truthy strings and
+// would otherwise store the opposite of what the caller said.
+export function tapAttendsLhsFlag(v) {
+  if (v === '0' || v === 'false') return 0;
+  return v ? 1 : 0;
+}
+
 async function fillFromPerson(db, b) {
   if (!b.person_id) return b;
   const p = await db.prepare('SELECT id, first_name, last_name, household_id FROM people WHERE id=?').bind(b.person_id).first();
@@ -64,7 +82,7 @@ export async function handleTuitionAidApi(req, env, url, method, seg, db, isFina
       b.person_id || null, b.household_id || null, b.family || '', b.child || '',
       b.is_pipeline ? 1 : 0, b.base_grade || '', b.birth_year || null,
       b.outside_aid_cents || 0, famPct, famPct, lhsAward, lhsAward,
-      b.attends_lhs === false ? 0 : 1, b.note || '', b.active === false ? 0 : 1, (maxSort?.m ?? -1) + 1
+      tapAttendsLhsDefaultTrue(b.attends_lhs), b.note || '', b.active === false ? 0 : 1, (maxSort?.m ?? -1) + 1
     ).run();
     return json({ ok: true, id: r.meta?.last_row_id });
   }
@@ -84,7 +102,7 @@ export async function handleTuitionAidApi(req, env, url, method, seg, db, isFina
         if (Object.prototype.hasOwnProperty.call(u, f)) {
           sets.push(`${f}=?`);
           binds.push(f === 'is_pipeline' || f === 'touched' || f === 'active' ? (u[f] ? 1 : 0)
-            : f === 'attends_lhs' ? (u[f] === false ? 0 : 1)
+            : f === 'attends_lhs' ? tapAttendsLhsFlag(u[f])
             : u[f]);
         }
       }
@@ -112,7 +130,7 @@ export async function handleTuitionAidApi(req, env, url, method, seg, db, isFina
         if (Object.prototype.hasOwnProperty.call(b, f)) {
           sets.push(`${f}=?`);
           binds.push(f === 'is_pipeline' || f === 'touched' || f === 'active' ? (b[f] ? 1 : 0)
-            : f === 'attends_lhs' ? (b[f] === false ? 0 : 1)
+            : f === 'attends_lhs' ? tapAttendsLhsFlag(b[f])
             : b[f]);
         }
       }

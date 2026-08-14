@@ -668,8 +668,9 @@ function tapRenderPlannerTables() {
       + '<td style="padding:6px 8px;text-align:right;">' + fmtMoney(Math.round(tuition * 100)) + '</td>'
       + '<td style="padding:6px 8px;text-align:right;"><input type="number" min="0" step="1" value="' + Math.round(outsideAidVal) + '" style="width:80px;text-align:right;" onchange="tapOutsideAidChange(this,' + s.id + ')"></td>'
       + '<td style="padding:6px 8px;">'
+        // Family Share % is a typed figure, no drag slider — the numbers here are decided, not
+        // dialed in, and a slider next to a number box is two controls for one value.
         + '<div class="tap-slider-row">'
-          + '<input type="range" min="0" max="100" step="1" value="' + famPctVal + '" oninput="tapSliderChange(this,' + s.id + ')">'
           + '<input type="number" min="0" max="100" step="1" value="' + famPctVal + '" oninput="tapSliderChange(this,' + s.id + ')">%'
         + '</div>'
         + '<div class="tap-slider-caption">Family share of $' + Math.round(tuition).toLocaleString() + ' bill</div>'
@@ -818,10 +819,10 @@ function tapSliderChange(el, id) {
   var s = tapById(id);
   if (!s) return;
   var v = Math.min(100, Math.max(0, Math.round(+el.value || 0)));
-  var pairRow = el.closest('.tap-slider-row') || el.closest('tr');
-  var ranges = pairRow.querySelectorAll('input[type=range]'), nums = pairRow.querySelectorAll('input[type=number]');
-  if (ranges[0]) ranges[0].value = v;
-  if (nums[0]) nums[0].value = v;
+  // Deliberately does NOT write the clamped value back into the box being typed in: rewriting a
+  // focused input's own value mid-keystroke is the controlled-input round-trip that made the
+  // Finance boxes type backward (FIN52). The state below is set from the clamped figure either
+  // way, so an out-of-range entry still cannot be saved.
   var hadOverride = s.timothyAwardOverride != null;
   if (_tapYearIdx === 0) {
     s.famPct = v; s.touched = true;
@@ -965,7 +966,10 @@ function tapUpdateGauges() {
   var k8Over = k8Total > k8Budget;
   k8Fill.style.width = Math.min(100, k8Budget ? (k8Total / k8Budget) * 100 : 0) + '%';
   k8Fill.classList.toggle('over', k8Over);
-  document.querySelectorAll('#tap-k8-body input[type=range]').forEach(function(sl) { sl.classList.toggle('over', k8Over); });
+  // The K-8 rows have no range input any more, so the over-budget red rides the Family Share %
+  // number box instead — dropping the selector rather than repointing it would have silently
+  // removed the per-row over-budget signal along with the slider.
+  document.querySelectorAll('#tap-k8-body .tap-slider-row input[type=number]').forEach(function(sl) { sl.classList.toggle('over', k8Over); });
   k8Text.textContent = fmtMoney(Math.round(k8Total * 100)) + (k8Over ? '  (over by ' + fmtMoney(Math.round((k8Total - k8Budget) * 100)) + ')' : ' of ' + fmtMoney(Math.round(k8Budget * 100)));
   k8Text.classList.toggle('tap-over-text', k8Over);
   document.getElementById('tap-k8-gauge-cap').textContent = hasTotalBudget

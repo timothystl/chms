@@ -24,6 +24,47 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.173.0 — Tuition Aid: "Plans to attend LHS" saves; the % slider is gone (2026-08-14)
+
+Reported together: unchecking **Plans to attend LHS** on the Tuition Aid planner doesn't save, and
+the Family Share % slider should go.
+
+**The checkbox.** Every `attends_lhs` write bound `v === false ? 0 : 1` — an identity test against
+the boolean `false`. The frontend sends the field as **1/0**, not true/false (`tapSetAttendsLHS`:
+`attends_lhs: checked ? 1 : 0`), and `0 === false` is **false** in JavaScript, so an explicit "no"
+fell to the `: 1` branch and stored a yes. The write could only ever be a no-op, never a
+wrong-direction save — which is exactly why the symptom reads as "the checkbox does nothing": the
+row already held 1 and 1 is what went back. It looked fine until a reload because the local UI
+state is set by the caller before the save. Present on all three write paths (`POST`, `PATCH`,
+bulk) since the planner shipped.
+
+Fixed with two named helpers rather than another inline ternary, because the two cases genuinely
+differ: `tapAttendsLhsFlag` (update paths — the field is only bound when explicitly present, so
+every falsy form means no) and `tapAttendsLhsDefaultTrue` (create only — absent means yes, the
+column's default, but an explicit 0 is still honored). `'0'`/`'false'` are spelled out: this is a
+boolean arriving over JSON, where both are truthy strings and a bare truthiness test would store
+the opposite of what the caller said.
+
+**Beyond a checkbox**: `attendsLHS` is what marks a departing 8th grader as *Departed* instead of
+rolling them into next year's LHS awards, so a stuck 1 is a budget figure.
+
+**The slider.** The K-8 Family Share % cell had a drag slider and a number box for one value; the
+range input is gone and the typed % stays. Two things moved with it rather than being dropped
+silently: the over-budget red rode `input[type=range].over`, so it now rides the number box (new
+`.tap-slider-row input[type=number].over` rule), and `tapSliderChange` no longer writes the
+clamped value back into the box being typed in — with no second control left to mirror there is
+nothing legitimate left to write, and rewriting a focused input's own value mid-keystroke is the
+controlled-input round-trip that made the Finance boxes type backward (FIN52). The LHS award
+slider is dollars, was not the ask, and is untouched.
+
+`npm test` (1300/1300, 15 new in `test/tuition-attends-lhs.test.js` — the pure helpers plus the
+real PATCH/bulk/GET routes against real in-memory SQLite). **Every new test verified non-vacuous**
+by injecting the exact regression it guards: restoring `v === false ? 0 : 1` fails 7 and
+reproduces the report, and the three frontend injections each fail their own one test. Plus
+`node --check` on the backend and all three built bundles, and a brace-balance check on the served
+`app.css`. **Not verified**: a live browser or real D1. (`src/api-tuition-aid.js`,
+`src/frontend/js-tuition-aid.js`, `src/frontend/html-head.js`, `test/tuition-attends-lhs.test.js`)
+
 ### v1.172.1 — American English everywhere a human reads (2026-08-13)
 
 House rule, now written down at the top of `CLAUDE.md` rather than assumed: **screen labels,
