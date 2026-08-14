@@ -470,6 +470,34 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### BRAND1 — Connect logo: "Four Paths Together" mark applied (2026-08-14, DONE)
+Two concepts were presented; Option 3 ("Four Paths Together") was chosen and replaces the
+three-circle mark from BR2. **Redrawn from a flat presentation image, not traced from vector art**,
+so two decisions were made rather than copied:
+- **⚠ The arms are mirror-symmetric on purpose.** Four identically-bent arms rotating about a
+  center is a pinwheel — the swastika silhouette — which is unacceptable on a church logo and is
+  exactly what the first draft rendered as. The shipped mark is a **bracket frame + inner cross**,
+  fully four-fold mirror symmetric; each value still owns one bracket and one arm, so the
+  four-paths story survives. **Do not "restore" the rotated arms.**
+- **Two center glyphs**: a church at 40px+ (`icons/connect-mark.svg`) and a **Latin** cross at
+  16/32px (`icons/connect-mark-simple.svg`) — the church is illegible small, and a Greek cross in
+  a white circle reads as a medical mark.
+- **New `--val-welcome`/`--val-receive`/`--val-grow`/`--val-go` tokens are the LOGO's colors, not
+  the UI's.** They are brighter than `--color-teal`/`--color-gold`. Pointing the UI palette at them
+  moves every chart, chip and status color — that is RD1/PAL2, not a logo swap.
+- **⚠ Icons are proxied from GitHub `main`** (`/icons/*`, `/favicon.svg`), so they do not change on
+  a branch deploy, and `max-age=86400` means a warm cache or installed PWA can show the old icon
+  for a day after merge.
+- **Icon PNGs are generated, and Chromium is not a rasterizer.** Below ~64px `--screenshot` emits
+  corrupt output, and at any size it loses ~87px of viewport to browser chrome (a 1024×1024 request
+  renders 1024×937, bottom cut) — both found by checking pixel alpha, not by looking. All sizes now
+  come from one 1024px render, cropped, then area-downsampled by a small pure-Python PNG codec.
+- Login page gains the concept's full lockup (mark · CONNECT · rule · church name · tagline) using
+  fonts already loaded, so no new font request (AU2). `npm test` (1337/1337, unchanged — markup and
+  assets only). **Not verified**: a real browser with fonts loaded, a phone home screen, or an
+  installed PWA. (`icons/*`, `favicon.svg`, `src/frontend/html-head.js`, `src/html-templates.js`,
+  `tlc-volunteer-worker.js`)
+
 ### FIN66 — Compensation "vs FY{base}" compared two different questions (2026-08-14, DONE)
 Reported: "No raise applied to all 7 workers" printed beside **+$111,624 (+34.0%)**. No raise
 cannot cost a third more. The reporter's own guess was right, and there were **two** errors, both

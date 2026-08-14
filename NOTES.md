@@ -24,6 +24,67 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.176.0 — Connect logo applied: the "Four Paths Together" mark (2026-08-14)
+
+Two logo concepts were presented (Option 3 "Four Paths Together", Option 2 "Four Corners Frame");
+Option 3 was chosen and is now the app's mark, replacing the three-circle mark that shipped with
+the TLC Gather rebrand (BR2) and survived the rename to Connect.
+
+**The mark is redrawn, not traced.** No vector source came with the concept — only a flat
+presentation image — so the geometry here is an interpretation built from the concept's own
+description ("four distinct paths converge toward the cross and church"), and two things were
+decided rather than copied:
+
+- **⚠ The arms are mirror-symmetric, deliberately.** The first construction gave each color one
+  bent arm rotated 90° from the last. That is a pinwheel, and four identically-bent arms around a
+  center is the swastika silhouette — on a church logo, at favicon size, where nobody reads the
+  colors. It was rejected on sight of the render. The shipped mark is a **square bracket frame plus
+  an inner cross**: four corner brackets and four inward arms, a silhouette with full four-fold
+  mirror symmetry. Each value still owns one bracket and one arm, so the four-paths story and the
+  color assignment are unchanged — only the *shape* is symmetric. **Do not "restore" the rotated
+  version.**
+- **Two glyphs, not one.** The concept's center is a church building with a steeple cross. That
+  detail is gone by ~32px, so the center is a **church at 40px and up** (`connect-mark.svg`) and a
+  **Latin cross at 16/32px** (`connect-mark-simple.svg`). The cross is Latin, not Greek — a
+  symmetric plus in a white circle reads as a medical mark, which is what the first draft looked
+  like.
+
+**Colors are the logo's, and they are not the UI's.** New `--val-welcome` / `--val-receive` /
+`--val-grow` / `--val-go` tokens (`#4DAA6B` / `#1D63B3` / `#21A9B3` / `#F5B731`) sit beside the
+existing brand tokens. They are brighter than `--color-teal`/`--color-gold` and are **for the mark
+only** — repointing the UI palette at them would move every chart, chip and status color in the
+app, which is RD1/PAL2's job, not a logo swap's. The comment in `:root` says so.
+
+**Where it lands**: sidebar mark (inline SVG, now `var(--val-*)` rather than hardcoded hex, per
+PAL5); login page, which gains the full lockup from the concept — mark, `CONNECT` letterspaced,
+rule, church name, and the "From our Neighborhood to the Nations" tagline. The lockup uses **DM
+Sans 600 and Cormorant Garamond italic, both already loaded**, so it adds no font request (AU2).
+The `.s-logo` navy tile is gone — the sidebar is already navy, so the tile was invisible and only
+cost the mark 2px.
+
+**The icon PNGs were regenerated, and the generator is worth knowing about.** There is no Pillow
+here, and Chromium's `--screenshot` is not a reliable rasterizer: below ~64px it emits corrupt
+output, and at every size it silently loses ~87px of viewport height to browser chrome, so a
+`--window-size=1024,1024` render is really 1024×937 with the bottom cut off. Both were caught by
+checking pixel alpha, not by looking. Every size is now derived from **one 1024px render, cropped,
+then area-downsampled** by a small pure-Python PNG codec (`zlib` only, alpha-premultiplied so
+transparent edges can't bleed).
+
+`npm test` (1337/1337, unchanged — this is markup and assets, no logic). Plus `node --check` on all
+three bundles and the worker, `app.css` brace balance, div/svg balance on the admin shell, the
+member shell and the login page, and a check that the icon route regex serves all five new SVGs and
+no longer serves the retired one. **Verified visually by rendering the real built login page, the
+real app shell with the sidebar open, and the full icon family** — screenshots reviewed at 1:1 and
+zoomed. **Not verified**: a real browser with the Google Fonts request satisfied (the headless
+render falls back to system fonts, so the shipped `CONNECT` will be DM Sans 600 rather than what
+the screenshot showed), a real phone home screen, or an installed PWA.
+
+**⚠ The icons will not change until this merges.** `/icons/*` and `/favicon.svg` are proxied from
+`raw.githubusercontent.com/.../main`, not bundled, so a branch deploy still serves the old mark.
+They also carry `max-age=86400`, so an already-installed PWA or a warm browser cache can show the
+old icon for up to a day after merge. (`icons/*`, `favicon.svg`, `src/frontend/html-head.js`,
+`src/html-templates.js`, `tlc-volunteer-worker.js`)
+
 ### v1.175.0 — Compensation: the "vs FY{base}" comparison, and a % of scale method (2026-08-14)
 
 Reported from the Compensation strip: **"No raise applied to all 7 workers"** printed next to

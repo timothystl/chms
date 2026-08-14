@@ -1,6 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Connect">
-  <rect width="512" height="512" rx="112" fill="#16294A"/>
-  <g transform="translate(256 256) scale(0.86) translate(-256 -256)">
   <g fill="none" stroke-width="54" stroke-linecap="round" stroke-linejoin="round">
     <path d="M92 200 L92 92 L200 92 M92 256 L170 256" stroke="#4DAA6B"/>
     <path d="M312 92 L420 92 L420 200 M256 92 L256 170" stroke="#1D63B3"/>
@@ -8,9 +6,8 @@
     <path d="M200 420 L92 420 L92 312 M256 420 L256 342" stroke="#F5B731"/>
   </g>
   <circle cx="256" cy="256" r="95" fill="#FFFFFF"/>
-  <g fill="#16294A">
+  <g fill="#1E2D4A">
     <rect x="238" y="178" width="36" height="158" rx="4"/>
     <rect x="196" y="214" width="120" height="36" rx="4"/>
-  </g>
   </g>
 </svg>
