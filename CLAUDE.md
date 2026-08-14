@@ -470,6 +470,24 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### BRAND2 — Connect logo: the supplied artwork is now the asset (2026-08-14, DONE)
+BRAND1 below shipped a **redraw**; the user's reply was "Can you not use the file I gave you? What
+you recreated is not the same." They were right, and the premise was wrong too:
+- **⚠ Conversation image attachments ARE on disk** — Claude Code stores them as base64 image blocks
+  in `~/.claude/projects/<project>/<session>.jsonl`. Decode with `json` + `base64`. **Never conclude
+  a user-supplied file is unavailable without checking there first.**
+- **The real mark is a compass/crosshair**, not the bracket frame BRAND1 drew: a white centre disc,
+  four quadrant arcs, and four radial axis arms **split down the axis** so each half belongs to a
+  different quadrant color. **The pinwheel/swastika concern recorded in BRAND1 was an artifact of my
+  own construction and does not apply to the real artwork.**
+- Extraction: locate by color saturation, flood-fill the white background from the border, then
+  **restore the mark's own white centre disc** (the axis gaps let the flood leak inward) using the
+  ring's measured inner radius.
+- **⚠ The artwork contradicts its own legend**: both right quadrants are `#1860A8`, so GROW's teal
+  `#3BA9B2` appears nowhere. Shipped verbatim, not silently recolored — fix belongs in the source.
+- **⚠ Resolution ceiling: 240px is the largest instance in the sheet.** 512 is an upscale; 16/32px
+  is a smudge. Ask the designer for vector (SVG/AI/PDF/EPS) before improving this in code.
+
 ### BRAND1 — Connect logo: "Four Paths Together" mark applied (2026-08-14, DONE)
 Two concepts were presented; Option 3 ("Four Paths Together") was chosen and replaces the
 three-circle mark from BR2. **Redrawn from a flat presentation image, not traced from vector art**,

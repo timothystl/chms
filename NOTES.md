@@ -24,6 +24,46 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.177.0 — Connect logo: use the supplied artwork, not a redraw (2026-08-14)
+
+v1.176.0 shipped a **redrawn** mark, because the concept arrived as images in the conversation and
+I concluded no file existed to work from. That was wrong twice over: the drawing did not match, and
+**the uploads were on disk the whole time** — Claude Code stores conversation attachments as base64
+image blocks in the session transcript (`~/.claude/projects/<project>/<session>.jsonl`), decodable
+with `json` + `base64`. **Check there before ever concluding a supplied file is unavailable.**
+
+**The real mark is nothing like the redraw.** It is a **compass/crosshair**: a white centre disc
+ringed by four quadrant arcs, with four radial arms on the axes — and each arm is **split down its
+axis**, half belonging to each neighbouring quadrant, so the four colored pieces each read as
+half-arm → arc → half-arm. The v1.176.0 drawing was a square bracket frame. Not close.
+
+**⚠ The v1.176.0 pinwheel/swastika concern does not apply to the real artwork and was an artifact of
+my own construction.** The genuine mark's silhouette is a symmetric ring-and-cross. Nothing to fix.
+
+**What ships now is their pixels.** The hero mark was located in the sheet by scanning for saturated
+color (x 300–539, y 59–297, a 240×240 crop), the white background removed by flood fill from the
+border, and — because the axis gaps let that flood leak into the middle — **the mark's own white
+centre disc restored** by measuring the ring's inner radius (61px, from 360 radial rays taking the
+first strongly-saturated hit; 241 of them agree). Icons are composited in a browser over the navy
+tile and downsampled by the same pure-Python PNG codec as v1.176.0.
+
+**⚠ Two limits of the source, both worth fixing upstream rather than in code:**
+- **The artwork contradicts its own palette.** Sampled from the ring: top-right and bottom-right are
+  **both `#1860A8`**, so RECEIVE's blue is used twice and **GROW's teal `#3BA9B2` appears nowhere in
+  the mark**. The legend declares four colors. Shipped verbatim rather than silently recolored — the
+  fix belongs in the source file. The `--val-*` tokens now carry the sheet's declared palette and
+  say so.
+- **Resolution ceiling: the largest instance of the mark anywhere in the sheet is 240px.** The
+  512 icon is a ~1.5× upscale of a WebP-compressed raster, and at 16/32px the detailed church is a
+  smudge — v1.176.0's simplified Latin cross was genuinely more legible there, but substituting it
+  would be redrawing again. **A vector (SVG/AI/PDF/EPS) from the designer fixes both.**
+
+`npm test` (1337/1337, unchanged). `node --check` on all three bundles and the worker, `app.css`
+brace balance, div/svg balance on both shells and the login page, icon route regex re-checked.
+Verified visually against the real built login page and app shell. **Not verified**: a real browser
+with fonts loaded, a phone home screen, or an installed PWA. (`icons/*`, `favicon.svg`,
+`src/frontend/html-head.js`, `src/html-templates.js`, `tlc-volunteer-worker.js`)
+
 ### v1.176.0 — Connect logo applied: the "Four Paths Together" mark (2026-08-14)
 
 Two logo concepts were presented (Option 3 "Four Paths Together", Option 2 "Four Corners Frame");

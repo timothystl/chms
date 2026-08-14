@@ -59,14 +59,17 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
   /* ── Connect brand tokens ── */
   --color-navy:#1E2D4A;--color-teal:#2E7EA6;--color-gold:#C9973A;
   --color-cream:#F8F4EE;--color-light-teal:#EAF4FA;
-  /* ── Connect logo: the four values ("Four Paths Together" mark, 2026-08-14) ──
-     These are the LOGO's own colors and are deliberately brighter than the
-     --color-teal/--color-gold UI tokens above. They are for the mark and any
-     future value-labeled surface ONLY — do not swap the UI palette to them
-     without a real design pass (RD1/PAL2), or every chart, chip and status
-     color in the app shifts with it. ── */
-  --val-welcome:#4DAA6B;--val-receive:#1D63B3;--val-grow:#21A9B3;--val-go:#F5B731;
-  --logo-navy:#16294A;
+  /* ── Connect brand: the four values, as declared by the logo sheet's own
+     palette row. The mark itself is artwork (icons/connect-mark.png), not CSS,
+     so nothing here draws it — these exist for value-labeled UI later, and to
+     record the declared colors in one place.
+     ⚠ The supplied artwork does NOT match this palette: both right-hand
+     quadrants of the mark are #1860A8, so RECEIVE's blue appears twice and
+     GROW's teal appears nowhere. Fix belongs in the source file, not here.
+     ⚠ Also NOT the UI palette — these are brighter than --color-teal/--color-gold.
+     Repointing the UI at them moves every chart, chip and status color in the
+     app; that is RD1/PAL2's job. ── */
+  --val-welcome:#5B994D;--val-receive:#1761AD;--val-grow:#3BA9B2;--val-go:#F0A413;
   /* Legacy tokens (aliased to brand palette so older rules pick up the new look without renames) */
   --steel-anchor:#1E2D4A;--deep-steel:#2A3F60;--mid-steel:#3D627C;--sky-steel:#5C8FA8;
   --ice-blue:#C4DDE8;--blue-mist:#EAF4FA;--amber:#C9973A;--deep-amber:#A87B23;
@@ -136,7 +139,7 @@ a.s-item{text-decoration:none;color:inherit;}
    was invisible and only cost the mark 2px of room. The mark carries its own
    white center circle, which is what separates it from the navy. */
 .s-logo{width:40px;height:40px;display:flex;align-items:center;justify-content:center;margin-bottom:10px;flex-shrink:0;cursor:pointer;align-self:center;}
-.s-logo svg{width:40px;height:40px;display:block;}
+.s-logo img{width:40px;height:40px;display:block;}
 .s-item{width:100%;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:flex-start;padding:0 8px 0 14px;gap:10px;cursor:pointer;position:relative;flex-shrink:0;transition:background .12s;overflow:hidden;white-space:nowrap;}
 .s-item:hover{background:rgba(255,255,255,.08);}
 .s-item.active{background:rgba(46,126,166,.22);box-shadow:inset 3px 0 0 var(--color-teal);}
@@ -1827,7 +1830,7 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 <div id="error-boundary" role="alert" aria-live="assertive" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;background:#c0392b;color:var(--white);padding:11px 20px;border-radius:9px;font-size:.85rem;max-width:520px;width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.3);"></div>
 <div class="app-shell">
 <nav class="sidebar" id="sidebar">
-  <div class="s-logo" onclick="showTab('home')" title="Home"><svg viewBox="0 0 512 512" role="img" aria-label="Connect"><g fill="none" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"><path d="M92 200 L92 92 L200 92 M92 256 L170 256" stroke="var(--val-welcome)"/><path d="M312 92 L420 92 L420 200 M256 92 L256 170" stroke="var(--val-receive)"/><path d="M420 312 L420 420 L312 420 M420 256 L342 256" stroke="var(--val-grow)"/><path d="M200 420 L92 420 L92 312 M256 420 L256 342" stroke="var(--val-go)"/></g><circle cx="256" cy="256" r="95" fill="var(--white)"/><g fill="var(--color-navy)"><rect x="238" y="178" width="36" height="158" rx="4"/><rect x="196" y="214" width="120" height="36" rx="4"/></g></svg></div>
+  <div class="s-logo" onclick="showTab('home')" title="Home"><img src="/icons/connect-mark.png" alt="Connect" width="40" height="40"></div>
   <div class="s-item active no-member" data-tab="home" onclick="showTab('home')"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg><span class="s-tip">Home</span></div>
   <div class="s-section-hdr">People</div>
   <div class="s-item" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
