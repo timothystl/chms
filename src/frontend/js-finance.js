@@ -6426,6 +6426,7 @@ function finLoadSalaryPlannerData() {
       if (saved.compPerWorkerMethod && typeof saved.compPerWorkerMethod === 'object') _finCompPerWorkerMethod = saved.compPerWorkerMethod;
       if (saved.compOverrides && typeof saved.compOverrides === 'object') _finCompOverrides = saved.compOverrides;
       if (saved.compCustomPct != null) _finCompCustomPct = saved.compCustomPct;
+      if (saved.compScalePct != null) _finCompScalePct = saved.compScalePct;
       finCompMigrateSavedShape(saved);
     } else if (!_finSalaryRoster.length) {
       _finSalaryRoster = JSON.parse(JSON.stringify(SALARY_STAFF_SEED));
@@ -6467,7 +6468,7 @@ function finSalaryBuildSaveBody() {
     roster: _finSalaryRoster, targetCategory: _finSalaryTargetCategory,
     healthPlanOption: _finHealthPlanSelectedOption,
     compMethod: _finCompMethod, compPerWorkerMethod: _finCompPerWorkerMethod,
-    compOverrides: _finCompOverrides, compCustomPct: _finCompCustomPct,
+    compOverrides: _finCompOverrides, compCustomPct: _finCompCustomPct, compScalePct: _finCompScalePct,
     referenceByYear: _finSalaryReferenceByYear, healthPlanPremiumOverrides: _finHealthPlanPremiumOverrides,
     healthFamilySize: _finHealthFamilySize
   };
@@ -7552,12 +7553,16 @@ var FIN_COMP_VIEWS = [
   { key: 'rates', label: 'This year&#39;s rates' },
   { key: 'council', label: 'Council summary' }
 ];
-var FIN_COMP_METHODS = ['none', 'worksheet', 'cola', 'custom'];
+// 'scalepct' sits next to 'worksheet' because it is the same figure at a chosen fraction — the way
+// a congregation that cannot reach full district scale in one year sets a deliberate step toward
+// it ("we pay 90% of scale") instead of a percentage raise off whatever it happens to pay now.
+var FIN_COMP_METHODS = ['none', 'worksheet', 'scalepct', 'cola', 'custom'];
 var _finCompView = 'plan';
 var _finCompMethod = 'cola';          // roster-wide method; a per-worker entry below overrides it
 var _finCompPerWorkerMethod = {};     // roster index -> method key
 var _finCompOverrides = {};           // roster index -> hand-typed dollars string (beats any method)
 var _finCompCustomPct = 3.5;
+var _finCompScalePct = 95;            // 'scalepct' method: this share of the district worksheet
 var _finCompSelected = 0;
 var _finCompDrawerOpen = true;
 var _finCompRefYear = null;           // which year the rates view is editing; null = the target year
@@ -7791,18 +7796,27 @@ function finCompWorksheetCents(w) {
 function finCompMethodSalaryCents(w, key) {
   if (key === 'none') return finCompCurrentPayCents(w);
   if (key === 'worksheet') return finCompWorksheetCents(w);
+  if (key === 'scalepct') {
+    // Null, not zero, when this worker has no district figure — the same "—" the District Scale
+    // column shows. A share of a scale that does not exist is not $0, it is unanswerable.
+    var scale = finCompWorksheetCents(w);
+    if (!scale) return null;
+    return finRoundSalaryCents(Math.round(scale * (Number(_finCompScalePct) || 0) / 100));
+  }
   var rate = key === 'cola' ? finCompSsaRate() : (Number(_finCompCustomPct) || 0) / 100;
   return finRoundSalaryCents(Math.round(finCompCurrentPayCents(w) * (1 + rate)));
 }
 function finCompMethodLabel(key) {
   if (key === 'none') return 'No raise';
   if (key === 'worksheet') return 'District Scale';
+  if (key === 'scalepct') return (Number(_finCompScalePct) || 0).toFixed(0) + '% of Scale';
   if (key === 'cola') return 'COLA ' + (finCompSsaRate() * 100).toFixed(1) + '%';
   return 'Custom ' + (Number(_finCompCustomPct) || 0).toFixed(1) + '%';
 }
 function finCompMethodLongLabel(key) {
   if (key === 'none') return 'no raise';
   if (key === 'worksheet') return 'the District Compensation Worksheet';
+  if (key === 'scalepct') return (Number(_finCompScalePct) || 0).toFixed(0) + '% of the District Compensation Worksheet';
   if (key === 'cola') return 'the Social Security COLA';
   return 'a custom ' + (Number(_finCompCustomPct) || 0).toFixed(1) + '%';
 }
@@ -7852,26 +7866,61 @@ function finCompComputeAll() {
     };
   });
 }
-// The FY base-year ACTUAL across the accounts that really are compensation (§5.10). Deliberately
-// NOT a bare /insurance|benefit/ — "52040 Insurance" is property cover and doubled this figure.
-function finCompBaselineCents() {
-  if (!_finPlanBaseTree) return 0;
+// The FY base year's own compensation cost, for the "vs FY{base}" comparison (§5.10).
+//
+// ⚠ Two things this has to get right, and both were wrong — together they reported a +34% jump
+// under "No raise", which is the shape of the bug: no raise cannot cost a third more.
+//
+// (1) SAME COST CATEGORIES ON BOTH SIDES. The FY{target} total is salary + pension + disability +
+//     health + employer FICA. The match here found only salary and health accounts, so pension and
+//     payroll taxes were counted in the plan and never looked for in the base year — the plan was
+//     answering a broader question than the figure it was subtracted from.
+// (2) A FULL YEAR ON BOTH SIDES. totalActualCents for a base year still in progress is
+//     year-to-date, and the plan is a whole year. So each account resolves to its own full-year
+//     BUDGET when it has one, and otherwise to its actual annualized the way the Planning tab
+//     annualizes (52 / weeks elapsed) — the same rule, so the two pages cannot disagree.
+//
+// Deliberately NOT a bare /insurance|benefit/: "52040 Insurance" is property cover and doubled
+// this figure. Deliberately not /concordia/ either — "Concordia Children's Services" is
+// benevolence, not staff cost.
+var FIN_COMP_BASELINE_RE = /salar|payroll|compensation|wages|health|medical|dental|vision|disabilit|pension|retirement|\bfica\b|social security/i;
+function finCompBaselineDetail() {
+  var empty = { cents: 0, rows: [], prorated: false, weeks: 52 };
+  if (!_finPlanBaseTree) return empty;
   var leaves = [];
-  (function walk(nodes) { (nodes || []).forEach(function(n) { if (!n.children.length && n.classification !== 'Income') leaves.push(n); walk(n.children); }); })(_finPlanBaseTree);
-  return leaves.filter(function(n) { return /salar|payroll|compensation|wages/i.test(n.label) || /health|medical|dental|vision|disability/i.test(n.label); })
-    .reduce(function(sum, n) { return sum + (n.totalActualCents || 0); }, 0);
+  (function walk(nodes) {
+    (nodes || []).forEach(function(n) {
+      if (!n.children.length && !FIN_REVENUE_CLASSES[n.classification]) leaves.push(n);
+      walk(n.children);
+    });
+  })(_finPlanBaseTree);
+  var now = new Date();
+  var weeks = (_finPlanBaseYear === now.getFullYear()) ? finWeeksElapsedInYear(now) : 52;
+  var prorated = weeks < 52;
+  var rows = leaves.filter(function(n) { return FIN_COMP_BASELINE_RE.test(n.label || ''); }).map(function(n) {
+    var actual = n.totalActualCents || 0;
+    if (n.hasBudgetInfo && n.totalBudgetCents) return { label: n.label, cents: n.totalBudgetCents, basis: 'budget' };
+    if (actual && prorated) return { label: n.label, cents: Math.round(actual * (52 / weeks)), basis: 'annualized' };
+    return { label: n.label, cents: actual, basis: 'actual' };
+  }).filter(function(r) { return r.cents; });
+  rows.sort(function(a, b) { return b.cents - a.cents; });
+  return {
+    cents: rows.reduce(function(s, r) { return s + r.cents; }, 0),
+    rows: rows, prorated: prorated, weeks: weeks
+  };
 }
+function finCompBaselineCents() { return finCompBaselineDetail().cents; }
 function finCompTotals(computed) {
   // Externally funded workers are carried by another budget — see finCompIsExternallyFunded — so
   // every figure below is over the counted roster only.
   var counted = finCompCountedEntries().map(function(e) { return computed[e.i]; });
   var salaryCents = counted.reduce(function(s, c) { return s + c.salaryCents; }, 0);
   var benefitsCents = counted.reduce(function(s, c) { return s + c.benefits.totalCents; }, 0);
-  var baselineCents = finCompBaselineCents();
+  var baseline = finCompBaselineDetail();
   var totalCents = salaryCents + benefitsCents;
   return {
     salaryCents: salaryCents, benefitsCents: benefitsCents, totalCents: totalCents,
-    baselineCents: baselineCents, deltaCents: totalCents - baselineCents,
+    baseline: baseline, baselineCents: baseline.cents, deltaCents: totalCents - baseline.cents,
     currentCents: counted.reduce(function(s, c) { return s + c.currentCents; }, 0),
     worksheetCents: counted.reduce(function(s, c) { return s + (c.worksheetCents || 0); }, 0),
     healthCents: counted.reduce(function(s, c) { return s + c.benefits.healthCents; }, 0)
@@ -8046,7 +8095,8 @@ function finCompHeaderHtml(totals) {
     + '<div><div class="fin-comp-strip-lbl">Cash salaries</div><div class="fin-comp-strip-val">' + finCompMoney(totals.salaryCents) + '</div></div>'
     + '<div><div class="fin-comp-strip-lbl">Benefits &amp; taxes</div><div class="fin-comp-strip-val">' + finCompMoney(totals.benefitsCents) + '</div></div>'
     + '<div><div class="fin-comp-strip-lbl">FY' + _finPlanTargetYear + ' total</div><div class="fin-comp-strip-val">' + finCompMoney(totals.totalCents) + '</div></div>'
-    + '<div class="fin-comp-strip-delta"><div class="fin-comp-strip-lbl">vs FY' + _finPlanBaseYear + ' actual ' + finCompMoney(totals.baselineCents) + '</div>'
+    + '<div class="fin-comp-strip-delta"><div class="fin-comp-strip-lbl">vs FY' + _finPlanBaseYear + ' ' + finCompMoney(totals.baselineCents)
+    + (totals.baseline && totals.baseline.prorated ? ' (annualized)' : '') + '</div>'
     + '<div class="fin-comp-strip-val gold">' + (totals.baselineCents ? finCompMoneySigned(totals.deltaCents) + ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)' : '&mdash;') + '</div></div>'
     + '</div>'
     + '<div class="fin-comp-pills">' + pills + '</div>'
@@ -8101,13 +8151,15 @@ function finCompRenderPlan(computed, totals) {
     + '<thead><tr><th class="fin-comp-th">Worker</th>' + heads
     + '<th class="fin-comp-th">Vs. district scale</th><th class="fin-comp-th num">Total comp.</th></tr></thead>'
     + '<tbody>' + rows
-    + (finCompIsAdmin() ? '<tr><td colspan="7" style="padding:9px 6px;"><span class="fin-comp-add" onclick="finCompAddWorker()"><span class="fin-comp-add-plus">+</span> Add a staff member</span></td></tr>' : '')
+    + (finCompIsAdmin() ? '<tr><td colspan="' + (FIN_COMP_METHODS.length + 3) + '" style="padding:9px 6px;"><span class="fin-comp-add" onclick="finCompAddWorker()"><span class="fin-comp-add-plus">+</span> Add a staff member</span></td></tr>' : '')
     + '<tr class="fin-comp-total-row"><td class="fin-comp-td">Total</td>' + methodTotals
     + '<td class="fin-comp-td" style="font-size:.76rem;font-weight:600;color:' + scaleTotal.color + ';" title="District scale ' + finCompMoney(totals.worksheetCents) + '">' + scaleTotal.text + '</td>'
     + '<td class="fin-comp-td num">' + finCompMoney(totals.totalCents) + '</td></tr>'
     + '</tbody></table></div>';
   var customBox = '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:var(--warm-gray);">custom '
-    + '<input type="text" inputmode="decimal" id="fin-comp-custom-pct" value="' + (Number(_finCompCustomPct) || 0) + '" oninput="finCompCustomPctChange(finSanitizeDecimalInput(this))" style="width:52px;text-align:right;">%</label>';
+    + '<input type="text" inputmode="decimal" id="fin-comp-custom-pct" value="' + (Number(_finCompCustomPct) || 0) + '" oninput="finCompCustomPctChange(finSanitizeDecimalInput(this))" style="width:52px;text-align:right;">%</label>'
+    + '<label style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;color:var(--warm-gray);">of scale '
+    + '<input type="text" inputmode="decimal" id="fin-comp-scale-pct" value="' + (Number(_finCompScalePct) || 0) + '" oninput="finCompScalePctChange(finSanitizeDecimalInput(this))" style="width:52px;text-align:right;">%</label>';
   return '<div class="fin-comp-plan-grid' + (_finCompDrawerOpen ? '' : ' closed') + '">'
     + '<div class="fin-card" style="min-width:0;">'
     + '<div class="fin-comp-chiprow">'
@@ -8118,11 +8170,42 @@ function finCompRenderPlan(computed, totals) {
     + (finCompOverrideCount() ? '<span class="fin-comp-link" onclick="finCompClearOverrides()">&#8634; clear ' + finCompOverrideCount() + ' hand-set figure(s)</span>' : '')
     + '</div>'
     + table
+    + finCompRenderBaselineNote(totals)
     + '<div class="fin-comp-cardfoot">'
     + '<span style="font-size:.74rem;color:var(--warm-gray);">District Scale = the District Compensation Worksheet &mdash; base $' + finFmtMoney(base.dollars) + ' &times; each worker&#39;s role/experience multiplier. <span class="fin-comp-link" onclick="finCompSetView(&quot;rates&quot;)">Rates for this year</span></span>'
     + '<button class="btn-primary" onclick="finCompSetView(&quot;fairness&quot;)">Next: check fairness &rarr;</button>'
     + '</div></div>'
     + (_finCompDrawerOpen ? finCompRenderDrawer(computed) : '')
+    + '</div>';
+}
+// "vs FY{base}" is a comparison between two figures the reader cannot see, so it prints its own
+// working: which ledger accounts were counted, on what basis, and what the plan side holds. A
+// percentage nobody can check is a percentage nobody should act on — the FIN63 lesson, where a
+// card said "no budget is on file" without naming what it had looked for.
+function finCompRenderBaselineNote(totals) {
+  var b = totals.baseline || { rows: [], prorated: false, weeks: 52 };
+  var planParts = 'cash salaries ' + finCompMoney(totals.salaryCents) + ' + benefits &amp; taxes ' + finCompMoney(totals.benefitsCents)
+    + ' (pension, disability, health, employer FICA)';
+  if (!b.rows.length) {
+    return '<div class="fin-comp-basis"><b>vs FY' + _finPlanBaseYear + ':</b> no compensation accounts were found in the FY' + _finPlanBaseYear
+      + ' church ledger, so there is nothing to compare against. FY' + _finPlanTargetYear + ' is ' + planParts
+      + '. Import or sync that year on the Church Report tab first.</div>';
+  }
+  var list = b.rows.map(function(r) {
+    return '<li>' + esc(r.label) + ' &middot; ' + finCompMoney(r.cents)
+      + ' <span style="color:var(--warm-gray);">(' + r.basis + ')</span></li>';
+  }).join('');
+  return '<div class="fin-comp-basis">'
+    + '<b>How the FY' + _finPlanBaseYear + ' comparison is figured.</b> '
+    + 'FY' + _finPlanTargetYear + ' is ' + planParts + '. '
+    + 'FY' + _finPlanBaseYear + ' is the same cost categories from the church ledger &mdash; '
+    + 'every expense account whose name mentions salary, payroll, wages, pension, retirement, FICA, '
+    + 'health, dental, vision or disability:'
+    + '<ul class="fin-comp-basis-list">' + list + '</ul>'
+    + (b.prorated
+        ? 'FY' + _finPlanBaseYear + ' is still in progress (' + b.weeks.toFixed(0) + ' weeks in), so an account with no budget on file is annualized from its actual &mdash; the same 52/weeks the Planning tab uses. Both sides are a full year.'
+        : 'FY' + _finPlanBaseYear + ' is complete, so these are its own full-year figures.')
+    + ' <b>Two things this comparison cannot see</b>, worth a glance before quoting the percentage: an account the church names in some other way is not counted, and the base year covers whoever was on the payroll then, which need not be the ' + finCompCountedEntries().length + ' worker(s) counted above.'
     + '</div>';
 }
 // The worker drawer. Re-rendered wholesale on every selection (not value-patched) so every
@@ -8962,6 +9045,11 @@ function finCompCustomPctChange(value) {
   _finCompMethod = 'custom';
   finRerenderPlanningPreserveFocus();
 }
+function finCompScalePctChange(value) {
+  _finCompScalePct = parseFloat(value) || 0;
+  _finCompMethod = 'scalepct';
+  finRerenderPlanningPreserveFocus();
+}
 function finCompMatchMidpoint(i) {
   var w = _finSalaryRoster[i];
   var lcms = finCompLcmsRange(w);
@@ -9132,10 +9220,11 @@ function finCompCouncilReportHtml(computed, totals) {
     + '<div class="fin-comp-rpt-motion kt"><div class="fin-comp-rpt-motion-h">Recommended motion</div>'
     + '<div>That the Church Council approve FY' + _finPlanTargetYear + ' compensation of <b>' + finCompMoney(totals.totalCents) + '</b> for '
     + finCompCountedCount() + ' worker' + (finCompCountedCount() === 1 ? '' : 's')
-    + (totals.baselineCents ? ' &mdash; a ' + pct.toFixed(1) + '% ' + (totals.deltaCents >= 0 ? 'increase over' : 'decrease from') + ' FY' + _finPlanBaseYear + ' actual spending' : '')
+    + (totals.baselineCents ? ' &mdash; a ' + pct.toFixed(1) + '% ' + (totals.deltaCents >= 0 ? 'increase over' : 'decrease from') + ' FY' + _finPlanBaseYear + ' compensation of ' + finCompMoney(totals.baselineCents) + (totals.baseline && totals.baseline.prorated ? ', annualized' : '') : '')
     + ' &mdash; applying ' + finCompMethodLongLabel(_finCompMethod) + ' to each worker&#39;s salary, continuing the Concordia Retirement Plan at '
     + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate)
     + ', and ' + (planCalc ? 'setting the group health plan to ' + esc(planCalc.label) + ' at ' + finCompMoney(planCalc.totalCents) : 'making no change to the group health plan') + '.</div></div>'
+    + finCompRenderBaselineNote(totals)
     + '<h2 class="fin-comp-rpt-h2">What Council is being asked to weigh</h2>'
     + '<p class="fin-comp-rpt-p">Three separate questions sit behind the single number above. <b>How much of a raise</b> &mdash; a COLA keeps existing salaries level with inflation, while the district&#39;s own published scale is a benchmark. <b>Whether our pay is fair</b> &mdash; measured against the LCMS Missouri District scale and against Concordia Plans&#39; published pay ranges for each role. <b>What it costs</b> &mdash; salary is ' + salaryShare + '% of the total; pension, health, disability and employer taxes are the rest.</p>'
     + '<p class="fin-comp-rpt-p">The plan below pays <b>' + (scaleRatio == null ? 'an unknown share of' : scaleRatio + '% of') + ' the district scale</b> in total'

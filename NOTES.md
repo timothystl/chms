@@ -24,6 +24,56 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.175.0 — Compensation: the "vs FY{base}" comparison, and a % of scale method (2026-08-14)
+
+Reported from the Compensation strip: **"No raise applied to all 7 workers"** printed next to
+**+$111,624 (+34.0%)** against FY2026. No raise cannot cost a third more, and the reporter's own
+guess — *are you not counting benefits in 2026 and then counting them for 2027?* — was right.
+
+**Two independent errors, both pulling the same way.**
+
+1. **Scope.** The FY{target} total is salary + pension + disability + health + employer FICA. The
+   FY{base} figure matched only `/salar|payroll|compensation|wages/` and
+   `/health|medical|dental|vision|disability/` — **no pension, no payroll taxes**. Two whole cost
+   categories were charged on the plan side and never looked for on the base side, so the plan was
+   answering a broader question than the figure it was subtracted from.
+2. **Period.** `totalActualCents` for a base year still in progress is **year-to-date**, and the
+   plan is a whole year. In August that compares roughly eight months against twelve.
+
+Fixed together in `finCompBaselineDetail()`: the account match gains pension/retirement/FICA/social
+security, and each account resolves to its own full-year **budget** when it has one, otherwise its
+actual **annualized** by the same 52/weeks the Planning tab uses — the same rule, so the two pages
+cannot disagree. Deliberately **not** `/concordia/`, which would have swept "Concordia Children's
+Services" (benevolence forwarded to a third party) into the church's own staff cost; deliberately
+still not a bare `/insurance|benefit/`, which is why "52040 Insurance" (property cover) stays out.
+Income accounts are excluded by classification, so "40085 Retirement Distribution" cannot creep in
+through the new `retirement` term.
+
+**The card now prints its own working** — which ledger accounts were counted, each one's basis
+(budget / annualized / actual), what the plan side holds, and the two things the comparison cannot
+see: an account the church names some other way is not counted, and the base year covers whoever
+was on the payroll then, which need not be the roster counted above. A percentage nobody can check
+is a percentage nobody should act on (the FIN63 lesson). The same block prints on the Council
+report, and the motion no longer calls the base figure "actual spending" when it is annualized.
+
+**New growth method: `X% of Scale`** (`scalepct`), sitting beside District Scale because it is the
+same figure at a chosen fraction — how a congregation that cannot reach full scale in one year
+sets a deliberate step toward it, rather than a percentage raise off whatever it pays now. Its own
+editable % box, applied per column or per cell like the others, persisted with the planner
+(`compScalePct`). Returns **null, not 0**, for a worker with no district figure — a share of a
+scale that does not exist is unanswerable, and a zero there would quietly propose cutting someone
+to nothing. The add-a-worker row's colspan is now derived from `FIN_COMP_METHODS.length` instead of
+hardcoded, so a sixth method cannot silently break the table.
+
+`npm test` (1337/1337, 20 new in `test/finance-comp-baseline.test.js`, running the real bundle in a
+`vm`). **Every new test verified non-vacuous** by injecting the exact regression it guards (6
+injections, 6 correct failure sets) — one injection's `perl` escaping silently failed and reported
+a pass, so it was redone in Python and then failed correctly, which is the only reason it counts.
+Plus `node --check` on all four bundles, brace balance on `app.css`, div balance on `CHMS_HTML`.
+**Not verified**: a live browser or this church's real ledger — the +34% figure itself cannot be
+reproduced from here, only the two defects behind it. (`src/frontend/js-finance.js`,
+`src/frontend/html-head.js`, `test/finance-comp-baseline.test.js`)
+
 ### v1.174.0 — Budget tree reads like QuickBooks; Unapplied Cash hidden (2026-08-14)
 
 Three things reported together off the Planning tab.
