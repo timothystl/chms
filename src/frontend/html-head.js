@@ -1583,10 +1583,42 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
    the content as a horizontal scrollable pill row instead. */
 @media(max-width:767px){
   .vol-shell{flex-direction:column;}
-  .vol-subnav{width:100%;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:10px 12px;gap:6px;}
-  .vol-subtab-btn{white-space:nowrap;flex-shrink:0;}
+  /* Measured: at 390px (the common phone) the four items overshot by only 4px,
+     so the strip scrolled and clipped "Signups" mid-word for the sake of it.
+     Tightening padding and gaps buys ~28px, which fits 390 outright; 360 and
+     below still scroll, which is what overflow-x is for. */
+  .vol-subnav{width:100%;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:10px;gap:4px;}
+  .vol-subtab-btn{white-space:nowrap;flex-shrink:0;padding:8px;}
   .vol-subnav-divider{width:1px;height:24px;margin:0 4px;flex-shrink:0;}
   .vol-content-pane{padding:16px !important;}
+}
+/* Same values the wrapper carried inline, so desktop is unchanged; a class only
+   so the phone rule below can zero it. The Volunteers tab pads twice — .tab-panel's
+   24px plus this 20px — which costs 88px of a 390px phone and is a large part of
+   why the shell reads as a floating window rather than the page. */
+.vol-tab-wrap{padding:16px 20px;max-width:1100px;}
+@media(max-width:767px){
+  /* #id beats .tab-panel, so no !important needed here. */
+  #tab-volunteers{padding:10px 10px 20px;}
+  .vol-tab-wrap{padding:0;}
+  .vol-shell{border-radius:14px;}
+}
+/* ── Signup / template rows (Volunteers tab). These carry the values that used
+   to be inline on the rows built in js-volunteers.js, unchanged, so the desktop
+   layout computes identically — they are classes now only so the phone rule
+   below can reach them. An inline style beats a media query (VUX15), which is
+   why moving them out was the fix rather than adding an override. ── */
+.vol-sig-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+.vol-sig-ident{min-width:0;}
+.vol-sig-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;}
+.vol-tpl-row{background:var(--white);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+/* On a phone the name block and the action cluster cannot share a row: the
+   cluster is flex-shrink:0, so it pushed ~100px past the card, and .vol-shell
+   is overflow:hidden — so Link / Email / Remove were clipped and unreachable,
+   with no scrollbar to reveal them. Stack them instead. */
+@media(max-width:767px){
+  .vol-sig-head,.vol-tpl-row{flex-direction:column;}
+  .vol-sig-actions{width:100%;justify-content:flex-start;}
 }
 /* ── Events / Ministry Roles: master-detail — exact palette from the design
    handoff mockups (navy/teal/muted-gray-blue tokens defined in :root above),
