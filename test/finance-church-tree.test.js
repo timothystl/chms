@@ -5,7 +5,7 @@ import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
 // not as exported module functions — extract them (none touch the DOM) and eval standalone.
 // Same technique used elsewhere in this project (see CLAUDE.md SC3-BUG1 / TAP11 / FIN10).
 function loadChurchTreeHelpers() {
-  const names = ['finSetNodeDepth', 'finExtractNodesByLabel', 'finMakeGroupNode', 'finRecomputeTreeTotals', 'finReorganizeChurchTree'];
+  const names = ['finSetNodeDepth', 'finExtractNodesByLabel', 'finMakeGroupNode', 'finRecomputeTreeTotals', 'finPruneEmptyUnappliedCash', 'finReorganizeChurchTree'];
   const fnSrcs = names.map(name => {
     const m = CHMS_APP_EXT_JS.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
     if (!m) throw new Error(`${name} not found in built script`);
@@ -17,6 +17,12 @@ function loadChurchTreeHelpers() {
     if (!m) throw new Error(`${name} not found in built script`);
     return m[0];
   });
+  // Single-line consts (a regex, a string) rather than object literals — matched to end of line.
+  for (const name of ['FIN_UNAPPLIED_CASH_RE', 'FIN_UNAPPLIED_CASH_HINT']) {
+    const m = CHMS_APP_EXT_JS.match(new RegExp(`var ${name} = .*;`));
+    if (!m) throw new Error(`${name} not found in built script`);
+    varSrcs.push(m[0]);
+  }
   // eslint-disable-next-line no-eval
   return eval(`(function() { ${varSrcs.join('\n')} ${fnSrcs.join('\n')} return finReorganizeChurchTree; })()`);
 }

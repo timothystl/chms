@@ -1939,10 +1939,24 @@ export const REVENUE_STREAMS = ['donor', 'earned', 'passive', 'restricted'];
 // these keep every other view telling the same story.
 export const DISPLAY_STREAMS = ['donor', 'earned', 'passive'];
 export function displayStreamOf(stream) { return stream === 'restricted' ? 'donor' : stream; }
-export function classifyRevenueStream(label, overrides) {
+export function classifyRevenueStream(label, overrides, accountNames) {
   const mapped = overrides && overrides[label];
   if (mapped && REVENUE_STREAMS.includes(mapped)) return { stream: mapped, mapped: true };
   for (const rule of REVENUE_STREAM_RULES) if (rule.re.test(label || '')) return { stream: rule.stream, mapped: false };
+  // The group name said nothing, so read the accounts inside it before falling back to `earned`.
+  // A generic bucket ("48 Other Income") can hold an account the rules DO name: this church's
+  // Altar Guild is the reason the restricted rule spells out "altar guild" at all, and it sits one
+  // level BELOW the only label the rules ever got to see — so the rule could never once fire.
+  //
+  // Adopted only when every money-carrying account in the group agrees. A mixed bucket has no one
+  // right answer, and guessing one would move real money between streams on the Health page.
+  const found = new Set();
+  for (const name of accountNames || []) {
+    const rule = REVENUE_STREAM_RULES.find(r => r.re.test(name || ''));
+    if (!rule) { found.clear(); break; }
+    found.add(rule.stream);
+  }
+  if (found.size === 1) return { stream: [...found][0], mapped: false };
   return { stream: 'earned', mapped: false };
 }
 // The account group a revenue row belongs to. Every parser in this file puts the CLASSIFICATION in
@@ -1969,16 +1983,19 @@ export function computeRevenueStreams(entries, overrides) {
     if (r.classification !== 'Income' && r.classification !== 'Other Income') continue;
     const label = revenueGroupLabel(r.category_path, r.account_name);
     if (!label) continue;
-    if (!groups.has(label)) groups.set(label, { cents: 0, budgetCents: 0 });
+    if (!groups.has(label)) groups.set(label, { cents: 0, budgetCents: 0, accounts: [] });
     const g = groups.get(label);
     g.cents += (r.own_actual_cents || 0);
     if (r.own_budget_cents != null) g.budgetCents += r.own_budget_cents;
+    // Only accounts actually carrying money inform the guess below — a $0 line names nothing the
+    // classification should turn on, and the group's own header row holds no own amount at all.
+    if (r.own_actual_cents || r.own_budget_cents) g.accounts.push(r.account_name || '');
   }
   const streams = {};
   for (const s of REVENUE_STREAMS) streams[s] = { cents: 0, budgetCents: 0, groups: [] };
   const unmapped = [], map = {};
   for (const [label, g] of groups) {
-    const { stream, mapped } = classifyRevenueStream(label, overrides);
+    const { stream, mapped } = classifyRevenueStream(label, overrides, g.accounts);
     map[label] = stream;
     streams[stream].cents += g.cents;
     streams[stream].budgetCents += g.budgetCents;

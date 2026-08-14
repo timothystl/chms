@@ -470,6 +470,35 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### FIN65 — Budget tree reads like QuickBooks; Unapplied Cash hidden (2026-08-14, DONE)
+Three reports off the Planning tab.
+- **Totals moved under their accounts.** QuickBooks prints a group's figures beneath its lines as
+  a computed "Total X"; this app printed them on a header above. FIN20 had moved only the
+  TOP-LEVEL classification totals down, and only in the Church Report. One shared
+  `finRenderTreeQbOrder()` now drives both tables — group header (label only) → accounts → total.
+  **Shared, not written twice**: two hand-inlined copies of one reading order is how they drift
+  (SW17). A group header carries no figures, since the same number four lines apart reads as
+  though the accounts below were a breakdown of something already counted.
+- **Two knock-ons handled**: a Total row shades only at depth 0 (shading every group, now that all
+  of them have totals, is stripes with no hierarchy left), and Planning's section subtotal is
+  skipped when a section has ONE root — that root now prints its own total and the subtotal is the
+  identical figure on the next line. Still emitted for a multi-root section (Income + Other
+  Income), where no one root covers it.
+- **Unapplied Cash Bill Payment Expense** (a QuickBooks cash-basis artifact) pruned from every
+  tree — **only when it is empty**. A row carrying real money stays with a `title` explaining it:
+  hiding a dollar a total on the same screen still counts is the FIN58 defect, and FIN60 set this
+  same zero-only rule for COGS.
+- **⚠ Altar Guild under Passive is a SAVED SETTING on live data, not a bug** — Data & Imports →
+  Classification & policy pins "48 Other Income" to Passive, and a saved classification rightly
+  beats any rule. Fixed the guess behind it: `classifyRevenueStream` only ever saw the GROUP
+  label, so the restricted rule's own "altar guild" string could never fire for a church filing it
+  as 48001 inside "48 Other Income" — it defaulted to `earned`. Now falls back to the accounts in
+  an unrecognized group, adopting a stream **only when every money-carrying account agrees** ($0
+  lines and the group header row ignored). A mixed bucket keeps the default.
+- `npm test` (1317/1317, 17 new); **every new test verified non-vacuous** (7 injections, 7 correct
+  failure sets). **Not verified**: a live browser. (`src/frontend/js-finance.js`,
+  `src/api-finance.js`, `test/finance-qb-order.test.js`)
+
 ### TAP17 — "Plans to attend LHS" never saved a no; the % slider is gone (2026-08-14, DONE)
 Reported together. **⚠ `0 === false` is false in JavaScript** — every `attends_lhs` write bound
 `v === false ? 0 : 1`, an identity test against the BOOLEAN, while the frontend sends this field

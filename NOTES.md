@@ -24,6 +24,57 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.174.0 — Budget tree reads like QuickBooks; Unapplied Cash hidden (2026-08-14)
+
+Three things reported together off the Planning tab.
+
+**Totals now sit under their accounts.** Every group printed its figures on a header ABOVE its
+account lines; QuickBooks prints them underneath as a computed "Total X", which is what the church
+reads the budget against. FIN20 had already moved the top-level classification totals down in the
+Church Report, but only those — every group inside them still headed its section with the sum, and
+the Planning table did it at every level including the roots.
+
+One shared `finRenderTreeQbOrder(nodes, render, out)` now drives both tables: a group renders as a
+bare label row (no figures — printing them there and again four lines down is the same number
+twice, and the top copy reads as though the accounts beneath were a breakdown of something already
+counted), then its accounts, then its total. Shared rather than written twice, because two
+hand-inlined copies of one reading order is how they drift (SW17).
+
+Two consequences handled rather than left: a "Total X" row is shaded only at depth 0, since
+shading every group now that all of them carry totals turns the table into stripes with no
+hierarchy left to read; and Planning's section subtotal row is skipped when a section has exactly
+one root, because that root now prints its own total and the subtotal would be the identical
+figure on the very next line. It is still emitted when a section has several roots (Income + Other
+Income), where no one root's total covers the section.
+
+**Unapplied Cash Bill Payment Expense.** A QuickBooks artifact — it appears on a cash-basis report
+for a bill payment not applied to a bill — dropped from every account tree by
+`finPruneEmptyUnappliedCash`. **Only when it is empty.** A row carrying real money stays, with a
+`title` explaining what it is, because hiding a dollar that a total on the same screen still
+counts is exactly the defect FIN58 existed to fix; FIN60 set the same zero-only rule for Cost of
+Goods Sold.
+
+**Altar Guild.** Reported as a restricted gift while showing under Passive Income. **On this
+church's live data that is a saved setting, not a bug** — Data & Imports → Classification & policy
+has "48 Other Income" pinned to Passive, and a saved classification rightly beats any rule. What
+IS fixed is the guess behind it: `classifyRevenueStream` reads only the GROUP label, and the
+restricted rule spells out "altar guild" — but this church files it as account 48001 inside a
+group named "48 Other Income", one level below the only string the rule ever saw, so the rule
+could never once fire and the group defaulted to `earned`. It now falls back to the accounts
+inside a group whose label matches nothing, and adopts an account-derived stream **only when every
+money-carrying account in the group agrees** — a mixed bucket has no single right answer, and
+guessing one would move real money between streams on the Health page. $0 accounts and the group's
+own header row are ignored, so an empty line cannot veto the guess.
+
+`npm test` (1317/1317, 17 new in `test/finance-qb-order.test.js` — the real renderers out of the
+shipped bundle in a `vm`, plus the pure classifier). **Every new test verified non-vacuous** by
+injecting the exact regression it guards (7 injections, 7 correct failure sets). Two existing
+harnesses needed their extraction lists extended for the new helpers. Plus `node --check` on the
+backend and all four built bundles, brace balance on the served `app.css`, div balance on
+`CHMS_HTML`. **Not verified**: a live browser or real D1. (`src/frontend/js-finance.js`,
+`src/api-finance.js`, `test/finance-qb-order.test.js`, `test/finance-church-tree.test.js`,
+`test/finance-church-detail-body.test.js`)
+
 ### v1.173.0 — Tuition Aid: "Plans to attend LHS" saves; the % slider is gone (2026-08-14)
 
 Reported together: unchecking **Plans to attend LHS** on the Tuition Aid planner doesn't save, and
