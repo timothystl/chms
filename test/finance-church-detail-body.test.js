@@ -8,7 +8,7 @@ function loadDetailBodyHelpers() {
   // esc() itself lives in the CORE bundle (shared across all tabs), not EXT — stub a plain
   // equivalent here since it isn't what this test is verifying.
   const escStub = 'function esc(s) { return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&#39;"); }';
-  const names = ['finFmtMoney', 'finFmtSigned', 'finVarianceCell', 'finRenderDetailTreeRows', 'finRenderChurchTotalRow', 'finRenderChurchDetailBody', 'finRenderNetIncomeBar', 'finChurchAsOfDate'];
+  const names = ['finFmtMoney', 'finFmtSigned', 'finVarianceCell', 'finRenderTreeQbOrder', 'finTreeLabelCell', 'finChurchDetailLeafRow', 'finChurchDetailGroupHeaderRow', 'finRenderDetailTreeRows', 'finRenderChurchTotalRow', 'finRenderChurchDetailBody', 'finRenderNetIncomeBar', 'finChurchAsOfDate'];
   const fnSrcs = names.map(name => {
     const m = CHMS_APP_EXT_JS.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
     if (!m) throw new Error(`${name} not found in built script`);

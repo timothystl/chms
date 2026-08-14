@@ -2787,6 +2787,25 @@ var FIN_REVENUE_CLASSES = { 'Income': true, 'Other Income': true };
 // been loaded yet, so a caller with no stream data renders exactly what it always did.
 //
 var FIN_STREAM_GROUP_LABELS = { earned: 'Earned Income', passive: 'Passive Income', restricted: 'Restricted Income' };
+// QuickBooks invents "Unapplied Cash Bill Payment Expense" / "Unapplied Cash Payment Income" on a
+// cash-basis report to hold a bill payment or customer payment that isn't applied to a bill or
+// invoice. It is a bookkeeping artifact of the report, not an account anybody at the church chose,
+// and it is nearly always $0 — so an empty one is dropped from every account tree.
+//
+// ⚠ Only when it is empty. A row carrying real money stays, with a note explaining what it is,
+// because hiding a dollar that a total on the same screen still counts is exactly the defect FIN58
+// existed to fix (and FIN60 set this same zero-only rule for Cost of Goods Sold).
+var FIN_UNAPPLIED_CASH_RE = /\bunapplied cash\b/i;
+var FIN_UNAPPLIED_CASH_HINT = 'QuickBooks adds this line on a cash-basis report for a bill or customer payment that is not applied to a bill or invoice. It is hidden here when it is $0.';
+function finPruneEmptyUnappliedCash(nodes) {
+  for (var i = (nodes || []).length - 1; i >= 0; i--) {
+    var n = nodes[i];
+    finPruneEmptyUnappliedCash(n.children);
+    if (!FIN_UNAPPLIED_CASH_RE.test(n.label || '')) continue;
+    if (!n.totalActualCents && !n.totalBudgetCents && !n.children.length) nodes.splice(i, 1);
+    else n.hint = FIN_UNAPPLIED_CASH_HINT;
+  }
+}
 function finReorganizeChurchTree(roots, streamMap) {
   var cloned = JSON.parse(JSON.stringify(roots || []));
   // typeof guard so the function stays runnable from an isolated extract in the test harness,
@@ -2815,6 +2834,7 @@ function finReorganizeChurchTree(roots, streamMap) {
     }
   }
   if (incomeRoot) incomeRoot.label = 'Revenue';
+  finPruneEmptyUnappliedCash(cloned);
   finSetNodeDepth({ depth: -1, children: cloned }, -1);
   finRecomputeTreeTotals(cloned);
   cloned.sort(function(a, b) {
@@ -2841,42 +2861,77 @@ function finVarianceCell(actualCents, budgetCents, classification) {
     + '<span class="fin-variance-bar-track"><span class="fin-variance-bar-fill" style="width:' + pct + '%;background:' + (favorable ? 'var(--sage)' : 'var(--danger)') + ';"></span></span>'
     + '<span style="color:' + (favorable ? 'var(--sage-text)' : 'var(--danger)') + ';font-weight:600;">' + finFmtSigned(varianceCents) + '</span></td>';
 }
-function finRenderDetailTreeRows(nodes, html) {
-  html = html || [];
+// ⚠ QuickBooks reading order, and the app now follows it everywhere an account tree is drawn:
+// a group's figures sit UNDERNEATH its accounts as a computed "Total X", never above them as a
+// header carrying the sum. So a group renders as a bare label row (no figures — printing them
+// there and again four lines down is the same number twice, and the top copy reads as though the
+// accounts beneath it were a breakdown of something already counted), then its accounts, then its
+// total. A leaf is just its own row.
+//
+// Shared by the Church Report's detail table and the Planning budget builder rather than written
+// twice: two hand-inlined copies of one reading order is how they drift (SW17).
+function finRenderTreeQbOrder(nodes, render, out) {
+  out = out || [];
   (nodes || []).forEach(function(node) {
-    var bold = node.children.length > 0;
-    html.push('<tr' + (bold ? ' style="font-weight:700;"' : '') + '>'
-      + '<td style="padding:5px 8px 5px ' + (10 + node.depth * 16) + 'px;color:' + (bold ? 'var(--charcoal)' : 'var(--warm-ink-label)') + ';">' + esc(node.label) + '</td>'
-      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(node.totalActualCents / 100) + '</td>'
-      + '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents / 100) : '—') + '</td>'
-      + finVarianceCell(node.totalActualCents, node.hasBudgetInfo ? node.totalBudgetCents : null, node.classification)
-      + '</tr>');
-    finRenderDetailTreeRows(node.children, html);
+    if (!node.children.length) { out.push(render.leaf(node)); return; }
+    out.push(render.groupHeader(node));
+    finRenderTreeQbOrder(node.children, render, out);
+    out.push(render.groupTotal(node));
   });
-  return html;
+  return out;
+}
+// A node's own label cell, indented to its depth — so a "Total X" row sits at its group's own
+// indent rather than its children's, and carries the group's note as a tooltip when it has one.
+function finTreeLabelCell(node, label, opts) {
+  opts = opts || {};
+  var v = opts.padV || '5px';
+  return '<td style="padding:' + v + ' 8px ' + v + ' ' + (10 + node.depth * 16) + 'px;'
+    + (opts.color ? 'color:' + opts.color + ';' : '') + '"'
+    + (node.hint ? ' title="' + esc(node.hint) + '"' : '') + '>' + esc(label) + '</td>';
+}
+function finRenderDetailTreeRows(nodes, html) {
+  // Kept as the leaf/header pair the Church Report table feeds into finRenderTreeQbOrder.
+  return finRenderTreeQbOrder(nodes, {
+    leaf: finChurchDetailLeafRow,
+    groupHeader: finChurchDetailGroupHeaderRow,
+    groupTotal: function(node) { return finRenderChurchTotalRow(node, 'Total ' + node.label); },
+  }, html || []);
+}
+function finChurchDetailLeafRow(node) {
+  return '<tr>'
+    + finTreeLabelCell(node, node.label, { color: 'var(--warm-ink-label)' })
+    + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(node.totalActualCents / 100) + '</td>'
+    + '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents / 100) : '—') + '</td>'
+    + finVarianceCell(node.totalActualCents, node.hasBudgetInfo ? node.totalBudgetCents : null, node.classification)
+    + '</tr>';
+}
+// Group header: the name only. Its figures are on its Total row, beneath its accounts.
+function finChurchDetailGroupHeaderRow(node) {
+  return '<tr style="font-weight:700;">'
+    + finTreeLabelCell(node, node.label, { color: 'var(--charcoal)' })
+    + '<td></td><td></td><td></td></tr>';
 }
 // A bold "Total X" row for one top-level classification node (Revenue/Expenses/etc), styled to
 // read as a subtotal beneath its own account lines rather than a header above them.
 function finRenderChurchTotalRow(node, label) {
-  return '<tr style="font-weight:700;border-top:1px solid var(--warm-border);background:var(--warm-surface-page);"><td style="padding:6px 8px;">' + esc(label) + '</td>'
+  // Shaded only at the top level: every group now carries a total, and shading all of them turns
+  // the table into stripes with no hierarchy left to read.
+  var shade = (node.depth || 0) === 0 ? 'background:var(--warm-surface-page);' : '';
+  return '<tr style="font-weight:700;border-top:1px solid var(--warm-border);' + shade + '">'
+    + finTreeLabelCell(node, label, { padV: '6px' })
     + '<td style="text-align:right;padding:6px 8px;">$' + finFmtMoney(node.totalActualCents / 100) + '</td>'
     + '<td style="text-align:right;padding:6px 8px;color:var(--warm-gray);">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents / 100) : '—') + '</td>'
     + finVarianceCell(node.totalActualCents, node.hasBudgetInfo ? node.totalBudgetCents : null, node.classification)
     + '</tr>';
 }
-// Full account-detail table body for the Church Report: each top-level classification's own
-// account lines first, with its "Total X" subtotal moved to the END of that section (not a
-// header row above it, per the board's preferred reading order). The grand-total Net Income
-// figure — mirroring the same actual/budget/remaining shown in the summary card above, so the
-// two can never disagree — is rendered separately as a full-width navy bar (finRenderNetIncomeBar),
-// matching the Finance Workspace handoff's footer treatment, not as a table row.
+// Full account-detail table body for the Church Report, in the QuickBooks order described on
+// finRenderTreeQbOrder: every group's "Total X" sits beneath its own account lines, at every
+// level, not only the top one. The grand-total Net Income figure — mirroring the same
+// actual/budget/remaining shown in the summary card above, so the two can never disagree — is
+// rendered separately as a full-width navy bar (finRenderNetIncomeBar), matching the Finance
+// Workspace handoff's footer treatment, not as a table row.
 function finRenderChurchDetailBody(tree, netIncome, hasBudgetData) {
-  var html = [];
-  (tree || []).forEach(function(root) {
-    html = html.concat(finRenderDetailTreeRows(root.children));
-    html.push(finRenderChurchTotalRow(root, 'Total ' + root.label));
-  });
-  return html.join('');
+  return finRenderDetailTreeRows(tree).join('');
 }
 // Full-width navy "Net Income" bar — the Finance Workspace handoff's footer treatment for the
 // Church Report table (mockup section 2: "navy full-width Net Income bar, surplus green-on-navy").
@@ -6677,35 +6732,50 @@ function finRenderPlanning() {
     var color = pct > 4 ? 'var(--danger)' : pct < 0 ? 'var(--sage-text)' : 'var(--warm-ink-label)';
     return '<td style="text-align:right;padding:4px 8px;color:' + color + ';font-weight:600;">' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%</td>';
   }
+  // Group rows: the name alone, with the figures on the "Total X" row beneath the accounts.
+  function groupHeaderRow(node) {
+    return '<tr style="font-weight:700;">' + finTreeLabelCell(node, node.label, { padV: '4px' })
+      + '<td></td><td></td><td></td><td></td><td></td></tr>';
+  }
+  function groupTotalRow(node) {
+    var projCents = projectedCentsByPath[node.path] || 0;
+    var shade = (node.depth || 0) === 0 ? 'background:var(--warm-surface-page);' : '';
+    return '<tr style="font-weight:700;border-top:1px solid var(--warm-border);' + shade + '">'
+      + finTreeLabelCell(node, 'Total ' + node.label, { padV: '5px' })
+      + '<td style="text-align:right;padding:5px 8px;">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(node.totalActualCents/100) + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;color:var(--warm-ink-label);">$' + finFmtMoney((baseProjByPath[node.path] || 0)/100) + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">' + (projCents ? '$' + finFmtMoney(projCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
+      + deltaCell(node.totalBudgetCents, projCents)
+      + '</tr>';
+  }
+  // An account line: the only row with editable figures. A group's Plan and Projected are always
+  // the live sum of its own leaves (see projectedCentsByPath / baseProjByPath above), so there is
+  // nothing on a group row to type into.
+  function leafRow(node) {
+    var planRow = finPlanFindRow(node.path);
+    var editedVal = _finPlanEdits[node.path];
+    var cellVal = editedVal !== undefined ? editedVal : (planRow ? String(Math.round(planRow.planned_amount_cents/100)) : '');
+    var projCents = projectedCentsByPath[node.path] || 0;
+    var projectedCell = '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
+      ? '<input type="text" inputmode="numeric" id="' + finPlanCellId('fin-plan-cell', node.path) + '" value="' + cellVal + '" class="fin-editable-input" style="width:100px;text-align:right;" oninput="finPlanEditCell(' + volJsAttr(node.path) + ', finPlanSanitizeWholeDollarInput(this))">'
+      : (cellVal !== '' ? '$' + finFmtMoney(parseFloat(cellVal)) : '<span style="color:var(--warm-gray);">—</span>')) + '</td>';
+    var baseEditedVal = _finPlanBaseProjEdits[node.path];
+    var baseCellVal = baseEditedVal !== undefined ? baseEditedVal : String(Math.round((baseProjByPath[node.path] || 0)/100));
+    var baseProjectedCell = '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
+      ? '<input type="text" inputmode="numeric" id="' + finPlanCellId('fin-baseproj-cell', node.path) + '" value="' + baseCellVal + '" class="fin-editable-input" style="width:100px;text-align:right;color:var(--warm-ink-label);" oninput="finPlanEditBaseProjCell(' + volJsAttr(node.path) + ', finPlanSanitizeWholeDollarInput(this))">'
+      : '$' + finFmtMoney((baseProjByPath[node.path] || 0)/100)) + '</td>';
+    return '<tr>'
+      + finTreeLabelCell(node, node.label, { padV: '4px' })
+      + '<td style="text-align:right;padding:4px 8px;">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
+      + '<td style="text-align:right;padding:4px 8px;">$' + finFmtMoney(node.totalActualCents/100) + '</td>'
+      + baseProjectedCell
+      + projectedCell
+      + deltaCell(node.totalBudgetCents, projCents)
+      + '</tr>';
+  }
   function walk(nodes) {
-    (nodes || []).forEach(function(node) {
-      var planRow = finPlanFindRow(node.path);
-      var editedVal = _finPlanEdits[node.path];
-      var cellVal = editedVal !== undefined ? editedVal : (planRow ? String(Math.round(planRow.planned_amount_cents/100)) : '');
-      var bold = node.children.length > 0;
-      var projCents = projectedCentsByPath[node.path] || 0;
-      var projectedCell = bold
-        ? '<td style="text-align:right;padding:4px 8px;">' + (projCents ? '$' + finFmtMoney(projCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
-        : '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
-            ? '<input type="text" inputmode="numeric" id="' + finPlanCellId('fin-plan-cell', node.path) + '" value="' + cellVal + '" class="fin-editable-input" style="width:100px;text-align:right;" oninput="finPlanEditCell(' + volJsAttr(node.path) + ', finPlanSanitizeWholeDollarInput(this))">'
-            : (cellVal !== '' ? '$' + finFmtMoney(parseFloat(cellVal)) : '<span style="color:var(--warm-gray);">—</span>')) + '</td>';
-      var baseEditedVal = _finPlanBaseProjEdits[node.path];
-      var baseCellVal = baseEditedVal !== undefined ? baseEditedVal : String(Math.round((baseProjByPath[node.path] || 0)/100));
-      var baseProjectedCell = bold
-        ? '<td style="text-align:right;padding:4px 8px;color:var(--warm-ink-label);">$' + finFmtMoney((baseProjByPath[node.path] || 0)/100) + '</td>'
-        : '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
-            ? '<input type="text" inputmode="numeric" id="' + finPlanCellId('fin-baseproj-cell', node.path) + '" value="' + baseCellVal + '" class="fin-editable-input" style="width:100px;text-align:right;color:var(--warm-ink-label);" oninput="finPlanEditBaseProjCell(' + volJsAttr(node.path) + ', finPlanSanitizeWholeDollarInput(this))">'
-            : '$' + finFmtMoney((baseProjByPath[node.path] || 0)/100)) + '</td>';
-      rowsHtml.push('<tr' + (bold ? ' style="font-weight:700;"' : '') + '>'
-        + '<td style="padding:4px 8px 4px ' + (10 + node.depth * 16) + 'px;">' + esc(node.label) + '</td>'
-        + '<td style="text-align:right;padding:4px 8px;">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
-        + '<td style="text-align:right;padding:4px 8px;">$' + finFmtMoney(node.totalActualCents/100) + '</td>'
-        + baseProjectedCell
-        + projectedCell
-        + deltaCell(node.totalBudgetCents, projCents)
-        + '</tr>');
-      walk(node.children);
-    });
+    finRenderTreeQbOrder(nodes, { leaf: leafRow, groupHeader: groupHeaderRow, groupTotal: groupTotalRow }, rowsHtml);
   }
   function subtotalRow(label, budgetCents, hasAnyBudget, actualCents, baseProjectedCents, projectedCents) {
     return '<tr style="font-weight:700;background:var(--warm-surface-page);border-top:1px solid var(--warm-border);"><td style="padding:5px 8px;">' + label + '</td>'
@@ -6723,10 +6793,14 @@ function finRenderPlanning() {
   var expenseProjectedCents = expenseRoots.reduce(function(sum, n) { return sum + (projectedCentsByPath[n.path] || 0); }, 0);
   var baseRevenueProjCents = revenueRoots.reduce(function(sum, n) { return sum + (baseProjByPath[n.path] || 0); }, 0);
   var baseExpenseProjCents = expenseRoots.reduce(function(sum, n) { return sum + (baseProjByPath[n.path] || 0); }, 0);
+  // A single root now prints its own "Total X" beneath its accounts, so the section subtotal
+  // would be the same figure twice in consecutive rows. It is still needed when a section has
+  // several roots (Income + Other Income), where no one root's total covers the section.
+  function sectionSelfTotals(roots) { return roots.length === 1 && roots[0].children.length > 0; }
   walk(revenueRoots);
-  if (revenueRoots.length) rowsHtml.push(subtotalRow('Total Revenue', sumRoots(revenueRoots, 'totalBudgetCents'), revenueRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(revenueRoots, 'totalActualCents'), baseRevenueProjCents, revenueProjectedCents));
+  if (revenueRoots.length && !sectionSelfTotals(revenueRoots)) rowsHtml.push(subtotalRow('Total Revenue', sumRoots(revenueRoots, 'totalBudgetCents'), revenueRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(revenueRoots, 'totalActualCents'), baseRevenueProjCents, revenueProjectedCents));
   walk(expenseRoots);
-  if (expenseRoots.length) rowsHtml.push(subtotalRow('Total Expenses', sumRoots(expenseRoots, 'totalBudgetCents'), expenseRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(expenseRoots, 'totalActualCents'), baseExpenseProjCents, expenseProjectedCents));
+  if (expenseRoots.length && !sectionSelfTotals(expenseRoots)) rowsHtml.push(subtotalRow('Total Expenses', sumRoots(expenseRoots, 'totalBudgetCents'), expenseRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(expenseRoots, 'totalActualCents'), baseExpenseProjCents, expenseProjectedCents));
   var projectedRevenueCents = revenueProjectedCents, projectedExpenseCents = expenseProjectedCents;
   var projectedNetCents = projectedRevenueCents - projectedExpenseCents;
   function netCell(cents) {
