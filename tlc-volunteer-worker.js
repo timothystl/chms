@@ -228,7 +228,7 @@ async function _fetch(req, env) {
     }
     // App icons (Connect mark) — proxied from the repo so they update on deploy.
     if (path.startsWith('/icons/') && method === 'GET') {
-      const m = path.match(/^\/icons\/(icon-(?:16|32|180|192|512|512-maskable)\.png|tlc-gather-icon\.svg)$/);
+      const m = path.match(/^\/icons\/(icon-(?:16|32|180|192|512|512-maskable)\.png|connect-(?:mark|mark-simple|icon|icon-simple|icon-maskable)\.svg)$/);
       if (m) {
         const fRes = await fetch('https://raw.githubusercontent.com/timothystl/chms/main/icons/' + m[1], { cf: { cacheEverything: true, cacheTtl: 86400 } });
         const ct = m[1].endsWith('.svg') ? 'image/svg+xml' : 'image/png';
