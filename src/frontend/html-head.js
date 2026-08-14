@@ -1681,6 +1681,7 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 .tap-slider-row input[type=range]{flex:1 1 auto;min-width:70px;accent-color:var(--navy);cursor:pointer;}
 .tap-slider-row input[type=range].over{accent-color:var(--danger);}
 .tap-slider-row input[type=number]{width:56px;flex:0 0 auto;font-size:.78rem;text-align:right;border:1px solid var(--border);border-radius:6px;padding:3px 5px;color:var(--navy);font-weight:600;font-family:var(--font-body);}
+.tap-slider-row input[type=number].over{border-color:var(--danger);color:var(--danger);}
 .tap-slider-caption{font-size:.68rem;color:var(--warm-gray);margin-top:2px;}
 .tap-award-cell{font-variant-numeric:tabular-nums;font-weight:700;color:var(--navy);text-align:right;white-space:nowrap;}
 .tap-pipeline-box{background:var(--pale-gold);border:1px solid #E9D9A8;border-radius:10px;padding:12px 14px;margin-bottom:14px;}

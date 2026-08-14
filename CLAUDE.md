@@ -470,6 +470,30 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### TAP17 — "Plans to attend LHS" never saved a no; the % slider is gone (2026-08-14, DONE)
+Reported together. **⚠ `0 === false` is false in JavaScript** — every `attends_lhs` write bound
+`v === false ? 0 : 1`, an identity test against the BOOLEAN, while the frontend sends this field
+as **1/0** (`tapSetAttendsLHS`). So an explicit no fell to the `: 1` branch and stored a yes, on
+all three write paths, since the planner shipped.
+- **The write could only ever be a no-op, never wrong-direction**, which is why the symptom reads
+  as "the checkbox does nothing": the row already held 1. It looked fine until a reload because
+  the local UI state is set by the caller before the save.
+- Two named helpers instead of another inline ternary, because the cases differ: `tapAttendsLhsFlag`
+  (update — the field is only bound when present, so every falsy form means no) and
+  `tapAttendsLhsDefaultTrue` (create — absent means yes, the column default; an explicit 0 still
+  honored). `'0'`/`'false'` are spelled out: a boolean over JSON, where both are truthy strings.
+- **Not just a checkbox**: `attendsLHS` is what marks a departing 8th grader *Departed* rather
+  than rolling them into next year's LHS awards, so a stuck 1 is a budget figure.
+- **Slider removed** from the K-8 Family Share % cell (typed % kept). Two things moved with it
+  rather than vanishing: the over-budget red rode `input[type=range].over` and now rides the
+  number box, and `tapSliderChange` no longer writes the clamped value back into the box being
+  typed in — with no second control to mirror, that write is the FIN52 round-trip and nothing
+  else. The LHS award slider is dollars, was not the ask, untouched.
+- `npm test` (1300/1300, 15 new); **every new test verified non-vacuous** (4 injections, 4 correct
+  failure sets — restoring the old ternary fails 7 and reproduces the report). **Not verified**: a
+  live browser. (`src/api-tuition-aid.js`, `src/frontend/js-tuition-aid.js`,
+  `src/frontend/html-head.js`, `test/tuition-attends-lhs.test.js`)
+
 ### SAC3 — "Save failed" was a DOM re-entrancy crash, not a server error (2026-08-12, DONE)
 SAC2's diagnostic paid off — the alert named it: *"Failed to set the 'innerHTML' property on
 'Element': The node to be removed is no longer a child of this node."* **The PATCH had already
