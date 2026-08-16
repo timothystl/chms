@@ -470,6 +470,19 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### BRAND4 — Login uses the designer's lockup artwork (2026-08-16, DONE)
+- The sheet was re-sent with no message; **it is byte-identical to the original upload** (same
+  sha256). No new resolution — BRAND2's 240px ceiling and missing teal still stand. **Check the
+  hash before re-running any extraction.**
+- **Login page now shows their actual full lockup** (`icons/connect-lockup.png`, cropped from the
+  sheet) instead of a CSS recreation. Rendering the two side by side is what showed the gap: the
+  designer's wordmark is much heavier and tighter than DM Sans 600 at .13em.
+- **⚠ A crop from this sheet needs its background snapped to pure white** — the WebP's "white" is
+  noise around #f8–#fe and reads as a grey panel on a #fff card. Threshold 242 is safe (well above
+  the tagline grey) and halved the file size.
+- **Topbar/sidebar wordmarks stay CSS** (crisp at 15px, adaptable) but now match the artwork's
+  weight 700 and tighter tracking.
+
 ### BRAND3 — Lockup on screen; pillar pills removed (2026-08-14, DONE)
 - **The mark was invisible in normal use**: it lived only in the sidebar, which is an off-canvas
   drawer at every width (VUX10). The topbar now carries the horizontal lockup (mark + `CONNECT`,

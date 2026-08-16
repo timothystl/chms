@@ -24,6 +24,44 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.180.0 — Login uses the designer's own lockup artwork (2026-08-16)
+
+**⚠ Version collision on the way in, worth knowing about.** A parallel session shipped its own
+work while this was in flight and **reused `1.179.0`** — `main` now carries three separate
+`### v1.179.0` entries, and `DEPLOY_VERSION` was left at `1.179.0` for all of them. Since that
+constant is the cache-buster on the immutable app-JS routes, **a browser that had already loaded
+the first 1.179.0 would not re-fetch the later ones**. This release's bump to `1.180.0` clears it
+for everybody. When two sessions run at once, re-read `DEPLOY_VERSION` from `origin/main`
+immediately before pushing rather than incrementing the value you started from.
+
+
+The sheet was re-sent with no message. **Checked before acting: it is byte-identical to the first
+upload** (same sha256, same 1248x832, 108,116 bytes) — so it carries no new resolution, and the
+teal/240px limitations recorded in BRAND2 still stand.
+
+What it did surface is that **the app's wordmark was still a CSS recreation**, and rendering the
+designer's lockup beside it made the gap obvious: theirs is markedly heavier and tighter than DM
+Sans 600 at .13em, and carries the rule, church name and tagline.
+
+- **Login page now uses their actual lockup**, cropped from the sheet (`icons/connect-lockup.png`)
+  — mark, wordmark, rule, church name, tagline, exactly as drawn. Five recreated CSS rules and the
+  separate mark `<img>` collapse into one image. Alt text carries the full wording.
+- **⚠ The crop needed its background snapped to pure white.** The sheet is a WebP, so its "white"
+  is compression noise around #f8–#fe, which reads as a faint grey panel against the login card's
+  #fff. Everything ≥242 is now #fff (safely above the tagline's mid-grey, so no text washed out) —
+  which also cut the file from 71 KB to 48 KB.
+- **Sized deliberately at 480px, not the 636px native crop.** The login page is where AU2 already
+  flags slow first paint on the church's network; 480 still gives ~1.6x density at its 300px
+  display size.
+- **Topbar/sidebar wordmarks stay CSS** — they must stay crisp at 15px and adapt — but now match
+  the artwork's weight (700, not 600) and tracking (.05em/.08em, not .13em/.14em).
+
+`npm test` (1346/1346, unchanged). Plus `node --check` on all three bundles and the worker, brace
+balance, div balance on both shells and the login page, a check that no dead `wm-*` class survives,
+and a backtick sweep of `html-head.js` (0 stray — the v1.179.0 lesson). **Not verified**: a live
+browser. (`icons/connect-lockup.png`, `src/html-templates.js`, `src/frontend/html-head.js`,
+`tlc-volunteer-worker.js`)
+
 ### v1.179.0 — SC10/SC11: office copy of the printable schedule, and a whole-month view (2026-08-16)
 
 Two asks off the Scheduler, from the Schedule tab: *"in the email volunteers, i also want the
