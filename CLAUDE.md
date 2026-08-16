@@ -533,6 +533,32 @@ so two decisions were made rather than copied:
   installed PWA. (`icons/*`, `favicon.svg`, `src/frontend/html-head.js`, `src/html-templates.js`,
   `tlc-volunteer-worker.js`)
 
+### FIN67 — Compensation base year counted MORE PEOPLE than the plan (2026-08-14, DONE)
+Second report on the same strip: with FIN66 live, "No raise" read **−$28,752 (−6.1%)**. Flat
+salaries plus rising benefit rates cannot be a saving — as wrong as the +34%, in the other
+direction.
+- **Same defect class as FIN66, one level down: POPULATION, not cost categories.** FY{target}
+  covers exactly the counted roster; FY{base} covers whoever the ledger paid — departed workers,
+  vacant posts, and anyone excluded as *paid from another budget* (FIN57's `externallyFunded`;
+  this church has an MDO worker in exactly that position). A bigger group on the base side makes a
+  flat plan read cheap.
+- Base rows are now attributed by leading ACCOUNT CODE against each counted worker's
+  `accountCode`, and split three ways: salaries for people on the roster · **pooled** benefits and
+  taxes (one line for the whole staff, never attributed to a person) · salaries for people NOT on
+  the roster, named with their figure and the direction of the bias. One click leaves them out.
+- **⚠ Not defaulted on**, deliberately — silently moving a headline that has already moved twice
+  is what makes it untrustworthy. **And it refuses to apply when NO salary account is attributed**:
+  an unlinked roster matches nothing, so it would delete the entire salary side of the base year.
+- **`/tax/` in `FIN_COMP_POOLED_RE` is load-bearing** — "59040 Payroll Taxes" matches `/payroll/`
+  in the account filter and would otherwise be read as somebody's wages.
+- Note also states what remains invisible: an account named some other way is not counted, and a
+  pooled line covers everyone paid that year, so an off-roster worker's pension and FICA stay in
+  and no split of that line would be other than invented.
+- `npm test` (1356/1356, 10 new); **every new test verified non-vacuous** (4 injections) —
+  including one reproducing the report: flat plan + one stranger = a saving; stranger out = a real
+  increase. **Not verified**: a live browser or the real ledger. (`src/frontend/js-finance.js`,
+  `src/frontend/html-head.js`, `test/finance-comp-baseline.test.js`)
+
 ### FIN66 — Compensation "vs FY{base}" compared two different questions (2026-08-14, DONE)
 Reported: "No raise applied to all 7 workers" printed beside **+$111,624 (+34.0%)**. No raise
 cannot cost a third more. The reporter's own guess was right, and there were **two** errors, both

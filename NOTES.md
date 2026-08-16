@@ -24,6 +24,49 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.179.0 — Compensation: the base year must cover the same PEOPLE (2026-08-14)
+
+Second report on the same strip, in the opposite direction: with FIN66's scope and period fixes
+live, "No raise" read **−$28,752 (−6.1%)** — flat salaries, rising benefit rates, and the plan
+somehow cheaper than the base year. Which is as wrong as the +34% before it.
+
+**Same class of defect, one level down. Not the cost categories this time — the population.** The
+FY{target} total covers exactly the counted roster. The FY{base} figure covers whatever the ledger
+paid: departed workers, vacant posts, and anyone deliberately excluded as *paid from another
+budget* (FIN57's `externallyFunded` — this church has an MDO worker in exactly that position).
+Left in, the base year is a bigger group of people than the plan, and a flat plan reads as a
+saving.
+
+Each base-year row is now attributed: a leading account code off the label, matched against the
+counted roster's own `accountCode`. Rows split three ways — **salaries for people on this roster**,
+**pooled benefits & taxes** (charged for the whole staff on one line, so never attributed to one
+person), and **salaries for people NOT on this roster**, called out by name and figure with the
+direction of the bias stated in words. One click leaves them out.
+
+**Deliberately not defaulted on.** Silently changing the headline is what makes a number
+untrustworthy, and this one has already moved twice. The default counts everything, exactly as
+before, and the note leads with what it found. **And the restriction refuses to apply when NO
+salary account is attributed** — an unlinked roster matches nothing, so applying it would delete
+the whole salary side of the base year and invent a far worse number than the one it set out to
+fix.
+
+`/tax/` was added to the pooled-cost test on purpose: "59040 Payroll Taxes" matches `/payroll/` in
+the account filter above it and would otherwise read as somebody's wages and be attributed to a
+person.
+
+The note also now states what it still cannot see: an account named some other way is not counted
+at all, and a pooled benefit line covers everyone the church paid that year — so if a
+not-on-roster worker's wages are in the base, their pension and FICA are too, and no split of that
+line would be anything but invented.
+
+`npm test` (1356/1356, 10 new). **Every new test verified non-vacuous** by injecting the exact
+regression it guards (4 injections, 4 correct failure sets) — including one that turns the
+reported symptom around: a flat plan against a base year holding one stranger reads as a saving,
+and reads as a real increase once the stranger is out. Plus `node --check` on all four bundles,
+brace balance on `app.css`, div balance on `CHMS_HTML`. **Not verified**: a live browser, or this
+church's real ledger. (`src/frontend/js-finance.js`, `src/frontend/html-head.js`,
+`test/finance-comp-baseline.test.js`)
+
 ### v1.178.0 — VOL-MOB1: the Volunteers tab clipped its own buttons on a phone (2026-08-14)
 
 Reported from an iPhone: the Volunteers tab "doesn't seem like it is rendering as native and more

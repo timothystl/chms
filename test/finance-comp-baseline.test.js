@@ -294,3 +294,121 @@ describe('"% of scale" growth method', () => {
     expect(span, 'the add row must span the whole table').toBe(headCount);
   });
 });
+
+// A second report, in the opposite direction: with the scope and period fixed, the strip read
+// −$28,752 (−6.1%) — no raise, rising benefit rates, and the plan somehow CHEAPER than the base
+// year. Same root cause class as the first report, one level down: not the cost categories this
+// time but the POPULATION. The plan covers exactly the counted roster; the base year covers
+// whoever the church actually paid, which includes departed or vacant posts and anyone excluded
+// as paid from another budget. Left in, the base is inflated and a flat plan reads as a saving.
+describe('the base year must cover the same people as the plan', () => {
+  function ctxWithStranger() {
+    const ctx = makeCtx();
+    seed(ctx, [
+      leaf('58001 Pastor Salary', 10000000, 10000000),
+      leaf('58004 MDO Wages', 4094478, 4094478),     // nobody on the roster is paid from this
+      leaf('59030 Pension', 1170000, 1170000),
+    ], {
+      roster: [{ name: 'Test Worker', position: 'Parish Administrator', role: 'other', trackKey: 'secretary',
+                 education: 'associates', yearsExperience: 12, accountCode: '58001',
+                 actualSalaryCents: 10000000, healthMode: 'optout', concordia: {} }],
+    });
+    return ctx;
+  }
+
+  it('names the salary account nobody on the roster is paid from', () => {
+    const ctx = ctxWithStranger();
+    const d = ctx.finCompBaselineDetail();
+    expect(d.unmatchedRows.map(r => r.label)).toEqual(['58004 MDO Wages']);
+    expect(d.unmatchedCents).toBe(4094478);
+  });
+
+  it('attributes a salary account to the worker paid from it', () => {
+    const ctx = ctxWithStranger();
+    const pastor = ctx.finCompBaselineDetail().rows.find(r => r.label === '58001 Pastor Salary');
+    expect(pastor.rosterNames).toEqual(['Test Worker']);
+    expect(pastor.kind).toBe('salary');
+  });
+
+  it('never attributes a pooled benefit line to one person', () => {
+    // Pension, health and employer taxes are charged for the whole staff on one line; claiming
+    // one worker owns that line would be a made-up split.
+    const ctx = ctxWithStranger();
+    const pension = ctx.finCompBaselineDetail().rows.find(r => r.label === '59030 Pension');
+    expect(pension.kind).toBe('benefit');
+    expect(pension.rosterNames).toEqual([]);
+  });
+
+  it('reads "59040 Payroll Taxes" as a pooled tax, not as somebody\'s wages', () => {
+    // It matches /payroll/ in the account filter and must not therefore look like a salary line.
+    const ctx = makeCtx();
+    seed(ctx, [leaf('59040 Payroll Taxes (FICA)', 765000, 765000)]);
+    expect(ctx.finCompBaselineDetail().rows[0].kind).toBe('benefit');
+  });
+
+  it('drops the stranger from the total once asked to compare like for like', () => {
+    const ctx = ctxWithStranger();
+    const all = ctx.finCompBaselineDetail().cents;
+    ctx._finCompBaselineRosterOnly = true;
+    const likeForLike = ctx.finCompBaselineDetail().cents;
+    expect(all - likeForLike).toBe(4094478);
+    // Pooled benefits stay: they cannot be split, which the note says in as many words.
+    expect(likeForLike).toBe(10000000 + 1170000);
+  });
+
+  it('turns a flat plan from a spurious saving into a real increase', () => {
+    const ctx = ctxWithStranger();
+    const before = ctx.finCompTotals(ctx.finCompComputeAll());
+    expect(before.deltaCents, 'the stranger makes the base look bigger than the plan').toBeLessThan(0);
+    ctx._finCompBaselineRosterOnly = true;
+    const after = ctx.finCompTotals(ctx.finCompComputeAll());
+    expect(after.deltaCents, 'like for like, benefits rising means the plan costs more').toBeGreaterThan(0);
+  });
+
+  it('refuses the restriction when NO salary account is attributed', () => {
+    // An unlinked roster would match nothing, and applying it would delete the whole salary side
+    // of the base year — a worse number than the one it set out to fix.
+    const ctx = makeCtx();
+    seed(ctx, [leaf('58001 Pastor Salary', 10000000, 10000000)], {
+      roster: [{ name: 'Unlinked', position: 'Parish Administrator', role: 'other', trackKey: 'secretary',
+                 education: 'associates', yearsExperience: 12, accountCode: '', actualSalaryCents: 10000000,
+                 healthMode: 'optout', concordia: {} }],
+    });
+    ctx._finCompBaselineRosterOnly = true;
+    const d = ctx.finCompBaselineDetail();
+    expect(d.canRosterOnly).toBe(false);
+    expect(d.rosterOnly).toBe(false);
+    expect(d.cents).toBe(10000000);
+  });
+
+  it('says nothing about strangers when every salary account is attributed', () => {
+    const ctx = makeCtx();
+    seed(ctx, [leaf('58001 Pastor Salary', 10000000, 10000000)], {
+      roster: [{ name: 'Test Worker', position: 'Parish Administrator', role: 'other', trackKey: 'secretary',
+                 education: 'associates', yearsExperience: 12, accountCode: '58001',
+                 actualSalaryCents: 10000000, healthMode: 'optout', concordia: {} }],
+    });
+    const html = ctx.finCompRenderBaselineNote(ctx.finCompTotals(ctx.finCompComputeAll()));
+    expect(html).toContain('both sides cover the same people');
+    expect(html).not.toContain('NOT on this roster');
+  });
+
+  it('calls the mismatch out by name, figure and consequence', () => {
+    const ctx = ctxWithStranger();
+    const html = ctx.finCompRenderBaselineNote(ctx.finCompTotals(ctx.finCompComputeAll()));
+    expect(html).toContain('NOT on this roster');
+    expect(html).toContain('58004 MDO Wages');
+    expect(html).toContain('$40,945');
+    expect(html, 'the reader must be told which way it biases the answer').toContain('reads cheaper than it is');
+    expect(html).toContain('finCompToggleBaselineRosterOnly');
+  });
+
+  it('the toggle flips the reading and is saved with the planner', () => {
+    const ctx = ctxWithStranger();
+    ctx.finCompToggleBaselineRosterOnly();
+    expect(ctx._finCompBaselineRosterOnly).toBe(true);
+    expect(ctx.finSalaryBuildSaveBody().compBaselineRosterOnly).toBe(true);
+    ctx.finCompToggleBaselineRosterOnly();
+    expect(ctx._finCompBaselineRosterOnly).toBe(false);
+  });
+});

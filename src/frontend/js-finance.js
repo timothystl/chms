@@ -6427,6 +6427,7 @@ function finLoadSalaryPlannerData() {
       if (saved.compOverrides && typeof saved.compOverrides === 'object') _finCompOverrides = saved.compOverrides;
       if (saved.compCustomPct != null) _finCompCustomPct = saved.compCustomPct;
       if (saved.compScalePct != null) _finCompScalePct = saved.compScalePct;
+      if (saved.compBaselineRosterOnly != null) _finCompBaselineRosterOnly = !!saved.compBaselineRosterOnly;
       finCompMigrateSavedShape(saved);
     } else if (!_finSalaryRoster.length) {
       _finSalaryRoster = JSON.parse(JSON.stringify(SALARY_STAFF_SEED));
@@ -6469,6 +6470,7 @@ function finSalaryBuildSaveBody() {
     healthPlanOption: _finHealthPlanSelectedOption,
     compMethod: _finCompMethod, compPerWorkerMethod: _finCompPerWorkerMethod,
     compOverrides: _finCompOverrides, compCustomPct: _finCompCustomPct, compScalePct: _finCompScalePct,
+    compBaselineRosterOnly: _finCompBaselineRosterOnly,
     referenceByYear: _finSalaryReferenceByYear, healthPlanPremiumOverrides: _finHealthPlanPremiumOverrides,
     healthFamilySize: _finHealthFamilySize
   };
@@ -7563,6 +7565,7 @@ var _finCompPerWorkerMethod = {};     // roster index -> method key
 var _finCompOverrides = {};           // roster index -> hand-typed dollars string (beats any method)
 var _finCompCustomPct = 3.5;
 var _finCompScalePct = 95;            // 'scalepct' method: this share of the district worksheet
+var _finCompBaselineRosterOnly = false; // count only base-year salary accounts this roster is paid from
 var _finCompSelected = 0;
 var _finCompDrawerOpen = true;
 var _finCompRefYear = null;           // which year the rates view is editing; null = the target year
@@ -7884,6 +7887,10 @@ function finCompComputeAll() {
 // this figure. Deliberately not /concordia/ either — "Concordia Children's Services" is
 // benevolence, not staff cost.
 var FIN_COMP_BASELINE_RE = /salar|payroll|compensation|wages|health|medical|dental|vision|disabilit|pension|retirement|\bfica\b|social security/i;
+// Of those, the ones charged for the whole staff on a single line. Order matters against the line
+// above: "59040 Payroll Taxes" matches /payroll/ there and must still be read as a pooled tax, not
+// as somebody's wages — hence /tax/ here.
+var FIN_COMP_POOLED_RE = /health|medical|dental|vision|disabilit|pension|retirement|\bfica\b|social security|tax/i;
 function finCompBaselineDetail() {
   var empty = { cents: 0, rows: [], prorated: false, weeks: 52 };
   if (!_finPlanBaseTree) return empty;
@@ -7897,16 +7904,47 @@ function finCompBaselineDetail() {
   var now = new Date();
   var weeks = (_finPlanBaseYear === now.getFullYear()) ? finWeeksElapsedInYear(now) : 52;
   var prorated = weeks < 52;
+  // Who on the counted roster is paid from each account code. This is what makes the comparison
+  // like-for-like: the FY{target} total covers exactly the counted roster, so a base-year SALARY
+  // account that no rostered worker is paid from is a different population's wages — a departed
+  // worker, a vacant post, or someone deliberately excluded as paid from another budget. Left in,
+  // it makes the base year look bigger than the plan and a raise read as a saving.
+  var rosterByCode = {};
+  finCompCountedEntries().forEach(function(e) {
+    var code = String(e.w.accountCode || '').trim();
+    if (!code) return;
+    (rosterByCode[code] = rosterByCode[code] || []).push(e.w.name || '(unnamed)');
+  });
   var rows = leaves.filter(function(n) { return FIN_COMP_BASELINE_RE.test(n.label || ''); }).map(function(n) {
+    var label = n.label || '';
     var actual = n.totalActualCents || 0;
-    if (n.hasBudgetInfo && n.totalBudgetCents) return { label: n.label, cents: n.totalBudgetCents, basis: 'budget' };
-    if (actual && prorated) return { label: n.label, cents: Math.round(actual * (52 / weeks)), basis: 'annualized' };
-    return { label: n.label, cents: actual, basis: 'actual' };
+    var codeMatch = String(label).match(/^\s*(\d{3,8})/);
+    var code = codeMatch ? codeMatch[1] : '';
+    var row = {
+      label: label, code: code,
+      // A pooled cost (pension, health, employer taxes) is charged for the whole staff on one
+      // line and cannot be split per person, so it is never attributed to a roster worker.
+      kind: FIN_COMP_POOLED_RE.test(label) ? 'benefit' : 'salary',
+      rosterNames: rosterByCode[code] || []
+    };
+    if (n.hasBudgetInfo && n.totalBudgetCents) { row.cents = n.totalBudgetCents; row.basis = 'budget'; }
+    else if (actual && prorated) { row.cents = Math.round(actual * (52 / weeks)); row.basis = 'annualized'; }
+    else { row.cents = actual; row.basis = 'actual'; }
+    return row;
   }).filter(function(r) { return r.cents; });
   rows.sort(function(a, b) { return b.cents - a.cents; });
+  var unmatched = rows.filter(function(r) { return r.kind === 'salary' && !r.rosterNames.length; });
+  // The restriction is only offered when at least one salary account IS attributed. With an
+  // unlinked roster nothing would match, and applying it would silently delete the whole salary
+  // side of the base year — a worse number than the one it set out to fix.
+  var canRosterOnly = unmatched.length > 0 && rows.some(function(r) { return r.kind === 'salary' && r.rosterNames.length; });
+  var rosterOnly = canRosterOnly && !!_finCompBaselineRosterOnly;
+  var counted = rosterOnly ? rows.filter(function(r) { return !(r.kind === 'salary' && !r.rosterNames.length); }) : rows;
   return {
-    cents: rows.reduce(function(s, r) { return s + r.cents; }, 0),
-    rows: rows, prorated: prorated, weeks: weeks
+    cents: counted.reduce(function(s, r) { return s + r.cents; }, 0),
+    rows: rows, countedRows: counted, unmatchedRows: unmatched,
+    unmatchedCents: unmatched.reduce(function(s, r) { return s + r.cents; }, 0),
+    canRosterOnly: canRosterOnly, rosterOnly: rosterOnly, prorated: prorated, weeks: weeks
   };
 }
 function finCompBaselineCents() { return finCompBaselineDetail().cents; }
@@ -8182,8 +8220,14 @@ function finCompRenderPlan(computed, totals) {
 // working: which ledger accounts were counted, on what basis, and what the plan side holds. A
 // percentage nobody can check is a percentage nobody should act on — the FIN63 lesson, where a
 // card said "no budget is on file" without naming what it had looked for.
+//
+// ⚠ The single most common reason this comparison misleads is POPULATION, not arithmetic: the
+// plan covers exactly the counted roster, while the base year covers whoever the church actually
+// paid. A salary account nobody on the roster is paid from is therefore called out by name and
+// figure, with a one-click way to leave it out — that is how a no-raise plan came to read as a
+// 6% SAVING, which is as wrong as the 34% increase before it and wrong in the other direction.
 function finCompRenderBaselineNote(totals) {
-  var b = totals.baseline || { rows: [], prorated: false, weeks: 52 };
+  var b = totals.baseline || { rows: [], unmatchedRows: [], countedRows: [], prorated: false, weeks: 52 };
   var planParts = 'cash salaries ' + finCompMoney(totals.salaryCents) + ' + benefits &amp; taxes ' + finCompMoney(totals.benefitsCents)
     + ' (pension, disability, health, employer FICA)';
   if (!b.rows.length) {
@@ -8191,22 +8235,55 @@ function finCompRenderBaselineNote(totals) {
       + ' church ledger, so there is nothing to compare against. FY' + _finPlanTargetYear + ' is ' + planParts
       + '. Import or sync that year on the Church Report tab first.</div>';
   }
-  var list = b.rows.map(function(r) {
-    return '<li>' + esc(r.label) + ' &middot; ' + finCompMoney(r.cents)
-      + ' <span style="color:var(--warm-gray);">(' + r.basis + ')</span></li>';
-  }).join('');
-  return '<div class="fin-comp-basis">'
+  function list(rows) {
+    return '<ul class="fin-comp-basis-list">' + rows.map(function(r) {
+      return '<li>' + esc(r.label) + ' &middot; ' + finCompMoney(r.cents)
+        + ' <span style="color:var(--warm-gray);">(' + r.basis
+        + (r.rosterNames.length ? ' &middot; ' + esc(r.rosterNames.join(', ')) : '') + ')</span></li>';
+    }).join('') + '</ul>';
+  }
+  var matchedSalary = b.rows.filter(function(r) { return r.kind === 'salary' && r.rosterNames.length; });
+  var pooled = b.rows.filter(function(r) { return r.kind === 'benefit'; });
+  var out = '<div class="fin-comp-basis">'
     + '<b>How the FY' + _finPlanBaseYear + ' comparison is figured.</b> '
-    + 'FY' + _finPlanTargetYear + ' is ' + planParts + '. '
-    + 'FY' + _finPlanBaseYear + ' is the same cost categories from the church ledger &mdash; '
-    + 'every expense account whose name mentions salary, payroll, wages, pension, retirement, FICA, '
-    + 'health, dental, vision or disability:'
-    + '<ul class="fin-comp-basis-list">' + list + '</ul>'
+    + 'FY' + _finPlanTargetYear + ' is ' + planParts + ', for the ' + finCompCountedCount() + ' worker(s) counted above. '
+    + 'FY' + _finPlanBaseYear + ' is the same cost categories from the church ledger.';
+  if (matchedSalary.length) {
+    out += '<div class="fin-comp-basis-h">Salaries for people on this roster</div>' + list(matchedSalary);
+  }
+  if (pooled.length) {
+    out += '<div class="fin-comp-basis-h">Pooled benefits &amp; taxes (charged for the whole staff on one line, so they cannot be split per person)</div>' + list(pooled);
+  }
+  if (b.unmatchedRows.length) {
+    out += '<div class="fin-comp-basis-h warn">Salaries for people NOT on this roster &mdash; ' + finCompMoney(b.unmatchedCents)
+      + (b.rosterOnly ? ' (not counted)' : ' (counted)') + '</div>'
+      + '<div>No worker counted above is paid from ' + (b.unmatchedRows.length === 1 ? 'this account' : 'these accounts')
+      + '. That is a departed or vacant post, a worker missing from the roster, or someone excluded as paid from another budget'
+      + ' &mdash; and while it is counted, the base year covers more people than the plan does, so the plan reads cheaper than it is.</div>'
+      + list(b.unmatchedRows)
+      + (finCompIsAdmin()
+          ? '<div><span class="fin-comp-link" onclick="finCompToggleBaselineRosterOnly()">'
+            + (b.rosterOnly ? '&#8634; count these accounts again' : 'Leave these out and compare like for like &rarr;') + '</span></div>'
+          : '');
+  } else {
+    out += '<div>Every salary account found is one a worker counted above is paid from, so both sides cover the same people.</div>';
+  }
+  out += '<div style="margin-top:7px;">'
     + (b.prorated
-        ? 'FY' + _finPlanBaseYear + ' is still in progress (' + b.weeks.toFixed(0) + ' weeks in), so an account with no budget on file is annualized from its actual &mdash; the same 52/weeks the Planning tab uses. Both sides are a full year.'
-        : 'FY' + _finPlanBaseYear + ' is complete, so these are its own full-year figures.')
-    + ' <b>Two things this comparison cannot see</b>, worth a glance before quoting the percentage: an account the church names in some other way is not counted, and the base year covers whoever was on the payroll then, which need not be the ' + finCompCountedEntries().length + ' worker(s) counted above.'
-    + '</div>';
+        ? 'FY' + _finPlanBaseYear + ' is still in progress (' + b.weeks.toFixed(0) + ' weeks in), so an account with no budget on file is annualized from its actual &mdash; the same 52/weeks the Planning tab uses. Both sides are a full year. '
+        : 'FY' + _finPlanBaseYear + ' is complete, so these are its own full-year figures. ')
+    + '<b>What this still cannot see:</b> an account the church names in some other way is not counted at all, '
+    + 'and a pooled benefit line covers everyone the church paid that year, including anyone listed above as not on this roster.'
+    + '</div></div>';
+  return out;
+}
+function finCompToggleBaselineRosterOnly() {
+  _finCompBaselineRosterOnly = !_finCompBaselineRosterOnly;
+  finCompSay(_finCompBaselineRosterOnly
+    ? 'FY' + _finPlanBaseYear + ' now counts only the accounts this roster is paid from.'
+    : 'FY' + _finPlanBaseYear + ' now counts every compensation account.');
+  finSalaryScheduleAutoSave();
+  finRerenderPlanningPreserveFocus();
 }
 // The worker drawer. Re-rendered wholesale on every selection (not value-patched) so every
 // <select>/<checkbox> follows the selected worker — the controlled-select trap called out in the
