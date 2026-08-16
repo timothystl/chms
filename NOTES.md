@@ -24,6 +24,62 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.180.0 — SC12: the readings editor was unreachable; ESV made explicit (2026-08-16)
+
+Asked: *"how do i set the assigned readings that the lector will get? and this is supposed to get
+emailed to them. we use ESV."*
+
+**Most of this already worked, and one thing was outright broken.** Readings auto-fill from the
+LCMS lectionary shipped in `scheduler/lcms_calendar.json` (LSB, 2025–2044), and the assignment
+email has always carried them — OT + Epistle to the Lector, Gospel + Psalm to the Liturgist, linked
+to BibleGateway with `version=ESV`. What did not work is **setting** them.
+
+- **⚠ The readings editor could not be opened at all.** Its only entry point was a `📖 Readings`
+  button rendered by `buildSummaryInner()` into `#schedule-tbody` — and that whole table has been
+  inside `<div class="table-wrapper" style="display:none;">` since the SC3 Focus Week redesign,
+  retained only to feed Print and CSV. **This is the SAC2 / FIN57 class exactly**: a redesign left
+  a control in a renderer that is no longer on screen, and nothing failed loudly. There was no way
+  to override a reading — for a deviation from the lectionary, a special service, or a correction.
+- **The fix is a readings strip on the Sunday itself**, in the pane that actually renders, showing
+  what each role will be sent with an Edit/Add control. Present in both the week and month views
+  (it lives in the shared `focusWeekRowHtml`, so it could not be in one and not the other), and
+  **not** swept up by the phone rule that hides `.btn-edit-readings`.
+- **One split, three surfaces.** New `readingsForRole(role, rd)` defines who receives which
+  reading; the on-screen strip, the HTML email and the plain-text email all call it. The plain-text
+  half was **two hand-inlined copies** of that split across the two send paths — the shape that
+  drifts (SW17) — now one `readingsTextLines()`.
+- **"Reset to Lectionary" now deletes the override** instead of only refilling the boxes. Saving
+  the lectionary's own values back as an override looks identical but pins the date to today's
+  text, so a later lectionary correction would never reach it — and the Sunday would keep reading
+  "set by hand" with nothing set by hand.
+- **ESV is named, not just linked.** One `BIBLE_VERSION` constant drives the URL and the words
+  printed beside it, so they cannot claim different translations. The email says ESV, the strip
+  shows an ESV chip, the editor says so, and the plain-text part now carries the links too.
+- **Optional verses are kept where they are read and dropped only where they break.** The
+  lectionary writes `Romans 13:( 8-10 ) 11-14`; parentheses mark optional verses, so new
+  `tidyReadingRef()` only fixes the scraped spacing for display (`Romans 13:(8-10) 11-14`), while
+  `cleanReading()` still strips them for the link, which BibleGateway cannot parse. Also closed a
+  small pre-existing gap there: removing the parentheses left `Romans 13: 11-14` with a stray space.
+- Saving a reading now also `queueD1Push()`es and repaints, so a correction reaches the server and
+  the strip is never stale. (`ws_readings` was already in the D1 sync key list.)
+
+`npm test` (1419/1419, 29 new in `test/scheduler-readings.test.js`, running the real served script
+in a `vm`). **Every new test verified non-vacuous** by injecting the exact regression it guards —
+9 injections, 9 correct failure sets. **Three of my own assertions were wrong and were corrected,
+not forced**: two counted a function's own definition as a call site and sliced a handler body by a
+guessed character count (which silently asserts nothing — now sliced to its real closing brace),
+and one demanded a link form the code did not produce, which turned out to be the real spacing gap
+above. Plus `node --check` on the served `<script>` for both builds, div/brace balance, and
+`scheduler/index.html` resynced by evaluating the module (SC5), byte-identical.
+
+**Not verified**: a live browser or a real sent email.
+
+**Nothing to configure** — a normal Sunday needs no setup; the lectionary fills it in.
+
+(`src/scheduler-html.js`, `scheduler/index.html`, `src/frontend/js-core.js`,
+`test/scheduler-readings.test.js`)
+
+---
 ### v1.180.0 — Login uses the designer's own lockup artwork (2026-08-16)
 
 **⚠ Version collision on the way in, worth knowing about.** A parallel session shipped its own

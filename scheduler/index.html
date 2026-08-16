@@ -554,6 +554,24 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .fw-month-sec .fw-row-date { font-size:1.15rem; }
 .fw-month-sec .fw-row-sub { font-size:.82rem; }
 
+/* ── Readings strip: what the Lector and Liturgist are emailed ─────────── */
+.fw-readings { background:var(--linen); border:1px solid var(--border); border-radius:10px; padding:11px 14px; margin-bottom:16px; font-family: var(--font-body); }
+.fw-readings-hd { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:7px; }
+.fw-readings-title { font-size:.7rem; font-weight:700; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.06em; }
+.fw-readings-src { font-size:.7rem; color:var(--warm-gray); }
+.fw-readings-ver { font-size:.66rem; font-weight:700; color:var(--mid-steel); background:var(--blue-mist); border-radius:999px; padding:1px 7px; letter-spacing:.04em; }
+.fw-readings-edit { margin-left:auto; background:none; border:1px solid var(--ice-blue); border-radius:6px; padding:2px 10px; cursor:pointer; font-size:.72rem; color:var(--steel-anchor); font-family: var(--font-body); }
+.fw-readings-edit:hover { background:var(--blue-mist); }
+.fw-readings-row { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; padding:3px 0; }
+.fw-readings-who { font-size:.68rem; font-weight:700; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.04em; width:70px; flex-shrink:0; }
+.fw-reading { font-size:.84rem; color:var(--charcoal); margin-right:14px; }
+.fw-reading-lbl { font-size:.68rem; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.04em; }
+.fw-reading a { color:var(--mid-steel); }
+.fw-readings-empty { font-size:.8rem; color:var(--warm-gray); }
+@media (max-width: 760px) {
+  .fw-readings-who { width:100%; }
+}
+
 .role-row { display:flex; align-items:center; gap:12px; width:100%; text-align:left; border-radius:10px; padding:12px 16px; margin-bottom:8px; min-height:56px; cursor:pointer; font-family: var(--font-body); background:var(--pale-sage); border:1px solid var(--soft-sage); }
 .role-row.empty { background:var(--error-bg); border-color:var(--error-border); }
 .role-row:hover { filter:brightness(0.98); }
@@ -1134,7 +1152,10 @@ body.embedded #app-content { display:block!important; }
     <button class="panel-close" id="btn-close-readings-panel">&times;</button>
   </div>
   <div class="panel-body">
-    <p id="readings-panel-subtitle" style="font-size:.85rem;color:var(--warm-gray);margin:0 0 16px;"></p>
+    <p id="readings-panel-subtitle" style="font-size:.85rem;color:var(--warm-gray);margin:0 0 6px;"></p>
+    <p id="readings-panel-source" style="font-size:.8rem;color:var(--warm-gray);margin:0 0 16px;"></p>
+
+    <div style="font-size:.7rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Emailed to the Lector</div>
     <div class="field">
       <label>Old Testament</label>
       <input type="text" id="readings-ot" placeholder="e.g. Isaiah 40:1-11" style="width:100%;">
@@ -1143,7 +1164,9 @@ body.embedded #app-content { display:block!important; }
       <label>Epistle</label>
       <input type="text" id="readings-epistle" placeholder="e.g. Romans 8:14-17" style="width:100%;">
     </div>
-    <div class="field" style="margin-top:12px;">
+
+    <div style="font-size:.7rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.06em;margin:20px 0 8px;">Emailed to the Liturgist</div>
+    <div class="field">
       <label>Gospel</label>
       <input type="text" id="readings-gospel" placeholder="e.g. John 3:1-17" style="width:100%;">
     </div>
@@ -1151,6 +1174,11 @@ body.embedded #app-content { display:block!important; }
       <label>Psalm</label>
       <input type="text" id="readings-psalm" placeholder="e.g. Psalm 29" style="width:100%;">
     </div>
+
+    <p style="font-size:.78rem;color:var(--warm-gray);margin:14px 0 0;">
+      Enter references, not text &mdash; the assignment email links each one to the passage in the <strong>ESV</strong>.
+      Parentheses mark optional verses and are kept as you type them.
+    </p>
     <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;">
       <button class="btn btn-primary" id="btn-save-readings">Save Readings</button>
       <button class="btn btn-outline" id="btn-reset-readings">Reset to Lectionary</button>
@@ -1341,12 +1369,62 @@ function getReadingsForDate(dateISO) {
   var e = lectCalendar[dateISO];
   return e ? { ot: e.ot||'', epistle: e.epistle||'', gospel: e.gospel||'', psalm: e.psalm||'' } : null;
 }
-// Strip LCMS parenthetical verse numbers (e.g. "Romans 13:( 8-10 ) 11-14" → "Romans 13:11-14")
-function cleanReading(r) { return (r||'').replace(/\s*\(.*?\)\s*/g,' ').replace(/\s+/g,' ').trim(); }
+// Strip LCMS parenthetical verse numbers (e.g. "Romans 13:( 8-10 ) 11-14" → "Romans 13:11-14").
+// The final colon pass closes the gap the parenthesis removal leaves behind —
+// without it that example comes out "Romans 13: 11-14".
+function cleanReading(r) {
+  return (r||'').replace(/\s*\(.*?\)\s*/g,' ').replace(/\s+/g,' ').replace(/:\s+/g,':').trim();
+}
+// For DISPLAY, keep the parenthetical verses — in the LCMS lectionary they mark
+// optional verses, so dropping them would quietly change what gets read aloud.
+// Only the scraped spacing is tidied: "Romans 13:( 8-10 ) 11-14" → "Romans 13:(8-10) 11-14".
+function tidyReadingRef(r) {
+  return (r||'').replace(/\(\s*/g,'(').replace(/\s*\)/g,')').replace(/\s+/g,' ').trim();
+}
+// The congregation reads the ESV. Named in one place so the link and the words
+// printed beside it can never claim two different translations.
+var BIBLE_VERSION = 'ESV';
+var BIBLE_VERSION_LABEL = 'ESV';
+
+// Which readings each role is sent. The Lector reads the lessons, the Liturgist
+// the Gospel and Psalm — one definition, used by the strip on screen, the HTML
+// email and the plain-text email, so they cannot end up disagreeing about who
+// gets what.
+function readingsForRole(role, rd) {
+  if (!rd) return [];
+  var r = (role || '').toLowerCase();
+  var pairs = r === 'lector'    ? [['OT', rd.ot], ['Epistle', rd.epistle]]
+            : r === 'liturgist' ? [['Gospel', rd.gospel], ['Psalm', rd.psalm]]
+            : [];
+  return pairs.filter(function(p){ return p[1]; })
+              .map(function(p){ return { label: p[0], ref: p[1] }; });
+}
+
+// The plain-text half of the assignment email. Was two hand-inlined copies in
+// the two send paths, which is how they come to drift (SW17) — one builder now.
+function readingsTextLines(assignments) {
+  var lines = [];
+  (assignments || []).forEach(function(a) {
+    var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
+    var items = readingsForRole(a.role, rd);
+    if (!items.length) return;
+    if (!lines.length) lines.push('', 'Your Readings (' + BIBLE_VERSION_LABEL + '):');
+    var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
+    lines.push('', '  ' + a.date + ' \u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')');
+    items.forEach(function(it) {
+      lines.push('    ' + it.label + ': ' + tidyReadingRef(it.ref));
+      var href = bibleLink(it.ref);
+      if (href) lines.push('      ' + href);
+    });
+  });
+  return lines;
+}
 function bibleLink(ref) {
+  // The link drops the optional-verse parentheses on purpose — BibleGateway
+  // cannot parse them and would return no passage at all.
   var clean = cleanReading(ref);
   if (!clean) return '';
-  return 'https://www.biblegateway.com/passage/?search=' + encodeURIComponent(clean) + '&version=ESV';
+  return 'https://www.biblegateway.com/passage/?search=' + encodeURIComponent(clean) + '&version=' + BIBLE_VERSION;
 }
 // ──────────────────────────────────────────────────────────────────
 
@@ -1523,6 +1601,15 @@ function openReadingsPanel(dateISO) {
   var subtitle  = lectEntry ? fmtSundayName(lectEntry.sundayName) + ' \u2014 Series ' + lectEntry.series : fmtDate(d);
   document.getElementById('readings-panel-title').textContent = 'Readings for ' + fmtDate(d);
   document.getElementById('readings-panel-subtitle').textContent = subtitle;
+  // Say where the values in the boxes came from — otherwise a lectionary
+  // prefill and a hand-typed override look exactly alike.
+  var srcEl = document.getElementById('readings-panel-source');
+  if (srcEl) {
+    srcEl.textContent = getReadingsOverrides()[dateISO]
+      ? 'Set by hand for this date. "Reset to Lectionary" puts it back.'
+      : (lectEntry ? 'From the LCMS lectionary. Editing here overrides it for this date only.'
+                   : 'Nothing in the lectionary for this date \u2014 enter the readings yourself.');
+  }
   var r = getReadingsForDate(dateISO) || {};
   document.getElementById('readings-ot').value      = r.ot      || '';
   document.getElementById('readings-epistle').value = r.epistle || '';
@@ -1541,7 +1628,9 @@ document.getElementById('btn-save-readings').addEventListener('click', function(
     psalm:   document.getElementById('readings-psalm').value.trim(),
   };
   saveReadingsOverrides(overrides);
-  showAlert('readings-alert', 'Readings saved.', 'success');
+  queueD1Push();
+  renderFocusWeek();
+  showAlert('readings-alert', 'Readings saved. The Lector and Liturgist get these in their assignment email.', 'success');
   setTimeout(closeAllPanels, 800);
 });
 
@@ -1552,7 +1641,16 @@ document.getElementById('btn-reset-readings').addEventListener('click', function
   document.getElementById('readings-epistle').value = e.epistle || '';
   document.getElementById('readings-gospel').value  = e.gospel  || '';
   document.getElementById('readings-psalm').value   = e.psalm   || '';
-  showAlert('readings-alert', 'Reset to lectionary. Click Save to keep.', 'info');
+  // Drop the override outright rather than only refilling the boxes. Saving the
+  // lectionary's own values back as an override looks identical but pins this
+  // date to today's text, so a later lectionary correction would never reach it
+  // — and the Sunday would keep reading "set by hand" with nothing set by hand.
+  var overrides = getReadingsOverrides();
+  delete overrides[_readingsDateISO];
+  saveReadingsOverrides(overrides);
+  queueD1Push();
+  renderFocusWeek();
+  showAlert('readings-alert', 'Back to the lectionary for this date.', 'success');
 });
 
 document.getElementById('btn-close-readings-panel').addEventListener('click', closeAllPanels);
@@ -2773,6 +2871,52 @@ function renderFocusWeekDetail() {
   pane.innerHTML = focusWeekRowHtml(focusWeekSelectedIdx, pMap);
 }
 
+// Readings for one Sunday, shown on the Sunday itself rather than only inside
+// the editor — these are what the Lector and Liturgist are emailed, so the
+// person building the schedule needs to see them without opening anything.
+//
+// ⚠ Until now the ONLY way into the readings editor was a button rendered into
+// the legacy #schedule-table, and that table has been display:none since the
+// Focus Week redesign — so readings could not be set at all from the UI. Any
+// new entry point has to live here, in the pane that is actually on screen.
+function focusWeekReadingsHtml(dateISO) {
+  var rd = getReadingsForDate(dateISO);
+  var custom = !!getReadingsOverrides()[dateISO];
+  var editBtn = '<button type="button" class="fw-readings-edit" data-date="'+esc(dateISO)+'">'
+    + (rd ? 'Edit' : 'Add') + '</button>';
+
+  if (!rd) {
+    return '<div class="fw-readings">'
+      + '<div class="fw-readings-hd"><span class="fw-readings-title">Readings</span>' + editBtn + '</div>'
+      + '<div class="fw-readings-empty">Not in the lectionary for this date &mdash; add them and the Lector and Liturgist get them by email.</div>'
+      + '</div>';
+  }
+
+  // Grouped by who receives it, since that is the question this strip answers.
+  // readingsForRole is the same split the emails use — not a second copy of it.
+  function roleRow(role) {
+    var items = readingsForRole(role, rd);
+    var body = items.length
+      ? items.map(function(it) {
+          return '<span class="fw-reading"><span class="fw-reading-lbl">'+esc(it.label)+'</span> '
+            + '<a href="'+esc(bibleLink(it.ref))+'" target="_blank" rel="noopener">'+esc(tidyReadingRef(it.ref))+'</a></span>';
+        }).join('')
+      : '<span class="fw-readings-empty">none set</span>';
+    return '<div class="fw-readings-row"><span class="fw-readings-who">'+esc(role)+'</span>' + body + '</div>';
+  }
+
+  return '<div class="fw-readings">'
+    + '<div class="fw-readings-hd">'
+      + '<span class="fw-readings-title">Readings</span>'
+      + '<span class="fw-readings-src">' + (custom ? 'set by hand' : 'from the LCMS lectionary') + '</span>'
+      + '<span class="fw-readings-ver">' + esc(BIBLE_VERSION_LABEL) + '</span>'
+      + editBtn
+    + '</div>'
+    + roleRow('Lector')
+    + roleRow('Liturgist')
+    + '</div>';
+}
+
 // One Sunday's heading + role rows — byte-identical in both views, because they
 // ARE the same call. The month view only wraps each one in .fw-month-sec, which
 // is what shrinks the heading; nothing here needs to know which view it is in.
@@ -2789,7 +2933,8 @@ function focusWeekRowHtml(rowIdx, pMap) {
       + '<div class="fw-row-sub">'+esc(focusWeekRowSubLabel(row, dateISO))+'</div>'
     + '</div>'
     + focusWeekFillStatusHtml(row, rowIdx, pMap)
-    + '</div>';
+    + '</div>'
+    + focusWeekReadingsHtml(dateISO);
 
   if (row.type === 'special') {
     (row.services||[]).forEach(function(svc, svcIdx) {
@@ -2998,6 +3143,10 @@ document.getElementById('fw-rail').addEventListener('click', function(e) {
 });
 
 document.getElementById('fw-detail').addEventListener('click', function(e) {
+  var rdBtn = e.target.closest('.fw-readings-edit');
+  if (rdBtn) { e.stopPropagation(); openReadingsPanel(rdBtn.getAttribute('data-date')); return; }
+  // A reading reference is a real link out to the passage — let it open.
+  if (e.target.closest('.fw-reading a')) return;
   var confEl = e.target.closest('.rr-conf');
   if (confEl) { e.stopPropagation(); cycleConfirmation(confEl.getAttribute('data-conf-key')); return; }
   var rowBtn = e.target.closest('.role-row');
@@ -3949,22 +4098,9 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
   // ---- readings section (Lectors: OT+Epistle, Liturgists: Gospel+Psalm) ----
   var readingsItems = [];
   assignments.forEach(function(a) {
-    var role = (a.role || '').toLowerCase();
-    var isLector = role === 'lector';
-    var isLiturgist = role === 'liturgist';
-    if (!isLector && !isLiturgist) return;
     var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
-    if (!rd) return;
-    var rdLines = [];
-    if (isLector) {
-      if (rd.ot)      rdLines.push({ label: 'OT',      ref: rd.ot });
-      if (rd.epistle) rdLines.push({ label: 'Epistle', ref: rd.epistle });
-    } else {
-      if (rd.gospel)  rdLines.push({ label: 'Gospel',  ref: rd.gospel });
-      if (rd.psalm)   rdLines.push({ label: 'Psalm',   ref: rd.psalm });
-    }
+    var rdLines = readingsForRole(a.role, rd);
     if (!rdLines.length) return;
-    var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
     readingsItems.push({ header: a.date + ' — ' + roleLabel(a.role), lines: rdLines });
   });
 
@@ -3972,9 +4108,11 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
   if (readingsItems.length) {
     var itemsHtml = readingsItems.map(function(item, idx) {
       var refsHtml = item.lines.map(function(l) {
-        var link = bibleLink(l.ref); // swap for a BibleGateway ESV link if you don't already have one
-        var href = link || ('https://www.biblegateway.com/passage/?search=' + encodeURIComponent(l.ref) + '&version=ESV');
-        return '<a href="' + esc(href) + '" style="color:#3D627C;">' + esc(l.ref) + '</a>';
+        var href = bibleLink(l.ref);
+        var shown = esc(l.label) + ': ' + esc(tidyReadingRef(l.ref));
+        return href
+          ? '<a href="' + esc(href) + '" style="color:#3D627C;">' + shown + '</a>'
+          : shown;
       }).join(' &nbsp;&middot;&nbsp; ');
       return ''
         + '<tr><td style="' + (idx > 0 ? 'padding-top:8px;' : '') + '">'
@@ -3989,8 +4127,9 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
     readingsSection = ''
       + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F8FA;border:1px solid #C4DDE8;border-radius:10px;margin-bottom:22px;">'
       + '<tr><td style="padding:16px 18px;">'
-      + '<div style="font-size:0.72rem;font-weight:700;color:#3D627C;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Your Readings</div>'
+      + '<div style="font-size:0.72rem;font-weight:700;color:#3D627C;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Your Readings <span style="font-weight:400;color:#7A6E60;letter-spacing:0;text-transform:none;">&middot; ' + esc(BIBLE_VERSION_LABEL) + '</span></div>'
       + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">' + itemsHtml + '</table>'
+      + '<div style="font-size:0.74rem;color:#7A6E60;margin-top:10px;">Tap a reading to open it in the ' + esc(BIBLE_VERSION_LABEL) + '. Verses in parentheses are optional.</div>'
       + '</td></tr></table>';
   }
 
@@ -4165,26 +4304,8 @@ function sendReminderEmails() {
       var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
       lines.push('  \u2022 ' + a.date + ' \u2014 ' + svcLabel + ': ' + roleLabel(a.role));
     });
-    // Add readings for Lectors and Liturgists
-    var hasReadings = false;
-    assignments.forEach(function(a) {
-      var role = (a.role || '').toLowerCase();
-      var isLector = role === 'lector';
-      var isLiturgist = role === 'liturgist';
-      if (!isLector && !isLiturgist) return;
-      var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
-      if (!rd) return;
-      if (!hasReadings) { lines.push('', 'Your Readings:'); hasReadings = true; }
-      var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
-      lines.push('', '  ' + a.date + ' \u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')');
-      if (isLector) {
-        if (rd.ot)      lines.push('    OT: ' + rd.ot);
-        if (rd.epistle) lines.push('    Epistle: ' + rd.epistle);
-      } else {
-        if (rd.gospel) lines.push('    Gospel: ' + rd.gospel);
-        if (rd.psalm)  lines.push('    Psalm: ' + rd.psalm);
-      }
-    });
+    // Readings for Lectors and Liturgists
+    lines.push.apply(lines, readingsTextLines(assignments));
     var _rsvpBase = s.workerUrl || (typeof window !== 'undefined' ? window.location.origin : '');
     if (token && _rsvpBase) {
       lines.push(
@@ -4604,23 +4725,7 @@ function _sendWeekReminders() {
       lines.push('  \u2022 ' + a.date + ' \u2014 ' + svcLabel + ': ' + roleLabel(a.role));
     });
     // Readings for Lectors / Liturgists
-    var hasReadings = false;
-    assignments.forEach(function(a) {
-      var role = (a.role || '').toLowerCase();
-      if (role !== 'lector' && role !== 'liturgist') return;
-      var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
-      if (!rd) return;
-      if (!hasReadings) { lines.push('', 'Your Readings:'); hasReadings = true; }
-      var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
-      lines.push('', '  ' + a.date + ' \u2014 ' + svcLabel + ' (' + roleLabel(a.role) + ')');
-      if (role === 'lector') {
-        if (rd.ot)      lines.push('    OT: ' + rd.ot);
-        if (rd.epistle) lines.push('    Epistle: ' + rd.epistle);
-      } else {
-        if (rd.gospel) lines.push('    Gospel: ' + rd.gospel);
-        if (rd.psalm)  lines.push('    Psalm: ' + rd.psalm);
-      }
-    });
+    lines.push.apply(lines, readingsTextLines(assignments));
     if (token && _rsvpBase) {
       lines.push(
         '',
