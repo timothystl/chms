@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.178.0';
+export const DEPLOY_VERSION = '1.179.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -315,8 +315,6 @@ function showTab(name, finSection) {
   if (name === 'volunteers' && _userRole !== 'admin') return;
   if (name === 'scheduler'  && _userRole !== 'admin') return;
   var labels = {home:'Home',people:'People',households:'Households',organizations:'Organizations',giving:'Giving',tuitionaid:'Tuition Aid Planner',finance:'Financial Reports',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings',volunteers:'Volunteers',scheduler:'Scheduler'};
-  // Three-pillar map: People (people data), Giving (financial), Ministry (engagement/admin)
-  var pillars = {people:'people',households:'people',organizations:'people',giving:'giving',tuitionaid:'giving',finance:'giving',attendance:'ministry',reports:'ministry',register:'ministry',volunteers:'ministry',scheduler:'ministry'};
   // Push browser history so back button works (skip when responding to popstate)
   if (!_tabFromPopState) {
     history.pushState({ tab: name }, '', '#' + name);
@@ -332,13 +330,6 @@ function showTab(name, finSection) {
   });
   var t = document.getElementById('topbar-title');
   if (t) t.textContent = labels[name] || name;
-  var pillEl = document.getElementById('topbar-pill');
-  if (pillEl) {
-    var pillar = pillars[name];
-    pillEl.className = 'pill-section' + (pillar ? ' pill-' + pillar : '');
-    pillEl.textContent = pillar || '';
-    pillEl.hidden = !pillar;
-  }
   closeSidebar();
   if (name === 'home') loadDashboard();
   if (name === 'people') loadPeople();
