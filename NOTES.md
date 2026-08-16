@@ -24,6 +24,43 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.179.0 — The lockup is on screen; pillar pills removed (2026-08-14)
+
+Reported with a desktop screenshot: "the logo design didnt get added here." Correct — **the mark
+only ever lived in the sidebar, and the sidebar is an off-canvas drawer at every width** (VUX10),
+so unless you opened the hamburger the app showed no branding at all. The asset itself was fine
+(`/icons/connect-mark.png` verified live: 200, valid 248px PNG).
+
+Now the **full lockup**, per the follow-up ("add the full name logo design and not just the simple
+logo"):
+- **Topbar** — the horizontal form: mark + `CONNECT` wordmark, click-to-Home, persistent on every
+  page. The wordmark hides below 767px (the mark alone still reads as Connect) — see the overflow
+  measurements below.
+- **Sidebar** — the stacked form, mirroring the login page: mark, `CONNECT`, rule, church name.
+  The 200px rail has the room for it.
+
+**Pillar pills removed** ("remove all the pills at the top on each page"). The PEOPLE / MINISTRY /
+GIVING pill from the BR2 three-pillar branding is gone: markup, the `pillars` map and painter in
+`showTab()`, and all five `.pill-section` CSS rules. No references remain.
+
+**⚠ A backtick in one of my own new CSS comments closed the outer `String.raw` literal** and broke
+the whole stylesheet module — the SC3-BUG1/FIN15 class again. It was caught only because a build
+error surfaced after I stopped piping stderr to `/dev/null`; **for several minutes before that,
+every "rebuild" silently kept serving the previous `app.css`, so a real fix looked like it had no
+effect.** Do not suppress stderr on the harness build.
+
+**Topbar overflow, measured rather than assumed** (long title + version + role chip + Sign Out):
+it already overflowed **31px at 360px before any branding existed**, and the mark added 40 more.
+Two fixes: `.topbar-title` gets `min-width:0` + ellipsis (a flex item's default `min-width:auto` is
+its content width, so `flex:1` could not actually shrink), and dropping the pill frees ~100px.
+Result: **0 overflow at 430 / 390 / 360 / 320**, with Sign Out on screen at every width — better
+than before this change.
+
+`npm test` (1346/1346, unchanged — no test asserted on the pill). Plus `node --check` on all three
+bundles, `app.css` brace balance, div balance on both shells, and a check that no `topbar-pill` or
+`pill-section` reference survives anywhere. **Not verified**: a real phone.
+(`src/frontend/html-head.js`, `src/frontend/js-core.js`)
+
 ### v1.178.0 — VOL-MOB1: the Volunteers tab clipped its own buttons on a phone (2026-08-14)
 
 Reported from an iPhone: the Volunteers tab "doesn't seem like it is rendering as native and more

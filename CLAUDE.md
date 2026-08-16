@@ -470,6 +470,21 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### BRAND3 — Lockup on screen; pillar pills removed (2026-08-14, DONE)
+- **The mark was invisible in normal use**: it lived only in the sidebar, which is an off-canvas
+  drawer at every width (VUX10). The topbar now carries the horizontal lockup (mark + `CONNECT`,
+  wordmark hidden below 767px) and the sidebar carries the stacked one (mark, `CONNECT`, rule,
+  church name). The asset was never broken — verified live 200 / valid PNG before changing anything.
+- **Pillar pills (PEOPLE / MINISTRY / GIVING) deleted** — markup, the `pillars` map and painter in
+  `showTab()`, and all five `.pill-section` rules. Nothing references them now.
+- **⚠ A backtick in one of my own CSS comments closed the outer `String.raw` literal again**
+  (SC3-BUG1 class). It hid for several minutes because the harness build piped stderr to
+  `/dev/null`, so every rebuild silently reused the stale `app.css` and the fix looked inert.
+  **Never suppress stderr on the build step.**
+- **The topbar already overflowed 31px at 360px before any branding was added.** Real cause: a flex
+  item's default `min-width:auto` meant `.topbar-title{flex:1}` could not shrink. Fixed with
+  `min-width:0` + ellipsis; with the pill gone, overflow is now 0 at 430/390/360/320.
+
 ### VOL-MOB1 — Volunteers tab clipped its own buttons on a phone (2026-08-14, DONE)
 Reported as "not rendering as native, more like it is in a window." **Reproduced by measuring the
 real built app in a browser at phone width, not by reading CSS.**

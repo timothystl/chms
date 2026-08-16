@@ -138,8 +138,13 @@ a.s-item{text-decoration:none;color:inherit;}
 /* No tile behind the mark: the sidebar is already --color-navy, so a navy tile
    was invisible and only cost the mark 2px of room. The mark carries its own
    white center circle, which is what separates it from the navy. */
-.s-logo{width:40px;height:40px;display:flex;align-items:center;justify-content:center;margin-bottom:10px;flex-shrink:0;cursor:pointer;align-self:center;}
+/* Full lockup, not just the mark: the sidebar is 200px wide, so the wordmark and
+   the church name both fit. Mirrors the login page's lockup. */
+.s-logo{display:flex;flex-direction:column;align-items:center;gap:6px;margin:2px 0 12px;flex-shrink:0;cursor:pointer;padding:0 8px;}
 .s-logo img{width:40px;height:40px;display:block;}
+.s-word{font-family:var(--font-head);font-weight:600;font-size:15px;letter-spacing:.14em;color:var(--white);line-height:1;}
+.s-word-rule{width:64px;height:1px;background:rgba(255,255,255,.35);}
+.s-org{font-size:7.5px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:rgba(255,255,255,.6);text-align:center;line-height:1.3;}
 .s-item{width:100%;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:flex-start;padding:0 8px 0 14px;gap:10px;cursor:pointer;position:relative;flex-shrink:0;transition:background .12s;overflow:hidden;white-space:nowrap;}
 .s-item:hover{background:rgba(255,255,255,.08);}
 .s-item.active{background:rgba(46,126,166,.22);box-shadow:inset 3px 0 0 var(--color-teal);}
@@ -195,8 +200,22 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 .content-area{flex:1;display:flex;flex-direction:column;overflow:hidden;margin-left:0;}
 /* ── TOPBAR ── */
 .topbar{height:50px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0;background:var(--white);}
-.topbar-title{font-size:15px;font-weight:500;color:var(--charcoal);flex:1;}
+/* min-width:0 is load-bearing: a flex item's default min-width is auto, i.e. its
+   content width, so flex:1 could not actually shrink and the title pushed Sign Out
+   off the right edge instead. It already overflowed by 31px at 360px before the
+   topbar mark was added; the mark made it worse and this is the real fix for both. */
+.topbar-title{font-size:15px;font-weight:500;color:var(--charcoal);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .hamburger{display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;padding:0;}
+/* The lockup also lives in the sidebar, but the sidebar is an off-canvas drawer at
+   every width (VUX10) — so on any normal screen the app showed no branding at all.
+   This is the persistent copy: mark + wordmark, the horizontal form of the lockup. */
+.topbar-brand{display:flex;align-items:center;gap:8px;cursor:pointer;flex-shrink:0;}
+.topbar-mark{width:28px;height:28px;display:block;flex-shrink:0;}
+.topbar-word{font-family:var(--font-head);font-weight:600;font-size:15px;letter-spacing:.13em;color:var(--color-navy);line-height:1;white-space:nowrap;}
+/* Measured: the topbar already overflowed by 31px at 360px before any branding was
+   added, and the wordmark costs ~95px more. The mark alone still reads as Connect,
+   so the word is what gives way on a phone. */
+@media(max-width:767px){.topbar-word{display:none;}}
 .hamburger svg{width:22px;height:22px;stroke:var(--charcoal);fill:none;stroke-width:2;}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:90;}
 .sidebar-overlay.open{display:block;}
@@ -214,11 +233,6 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 .pill-tag.active{background:var(--sky-steel);color:var(--white);}
 .tag-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;}
 /* ── Connect three-pill section identifiers ── */
-.pill-section{display:inline-flex;align-items:center;padding:3px 11px;border-radius:99px;font-family:var(--font-body);font-size:10px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--white);white-space:nowrap;line-height:1.4;}
-.pill-section.pill-people{background:var(--color-navy);}
-.pill-section.pill-ministry{background:var(--color-teal);}
-.pill-section.pill-giving{background:var(--color-gold);color:var(--color-navy);}
-.pill-section[hidden]{display:none;}
 /* ── BUTTONS ── */
 .btn-primary{padding:8px 18px;background:var(--steel-anchor);color:var(--white);border:none;border-radius:8px;font-family:var(--font-body);font-size:.9rem;font-weight:700;cursor:pointer;transition:background .15s;}
 .btn-primary:hover{background:var(--deep-steel);}
@@ -1862,7 +1876,7 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 <div id="error-boundary" role="alert" aria-live="assertive" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;background:#c0392b;color:var(--white);padding:11px 20px;border-radius:9px;font-size:.85rem;max-width:520px;width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.3);"></div>
 <div class="app-shell">
 <nav class="sidebar" id="sidebar">
-  <div class="s-logo" onclick="showTab('home')" title="Home"><img src="/icons/connect-mark.png" alt="Connect" width="40" height="40"></div>
+  <div class="s-logo" onclick="showTab('home')" title="Home"><img src="/icons/connect-mark.png" alt="" width="40" height="40"><span class="s-word">CONNECT</span><span class="s-word-rule"></span><span class="s-org">Timothy Lutheran Church</span></div>
   <div class="s-item active no-member" data-tab="home" onclick="showTab('home')"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg><span class="s-tip">Home</span></div>
   <div class="s-section-hdr">People</div>
   <div class="s-item" data-tab="people" onclick="showTab('people')"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="s-tip">People</span></div>
@@ -1887,7 +1901,7 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 <div class="content-area">
 <div class="topbar">
   <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-  <span class="pill-section" id="topbar-pill" hidden></span>
+  <div class="topbar-brand" onclick="showTab('home')" title="Home"><img class="topbar-mark" src="/icons/connect-mark.png" alt="" width="28" height="28"><span class="topbar-word">CONNECT</span></div>
   <span class="topbar-title" id="topbar-title">People</span>
   <div style="display:flex;gap:8px;align-items:center;">
     <span style="font-size:.7rem;color:var(--warm-gray);" id="deploy-ver"></span>
