@@ -142,7 +142,7 @@ a.s-item{text-decoration:none;color:inherit;}
    the church name both fit. Mirrors the login page's lockup. */
 .s-logo{display:flex;flex-direction:column;align-items:center;gap:6px;margin:2px 0 12px;flex-shrink:0;cursor:pointer;padding:0 8px;}
 .s-logo img{width:40px;height:40px;display:block;}
-.s-word{font-family:var(--font-head);font-weight:600;font-size:15px;letter-spacing:.14em;color:var(--white);line-height:1;}
+.s-word{font-family:var(--font-head);font-weight:700;font-size:15px;letter-spacing:.08em;color:var(--white);line-height:1;}
 .s-word-rule{width:64px;height:1px;background:rgba(255,255,255,.35);}
 .s-org{font-size:7.5px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:rgba(255,255,255,.6);text-align:center;line-height:1.3;}
 .s-item{width:100%;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:flex-start;padding:0 8px 0 14px;gap:10px;cursor:pointer;position:relative;flex-shrink:0;transition:background .12s;overflow:hidden;white-space:nowrap;}
@@ -211,7 +211,7 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
    This is the persistent copy: mark + wordmark, the horizontal form of the lockup. */
 .topbar-brand{display:flex;align-items:center;gap:8px;cursor:pointer;flex-shrink:0;}
 .topbar-mark{width:28px;height:28px;display:block;flex-shrink:0;}
-.topbar-word{font-family:var(--font-head);font-weight:600;font-size:15px;letter-spacing:.13em;color:var(--color-navy);line-height:1;white-space:nowrap;}
+.topbar-word{font-family:var(--font-head);font-weight:700;font-size:15px;letter-spacing:.05em;color:var(--color-navy);line-height:1;white-space:nowrap;}
 /* Measured: the topbar already overflowed by 31px at 360px before any branding was
    added, and the wordmark costs ~95px more. The mark alone still reads as Connect,
    so the word is what gives way on a phone. */
