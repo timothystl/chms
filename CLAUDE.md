@@ -1985,6 +1985,39 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   - **SC7-FIX4** — User confirmed the exact same error live at v1.55.4 (after SC7-FIX3's blob-URL-realm fix deployed and was verified via `deploy.yml`'s own run history to have actually gone out — ruling out the CI/deploy-pipeline gap documented elsewhere in this file). Actual root cause, found this time: the app's Content-Security-Policy header (`SEC_HEADERS` in `src/auth.js`) sets `img-src * data:` — and per the CSP spec, the `*` wildcard source explicitly does **not** cover the `blob:`/`data:`/`filesystem:` schemes (they must be listed by name even when `*` is present). `data:` was already listed, but `blob:` was not — so every `<img src="blob:...">` load was silently blocked by CSP the whole time, independent of both the XML-well-formedness fix (SC7-FIX2) and the cross-document blob-URL-realm fix (SC7-FIX3), which is exactly why neither of those actually resolved it: this bug was present underneath both. The print-preview popup (`window.open('')` + `document.write()`) inherits its opener's CSP, so this applied there too. Fixed by adding `blob:` to `img-src`. This is the one directive in `SEC_HEADERS` that needed it — `connect-src` governs fetch/XHR, not `<img>` loads, so it was never in play. `npm test` (187/187), `node --check` on both built app-JS bundles and the worker entry point. **Not verified**: an actual browser — if this still doesn't resolve it, next check whether the browser's dev tools Console/Network tab shows any remaining CSP violation or a different failure entirely (the SVG-in-`<img>`-via-foreignObject rasterization technique itself, per SC7-FIX3's note). Done 2026-07-22 (v1.55.5). (`src/auth.js`)
   - **SC7-FIX5** — User confirmed the CSP fix deployed (v1.55.5) but the exact same generic error is still shown; clarified the on-screen preview itself renders fine (the always-worked `.pp-page` HTML/CSS, unrelated to the export pipeline) — it's specifically the save/export step that fails, with no way from the generic message to tell which of several remaining possibilities is the actual cause. Rather than guess a fourth time, added real diagnostics: `ppExportCanvas()`'s callback now carries a `reason` string (surfaced directly in the on-page status line, e.g. "Could not generate an image (SecurityError: ...)", plus `console.error`'d for anyone who does have devtools open) instead of the prior bare `cb(null)` that discarded the actual failure. Also instrumented the one remaining, most-likely suspect: `canvas.toBlob()` returning no data with no thrown exception (which the prior try/catch wouldn't have caught, since it's not an exception) now reports "toBlob returned no data (canvas may be tainted)" — some browsers set a canvas's origin-clean flag to false for any SVG image containing `<foreignObject>` content, even fully local/same-origin content, which would make `toBlob()`/`getImageData()` permanently unable to read the canvas back regardless of CSP or blob-URL realm; this is the next real bug to look for once the specific `reason` text from a live retry is known — SC7-FIX2/FIX3/FIX4 already ruled out well-formedness, blob-URL realm, and CSP as at least partial causes. `npm test` (187/187), `node --check` on the built script and both app-JS bundles, `scheduler/index.html` resynced. **Not verified**: an actual browser. Done 2026-07-23 (v1.55.6). (`src/scheduler-html.js`)
 
+### SC12 — ⚠ The readings editor was unreachable; ESV named, not just linked (2026-08-16, DONE)
+Asked how to set the readings the Lector is emailed. **Most of it already worked**: readings
+auto-fill from the LCMS lectionary (`scheduler/lcms_calendar.json`, LSB 2025-2044) and the
+assignment email has always carried them — OT + Epistle to the Lector, Gospel + Psalm to the
+Liturgist, linked to BibleGateway with `version=ESV`. **Setting** them was impossible.
+- **⚠ Read this before touching the Scheduler.** The only way into the readings editor was a
+  `📖 Readings` button `buildSummaryInner()` renders into `#schedule-tbody` — and that table has
+  been inside `<div class="table-wrapper" style="display:none;">` since the SC3 Focus Week
+  redesign, kept only to feed Print and CSV. **SAC2 / FIN57 class exactly**: a redesign left a
+  control in a renderer that is no longer on screen, and nothing failed loudly. **Any new
+  Scheduler control must go in `focusWeekRowHtml`, not the legacy table.** A test pins it.
+- Fix is a **readings strip on the Sunday itself** showing what each role will be sent, with
+  Edit/Add. In `focusWeekRowHtml`, so it cannot exist in the week view and not the month view.
+  Deliberately NOT reusing `.btn-edit-readings`, which a phone rule hides.
+- **One split, three surfaces**: new `readingsForRole(role, rd)` is called by the strip, the HTML
+  email and the plain-text email. The plain-text half was **two hand-inlined copies** across the
+  two send paths (SW17's shape) — now one `readingsTextLines()`.
+- **"Reset to Lectionary" deletes the override** rather than refilling the boxes. Re-saving the
+  lectionary's own values looks identical but pins the date, so a later lectionary correction
+  never reaches it — and the Sunday keeps reading "set by hand" with nothing set by hand.
+- **⚠ Parentheses in a reading mark OPTIONAL VERSES** (`Romans 13:( 8-10 ) 11-14`). `tidyReadingRef()`
+  keeps them for display and only fixes the scraped spacing; `cleanReading()` still strips them for
+  the link, which BibleGateway cannot parse. Do not "simplify" these into one function.
+- **ESV is named, not just linked** — one `BIBLE_VERSION` constant drives the URL and the words
+  beside it, so they cannot claim different translations.
+- `npm test` (1419/1419, 29 new); **every new test verified non-vacuous** (9 injections, 9 correct
+  failure sets) — **three of my own assertions were wrong and were corrected**: two counted a
+  function's own definition as a call site and sliced a handler body by a guessed character count
+  (which silently asserts nothing), and one demanded a link form the code did not produce, which
+  turned out to be a real spacing gap. **Not verified**: a live browser or a real sent email.
+  **Nothing to configure** — a normal Sunday needs no setup. (`src/scheduler-html.js`,
+  `scheduler/index.html`, `test/scheduler-readings.test.js`)
+
 ### SC10/SC11 — Office copy of the printable schedule; whole-month view (2026-08-16, DONE)
 Two asks off the Schedule tab, shipped together.
 - **SC10 — the printable schedule, emailed to the office.** New checkbox on the Email Assignments
