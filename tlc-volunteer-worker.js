@@ -13,7 +13,7 @@ import { LCMS_CALENDAR_JSON } from './src/lectionary.js';
 import {
   handleApiEvents, handleSignup, handleCalendar,
   handleVolunteerPending, handleVolunteerGeneralPending, handleVolunteerEventPending,
-  handleSchedEmailSend, handleSchedRsvpStore, handleSchedRsvpSync,
+  handleSchedEmailSend, handleSchedRsvpStore, handleSchedRsvpSync, handleEsvPassage,
   handleSchedRsvpPortal, handleSchedRsvp, handleSchedBreezeProxy,
 } from './src/api-scheduler.js';
 import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
@@ -544,6 +544,7 @@ async function _fetch(req, env) {
     if ((path === '/serve/general-pending' || path === '/volunteer/general-pending') && method === 'GET') return handleVolunteerGeneralPending(env);
     if ((path === '/serve/event-pending'   || path === '/volunteer/event-pending')   && method === 'GET') return handleVolunteerEventPending(env);
     if (path === '/email/send'   && method === 'POST') return handleSchedEmailSend(req, env);
+    if (path === '/esv/passage'  && method === 'GET')  return handleEsvPassage(req, env, url);
     if (path === '/rsvp/store'   && method === 'POST') return handleSchedRsvpStore(req, env);
     if (path === '/rsvp/sync'    && method === 'POST') return handleSchedRsvpSync(req, env);
     // Breeze API proxy: /api/* (except /api/events handled above) and /breeze/*

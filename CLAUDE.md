@@ -1998,6 +1998,42 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   - **SC7-FIX4** — User confirmed the exact same error live at v1.55.4 (after SC7-FIX3's blob-URL-realm fix deployed and was verified via `deploy.yml`'s own run history to have actually gone out — ruling out the CI/deploy-pipeline gap documented elsewhere in this file). Actual root cause, found this time: the app's Content-Security-Policy header (`SEC_HEADERS` in `src/auth.js`) sets `img-src * data:` — and per the CSP spec, the `*` wildcard source explicitly does **not** cover the `blob:`/`data:`/`filesystem:` schemes (they must be listed by name even when `*` is present). `data:` was already listed, but `blob:` was not — so every `<img src="blob:...">` load was silently blocked by CSP the whole time, independent of both the XML-well-formedness fix (SC7-FIX2) and the cross-document blob-URL-realm fix (SC7-FIX3), which is exactly why neither of those actually resolved it: this bug was present underneath both. The print-preview popup (`window.open('')` + `document.write()`) inherits its opener's CSP, so this applied there too. Fixed by adding `blob:` to `img-src`. This is the one directive in `SEC_HEADERS` that needed it — `connect-src` governs fetch/XHR, not `<img>` loads, so it was never in play. `npm test` (187/187), `node --check` on both built app-JS bundles and the worker entry point. **Not verified**: an actual browser — if this still doesn't resolve it, next check whether the browser's dev tools Console/Network tab shows any remaining CSP violation or a different failure entirely (the SVG-in-`<img>`-via-foreignObject rasterization technique itself, per SC7-FIX3's note). Done 2026-07-22 (v1.55.5). (`src/auth.js`)
   - **SC7-FIX5** — User confirmed the CSP fix deployed (v1.55.5) but the exact same generic error is still shown; clarified the on-screen preview itself renders fine (the always-worked `.pp-page` HTML/CSS, unrelated to the export pipeline) — it's specifically the save/export step that fails, with no way from the generic message to tell which of several remaining possibilities is the actual cause. Rather than guess a fourth time, added real diagnostics: `ppExportCanvas()`'s callback now carries a `reason` string (surfaced directly in the on-page status line, e.g. "Could not generate an image (SecurityError: ...)", plus `console.error`'d for anyone who does have devtools open) instead of the prior bare `cb(null)` that discarded the actual failure. Also instrumented the one remaining, most-likely suspect: `canvas.toBlob()` returning no data with no thrown exception (which the prior try/catch wouldn't have caught, since it's not an exception) now reports "toBlob returned no data (canvas may be tainted)" — some browsers set a canvas's origin-clean flag to false for any SVG image containing `<foreignObject>` content, even fully local/same-origin content, which would make `toBlob()`/`getImageData()` permanently unable to read the canvas back regardless of CSP or blob-URL realm; this is the next real bug to look for once the specific `reason` text from a live retry is known — SC7-FIX2/FIX3/FIX4 already ruled out well-formedness, blob-URL realm, and CSP as at least partial causes. `npm test` (187/187), `node --check` on the built script and both app-JS bundles, `scheduler/index.html` resynced. **Not verified**: an actual browser. Done 2026-07-23 (v1.55.6). (`src/scheduler-html.js`)
 
+### SC13 — Links go to esv.org; the full ESV text can be embedded (2026-08-16, DONE)
+Asked whether the actual ESV text could go in the assignment email, or a link to esv.org. Both.
+- **Links go to esv.org itself** now, not BibleGateway: `https://www.esv.org/Romans+8/` (spaces to
+  `+`, colon left literal — legal in a path segment, and encoding it only hurts readability). No
+  key, no setup. **The URL shape was confirmed from a real indexed esv.org URL, not guessed.**
+- **Embedding is behind an optional `ESV_API_KEY` Worker secret**, read server-side only by the
+  new `/esv/passage` route. **A browser call was never an option** — the embedded scheduler runs
+  under CSP `connect-src 'self'`, which blocks api.esv.org, and a client-held key is public.
+- **⚠ Crossway's attribution is THREE separate duties**, all met deliberately: "(ESV)" with each
+  quotation (`include-short-copyright=true`), the full notice **once per email** (not
+  `include-copyright`, which repeats it after every passage), and a link to www.esv.org. The
+  notice prints **only when text is embedded** — a bare reference is not a quotation. Terms also
+  allow: email redistribution, 500 verses/query, 5,000/day.
+- **⚠ Nothing is cached, on purpose.** Crossway documents no caching allowance and a church is far
+  under the daily cap, so their text is never stored on our side. A test pins that two identical
+  requests both reach the API. **Do not "optimize" this with a KV cache without reading the terms.**
+- **It can never block an email**: `esvFetchPassages()` always resolves; a missing key, bad
+  reference or dead network leaves the map empty and readings fall back to links. The route returns
+  `configured:false` with a **200** — holding no key is the default state, not a fault.
+- One fetch per distinct passage per **send**, not per recipient (`esvRefsForTasks` dedupes first).
+- **Structural**: both send paths built their text body synchronously, so readings are now spliced
+  in at send time (`linesHead`/`linesTail`) to keep them between the bullets and the RSVP links.
+  The resolved text is an explicit argument to `buildHtmlEmail`/`readingsTextLines` — a global
+  would put last week's readings in this week's email.
+- `npm test` (1448/1448, 42 new incl. `test/esv-passage-proxy.test.js` driving the real handler);
+  **every new test verified non-vacuous** (13 injections, 13 correct failure sets). **One injection
+  escaped and exposed a weak test of mine** (the "unconfigured" case only exercised the empty-body
+  guard — rewritten), and **one assertion of mine was wrong** (it forbade the string `api.esv.org`
+  anywhere, which the help text legitimately contains; now forbids a *request* to it and any
+  client-side `Authorization: Token`). **Not verified**: a live browser, a real sent email, or a
+  real ESV API call — **this environment's egress proxy blocks api.esv.org and esv.org**, so the
+  request is built to the documented v3 contract and exercised against a stub.
+  **Optional for an admin**: `wrangler secret put ESV_API_KEY` (free, api.esv.org).
+  (`src/api-scheduler.js`, `src/api-admin.js`, `tlc-volunteer-worker.js`, `src/scheduler-inline.js`,
+  `src/scheduler-html.js`, `SECRETS.md`, `test/esv-passage-proxy.test.js`)
+
 ### SC12 — ⚠ The readings editor was unreachable; ESV named, not just linked (2026-08-16, DONE)
 Asked how to set the readings the Lector is emailed. **Most of it already worked**: readings
 auto-fill from the LCMS lectionary (`scheduler/lcms_calendar.json`, LSB 2025-2044) and the

@@ -108,6 +108,9 @@ export async function handleSchedulerDataApi(req, env, url, method) {
       hasBreezeApiKey:  !!env.BREEZE_API_KEY,
       hasResendKey:     !!env.RESEND_API_KEY,
       hasWorkerSecret:  !!env.WORKER_SECRET,
+      // Drives whether the scheduler offers to put the full ESV text in an
+      // assignment email. Without a key it stays a link, which needs no setup.
+      hasEsvApiKey:     !!env.ESV_API_KEY,
     });
   }
 

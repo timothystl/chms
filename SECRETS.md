@@ -106,6 +106,12 @@ These are not required for the app to function but unlock additional capabilitie
 - **Purpose**: Overrides the `office@timothystl.org` default used in Resend `reply_to` for scheduler and ChMS emails.
 - **Set**: `wrangler secret put REPLY_TO_EMAIL`.
 
+### `ESV_API_KEY`
+- **Purpose**: Puts the **full ESV text** of each reading into the Scheduler's assignment emails, instead of only a link. Entirely optional — with no key the readings are still named and linked to esv.org, which needs no setup at all. Read server-side only, via `/esv/passage` (`src/api-scheduler.js`); the key never reaches a browser, and it could not be used from one anyway (the embedded scheduler runs under CSP `connect-src 'self'`).
+- **Provision**: https://api.esv.org → create an API key. Free for non-commercial personal, church and ministry use.
+- **Set**: `wrangler secret put ESV_API_KEY`.
+- **Licensing, per Crossway's own API terms** (worth reading before turning this on): the text **may** be redistributed by email; up to 500 verses per query and no more than half a book; 5,000 queries/day, 1,000/hour, 60/minute. Attribution is three separate duties, all of which this app satisfies deliberately — "(ESV)" with each quotation (requested via `include-short-copyright`), the full Crossway notice (printed once per email by `ESV_COPYRIGHT_NOTICE`), and a link to www.esv.org (every reading reference is one). **Nothing is cached**: Crossway does not document a caching allowance, and a church's send volume sits far under the daily limit, so their text is never stored on our side.
+
 ### `QB_CLIENT_ID` + `QB_CLIENT_SECRET`
 - **Purpose**: QuickBooks Online OAuth 2.0 — powers the Finance tab's live Budget vs Actual + account balance sync. Unlike other integrations here, these are the *app's* credentials, not a per-connection token — the actual connection (which QuickBooks company, access/refresh tokens) is established by an admin clicking "Connect QuickBooks" in Settings and completing Intuit's consent screen, then stored in the `finance_qb_connection` D1 table (not a Worker secret, since it's obtained via OAuth and rotates over time).
 - **Provision**: Register at https://developer.intuit.com → create an app → enable the **Accounting** scope → under Keys, copy the Client ID and Client Secret (use the Production keys, not Sandbox, unless testing) → under Redirect URIs, add `https://chms.timothystl.org/admin/api/finance/qb/callback` exactly.
