@@ -296,6 +296,8 @@ function _transformJs(js) {
      + '      if (cfg.workerUrl) _s.workerUrl = cfg.workerUrl;\n'
      + '      if (Array.isArray(cfg.tagIds) && cfg.tagIds.length && !(_s.tagIds && _s.tagIds.length)) _s.tagIds = cfg.tagIds;\n'
      + '      if (cfg.replyTo && !_s.replyTo) _s.replyTo = cfg.replyTo;\n'
+     + '      _esvConfigured = !!cfg.hasEsvApiKey;\n'
+     + '      if (typeof renderReminderEsvBlock === \'function\') renderReminderEsvBlock();\n'
      + '      saveBreezeSettings(_s);\n'
      + '      if (typeof loadSettingsForm === \'function\') loadSettingsForm();\n'
      + '      var _missing = \'<span style="color:#b03a2e;font-style:italic;font-weight:400;">(not configured)</span>\';\n'

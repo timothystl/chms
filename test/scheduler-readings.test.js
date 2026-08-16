@@ -246,17 +246,20 @@ describe('reference handling', () => {
   it('drops the parentheses only in the link, which cannot parse them', () => {
     const { ctx } = ready();
     const href = ctx.bibleLink('Romans 13:( 8-10 ) 11-14');
-    expect(decodeURIComponent(href)).toContain('Romans 13:11-14');
+    expect(href).toBe('https://www.esv.org/Romans+13:11-14/');
     expect(href).not.toContain('(');
   });
 
-  it('links every reading to the ESV', () => {
+  it('links to esv.org itself, in the form that site publishes', () => {
     const { ctx } = ready();
-    expect(ctx.bibleLink('Isaiah 2:1-5')).toContain('version=ESV');
+    // Verified shape: https://www.esv.org/Romans+8/ — spaces as "+", colon left
+    // literal. Crossway also REQUIRES a link to www.esv.org wherever their text
+    // is quoted, so this is what makes the embedded-text path compliant.
+    expect(ctx.bibleLink('Romans 8')).toBe('https://www.esv.org/Romans+8/');
+    expect(ctx.bibleLink('Isaiah 2:1-5')).toBe('https://www.esv.org/Isaiah+2:1-5/');
+    expect(ctx.bibleLink('1 Corinthians 13:1-13')).toBe('https://www.esv.org/1+Corinthians+13:1-13/');
+    expect(ctx.bibleLink('Isaiah 2:1-5')).not.toContain('%3A');
     expect(ctx.BIBLE_VERSION).toBe('ESV');
-    // One constant drives the link and the words printed beside it, so the two
-    // can never claim different translations.
-    expect(ctx.bibleLink('Isaiah 2:1-5')).toContain('version=' + ctx.BIBLE_VERSION);
   });
 
   it('returns no link for an empty reference rather than a search for nothing', () => {
@@ -300,7 +303,7 @@ describe('the assignment email', () => {
     const { ctx } = ready();
     const html = ctx.buildHtmlEmail({ name: 'L' }, assignmentsFor('Lector'), '', '', '');
     expect(html).toContain('ESV');
-    expect(html).toMatch(/href="[^"]*version=ESV/);
+    expect(html).toMatch(/href="https:\/\/www\.esv\.org\//);
   });
 
   it('carries a hand-set reading, not the lectionary it replaced', () => {
@@ -319,7 +322,7 @@ describe('the assignment email', () => {
     expect(text).toContain('Your Readings (ESV)');
     expect(text).toContain('OT: Isaiah 2:1-5');
     expect(text).toContain('Epistle: Romans 13:(8-10) 11-14');
-    expect(text).toContain('version=ESV');
+    expect(text).toContain('https://www.esv.org/');
     expect(text).not.toContain('Matthew 21:1-11');
   });
 
@@ -337,7 +340,7 @@ describe('the assignment email', () => {
     expect(ctx.readingsForRole('Elder', ctx.getReadingsForDate('2026-08-16'))).toEqual([]);
     expect(ctx.readingsForRole('Lector', null)).toEqual([]);
     // Both send paths call the shared builder rather than inlining their own.
-    expect(SERVED_JS.match(/lines\.push\.apply\(lines, readingsTextLines\(assignments\)\)/g)).toHaveLength(2);
+    expect(SERVED_JS.match(/\.concat\(readingsTextLines\(assignments, _esvText\)\)/g)).toHaveLength(2);
     // ...and neither kept a private copy of the OT/Epistle split.
     expect(SERVED_JS.match(/rd\.epistle\)\s+lines\.push/g)).toBeNull();
   });
@@ -417,5 +420,171 @@ describe('editing readings', () => {
     });
     ctx._readingsDateISO = '2026-08-16';
     expect(() => { ctx.queueD1Push(); ctx.renderFocusWeek(); }).not.toThrow();
+  });
+});
+
+// ── Embedding the ESV text ───────────────────────────────────────────────────
+//
+// Crossway's API terms (api.esv.org): free for non-commercial personal, church
+// and ministry use; the text MAY be redistributed by email; 500 verses/query;
+// 5,000 queries/day. Three attribution duties, each checked below: "(ESV)" with
+// each quotation (the API's short copyright), the full notice somewhere, and a
+// link to www.esv.org.
+
+describe('embedding the full ESV text', () => {
+  const assignmentsFor = (role) => ([{
+    date: 'Aug 16, 2026', dateISO: '2026-08-16', svc: '8am', role,
+  }]);
+  const TEXT = {
+    'Isaiah 2:1-5': '[1] The word that Isaiah the son of Amoz saw... (ESV)',
+    'Romans 13:11-14': '[11] Besides this you know the time... (ESV)',
+  };
+
+  it('falls back to a plain link when no text was resolved', () => {
+    const { ctx } = ready();
+    const html = ctx.buildHtmlEmail({ name: 'L' }, assignmentsFor('Lector'), '', '', '', {});
+    expect(html).toContain('Isaiah 2:1-5');
+    expect(html).toMatch(/href="https:\/\/www\.esv\.org\//);
+    // and no copyright notice, because nothing was quoted
+    expect(html).not.toContain('Crossway');
+  });
+
+  it('puts the passage words in the HTML email when text is supplied', () => {
+    const { ctx } = ready();
+    const html = ctx.buildHtmlEmail({ name: 'L' }, assignmentsFor('Lector'), '', '', '', TEXT);
+    expect(html).toContain('The word that Isaiah the son of Amoz saw');
+    expect(html).toContain('Besides this you know the time');
+    expect(html).toMatch(/href="https:\/\/www\.esv\.org\//);   // link duty
+  });
+
+  it('carries the full Crossway notice once, only when text is embedded', () => {
+    const { ctx } = ready();
+    const withText = ctx.buildHtmlEmail({ name: 'L' }, assignmentsFor('Lector'), '', '', '', TEXT);
+    expect(withText).toContain('Crossway');
+    expect(withText).toContain('All rights reserved');
+    expect(withText.match(/Good News Publishers/g)).toHaveLength(1);
+
+    const noText = ctx.buildHtmlEmail({ name: 'L' }, assignmentsFor('Lector'), '', '', '', {});
+    expect(noText).not.toContain('Good News Publishers');
+  });
+
+  it('puts the same words, and the notice, in the plain-text half', () => {
+    const { ctx } = ready();
+    const text = ctx.readingsTextLines(assignmentsFor('Lector'), TEXT).join('\n');
+    expect(text).toContain('The word that Isaiah the son of Amoz saw');
+    expect(text).toContain('Crossway');
+    expect(text).toContain('https://www.esv.org/');
+  });
+
+  it('keys the text by the cleaned reference, so an optional-verse ref still matches', () => {
+    // The lectionary stores "Romans 13:( 8-10 ) 11-14"; the API was asked for
+    // "Romans 13:11-14". The lookup has to bridge that or the text silently
+    // never appears.
+    const { ctx } = ready();
+    expect(ctx.esvTextFor(TEXT, 'Romans 13:( 8-10 ) 11-14')).toContain('Besides this');
+    expect(ctx.esvTextFor(TEXT, 'Nahum 1:1')).toBe('');
+    expect(ctx.esvTextFor(null, 'Isaiah 2:1-5')).toBe('');
+  });
+
+  it('asks for each distinct passage once per send, not once per recipient', () => {
+    const { ctx } = ready();
+    const tasks = [
+      { assignments: assignmentsFor('Lector') },
+      { assignments: assignmentsFor('Lector') },   // same readings, second volunteer
+      { assignments: assignmentsFor('Liturgist') },
+    ];
+    const refs = ctx.esvRefsForTasks(tasks);
+    expect(refs).toHaveLength(4);                 // OT, Epistle, Gospel, Psalm
+    expect(new Set(refs).size).toBe(refs.length); // no duplicates
+    expect(refs).toContain('Romans 13:11-14');    // cleaned, as the API needs
+    expect(refs).not.toContain('Romans 13:( 8-10 ) 11-14');
+  });
+
+  it('collects nothing for roles that do not read', () => {
+    const { ctx } = ready();
+    expect(ctx.esvRefsForTasks([{ assignments: assignmentsFor('Acolyte') }])).toEqual([]);
+    expect(ctx.esvRefsForTasks([])).toEqual([]);
+  });
+
+  it('goes through the Worker, so the key never reaches the browser', () => {
+    // A direct browser call to api.esv.org is blocked by CSP connect-src 'self'
+    // anyway, and would expose the key. (The string itself does appear in the
+    // help text that tells an admin where to get a key — what must not exist is
+    // a REQUEST to it, or any Authorization header, on the client.)
+    expect(SERVED_JS).not.toMatch(/fetch\([^)]*api\.esv\.org/);
+    expect(SERVED_JS).not.toMatch(/Authorization['"]?\s*:\s*['"]Token/);
+    // The fetch must also keep the "s.workerUrl +" shape the embed transform
+    // rewrites, or the embedded tab calls the wrong host and CSP blocks it.
+    expect(bodyFrom('function esvFetchPassages')).toContain("fetch(s.workerUrl + '/esv/passage?q='");
+    const embedded = getSchedulerInlineParts().js;
+    const start = embedded.indexOf('function esvFetchPassages');
+    expect(embedded.slice(start, embedded.indexOf('\n}', start))).toContain("fetch('/esv/passage?q='");
+  });
+
+  it('resolves rather than rejects when the lookup fails, so the email still sends', async () => {
+    const { ctx } = ready();
+    ctx.fetch = () => Promise.reject(new Error('offline'));
+    await expect(ctx.esvFetchPassages(['Isaiah 2:1-5'])).resolves.toEqual({});
+  });
+
+  it('ignores an unconfigured response even if it carries text', async () => {
+    // configured:false is the Worker saying it holds no key. Text arriving
+    // alongside that would be a malformed response, not something to quote.
+    const { ctx } = ready();
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ configured: false, passages: ['some text'] }) });
+    await expect(ctx.esvFetchPassages(['Isaiah 2:1-5'])).resolves.toEqual({});
+  });
+
+  it('embeds nothing when the passage list is empty or blank', async () => {
+    const { ctx } = ready();
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ configured: true, passages: [] }) });
+    await expect(ctx.esvFetchPassages(['Isaiah 2:1-5'])).resolves.toEqual({});
+    ctx.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ configured: true, passages: ['   '] }) });
+    await expect(ctx.esvFetchPassages(['Isaiah 2:1-5'])).resolves.toEqual({});
+  });
+
+  it('collects the passages the Worker returns', async () => {
+    const { ctx } = ready();
+    ctx.fetch = () => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ configured: true, passages: ['  the words  '] }),
+    });
+    const out = await ctx.esvFetchPassages(['Isaiah 2:1-5']);
+    expect(out['Isaiah 2:1-5']).toBe('the words');
+  });
+
+  it('does not even ask when the Worker holds no key', () => {
+    const { ctx } = ready();
+    ctx._esvConfigured = false;
+    expect(ctx.esvWantedNow()).toBe(false);
+    ctx._esvConfigured = true;
+    expect(ctx.esvWantedNow()).toBe(true);       // on by default once configured
+  });
+
+  it('offers the checkbox only when a key is configured, and says why when not', () => {
+    const { ctx, el } = ready();
+    ctx._esvConfigured = false;
+    ctx.renderReminderEsvBlock();
+    expect(el('reminder-esv-cb').disabled).toBe(true);
+    expect(el('reminder-esv-cb').checked).toBe(false);
+    expect(el('reminder-esv-note').textContent).toContain('ESV_API_KEY');
+
+    ctx._esvConfigured = true;
+    ctx.renderReminderEsvBlock();
+    expect(el('reminder-esv-cb').disabled).toBe(false);
+    expect(el('reminder-esv-cb').checked).toBe(true);
+  });
+
+  it('remembers the choice being turned off', () => {
+    const { ctx, el } = ready({ localStorage: { ws_office_copy_pref: JSON.stringify({ esv: false }) } });
+    ctx._esvConfigured = true;
+    ctx.renderReminderEsvBlock();
+    expect(el('reminder-esv-cb').checked).toBe(false);
+    expect(ctx.esvWantedNow()).toBe(false);
+  });
+
+  it('learns the key is configured from the scheduler config', () => {
+    // _esvConfigured is set from /admin/api/scheduler/config's hasEsvApiKey.
+    expect(getSchedulerInlineParts().js).toContain('_esvConfigured = !!cfg.hasEsvApiKey');
   });
 });

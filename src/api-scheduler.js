@@ -326,6 +326,65 @@ export async function handleSchedEmailSend(req, env) {
   return schedJson(data, res.status);
 }
 
+// ── /esv/passage ─────────────────────────────────────────────────────────────
+// Server-side proxy to Crossway's ESV API so the key never reaches a browser —
+// and because the embedded scheduler runs under CSP connect-src 'self', which
+// blocks a direct call to api.esv.org outright.
+//
+// Licensing, from Crossway's own API terms: free for non-commercial personal,
+// church and ministry use; the text MAY be redistributed by email; up to 500
+// verses per query; 5,000 queries/day, 1,000/hour, 60/minute.
+//
+// Three attribution requirements, each met deliberately:
+//   1. "With each quotation, include the letters ESV" — include-short-copyright.
+//   2. The full Crossway notice must appear — printed once per email by the
+//      caller (once, rather than after every passage, which is what
+//      include-copyright would do).
+//   3. A link to www.esv.org — every reference in the email is one.
+//
+// Nothing is cached. Crossway does not document a caching allowance, and a
+// church sending a couple of dozen assignment emails a week sits far under the
+// daily limit, so there is nothing to buy by storing their text on our side.
+export async function handleEsvPassage(req, env, url) {
+  const key = env.ESV_API_KEY || '';
+  // Not an error — it is the default state, and the caller falls back to a link.
+  if (!key) return schedJson({ configured: false, passages: [] });
+
+  const q = (url.searchParams.get('q') || '').trim();
+  if (!q) return schedJson({ error: 'Missing q' }, 400);
+  if (q.length > 200) return schedJson({ error: 'Reference too long' }, 400);
+
+  const api = new URL('https://api.esv.org/v3/passage/text/');
+  api.searchParams.set('q', q);
+  api.searchParams.set('include-passage-references', 'false'); // the email prints its own
+  api.searchParams.set('include-verse-numbers', 'true');
+  api.searchParams.set('include-first-verse-numbers', 'true');
+  api.searchParams.set('include-footnotes', 'false');          // callouts with no footnote text
+  api.searchParams.set('include-headings', 'true');
+  api.searchParams.set('include-short-copyright', 'true');     // the "(ESV)" on each quotation
+  api.searchParams.set('include-copyright', 'false');          // full notice printed once instead
+  api.searchParams.set('indent-paragraphs', '0');
+  api.searchParams.set('indent-poetry-lines', '2');
+
+  let res;
+  try {
+    res = await fetch(api.toString(), { headers: { 'Authorization': 'Token ' + key } });
+  } catch (e) {
+    return schedJson({ configured: true, error: 'Could not reach the ESV API: ' + String(e) }, 502);
+  }
+  let data;
+  try { data = await res.json(); } catch { data = null; }
+  if (!res.ok || !data) {
+    const msg = (data && (data.detail || data.error)) || ('ESV API returned ' + res.status);
+    return schedJson({ configured: true, error: msg }, res.status === 401 ? 401 : 502);
+  }
+  return schedJson({
+    configured: true,
+    query:      data.query || q,
+    passages:   Array.isArray(data.passages) ? data.passages : [],
+  });
+}
+
 // ── /rsvp/store ──────────────────────────────────────────────────────────────
 export async function handleSchedRsvpStore(req, env) {
   let body;

@@ -1124,6 +1124,13 @@ body.embedded #app-content { display:block!important; }
         <button class="btn btn-outline btn-sm" id="btn-reminder-select-all">Select All</button>
         <button class="btn btn-outline btn-sm" id="btn-reminder-deselect-all">Deselect All</button>
       </div>
+      <div id="reminder-esv-wrap" style="margin-bottom:10px;padding:11px 13px;background:var(--linen);border:1px solid var(--border);border-radius:8px;">
+        <label for="reminder-esv-cb" style="display:flex;align-items:flex-start;gap:8px;margin:0;font-size:.86rem;font-weight:600;color:var(--steel-anchor);cursor:pointer;">
+          <input type="checkbox" id="reminder-esv-cb" style="margin:3px 0 0;flex-shrink:0;">
+          <span>Include the full ESV text of each reading</span>
+        </label>
+        <div id="reminder-esv-note" style="margin-top:6px;padding-left:24px;font-size:.78rem;color:var(--warm-gray);"></div>
+      </div>
       <div id="reminder-office-wrap" style="margin-bottom:14px;padding:11px 13px;background:var(--linen);border:1px solid var(--border);border-radius:8px;">
         <label for="reminder-office-cb" style="display:flex;align-items:flex-start;gap:8px;margin:0;font-size:.86rem;font-weight:600;color:var(--steel-anchor);cursor:pointer;">
           <input type="checkbox" id="reminder-office-cb" style="margin:3px 0 0;flex-shrink:0;">
@@ -1402,10 +1409,76 @@ function readingsForRole(role, rd) {
               .map(function(p){ return { label: p[0], ref: p[1] }; });
 }
 
+// Crossway requires the full notice to appear wherever their text is quoted.
+// Printed once per email rather than after every passage, which is what the
+// API's own include-copyright would do.
+var ESV_COPYRIGHT_NOTICE = 'Scripture quotations are from the ESV\\u00ae Bible '
+  + '(The Holy Bible, English Standard Version\\u00ae), \\u00a9 2001 by Crossway, '
+  + 'a publishing ministry of Good News Publishers. Used by permission. All rights reserved.';
+
+// Passage text fetched for one send, keyed by reference. Passed explicitly into
+// the email builders rather than parked in a global — a stale global here would
+// put last week's readings in this week's email with nothing to show for it.
+function esvTextFor(map, ref) {
+  if (!map) return '';
+  return map[cleanReading(ref)] || '';
+}
+
+// Set from /admin/api/scheduler/config so the panel can offer the option only
+// when the Worker actually holds a key. Never the enforcement — the send falls
+// back to links on its own if the fetch comes back unconfigured or fails.
+var _esvConfigured = false;
+
+// Whether this send should carry the full text. False whenever the Worker holds
+// no key, so the question never even reaches the network.
+function esvWantedNow() {
+  return _esvConfigured && getOfficeCopyPref().esv !== false;
+}
+
+// Every distinct reference the selected volunteers will be sent, so one send
+// fetches each passage once rather than once per recipient.
+function esvRefsForTasks(tasks) {
+  var seen = {};
+  (tasks || []).forEach(function(t) {
+    (t.assignments || []).forEach(function(a) {
+      var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
+      readingsForRole(a.role, rd).forEach(function(it) {
+        var clean = cleanReading(it.ref);
+        if (clean) seen[clean] = true;
+      });
+    });
+  });
+  return Object.keys(seen);
+}
+
+// Resolves references to ESV text via the Worker (which holds the key — a
+// browser call to api.esv.org is blocked by CSP and would expose it anyway).
+// ALWAYS resolves, never rejects: a missing key or a bad reference must not
+// stop an assignment email going out, it just falls back to a link.
+function esvFetchPassages(refs) {
+  var s = getBreezeSettings();
+  var out = {};
+  if (!refs || !refs.length) return Promise.resolve(out);
+  return Promise.all(refs.map(function(ref) {
+    return fetch(s.workerUrl + '/esv/passage?q=' + encodeURIComponent(ref), {
+      headers: s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {},
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d && d.configured && Array.isArray(d.passages) && d.passages.length) {
+          var body = d.passages.join('\\n\\n').trim();
+          if (body) out[ref] = body;
+        }
+      })
+      .catch(function(){});
+  })).then(function() { return out; });
+}
+
 // The plain-text half of the assignment email. Was two hand-inlined copies in
 // the two send paths, which is how they come to drift (SW17) — one builder now.
-function readingsTextLines(assignments) {
+function readingsTextLines(assignments, esvText) {
   var lines = [];
+  var used = false;
   (assignments || []).forEach(function(a) {
     var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
     var items = readingsForRole(a.role, rd);
@@ -1417,16 +1490,32 @@ function readingsTextLines(assignments) {
       lines.push('    ' + it.label + ': ' + tidyReadingRef(it.ref));
       var href = bibleLink(it.ref);
       if (href) lines.push('      ' + href);
+      var body = esvTextFor(esvText, it.ref);
+      if (body) {
+        used = true;
+        body.split('\\n').forEach(function(ln) { lines.push('      ' + ln); });
+        lines.push('');
+      }
     });
   });
+  if (used) lines.push('', '  ' + ESV_COPYRIGHT_NOTICE);
   return lines;
 }
+// Links go to esv.org itself, not a third-party site that happens to carry the
+// ESV — and Crossway's API terms require a link to www.esv.org on anything
+// quoting their text, so this is also what makes the embedded-text path
+// compliant. Pattern: https://www.esv.org/Romans+8/
 function bibleLink(ref) {
-  // The link drops the optional-verse parentheses on purpose — BibleGateway
-  // cannot parse them and would return no passage at all.
+  // The link drops the optional-verse parentheses on purpose — the site cannot
+  // parse them and would land on nothing.
   var clean = cleanReading(ref);
   if (!clean) return '';
-  return 'https://www.biblegateway.com/passage/?search=' + encodeURIComponent(clean) + '&version=' + BIBLE_VERSION;
+  // Spaces become "+" and the colon is left literal, matching the form esv.org
+  // publishes (https://www.esv.org/Romans+8/). A colon is legal in a path
+  // segment, and percent-encoding it makes the link unreadable for no gain.
+  return 'https://www.esv.org/'
+    + encodeURIComponent(clean).replace(/%20/g,'+').replace(/%3A/gi,':')
+    + '/';
 }
 // ──────────────────────────────────────────────────────────────────
 
@@ -4079,7 +4168,7 @@ function openBulletinSlide(rowIdx) {
 // only the markup/visual design changed. Table-based layout (no
 // flexbox) so it degrades safely in Outlook desktop.
 // ═════════════════════════════════════════════════════════════════
-function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
+function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl, esvText) {
 
   // ---- schedule rows ----
   var accentColors = ['#6B8F71', '#5C8FA8', '#D4922A', '#9AB89E', '#3D627C'];
@@ -4109,13 +4198,34 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
   var readingsSection = '';
   if (readingsItems.length) {
     var itemsHtml = readingsItems.map(function(item, idx) {
-      var refsHtml = item.lines.map(function(l) {
-        var href = bibleLink(l.ref);
-        var shown = esc(l.label) + ': ' + esc(tidyReadingRef(l.ref));
-        return href
-          ? '<a href="' + esc(href) + '" style="color:#3D627C;">' + shown + '</a>'
-          : shown;
-      }).join(' &nbsp;&middot;&nbsp; ');
+      // With the full text embedded each reading becomes its own block; without
+      // it they stay on one line as references. Same data either way.
+      var anyText = item.lines.some(function(l) { return !!esvTextFor(esvText, l.ref); });
+      var refsHtml;
+      if (anyText) {
+        refsHtml = item.lines.map(function(l) {
+          var href = bibleLink(l.ref);
+          var head = esc(l.label) + ': ' + esc(tidyReadingRef(l.ref));
+          var body = esvTextFor(esvText, l.ref);
+          return '<div style="margin-top:10px;">'
+            + '<div style="font-size:0.88rem;font-weight:700;color:#3D3530;">'
+            +   (href ? '<a href="' + esc(href) + '" style="color:#3D627C;">' + head + '</a>' : head)
+            + '</div>'
+            + (body
+                ? '<div style="font-size:0.9rem;line-height:1.55;color:#3D3530;margin-top:4px;white-space:pre-wrap;">'
+                    + esc(body) + '</div>'
+                : '')
+            + '</div>';
+        }).join('');
+      } else {
+        refsHtml = item.lines.map(function(l) {
+          var href = bibleLink(l.ref);
+          var shown = esc(l.label) + ': ' + esc(tidyReadingRef(l.ref));
+          return href
+            ? '<a href="' + esc(href) + '" style="color:#3D627C;">' + shown + '</a>'
+            : shown;
+        }).join(' &nbsp;&middot;&nbsp; ');
+      }
       return ''
         + '<tr><td style="' + (idx > 0 ? 'padding-top:8px;' : '') + '">'
         + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">'
@@ -4126,12 +4236,21 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl) {
         + '</td></tr></table>'
         + '</td></tr>';
     }).join('');
+
+    // Crossway requires the full notice wherever their text is quoted. Only
+    // shown when text is actually embedded — a bare reference is not a quotation.
+    var anyEmbedded = readingsItems.some(function(it) {
+      return it.lines.some(function(l) { return !!esvTextFor(esvText, l.ref); });
+    });
     readingsSection = ''
       + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F8FA;border:1px solid #C4DDE8;border-radius:10px;margin-bottom:22px;">'
       + '<tr><td style="padding:16px 18px;">'
       + '<div style="font-size:0.72rem;font-weight:700;color:#3D627C;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;">Your Readings <span style="font-weight:400;color:#7A6E60;letter-spacing:0;text-transform:none;">&middot; ' + esc(BIBLE_VERSION_LABEL) + '</span></div>'
       + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">' + itemsHtml + '</table>'
-      + '<div style="font-size:0.74rem;color:#7A6E60;margin-top:10px;">Tap a reading to open it in the ' + esc(BIBLE_VERSION_LABEL) + '. Verses in parentheses are optional.</div>'
+      + '<div style="font-size:0.74rem;color:#7A6E60;margin-top:10px;">Tap a reading to open it on <a href="https://www.esv.org/" style="color:#3D627C;">esv.org</a>. Verses in parentheses are optional.</div>'
+      + (anyEmbedded
+          ? '<div style="font-size:0.68rem;color:#8A8070;margin-top:10px;line-height:1.5;">' + esc(ESV_COPYRIGHT_NOTICE) + '</div>'
+          : '')
       + '</td></tr></table>';
   }
 
@@ -4288,7 +4407,16 @@ function sendReminderEmails() {
   });
   saveRsvpTokens(rsvpTokens);
 
-  var chain = Promise.resolve();
+  // Resolve the ESV text once for the whole batch, before any email is built —
+  // never per recipient. esvFetchPassages always resolves, so a missing key or
+  // a failed lookup leaves _esvText empty and every reading stays a link.
+  var _esvText = {};
+  var _esvTasks = pids.filter(function(pid){ return pMap[pid] && pMap[pid].email; })
+                      .map(function(pid){ return { assignments: personAssignments[pid] }; });
+  var chain = esvWantedNow()
+    ? esvFetchPassages(esvRefsForTasks(_esvTasks)).then(function(m){ _esvText = m; })
+    : Promise.resolve();
+
   pids.forEach(function(pid) {
     var person = pMap[pid];
     if (!person || !person.email) return;
@@ -4306,8 +4434,11 @@ function sendReminderEmails() {
       var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
       lines.push('  \\u2022 ' + a.date + ' \\u2014 ' + svcLabel + ': ' + roleLabel(a.role));
     });
-    // Readings for Lectors and Liturgists
-    lines.push.apply(lines, readingsTextLines(assignments));
+    // The readings are spliced in at send time, not here — their text may still
+    // be in flight from the ESV API, and they belong between the assignment
+    // bullets and the RSVP links rather than appended after everything.
+    var linesHead = lines;
+    lines = [];
     var _rsvpBase = s.workerUrl || (typeof window !== 'undefined' ? window.location.origin : '');
     if (token && _rsvpBase) {
       lines.push(
@@ -4326,12 +4457,18 @@ function sendReminderEmails() {
       'Timothy Lutheran Church'
     );
 
+    var linesTail = lines;
+
     // Build iCal attachment (base64)
     var icalContent = buildPersonIcal(person, assignments);
     var icalB64 = btoa(unescape(encodeURIComponent(icalContent)));
 
     // Store token in Worker KV before sending
     chain = chain.then(function() {
+      var textBody = linesHead
+        .concat(readingsTextLines(assignments, _esvText))
+        .concat(linesTail)
+        .join('\\n');
       var storePromise = (token && (s.workerUrl || _embedded))
         ? fetch(s.workerUrl + '/rsvp/store', {
             method: 'POST',
@@ -4358,8 +4495,8 @@ function sendReminderEmails() {
           body: JSON.stringify({
             to:       person.email,
             subject:  'Your Upcoming Worship Service Assignments \\u2014 Timothy Lutheran',
-            text:     lines.join('\\n'),
-            html:     buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase),
+            text:     textBody,
+            html:     buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase, _esvText),
             reply_to: s.replyTo || '',
             attachments: [{
               filename: 'worship-schedule.ics',
@@ -4581,7 +4718,26 @@ function renderReminderList(weekFilter) {
 
   listEl.innerHTML = html;
   actionsEl.style.display = '';
+  renderReminderEsvBlock();
   renderReminderOfficeBlock();
+}
+
+function renderReminderEsvBlock() {
+  var cb   = document.getElementById('reminder-esv-cb');
+  var note = document.getElementById('reminder-esv-note');
+  if (!cb || !note) return;
+  var pref = getOfficeCopyPref();
+  cb.disabled = !_esvConfigured;
+  if (!_esvConfigured) {
+    cb.checked = false;
+    note.textContent = 'Readings are linked to esv.org. To put the words themselves in the email, '
+      + 'set an ESV_API_KEY on the Worker (free from api.esv.org for church use).';
+    return;
+  }
+  cb.checked = pref.esv !== false;   // on by default once a key exists
+  note.textContent = cb.checked
+    ? 'Each reading arrives in full, with the ESV copyright notice. Still linked to esv.org.'
+    : 'Readings are linked to esv.org only.';
 }
 
 // ── Office copy controls ──────────────────────────────────────────────────
@@ -4680,6 +4836,8 @@ function _sendWeekReminders() {
   var officeScope = document.getElementById('reminder-office-scope');
   var wantOfficeCopy = !!(officeCb && officeCb.checked && !officeCb.disabled);
   var officeCopyScope = (officeScope && officeScope.value === 'month') ? 'month' : 'single';
+  var esvCb = document.getElementById('reminder-esv-cb');
+  var wantEsvText = esvCb ? !!(esvCb.checked && !esvCb.disabled) : esvWantedNow();
 
   var tasks = [];
   document.querySelectorAll('.reminder-person-cb:checked').forEach(function(cb) {
@@ -4709,7 +4867,12 @@ function _sendWeekReminders() {
   });
   saveRsvpTokens(rsvpTokens);
 
-  var chain = Promise.resolve();
+  // Same as above: one resolve for the batch, before any body is built.
+  var _esvText = {};
+  var chain = wantEsvText
+    ? esvFetchPassages(esvRefsForTasks(tasks)).then(function(m){ _esvText = m; })
+    : Promise.resolve();
+
   tasks.forEach(function(task) {
     var person      = task.person;
     var assignments = task.assignments;
@@ -4726,8 +4889,9 @@ function _sendWeekReminders() {
       var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
       lines.push('  \\u2022 ' + a.date + ' \\u2014 ' + svcLabel + ': ' + roleLabel(a.role));
     });
-    // Readings for Lectors / Liturgists
-    lines.push.apply(lines, readingsTextLines(assignments));
+    // Spliced in at send time — see the note in sendReminderEmails.
+    var linesHead = lines;
+    lines = [];
     if (token && _rsvpBase) {
       lines.push(
         '',
@@ -4737,11 +4901,16 @@ function _sendWeekReminders() {
       );
     }
     lines.push('', 'Thank you for serving!', '', 'Timothy Lutheran Church');
+    var linesTail = lines;
 
     var icalContent = buildPersonIcal(person, assignments);
     var icalB64     = btoa(unescape(encodeURIComponent(icalContent)));
 
     chain = chain.then(function() {
+      var textBody = linesHead
+        .concat(readingsTextLines(assignments, _esvText))
+        .concat(linesTail)
+        .join('\\n');
       var storePromise = (token && (s.workerUrl || _embedded))
         ? fetch(s.workerUrl + '/rsvp/store', {
             method: 'POST',
@@ -4765,8 +4934,8 @@ function _sendWeekReminders() {
           body: JSON.stringify({
             to:          person.email,
             subject:     'Worship Service Reminder \\u2014 ' + assignments[0].date + ' \\u2014 Timothy Lutheran',
-            text:        lines.join('\\n'),
-            html:        buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase),
+            text:        textBody,
+            html:        buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase, _esvText),
             reply_to:    s.replyTo || '',
             attachments: [{ filename: 'worship-schedule.ics', content: icalB64 }],
           }),
@@ -5321,6 +5490,12 @@ document.getElementById('btn-reminder-select-all').addEventListener('click', fun
 });
 document.getElementById('btn-reminder-deselect-all').addEventListener('click', function() {
   document.querySelectorAll('.reminder-person-cb:not(:disabled)').forEach(function(cb){ cb.checked = false; });
+});
+document.getElementById('reminder-esv-cb').addEventListener('change', function() {
+  var pref = getOfficeCopyPref();
+  pref.esv = this.checked;
+  saveOfficeCopyPref(pref);
+  renderReminderEsvBlock();
 });
 document.getElementById('reminder-office-cb').addEventListener('change', function() {
   var pref = getOfficeCopyPref();

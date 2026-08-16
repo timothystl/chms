@@ -24,6 +24,72 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.181.0 — SC13: links go to esv.org; the full ESV text can be embedded (2026-08-16)
+
+Asked, after SC12: *"can we embed the actual ESV text in the email? or have a link to the esv
+website to read it there?"* Both, and they are deliberately different in cost.
+
+**Links now go to esv.org itself**, not BibleGateway-carrying-ESV. No key, no setup, live
+immediately: `https://www.esv.org/Romans+8/`. Spaces become `+` and the colon is left literal —
+it is legal in a path segment and percent-encoding it only makes the link unreadable. This also
+happens to satisfy one of Crossway's three attribution duties (see below).
+
+**The full text can be embedded**, behind an optional `ESV_API_KEY` Worker secret.
+
+- **The key is server-side only.** New `/esv/passage` route proxies `api.esv.org/v3/passage/text/`
+  with the key in an `Authorization` header. A browser call was never an option: the embedded
+  scheduler runs under CSP `connect-src 'self'`, which blocks api.esv.org outright, and a
+  client-held key is readable by anyone with the page open.
+- **Licensing was researched, not assumed.** Crossway's API terms: free for non-commercial
+  personal, church and ministry use; the text **may** be redistributed by email; 500 verses per
+  query; 5,000/day, 1,000/hour, 60/minute. Attribution is **three separate duties**, each met on
+  purpose — "(ESV)" with each quotation (`include-short-copyright=true`), the full Crossway notice
+  (printed **once per email**, not after every passage, which is what `include-copyright` would
+  do), and a link to www.esv.org (every reference is one). The notice appears **only when text is
+  actually embedded** — a bare reference is not a quotation.
+- **Nothing is cached.** Crossway does not document a caching allowance, and a church sending a
+  couple of dozen assignment emails a week sits far under 5,000/day, so there is nothing to buy by
+  storing their text. A test pins that two identical requests both reach the API.
+- **One fetch per distinct passage per send**, not per recipient — `esvRefsForTasks()` dedupes
+  across the whole batch before anything is requested. Ten volunteers sharing a Sunday cost 4
+  lookups, not 40.
+- **It can never stop an email going out.** `esvFetchPassages()` always resolves, never rejects; a
+  missing key, a bad reference or a dead network leaves the map empty and every reading falls back
+  to a link. The route returns `configured:false` with a 200 rather than an error, because holding
+  no key is the default state, not a fault.
+- Checkbox on the Email Assignments panel, on by default once a key exists, disabled with an
+  explanation when not — the same shape as the office-copy control from SC10.
+- **Structural change worth knowing**: both send paths built their plain-text body synchronously,
+  so the readings are now spliced in at send time between the assignment bullets and the RSVP
+  links (`linesHead` / `linesTail`) rather than appended after everything. `buildHtmlEmail()` and
+  `readingsTextLines()` take the resolved text as an explicit argument — a global would put last
+  week's readings in this week's email with nothing to show for it.
+
+`npm test` (1448/1448, 42 new across `test/scheduler-readings.test.js` and a new
+`test/esv-passage-proxy.test.js` that drives the real route handler with `fetch` stubbed).
+**Every new test verified non-vacuous** by injecting the exact regression it guards — 13
+injections, 13 correct failure sets. **One injection escaped and exposed a weak test of mine**: the
+"unconfigured response" case was really only exercising the empty-body guard, so it was rewritten
+to send text alongside `configured:false`. **One assertion of mine was also wrong** — it forbade
+the string `api.esv.org` anywhere in the client, which the help text legitimately contains; it now
+forbids a *request* to it and any client-side `Authorization: Token` header, which is the real
+invariant. Plus `node --check` on the served `<script>` for both builds and on all three backend
+files, div/brace balance, and `scheduler/index.html` resynced by evaluating the module.
+
+**Not verified**: a live browser, a real sent email, or a real ESV API call — this environment's
+egress proxy blocks `api.esv.org` and `esv.org`, so the request shape is built to Crossway's
+documented v3 contract and exercised against a stub, never against the live service. The esv.org
+link format was confirmed from a real indexed URL, not guessed.
+
+**Optional step for an admin**: `wrangler secret put ESV_API_KEY` (free from api.esv.org). Without
+it everything still works — readings are named and linked, just not quoted in full.
+
+(`src/api-scheduler.js`, `src/api-admin.js`, `tlc-volunteer-worker.js`, `src/scheduler-inline.js`,
+`src/scheduler-html.js`, `scheduler/index.html`, `SECRETS.md`, `src/frontend/js-core.js`,
+`test/esv-passage-proxy.test.js`, `test/scheduler-readings.test.js`)
+
+---
+
 ### v1.180.0 — SC12: the readings editor was unreachable; ESV made explicit (2026-08-16)
 
 Asked: *"how do i set the assigned readings that the lector will get? and this is supposed to get
