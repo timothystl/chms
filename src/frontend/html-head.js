@@ -1062,6 +1062,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-comp-basis{margin-top:14px;padding:11px 13px;border-radius:10px;background:var(--warm-surface-page);border:1px solid var(--warm-border);font-size:.75rem;line-height:1.55;color:var(--warm-ink-label);}
 .fin-comp-basis-list{margin:7px 0;padding-left:18px;}
 .fin-comp-basis-list li{margin:1px 0;}
+.fin-comp-basis-h{font-weight:700;color:var(--color-navy);margin-top:9px;}
+.fin-comp-basis-h.warn{color:var(--danger);}
 .fin-comp-cardhd{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
 .fin-comp-drawer{padding:18px 20px;display:flex;flex-direction:column;gap:12px;}
 .fin-comp-drawer-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
