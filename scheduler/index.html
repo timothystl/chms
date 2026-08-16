@@ -540,6 +540,20 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .fw-svc-label { font-size:.75rem; font-weight:700; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.05em; margin:18px 0 8px; font-family: var(--font-body); }
 .fw-svc-label:first-child { margin-top:0; }
 
+/* ── Month view: every Sunday of the month stacked in the one pane ──────
+   The rail is a week PICKER, so it has nothing to pick in month mode and is
+   hidden rather than removed (renderFocusWeekRail still runs, so switching
+   back to Week needs no rebuild). Sections carry their own date heading. */
+.fw-layout.fw-month .wr-rail { display:none; }
+.fw-month-sec { border-top:1px solid var(--border); margin-top:26px; padding-top:22px; }
+.fw-month-sec:first-child { border-top:none; margin-top:0; padding-top:0; }
+.fw-row-hd { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+.fw-row-date { font-family: var(--font-head); font-weight:700; font-size:1.3rem; color:var(--steel-anchor); }
+.fw-row-sub { font-size:.85rem; color:var(--warm-gray); }
+/* Stacked, a Sunday heading is a section marker rather than the page title. */
+.fw-month-sec .fw-row-date { font-size:1.15rem; }
+.fw-month-sec .fw-row-sub { font-size:.82rem; }
+
 .role-row { display:flex; align-items:center; gap:12px; width:100%; text-align:left; border-radius:10px; padding:12px 16px; margin-bottom:8px; min-height:56px; cursor:pointer; font-family: var(--font-body); background:var(--pale-sage); border:1px solid var(--soft-sage); }
 .role-row.empty { background:var(--error-bg); border-color:var(--error-border); }
 .role-row:hover { filter:brightness(0.98); }
@@ -682,7 +696,13 @@ body.embedded #app-content { display:block!important; }
 
   <div class="card" id="schedule-output" style="display:none;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
-      <h2 style="margin:0; border:none; padding:0;">Schedule</h2>
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+        <h2 style="margin:0; border:none; padding:0;">Schedule</h2>
+        <div class="seg-switch" id="fw-view-switch">
+          <button type="button" class="seg-btn active" data-fw-view="week" title="One Sunday at a time">Week</button>
+          <button type="button" class="seg-btn" data-fw-view="month" title="Every Sunday this month at once">Month</button>
+        </div>
+      </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <span id="email-send-status" style="font-size:0.82rem;color:var(--warm-gray);"></span>
         <button class="btn btn-outline btn-sm saved" id="btn-save-schedule">Saved &#10003;</button>
@@ -705,7 +725,7 @@ body.embedded #app-content { display:block!important; }
       <div class="legend-item"><div class="legend-dot" style="background:var(--pale-sage);border:1px solid var(--soft-sage);"></div> Filled</div>
       <div class="legend-item">&#9733; Primary/Always-First &nbsp; <span style="color:var(--amber);font-weight:700;">other svc</span> cross-service fill</div>
     </div>
-    <div class="fw-layout">
+    <div class="fw-layout" id="fw-layout">
       <div class="wr-rail" id="fw-rail"></div>
       <div class="fw-detail" id="fw-detail"></div>
     </div>
@@ -900,6 +920,12 @@ body.embedded #app-content { display:block!important; }
         <input type="email" id="email-reply-to" placeholder="dinger@timothystl.org" style="max-width:320px;">
         <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">Where volunteer email replies are sent.</small>
 
+        <label for="email-office-to" style="margin-top:16px;">Office Copy Address</label>
+        <input type="email" id="email-office-to" placeholder="office@timothystl.org" style="max-width:320px;">
+        <small style="color:var(--warm-gray);font-size:0.78rem;display:block;margin-top:4px;">
+          Who receives the printable schedule. Offered as a checkbox each time you email assignments &mdash; never sent on its own.
+        </small>
+
         <div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);padding-top:16px;">
           <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
           <button class="btn btn-outline" id="btn-test-breeze">Test Connection</button>
@@ -1077,6 +1103,23 @@ body.embedded #app-content { display:block!important; }
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
         <button class="btn btn-outline btn-sm" id="btn-reminder-select-all">Select All</button>
         <button class="btn btn-outline btn-sm" id="btn-reminder-deselect-all">Deselect All</button>
+      </div>
+      <div id="reminder-office-wrap" style="margin-bottom:14px;padding:11px 13px;background:var(--linen);border:1px solid var(--border);border-radius:8px;">
+        <label for="reminder-office-cb" style="display:flex;align-items:flex-start;gap:8px;margin:0;font-size:.86rem;font-weight:600;color:var(--steel-anchor);cursor:pointer;">
+          <input type="checkbox" id="reminder-office-cb" style="margin:3px 0 0;flex-shrink:0;">
+          <span>Also send the printable schedule to the office</span>
+        </label>
+        <div id="reminder-office-hint" style="display:none;margin-top:6px;padding-left:24px;font-size:.78rem;color:var(--warm-gray);">
+          Add an Office Copy Address under Settings &#8594; Integrations to turn this on.
+        </div>
+        <div id="reminder-office-detail" style="margin-top:8px;padding-left:24px;font-size:.8rem;color:var(--warm-gray);">
+          <div id="reminder-office-to" style="margin-bottom:6px;"></div>
+          <label for="reminder-office-scope" style="display:inline;margin:0 6px 0 0;font-size:.8rem;font-weight:600;color:var(--steel-anchor);">Include:</label>
+          <select id="reminder-office-scope" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:white;font-family:var(--font-body);font-size:.8rem;color:var(--steel-anchor);">
+            <option value="single">This Sunday only</option>
+            <option value="month">Whole month</option>
+          </select>
+        </div>
       </div>
       <button class="btn btn-primary" id="btn-reminder-send">Email Selected</button>
       <div id="reminder-send-status" style="font-size:0.85rem;color:var(--warm-gray);margin-top:10px;min-height:18px;"></div>
@@ -2636,6 +2679,28 @@ function focusWeekDefaultIdx() {
   return currentSchedule.length - 1;
 }
 
+// 'week' = one Sunday at a time (the rail picks it); 'month' = every Sunday
+// of the loaded month stacked in the detail pane. Both render from the SAME
+// per-Sunday builder below, so the two views cannot drift apart.
+var focusWeekViewMode = 'week';
+function getFocusWeekViewMode() {
+  try { return localStorage.getItem('ws_fw_view') === 'month' ? 'month' : 'week'; } catch(e) { return 'week'; }
+}
+function setFocusWeekViewMode(mode) {
+  focusWeekViewMode = (mode === 'month') ? 'month' : 'week';
+  try { localStorage.setItem('ws_fw_view', focusWeekViewMode); } catch(e) {}
+  applyFocusWeekViewMode();
+  closeRolePicker();
+  renderFocusWeek();
+}
+function applyFocusWeekViewMode() {
+  var layout = document.getElementById('fw-layout');
+  if (layout) layout.classList.toggle('fw-month', focusWeekViewMode === 'month');
+  document.querySelectorAll('#fw-view-switch [data-fw-view]').forEach(function(btn) {
+    btn.classList.toggle('active', btn.getAttribute('data-fw-view') === focusWeekViewMode);
+  });
+}
+
 function renderFocusWeek() {
   renderFocusWeekRail();
   renderFocusWeekDetail();
@@ -2697,15 +2762,31 @@ function renderFocusWeekDetail() {
     return;
   }
   if (focusWeekSelectedIdx >= currentSchedule.length) focusWeekSelectedIdx = 0;
-  var rowIdx = focusWeekSelectedIdx;
-  var row = currentSchedule[rowIdx];
   var pMap = {}; getPeople().forEach(function(p){ pMap[p.id]=p; });
+
+  if (focusWeekViewMode === 'month') {
+    pane.innerHTML = currentSchedule.map(function(row, idx) {
+      return '<div class="fw-month-sec">' + focusWeekRowHtml(idx, pMap) + '</div>';
+    }).join('');
+    return;
+  }
+  pane.innerHTML = focusWeekRowHtml(focusWeekSelectedIdx, pMap);
+}
+
+// One Sunday's heading + role rows — byte-identical in both views, because they
+// ARE the same call. The month view only wraps each one in .fw-month-sec, which
+// is what shrinks the heading; nothing here needs to know which view it is in.
+// buildRoleRowHtml already carries its own rowIdx, so the role picker and the
+// confirmation pills work the same whichever view drew the row.
+function focusWeekRowHtml(rowIdx, pMap) {
+  var row = currentSchedule[rowIdx];
+  if (!row) return '';
   var dateISO = row.date.toISOString().slice(0,10);
 
-  var html = '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px;">'
+  var html = '<div class="fw-row-hd">'
     + '<div>'
-      + '<div style="font-family:var(--font-head);font-weight:700;font-size:1.3rem;color:var(--steel-anchor);">'+esc(fmtDate(row.date))+'</div>'
-      + '<div style="font-size:.85rem;color:var(--warm-gray);">'+esc(focusWeekRowSubLabel(row, dateISO))+'</div>'
+      + '<div class="fw-row-date">'+esc(fmtDate(row.date))+'</div>'
+      + '<div class="fw-row-sub">'+esc(focusWeekRowSubLabel(row, dateISO))+'</div>'
     + '</div>'
     + focusWeekFillStatusHtml(row, rowIdx, pMap)
     + '</div>';
@@ -2732,7 +2813,7 @@ function renderFocusWeekDetail() {
       html += buildRoleRowHtml(rowIdx, role, 'shared', null, row.assignments[role].shared, pMap, dateISO, row.ordinal);
     });
   }
-  pane.innerHTML = html;
+  return html;
 }
 
 function buildRoleRowHtml(rowIdx, role, svc, svcIdxOrNull, pid, pMap, dateISO, ordinal) {
@@ -2900,6 +2981,12 @@ function cycleConfirmation(confKey) {
   renderFocusWeekDetail();
   renderFocusWeekRail();
 }
+
+document.getElementById('fw-view-switch').addEventListener('click', function(e) {
+  var btn = e.target.closest('[data-fw-view]');
+  if (!btn) return;
+  setFocusWeekViewMode(btn.getAttribute('data-fw-view'));
+});
 
 document.getElementById('fw-rail').addEventListener('click', function(e) {
   var btn = e.target.closest('.wr-btn');
@@ -3344,12 +3431,16 @@ function ppBuildSingleHtml(d) {
   return html;
 }
 
-function ppBuildMonthHtml() {
-  var rows = ppSundayRows.map(ppSundayData);
+// rowsIn/titleIn let the office copy reuse this exact table for a single Sunday
+// as well as a whole month — one renderer, so the emailed sheet and the printed
+// sheet can never come to show different things.
+function ppBuildMonthHtml(rowsIn, titleIn) {
+  var rows = (rowsIn || ppSundayRows).map(ppSundayData);
+  var title = titleIn || ('Serving Schedule — ' + monthKeyLabel(currentMonthKey));
   var html = '<div class="pp-page pp-page-month">'
     + '<div style="text-align:center;margin-bottom:14px;">'
     +   '<div style="font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#7A6E60;">Timothy Lutheran Church</div>'
-    +   '<div style="font-size:20.8px;font-weight:800;color:#1E2D4A;">Serving Schedule — ' + esc(monthKeyLabel(currentMonthKey)) + '</div>'
+    +   '<div style="font-size:20.8px;font-weight:800;color:#1E2D4A;">' + esc(title) + '</div>'
     + '</div>'
     + '<table style="width:100%;border-collapse:collapse;font-size:12.5px;">'
     + '<thead><tr>'
@@ -3418,6 +3509,57 @@ function ppBuildBulletinHtml(d) {
   });
   html += '</div></div>';
   return html;
+}
+
+// ── Office copy: the printable sheet, emailed ─────────────────────────────
+// The office assistant gets the SAME table ppBuildMonthHtml prints, just
+// addressed to them instead of pinned to a wall. Scope 'single' passes the one
+// Sunday the volunteer emails covered; 'month' passes every Sunday loaded.
+// Deliberately not the Single-Sunday print layout: that one is built out of
+// flex rows, which Outlook does not lay out, so it would arrive as a stack of
+// unaligned lines. The month table is plain table markup and travels intact.
+function officeScheduleRows(scope, dateISO) {
+  var sundays = currentSchedule.filter(function(r) { return r.type === 'sunday'; });
+  if (!sundays.length) return [];
+  if (scope === 'month') return sundays;
+  return sundays.filter(function(r) { return r.date.toISOString().slice(0,10) === dateISO; });
+}
+
+function officeScheduleTitle(scope, rows) {
+  if (!rows.length) return 'Serving Schedule';
+  return scope === 'month'
+    ? 'Serving Schedule — ' + monthKeyLabel(currentMonthKey)
+    : 'Serving Schedule — ' + ppFmtDateLong(rows[0].date);
+}
+
+function buildOfficeScheduleHtml(scope, dateISO) {
+  var rows = officeScheduleRows(scope, dateISO);
+  if (!rows.length) return null;
+  return '<div style="font-family:Arial,Helvetica,sans-serif;background:#ffffff;padding:16px;">'
+    + ppBuildMonthHtml(rows, officeScheduleTitle(scope, rows))
+    + '<p style="font-size:12px;color:#7A6E60;margin:18px 0 0;">Sent from the Timothy Lutheran worship scheduler at the same time as this week&#39;s volunteer assignment emails.</p>'
+    + '</div>';
+}
+
+function buildOfficeScheduleText(scope, dateISO) {
+  var rows = officeScheduleRows(scope, dateISO);
+  if (!rows.length) return null;
+  var lines = [officeScheduleTitle(scope, rows), ''];
+  rows.map(ppSundayData).forEach(function(d) {
+    lines.push(d.dateLong + ' — ' + d.ordinalLabel);
+    d.services.forEach(function(svc) {
+      lines.push('  ' + svc.time);
+      svc.roles.forEach(function(r) {
+        lines.push('    ' + roleLabel(r.role) + ': ' + (r.name || '(open)'));
+      });
+    });
+    lines.push('  Both Services');
+    d.shared.forEach(function(r) {
+      lines.push('    ' + r.role + ': ' + (r.name || '(open)'));
+    });
+    lines.push('');
+  });
+  return lines.join('\n');
 }
 
 function ppBuildPageHtml() {
@@ -4316,6 +4458,85 @@ function renderReminderList(weekFilter) {
 
   listEl.innerHTML = html;
   actionsEl.style.display = '';
+  renderReminderOfficeBlock();
+}
+
+// ── Office copy controls ──────────────────────────────────────────────────
+function getOfficeCopyPref() {
+  try { return JSON.parse(localStorage.getItem('ws_office_copy_pref') || '{}'); } catch(e) { return {}; }
+}
+function saveOfficeCopyPref(o) {
+  try { localStorage.setItem('ws_office_copy_pref', JSON.stringify(o)); } catch(e) {}
+}
+
+function renderReminderOfficeBlock() {
+  var cb       = document.getElementById('reminder-office-cb');
+  var toEl     = document.getElementById('reminder-office-to');
+  var detail   = document.getElementById('reminder-office-detail');
+  var hint     = document.getElementById('reminder-office-hint');
+  var scopeSel = document.getElementById('reminder-office-scope');
+  if (!cb || !toEl || !detail || !hint || !scopeSel) return;
+
+  var addr = (getBreezeSettings().officeEmail || '').trim();
+  var pref = getOfficeCopyPref();
+
+  // With no address on file the box would be a promise the send cannot keep,
+  // so it is disabled and the panel says where to set one instead.
+  cb.disabled = !addr;
+  hint.style.display = addr ? 'none' : '';
+  if (!addr) {
+    cb.checked = false;
+    detail.style.display = 'none';
+    toEl.innerHTML = '';
+    return;
+  }
+
+  cb.checked = pref.enabled !== false;   // on by default once an address exists
+  detail.style.display = cb.checked ? '' : 'none';
+  scopeSel.value = pref.scope === 'month' ? 'month' : 'single';
+  toEl.innerHTML = 'Goes to <strong style="color:var(--steel-anchor);">' + esc(addr) + '</strong>';
+}
+
+// Emails the printable sheet to the office. Resolves to a short status word so
+// the caller can report it alongside the volunteer send rather than silently.
+function sendOfficeScheduleCopy(scope, dateISO) {
+  var s = getBreezeSettings();
+  var addr = (s.officeEmail || '').trim();
+  if (!addr) return Promise.resolve({ status: 'skipped', reason: 'no office address set' });
+
+  var html = buildOfficeScheduleHtml(scope, dateISO);
+  var text = buildOfficeScheduleText(scope, dateISO);
+  if (!html) return Promise.resolve({ status: 'skipped', reason: 'no schedule to send' });
+
+  var rows = officeScheduleRows(scope, dateISO);
+  var subject = officeScheduleTitle(scope, rows) + ' \u2014 Timothy Lutheran';
+
+  return fetch(s.workerUrl + '/email/send', {
+    method: 'POST',
+    headers: Object.assign({
+      'Content-Type': 'application/json',
+    }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
+    body: JSON.stringify({
+      to:       addr,
+      subject:  subject,
+      text:     text,
+      html:     html,
+      reply_to: s.replyTo || '',
+    }),
+  })
+    .then(function(r) {
+      return r.json()
+        .catch(function(){ return {}; })
+        .then(function(body){ return { ok: r.ok, status: r.status, body: body }; });
+    })
+    .then(function(res) {
+      if (res.ok) return { status: 'sent', to: addr };
+      var msg = (res.body && (res.body.message || res.body.error || res.body.name)) || ('HTTP ' + res.status);
+      return { status: 'failed', reason: msg };
+    })
+    .catch(function(e) {
+      return { status: 'failed', reason: String(e) };
+    });
 }
 
 function _sendWeekReminders() {
@@ -4330,6 +4551,13 @@ function _sendWeekReminders() {
   var sendBtn  = document.getElementById('btn-reminder-send');
 
   var currentWeekISO = document.getElementById('reminder-week-filter').value;
+  // Read the office-copy choice up front — the send disables the panel's
+  // controls, and a checkbox read afterwards would report the disabled state.
+  var officeCb    = document.getElementById('reminder-office-cb');
+  var officeScope = document.getElementById('reminder-office-scope');
+  var wantOfficeCopy = !!(officeCb && officeCb.checked && !officeCb.disabled);
+  var officeCopyScope = (officeScope && officeScope.value === 'month') ? 'month' : 'single';
+
   var tasks = [];
   document.querySelectorAll('.reminder-person-cb:checked').forEach(function(cb) {
     var pid  = cb.getAttribute('data-pid');
@@ -4460,10 +4688,30 @@ function _sendWeekReminders() {
     });
   });
 
-  chain.then(function() {
+  // The office copy goes last, after every volunteer email, so the sheet it
+  // carries is never contradicted by a send that failed behind it. The failure
+  // status text of the volunteer pass is preserved across this step — the
+  // interim "sending" line would otherwise overwrite the one error the user
+  // needs to read.
+  var _statusBeforeOffice = '';
+  chain = chain.then(function() {
+    if (!wantOfficeCopy) return null;
+    _statusBeforeOffice = statusEl.textContent;
+    statusEl.textContent = 'Sending the office copy\u2026';
+    return sendOfficeScheduleCopy(officeCopyScope, currentWeekISO);
+  });
+
+  chain.then(function(officeResult) {
     sendBtn.disabled = false;
+    var officeNote = '';
+    if (officeResult) {
+      officeNote = officeResult.status === 'sent'
+        ? ' Printable schedule sent to ' + officeResult.to + '.'
+        : ' Office copy not sent (' + (officeResult.reason || officeResult.status) + ').';
+      if (errors) statusEl.textContent = _statusBeforeOffice;
+    }
     if (!errors) {
-      statusEl.textContent = '\u2713 Done \u2014 ' + sent + ' email' + (sent !== 1 ? 's' : '') + ' sent.';
+      statusEl.textContent = '\u2713 Done \u2014 ' + sent + ' email' + (sent !== 1 ? 's' : '') + ' sent.' + officeNote;
       if (sent > 0 && currentWeekISO) {
         var log = getEmailSentLog();
         var existing = log['reminder_' + currentWeekISO] || {};
@@ -4477,7 +4725,7 @@ function _sendWeekReminders() {
         renderTable(getPeople(), null);
       }
     } else {
-      statusEl.textContent += ' (' + sent + ' sent, ' + errors + ' failed)';
+      statusEl.textContent += ' (' + sent + ' sent, ' + errors + ' failed)' + officeNote;
     }
   });
 }
@@ -4967,6 +5215,18 @@ document.getElementById('btn-reminder-select-all').addEventListener('click', fun
 document.getElementById('btn-reminder-deselect-all').addEventListener('click', function() {
   document.querySelectorAll('.reminder-person-cb:not(:disabled)').forEach(function(cb){ cb.checked = false; });
 });
+document.getElementById('reminder-office-cb').addEventListener('change', function() {
+  var pref = getOfficeCopyPref();
+  pref.enabled = this.checked;
+  saveOfficeCopyPref(pref);
+  var detail = document.getElementById('reminder-office-detail');
+  if (detail) detail.style.display = this.checked ? '' : 'none';
+});
+document.getElementById('reminder-office-scope').addEventListener('change', function() {
+  var pref = getOfficeCopyPref();
+  pref.scope = this.value === 'month' ? 'month' : 'single';
+  saveOfficeCopyPref(pref);
+});
 document.getElementById('btn-reminder-send').addEventListener('click', _sendWeekReminders);
 
 document.getElementById('btn-notify-volunteers').addEventListener('click', openNotifyPanel);
@@ -5000,6 +5260,7 @@ function loadSettingsForm() {
   var tagIds = (s.tagIds || []).join(', ');
   if (tagIds) document.getElementById('breeze-tag-ids').value = tagIds;
   if (s.replyTo)       document.getElementById('email-reply-to').value        = s.replyTo;
+  if (s.officeEmail)   document.getElementById('email-office-to').value       = s.officeEmail;
   if (s.workerSecret)  document.getElementById('breeze-worker-secret').value  = s.workerSecret;
 }
 
@@ -5014,8 +5275,9 @@ document.getElementById('btn-save-settings').addEventListener('click', function(
   var resendKey = '';
   var emailFrom = '';
   var replyTo   = document.getElementById('email-reply-to').value.trim();
+  var officeEmail = document.getElementById('email-office-to').value.trim();
   if (!subdomain) { showAlert('settings-alert','Please enter your Breeze subdomain.','warning'); return; }
-  saveBreezeSettings({ subdomain:subdomain, apiKey:apiKey, workerUrl:workerUrl, workerSecret:workerSecret, tagIds:tagIds, resendKey:resendKey, emailFrom:emailFrom, replyTo:replyTo });
+  saveBreezeSettings({ subdomain:subdomain, apiKey:apiKey, workerUrl:workerUrl, workerSecret:workerSecret, tagIds:tagIds, resendKey:resendKey, emailFrom:emailFrom, replyTo:replyTo, officeEmail:officeEmail });
   queueD1Push();
   showAlert('settings-alert','Settings saved!','success');
   document.getElementById('settings-status').textContent = '';
@@ -5627,6 +5889,9 @@ _safeInit('pendingSignups',     function(){ _pendingSignups   = getPendingSignup
 _safeInit('generalVolunteers',  function(){ _generalVolunteers = getGeneralVolunteers(); updateGeneralBadge(); });
 _safeInit('eventVolunteers',    function(){ _eventVolunteers   = getEventVolunteers();   updateEventBadge(); });
 _safeInit('renderPeopleList',   renderPeopleList);
+// Restore the Week/Month choice BEFORE the first render below, so a month-view
+// user never sees a week-view flash on load.
+_safeInit('focusWeekViewMode',  function(){ focusWeekViewMode = getFocusWeekViewMode(); applyFocusWeekViewMode(); });
 
 // Restore saved schedule if any; always show schedule-output so the
 // empty-state ("No schedule generated yet") is visible on first visit.
