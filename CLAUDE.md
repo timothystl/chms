@@ -1944,6 +1944,42 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   - **SC7-FIX4** — User confirmed the exact same error live at v1.55.4 (after SC7-FIX3's blob-URL-realm fix deployed and was verified via `deploy.yml`'s own run history to have actually gone out — ruling out the CI/deploy-pipeline gap documented elsewhere in this file). Actual root cause, found this time: the app's Content-Security-Policy header (`SEC_HEADERS` in `src/auth.js`) sets `img-src * data:` — and per the CSP spec, the `*` wildcard source explicitly does **not** cover the `blob:`/`data:`/`filesystem:` schemes (they must be listed by name even when `*` is present). `data:` was already listed, but `blob:` was not — so every `<img src="blob:...">` load was silently blocked by CSP the whole time, independent of both the XML-well-formedness fix (SC7-FIX2) and the cross-document blob-URL-realm fix (SC7-FIX3), which is exactly why neither of those actually resolved it: this bug was present underneath both. The print-preview popup (`window.open('')` + `document.write()`) inherits its opener's CSP, so this applied there too. Fixed by adding `blob:` to `img-src`. This is the one directive in `SEC_HEADERS` that needed it — `connect-src` governs fetch/XHR, not `<img>` loads, so it was never in play. `npm test` (187/187), `node --check` on both built app-JS bundles and the worker entry point. **Not verified**: an actual browser — if this still doesn't resolve it, next check whether the browser's dev tools Console/Network tab shows any remaining CSP violation or a different failure entirely (the SVG-in-`<img>`-via-foreignObject rasterization technique itself, per SC7-FIX3's note). Done 2026-07-22 (v1.55.5). (`src/auth.js`)
   - **SC7-FIX5** — User confirmed the CSP fix deployed (v1.55.5) but the exact same generic error is still shown; clarified the on-screen preview itself renders fine (the always-worked `.pp-page` HTML/CSS, unrelated to the export pipeline) — it's specifically the save/export step that fails, with no way from the generic message to tell which of several remaining possibilities is the actual cause. Rather than guess a fourth time, added real diagnostics: `ppExportCanvas()`'s callback now carries a `reason` string (surfaced directly in the on-page status line, e.g. "Could not generate an image (SecurityError: ...)", plus `console.error`'d for anyone who does have devtools open) instead of the prior bare `cb(null)` that discarded the actual failure. Also instrumented the one remaining, most-likely suspect: `canvas.toBlob()` returning no data with no thrown exception (which the prior try/catch wouldn't have caught, since it's not an exception) now reports "toBlob returned no data (canvas may be tainted)" — some browsers set a canvas's origin-clean flag to false for any SVG image containing `<foreignObject>` content, even fully local/same-origin content, which would make `toBlob()`/`getImageData()` permanently unable to read the canvas back regardless of CSP or blob-URL realm; this is the next real bug to look for once the specific `reason` text from a live retry is known — SC7-FIX2/FIX3/FIX4 already ruled out well-formedness, blob-URL realm, and CSP as at least partial causes. `npm test` (187/187), `node --check` on the built script and both app-JS bundles, `scheduler/index.html` resynced. **Not verified**: an actual browser. Done 2026-07-23 (v1.55.6). (`src/scheduler-html.js`)
 
+### SC10/SC11 — Office copy of the printable schedule; whole-month view (2026-08-16, DONE)
+Two asks off the Schedule tab, shipped together.
+- **SC10 — the printable schedule, emailed to the office.** New checkbox on the Email Assignments
+  panel (*Also send the printable schedule to the office*) + a scope select (This Sunday / Whole
+  month) + a new **Office Copy Address** in Settings → Integrations, stored on the existing
+  `ws_breeze_settings` blob so it rides the same D1 sync as Reply-To. No migration, no endpoint.
+  **It is the SAME sheet the Print button produces**: `ppBuildMonthHtml()` now takes an optional
+  row set and title, so a single Sunday is that table with one row — a second hand-written layout
+  is how the emailed and printed sheets come to disagree (SW17), unnoticed.
+- **⚠ Deliberately NOT the Single-Sunday print layout**, which is the obvious pick and the wrong
+  one: it is built from `display:flex` rows, and **Outlook does not lay out flexbox**, so it
+  arrives as a stack of unaligned lines. The month table is plain table markup. Pinned by a test.
+- **The copy is sent LAST**, on the same promise chain as the per-volunteer sends, so the sheet it
+  carries is never contradicted by a send still in flight. **The checkbox is read BEFORE the send
+  disables the panel** — read afterwards it reports the disabled state and the copy silently never
+  goes out; that exact ordering is what one injection caught, and the test that now guards it
+  drives the real `_sendWeekReminders()` rather than reading source positions.
+- **`fetch(s.workerUrl + '/email/send'` must keep that exact shape** — `scheduler-inline.js`
+  rewrites it to a same-origin call for the embedded tab (CSP `connect-src 'self'`); a hand-built
+  URL is left pointing at the old host and is blocked. Pinned, against both builds.
+- **SC11 — Week / Month toggle** beside the Schedule heading; month mode stacks every Sunday and
+  hides the rail (a rail is a week *picker*). Persisted, and restored before the first render.
+  **Both views are the same call** — `focusWeekRowHtml(rowIdx, pMap)`, with month mode only
+  wrapping each result in `.fw-month-sec`; the heading shrinks via CSS on that wrapper, not a
+  second code path. Each Sunday's rows keep their own `rowIdx`, or edits on the 2nd and 3rd
+  Sundays write to the 1st.
+- `npm test` (1380/1380, 34 new); **every new test verified non-vacuous** (16 injections, 16
+  correct failure sets) — **two of my own tests were vacuous and were rewritten**: a single-Sunday
+  assertion that passed against an empty table because the date also appears in the title, and a
+  lazy regex that ran past its own function into the next `fetch`. Plus `node --check` on the
+  served `<script>` for both builds (SC3-BUG1 class), div/brace balance, and `scheduler/index.html`
+  resynced by evaluating the module (SC5) and confirmed byte-identical. **Not verified**: a live
+  browser or a real sent email. **One step for an admin**: set the Office Copy Address in
+  Scheduler → Settings → Integrations; until then the checkbox stays disabled.
+  (`src/scheduler-html.js`, `scheduler/index.html`, `test/scheduler-month-office.test.js`)
+
 ### People / Households (2026-07-20)
 - [x] **PN1** — Added `middle_name`/`preferred_name` fields to People (create/edit modal, PATCH/PUT/POST API, profile header + demographics display, search). Added a "Hyphenate from members' last names" helper button to the household edit modal for households where spouses keep separate surnames (`households.name` was already free text, so no schema change was needed there — the button just auto-fills it from the household's actual member last names). Done 2026-07-20 (v1.38.0). Not verified in a live browser. (`src/db.js`, `migrations/0021_person_middle_preferred_name.sql`, `src/api-people.js`, `src/frontend/js-people.js`, `src/frontend/js-households.js`, `src/frontend/html-tabs.js`)
 

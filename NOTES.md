@@ -24,6 +24,72 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.179.0 — SC10/SC11: office copy of the printable schedule, and a whole-month view (2026-08-16)
+
+Two asks off the Scheduler, from the Schedule tab: *"in the email volunteers, i also want the
+printable schedule emailed to my office asst"* and *"can i have a toggle to be able to see the
+whole month at one time."*
+
+**SC10 — the printable schedule, emailed to the office.** The Email Assignments panel gains a
+checkbox, *Also send the printable schedule to the office*, with a scope select (**This Sunday
+only** / **Whole month**) and a new **Office Copy Address** field in Settings → Integrations
+(stored on the existing `ws_breeze_settings` blob, so it rides the same D1 sync as Reply-To —
+no migration, no endpoint).
+
+- **It is the same sheet the Print button produces, not a second one.** `ppBuildMonthHtml()` now
+  takes an optional row set and title, so a single Sunday is that same table with one row in it.
+  A second hand-written layout is how the emailed sheet and the printed sheet come to disagree
+  (SW17), and there would be no way to notice.
+- **Deliberately NOT the Single-Sunday print layout**, which is the obvious choice and the wrong
+  one: that layout is built from `display:flex` rows, which Outlook does not lay out, so it
+  arrives as a stack of unaligned lines. The month table is plain table markup and travels intact.
+  A test pins this.
+- **The office copy is sent last**, chained onto the same promise chain as the per-volunteer
+  sends, so the sheet it carries is never contradicted by a send still in flight behind it. The
+  checkbox is read **before** the send disables the panel — read afterwards it reports the
+  disabled state and the copy silently never goes out.
+- **The result is reported in the panel's status line either way** ("Printable schedule sent to
+  …" / "Office copy not sent (…)"), and the volunteer pass's own failure text is preserved
+  across the office step rather than being overwritten by the interim "sending" line.
+- Fails visibly, not silently: with no address configured the checkbox is disabled and the panel
+  says where to set one, rather than offering a box the send cannot honor.
+
+**SC11 — Week / Month toggle.** A seg-switch beside the "Schedule" heading. Month mode stacks
+every Sunday of the loaded month in the detail pane and hides the week rail (a rail is a week
+*picker*, with nothing to pick once every week is on screen). The choice persists in
+`localStorage` and is restored **before** the first render, so a month-view user never sees a
+week-view flash.
+
+- **Both views are the same call**, not two renderers: `focusWeekRowHtml(rowIdx, pMap)` was
+  extracted out of `renderFocusWeekDetail` and month mode only wraps each result in
+  `.fw-month-sec`, which is what shrinks the heading — via CSS on the wrapper, not a second code
+  path. A test asserts the week view's markup appears verbatim inside the month view's.
+- Every Sunday's role rows keep their **own** `rowIdx`, so the picker and the confirmation pills
+  work identically in month mode; a shared or zero index would make edits on the 2nd and 3rd
+  Sundays silently write to the 1st. Pinned by a test.
+
+**Verification.** `npm test` (1380/1380, 34 new in `test/scheduler-month-office.test.js`, which
+runs the **real served script** — extracted from `SCHEDULER_HTML` — in a `vm` with a minimal DOM,
+and drives `_sendWeekReminders()` end to end with `fetch` recorded). **Every new test verified
+non-vacuous** by injecting the exact regression it guards: 16 injections, 16 correct failure
+sets. **Two of my own tests were vacuous and were rewritten, not trusted** — the single-Sunday
+scope assertion passed against an empty table because the date also appears in the title, and the
+workerUrl-shape assertion used a lazy regex that ran past its own function into the per-volunteer
+send further down. Plus `node --check` on the served `<script>` for both the standalone and the
+ChMS-embedded builds (the SC3-BUG1 class), div balance on the whole page / the embedded
+`.sched-root` markup / `CHMS_HTML` / each new subtree, and `<style>` brace balance.
+`scheduler/index.html` resynced by evaluating the module (per SC5) and confirmed byte-identical.
+
+**Not verified**: a live browser, a real sent email, or a real phone.
+
+**One step for an admin before the office copy can be used**: Scheduler → Settings → Integrations
+→ **Office Copy Address**, then Save Settings. Until then the checkbox stays disabled.
+
+(`src/scheduler-html.js`, `scheduler/index.html`, `src/frontend/js-core.js`,
+`test/scheduler-month-office.test.js`)
+
+---
+
 ### v1.178.0 — VOL-MOB1: the Volunteers tab clipped its own buttons on a phone (2026-08-14)
 
 Reported from an iPhone: the Volunteers tab "doesn't seem like it is rendering as native and more
