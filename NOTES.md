@@ -24,6 +24,34 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.185.0 — SC15: the Liturgist is sent all four readings (2026-08-17)
+
+Church's own call: *"The liturgist should be sent all three readings, lector only epistle and ot."*
+The Lector's half was already right; the Liturgist was being sent only Gospel + Psalm.
+
+- **Lector**: OT + Epistle (unchanged).
+- **Liturgist**: OT + Epistle + Gospel + Psalm — the three readings, **plus the Psalm they already
+  had**. Keeping the Psalm is an assumption, stated here rather than buried: "all three readings"
+  names the lessons, and dropping the Psalm would take away something the Liturgist receives today.
+  One line in `readingsForRole` if that is wrong.
+- **One line changed, four surfaces followed** — the on-screen readings strip, the HTML email, the
+  plain-text email and the PDF sheet all read `readingsForRole()`. That consolidation (SC12) is
+  what made this a one-line change instead of four.
+- **The editor panel had to be relabelled.** It grouped its fields under "Emailed to the Lector" /
+  "Emailed to the Liturgist", and that grouping is now false — OT and Epistle go to both. Each
+  field names its own recipients instead.
+
+`npm test` (1480/1480, 3 new); **every new test verified non-vacuous** by injecting the exact
+regression it guards (4 injections, 4 correct failure sets, including reverting the Liturgist to
+the old pair). Three existing tests asserted the old split and were updated — they were pinning the
+behavior that was just corrected, not catching a break. **Not verified**: a live browser or a real
+sent email.
+
+(`src/scheduler-html.js`, `scheduler/index.html`, `src/frontend/js-core.js`,
+`test/scheduler-readings.test.js`)
+
+---
+
 ### v1.184.1 — CI: auto-merge silently deleted the DEPLOY_VERSION export (2026-08-17)
 
 Found by a real CI failure on the SC14 branch: three tests failed in
