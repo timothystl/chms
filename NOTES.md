@@ -24,6 +24,46 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.182.0 — The mark's four quadrants recolored to the website's values (2026-08-16)
+
+Canva would only offer three colors to edit. **That was not a Canva limitation — the artwork
+contains three.** Both right-hand quadrants are one blue, so RECEIVE and GROW share a fill and
+Canva, which selects by color, cannot tell them apart. Confirmed three ways: sampling the
+quadrants, counting distinct colors across the whole mark, and Canva's own picker.
+
+**`Connect.svg` from Drive is not vector.** Uploaded to chase resolution; its entire body is
+`<defs/>` plus one `<image>` holding a 1248x832 base64 PNG — zero paths. Same dimensions as the
+original sheet; compared pixel-by-pixel over the mark, mean difference **2.30/255**, i.e. the same
+picture. Its own metadata says `<ContainsAiGeneratedContent>Yes</ContainsAiGeneratedContent>` with
+a C2PA manifest, and each "flat" quadrant holds 150-275 distinct values. **This artwork has never
+existed as editable shapes, so no re-export will produce vector** — that needs a redraw.
+
+**Recolored by POSITION, which is the one thing Canva cannot do**: which side of the mark's centre
+a pixel falls on, rather than what color it is. Targets are timothystl.org's own value accents,
+read off the live site: WELCOME `#6FA84E` / RECEIVE `#3E7BD1` / GROW `#45AFB8` / GO `#E8A93C`.
+
+**Anti-aliasing is preserved by un-mixing, not replacing.** Each pixel is `a*C_src + (1-a)*white`;
+solving for coverage and recompositing with the new color keeps every soft edge. A flat replace
+would have left jaggies at every boundary.
+
+**⚠ The first run recolored the wordmark too.** "Which side of the centre" is meaningless once you
+leave the mark, so the blue "TIMOTHY LUTHERAN CHURCH" text and the rule under CONNECT — both
+down-and-right of the mark — came out teal. Caught by rendering the login page, not by reading the
+code. Fixed with an `R_OUTER = 125` bound; the pixel count fell from 61,677 to 16,259.
+
+Every asset regenerated from the corrected sheet: mark, lockup, all six icon PNGs, favicon.
+Verified by re-sampling the finished mark — two quadrants exact, two within 1-2 per channel (the
+un-mixing working against noisy source pixels).
+
+**⚠ Second version collision in one evening.** `origin/main` was already at `1.181.0` from a
+parallel session by the time this was ready, so this ships as `1.182.0`. **Re-reading
+`DEPLOY_VERSION` from `origin/main` immediately before pushing is what caught it** — the practice
+recorded in v1.180.0, now proven twice.
+
+`npm test` (1390/1390, unchanged — assets only). Plus CSS brace balance and div balance on both
+shells and the login page. **Not verified**: a live browser. **What this does NOT fix**: sharpness.
+The source is still ~240px, so the 512 icon remains an upscale. (`icons/*`, `favicon.svg`)
+
 ### v1.181.0 — SC13: links go to esv.org; the full ESV text can be embedded (2026-08-16)
 
 Asked, after SC12: *"can we embed the actual ESV text in the email? or have a link to the esv

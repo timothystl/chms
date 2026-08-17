@@ -470,6 +470,21 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### BRAND5 — Mark recolored to the website's four values (2026-08-16, DONE)
+- **Canva offering only three colors was the artwork, not Canva**: both right quadrants are one
+  blue, so RECEIVE and GROW share a fill and a color-based picker cannot separate them.
+- **⚠ `Connect.svg` (Drive) is a raster in an SVG wrapper** — `<defs/>` + one `<image>`, zero
+  paths, same 1248x832, mean difference 2.30/255 vs the original sheet. Its metadata declares
+  `ContainsAiGeneratedContent`. **No re-export will yield vector; only a redraw will.**
+- **Recolor selects by POSITION** (side of the mark's centre), which is exactly what Canva cannot
+  do. Targets are timothystl.org's live value accents, not the sheet's legend.
+- **Edges preserved by un-mixing** `a*C_src + (1-a)*white` and recompositing, never a flat replace.
+- **⚠ Bound the recolor to the mark (`R_OUTER`)** — unbounded, the quadrant test also caught the
+  blue "TIMOTHY LUTHERAN CHURCH" text and turned it teal. Found by rendering, not by reading.
+- **⚠ Check `DEPLOY_VERSION` on `origin/main` right before pushing.** Two collisions in one
+  evening from parallel sessions; this shipped as 1.182.0 because 1.181.0 was taken mid-work.
+- Does **not** fix sharpness — source is still ~240px.
+
 ### BRAND4 — Login uses the designer's lockup artwork (2026-08-16, DONE)
 - The sheet was re-sent with no message; **it is byte-identical to the original upload** (same
   sha256). No new resolution — BRAND2's 240px ceiling and missing teal still stand. **Check the
