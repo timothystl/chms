@@ -1125,11 +1125,13 @@ body.embedded #app-content { display:block!important; }
         <button class="btn btn-outline btn-sm" id="btn-reminder-deselect-all">Deselect All</button>
       </div>
       <div id="reminder-esv-wrap" style="margin-bottom:10px;padding:11px 13px;background:var(--linen);border:1px solid var(--border);border-radius:8px;">
-        <label for="reminder-esv-cb" style="display:flex;align-items:flex-start;gap:8px;margin:0;font-size:.86rem;font-weight:600;color:var(--steel-anchor);cursor:pointer;">
-          <input type="checkbox" id="reminder-esv-cb" style="margin:3px 0 0;flex-shrink:0;">
-          <span>Include the full ESV text of each reading</span>
-        </label>
-        <div id="reminder-esv-note" style="margin-top:6px;padding-left:24px;font-size:.78rem;color:var(--warm-gray);"></div>
+        <label for="reminder-readings-mode" style="display:block;margin:0 0 6px;font-size:.86rem;font-weight:600;color:var(--steel-anchor);">Readings for the Lector and Liturgist</label>
+        <select id="reminder-readings-mode" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:white;font-family:var(--font-body);font-size:.84rem;color:var(--steel-anchor);max-width:100%;">
+          <option value="link">Reference and a link to esv.org</option>
+          <option value="pdf">Attach the full text as a PDF</option>
+          <option value="inline">Put the full text in the email</option>
+        </select>
+        <div id="reminder-esv-note" style="margin-top:6px;font-size:.78rem;color:var(--warm-gray);"></div>
       </div>
       <div id="reminder-office-wrap" style="margin-bottom:14px;padding:11px 13px;background:var(--linen);border:1px solid var(--border);border-radius:8px;">
         <label for="reminder-office-cb" style="display:flex;align-items:flex-start;gap:8px;margin:0;font-size:.86rem;font-weight:600;color:var(--steel-anchor);cursor:pointer;">
@@ -1429,11 +1431,17 @@ function esvTextFor(map, ref) {
 // back to links on its own if the fetch comes back unconfigured or fails.
 var _esvConfigured = false;
 
-// Whether this send should carry the full text. False whenever the Worker holds
-// no key, so the question never even reaches the network.
-function esvWantedNow() {
-  return _esvConfigured && getOfficeCopyPref().esv !== false;
+// How the readings travel: 'link' (reference + esv.org link, no key needed),
+// 'pdf' (full text as an attached sheet) or 'inline' (full text in the body).
+// Always 'link' when the Worker holds no key, so the question never even
+// reaches the network.
+function readingsModeNow() {
+  if (!_esvConfigured) return 'link';
+  var m = getOfficeCopyPref().readings;
+  return (m === 'inline' || m === 'link') ? m : 'pdf';   // PDF is the default
 }
+// Both full-text modes need the passages fetched; only 'link' does not.
+function esvWantedNow() { return readingsModeNow() !== 'link'; }
 
 // Every distinct reference the selected volunteers will be sent, so one send
 // fetches each passage once rather than once per recipient.
@@ -3751,6 +3759,204 @@ function ppBuildBulletinHtml(d) {
   return html;
 }
 
+// ══════════════════════════════════════════════════════════════════
+// READINGS PDF — a printable sheet for the lectern, attached to the email
+// ══════════════════════════════════════════════════════════════════
+// Embedding four passages inline makes an assignment email very long, so the
+// full text can instead ride along as a one-page-ish PDF the reader opens or
+// prints. Built here in the browser and base64'd, exactly like the .ics
+// attachment already is — no new Worker route, no library (this app carries no
+// third-party JS anywhere; see the hand-rolled xlsx reader in js-tuition-aid.js
+// for the same choice on a different problem).
+//
+// Helvetica is one of the 14 fonts every PDF reader ships, so nothing is
+// embedded and the file stays a few KB.
+
+var PDF_BS = String.fromCharCode(92);   // a single backslash, spelled safely
+
+// Widths in 1/1000 em for Helvetica, ASCII 32-126. Used only to decide where
+// to wrap; PDF_WRAP_SAFETY below absorbs any small error so a line can never
+// run past the margin even if one of these is slightly off.
+var HELV_W = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,
+  556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,
+  1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,
+  667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,
+  333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,
+  556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
+var PDF_WRAP_SAFETY = 0.94;
+
+// Anything outside WinAnsi would be an invalid byte in a Base14 font string.
+// ESV text really does use curly quotes and dashes, so those are mapped rather
+// than stripped; a stray character beyond this becomes "?" instead of corrupting
+// the file.
+var WINANSI_MAP = {
+  '\\u2018': 145, '\\u2019': 146, '\\u201c': 147, '\\u201d': 148,
+  '\\u2013': 150, '\\u2014': 151, '\\u2022': 149, '\\u2026': 133,
+  '\\u00a0': 32,  '\\u2032': 39,  '\\u2033': 34,
+};
+function pdfWinAnsi(s) {
+  var out = '';
+  for (var i = 0; i < String(s).length; i++) {
+    var ch = String(s).charAt(i), code = ch.charCodeAt(0);
+    if (code < 256) { out += ch; continue; }
+    out += WINANSI_MAP[ch] ? String.fromCharCode(WINANSI_MAP[ch]) : '?';
+  }
+  return out;
+}
+function pdfEscape(s) {
+  return pdfWinAnsi(s)
+    .split(PDF_BS).join(PDF_BS + PDF_BS)
+    .split('(').join(PDF_BS + '(')
+    .split(')').join(PDF_BS + ')');
+}
+function pdfTextWidth(s, size) {
+  var w = 0, t = pdfWinAnsi(s);
+  for (var i = 0; i < t.length; i++) {
+    var c = t.charCodeAt(i);
+    w += (c >= 32 && c <= 126) ? HELV_W[c - 32] : 556;
+  }
+  return w * size / 1000;
+}
+function pdfWrap(text, maxWidth, size) {
+  var limit = maxWidth * PDF_WRAP_SAFETY;
+  var out = [];
+  String(text).split(/\\r?\\n/).forEach(function(para) {
+    var words = para.split(/\\s+/).filter(function(w){ return w.length; });
+    if (!words.length) { out.push(''); return; }
+    var line = '';
+    words.forEach(function(word) {
+      var next = line ? line + ' ' + word : word;
+      if (pdfTextWidth(next, size) <= limit) { line = next; return; }
+      if (line) out.push(line);
+      // A single word wider than the column (a long URL) is broken rather than
+      // allowed to run off the page.
+      while (pdfTextWidth(word, size) > limit && word.length > 1) {
+        var cut = word.length;
+        while (cut > 1 && pdfTextWidth(word.slice(0, cut), size) > limit) cut--;
+        out.push(word.slice(0, cut));
+        word = word.slice(cut);
+      }
+      line = word;
+    });
+    if (line) out.push(line);
+  });
+  return out;
+}
+
+// Flows styled blocks onto Letter pages and returns the PDF as a binary string
+// (one char per byte, so btoa can take it directly and the xref offsets below
+// are simply string lengths).
+function buildReadingsPdf(blocks) {
+  var PW = 612, PH = 792, ML = 72, MR = 72, MT = 72, MB = 60;
+  var colW = PW - ML - MR;
+  var pages = [], cur = [], y = PH - MT;
+
+  function newPage() { if (cur.length) pages.push(cur); cur = []; y = PH - MT; }
+  blocks.forEach(function(b) {
+    var size = b.size || 11, lead = b.lead || (size * 1.38), bold = !!b.bold;
+    var lines = b.text === '' ? [''] : pdfWrap(b.text, colW, size);
+    if (b.spaceBefore) y -= b.spaceBefore;
+    lines.forEach(function(ln) {
+      if (y - lead < MB) newPage();
+      cur.push({ x: ML, y: y, size: size, bold: bold, text: ln });
+      y -= lead;
+    });
+    if (b.spaceAfter) y -= b.spaceAfter;
+  });
+  if (cur.length) pages.push(cur);
+  if (!pages.length) pages.push([]);
+
+  var streams = pages.map(function(items) {
+    var s = '';
+    items.forEach(function(it) {
+      if (!it.text) return;
+      s += 'BT /' + (it.bold ? 'FB' : 'FR') + ' ' + it.size + ' Tf '
+        + it.x + ' ' + it.y.toFixed(2) + ' Td (' + pdfEscape(it.text) + ') Tj ET\\n';
+    });
+    return s;
+  });
+
+  // Object ids: 1 catalog, 2 pages, 3 FR, 4 FB, then page/content pairs.
+  var objs = [];
+  var kids = [];
+  var firstPageId = 5;
+  pages.forEach(function(_, i) { kids.push((firstPageId + i * 2) + ' 0 R'); });
+
+  objs[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+  objs[2] = '<< /Type /Pages /Count ' + pages.length + ' /Kids [' + kids.join(' ') + '] >>';
+  objs[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+  objs[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+  pages.forEach(function(_, i) {
+    var pid = firstPageId + i * 2, cid = pid + 1;
+    objs[pid] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + PW + ' ' + PH + ']'
+      + ' /Resources << /Font << /FR 3 0 R /FB 4 0 R >> >> /Contents ' + cid + ' 0 R >>';
+    objs[cid] = '<< /Length ' + streams[i].length + ' >>' + PDF_BS + 'nstream' + PDF_BS + 'n'
+      + streams[i] + 'endstream';
+  });
+
+  var out = '%PDF-1.4\\n';
+  var offsets = [];
+  for (var id = 1; id < objs.length; id++) {
+    offsets[id] = out.length;
+    out += id + ' 0 obj\\n' + objs[id].split(PDF_BS + 'n').join('\\n') + '\\nendobj\\n';
+  }
+  var xrefAt = out.length;
+  out += 'xref\\n0 ' + objs.length + '\\n0000000000 65535 f \\n';
+  for (var j = 1; j < objs.length; j++) {
+    out += ('0000000000' + offsets[j]).slice(-10) + ' 00000 n \\n';
+  }
+  out += 'trailer\\n<< /Size ' + objs.length + ' /Root 1 0 R >>\\nstartxref\\n' + xrefAt + '\\n%%EOF\\n';
+  return out;
+}
+
+// The reader's own sheet: who is reading, when, and the passages in full.
+// Returns null when there is nothing to put on it, so the caller attaches
+// nothing rather than an empty document.
+function buildReadingsPdfFor(person, assignments, esvText) {
+  var blocks = [], any = false;
+  blocks.push({ text: 'Timothy Lutheran Church', size: 9, bold: true, spaceAfter: 2 });
+  blocks.push({ text: 'Readings', size: 20, bold: true, spaceAfter: 10 });
+  blocks.push({ text: (person && person.name) || '', size: 12, bold: true, spaceAfter: 14 });
+
+  (assignments || []).forEach(function(a) {
+    var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
+    var items = readingsForRole(a.role, rd);
+    if (!items.length) return;
+    var svcLabel = a.svc === 'both services' ? 'Both Services' : a.svc;
+    blocks.push({ text: a.date + '  \\u00b7  ' + svcLabel + '  \\u00b7  ' + roleLabel(a.role),
+                  size: 12, bold: true, spaceBefore: 8, spaceAfter: 8 });
+    items.forEach(function(it) {
+      blocks.push({ text: it.label + ' \\u2014 ' + tidyReadingRef(it.ref),
+                    size: 13, bold: true, spaceBefore: 6, spaceAfter: 6 });
+      var body = esvTextFor(esvText, it.ref);
+      if (body) { any = true; blocks.push({ text: body, size: 11, lead: 15, spaceAfter: 10 }); }
+      else      { blocks.push({ text: bibleLink(it.ref), size: 10, spaceAfter: 10 }); }
+    });
+  });
+  if (!any) return null;
+  blocks.push({ text: ESV_COPYRIGHT_NOTICE, size: 8, lead: 11, spaceBefore: 16 });
+  return buildReadingsPdf(blocks);
+}
+
+// The calendar file always goes; the readings sheet only when there is one.
+// readingsPdfAttachment returns null if no text was resolved, so a failed ESV
+// lookup silently degrades to a link rather than attaching an empty document.
+function emailAttachments(icalB64, readingsAtt) {
+  var list = [{ filename: 'worship-schedule.ics', content: icalB64 }];
+  if (readingsAtt) list.push(readingsAtt);
+  return list;
+}
+
+function readingsPdfAttachment(person, assignments, esvText) {
+  var pdf = buildReadingsPdfFor(person, assignments, esvText);
+  if (!pdf) return null;
+  var when = (assignments && assignments[0] && assignments[0].date) || '';
+  return {
+    filename: ('Readings ' + when).replace(/[^A-Za-z0-9 .,-]/g, '').trim() + '.pdf',
+    content:  btoa(pdf),
+  };
+}
+
 // ── Office copy: the printable sheet, emailed ─────────────────────────────
 // The office assistant gets the SAME table ppBuildMonthHtml prints, just
 // addressed to them instead of pinned to a wall. Scope 'single' passes the one
@@ -4413,6 +4619,7 @@ function sendReminderEmails() {
   var _esvText = {};
   var _esvTasks = pids.filter(function(pid){ return pMap[pid] && pMap[pid].email; })
                       .map(function(pid){ return { assignments: personAssignments[pid] }; });
+  var readingsMode = readingsModeNow();
   var chain = esvWantedNow()
     ? esvFetchPassages(esvRefsForTasks(_esvTasks)).then(function(m){ _esvText = m; })
     : Promise.resolve();
@@ -4466,7 +4673,7 @@ function sendReminderEmails() {
     // Store token in Worker KV before sending
     chain = chain.then(function() {
       var textBody = linesHead
-        .concat(readingsTextLines(assignments, _esvText))
+        .concat(readingsTextLines(assignments, readingsMode === 'inline' ? _esvText : null))
         .concat(linesTail)
         .join('\\n');
       var storePromise = (token && (s.workerUrl || _embedded))
@@ -4496,12 +4703,11 @@ function sendReminderEmails() {
             to:       person.email,
             subject:  'Your Upcoming Worship Service Assignments \\u2014 Timothy Lutheran',
             text:     textBody,
-            html:     buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase, _esvText),
+            html:     buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase,
+                        readingsMode === 'inline' ? _esvText : null),
             reply_to: s.replyTo || '',
-            attachments: [{
-              filename: 'worship-schedule.ics',
-              content:  icalB64,
-            }],
+            attachments: emailAttachments(icalB64, readingsMode === 'pdf'
+                           ? readingsPdfAttachment(person, assignments, _esvText) : null),
           }),
         })
           .then(function(r) {
@@ -4722,22 +4928,28 @@ function renderReminderList(weekFilter) {
   renderReminderOfficeBlock();
 }
 
+var READINGS_MODE_NOTES = {
+  link:   'Shortest email. The reader taps through to esv.org.',
+  pdf:    'The email stays short and the words come as a printable sheet \\u2014 good for the lectern, and for a phone with poor signal.',
+  inline: 'Everything in the body. Four passages makes for a long email.',
+};
+
 function renderReminderEsvBlock() {
-  var cb   = document.getElementById('reminder-esv-cb');
+  var sel  = document.getElementById('reminder-readings-mode');
   var note = document.getElementById('reminder-esv-note');
-  if (!cb || !note) return;
-  var pref = getOfficeCopyPref();
-  cb.disabled = !_esvConfigured;
+  if (!sel || !note) return;
+
+  sel.disabled = !_esvConfigured;
   if (!_esvConfigured) {
-    cb.checked = false;
-    note.textContent = 'Readings are linked to esv.org. To put the words themselves in the email, '
+    // With no key there is only one honest option, so the others are removed
+    // rather than left selectable and silently ignored.
+    sel.value = 'link';
+    note.textContent = 'Readings are named and linked to esv.org. To send the words themselves, '
       + 'set an ESV_API_KEY on the Worker (free from api.esv.org for church use).';
     return;
   }
-  cb.checked = pref.esv !== false;   // on by default once a key exists
-  note.textContent = cb.checked
-    ? 'Each reading arrives in full, with the ESV copyright notice. Still linked to esv.org.'
-    : 'Readings are linked to esv.org only.';
+  sel.value = readingsModeNow();
+  note.textContent = READINGS_MODE_NOTES[sel.value] || '';
 }
 
 // ── Office copy controls ──────────────────────────────────────────────────
@@ -4836,8 +5048,10 @@ function _sendWeekReminders() {
   var officeScope = document.getElementById('reminder-office-scope');
   var wantOfficeCopy = !!(officeCb && officeCb.checked && !officeCb.disabled);
   var officeCopyScope = (officeScope && officeScope.value === 'month') ? 'month' : 'single';
-  var esvCb = document.getElementById('reminder-esv-cb');
-  var wantEsvText = esvCb ? !!(esvCb.checked && !esvCb.disabled) : esvWantedNow();
+  var esvSel = document.getElementById('reminder-readings-mode');
+  var readingsMode = (esvSel && !esvSel.disabled) ? esvSel.value : readingsModeNow();
+  if (!_esvConfigured) readingsMode = 'link';
+  var wantEsvText = readingsMode !== 'link';
 
   var tasks = [];
   document.querySelectorAll('.reminder-person-cb:checked').forEach(function(cb) {
@@ -4908,7 +5122,7 @@ function _sendWeekReminders() {
 
     chain = chain.then(function() {
       var textBody = linesHead
-        .concat(readingsTextLines(assignments, _esvText))
+        .concat(readingsTextLines(assignments, readingsMode === 'inline' ? _esvText : null))
         .concat(linesTail)
         .join('\\n');
       var storePromise = (token && (s.workerUrl || _embedded))
@@ -4935,9 +5149,11 @@ function _sendWeekReminders() {
             to:          person.email,
             subject:     'Worship Service Reminder \\u2014 ' + assignments[0].date + ' \\u2014 Timothy Lutheran',
             text:        textBody,
-            html:        buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase, _esvText),
+            html:        buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase,
+                           readingsMode === 'inline' ? _esvText : null),
             reply_to:    s.replyTo || '',
-            attachments: [{ filename: 'worship-schedule.ics', content: icalB64 }],
+            attachments: emailAttachments(icalB64, readingsMode === 'pdf'
+                             ? readingsPdfAttachment(person, assignments, _esvText) : null),
           }),
         })
           .then(function(r) {
@@ -5491,9 +5707,9 @@ document.getElementById('btn-reminder-select-all').addEventListener('click', fun
 document.getElementById('btn-reminder-deselect-all').addEventListener('click', function() {
   document.querySelectorAll('.reminder-person-cb:not(:disabled)').forEach(function(cb){ cb.checked = false; });
 });
-document.getElementById('reminder-esv-cb').addEventListener('change', function() {
+document.getElementById('reminder-readings-mode').addEventListener('change', function() {
   var pref = getOfficeCopyPref();
-  pref.esv = this.checked;
+  pref.readings = this.value;
   saveOfficeCopyPref(pref);
   renderReminderEsvBlock();
 });

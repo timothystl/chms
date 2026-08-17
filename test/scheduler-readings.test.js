@@ -340,7 +340,7 @@ describe('the assignment email', () => {
     expect(ctx.readingsForRole('Elder', ctx.getReadingsForDate('2026-08-16'))).toEqual([]);
     expect(ctx.readingsForRole('Lector', null)).toEqual([]);
     // Both send paths call the shared builder rather than inlining their own.
-    expect(SERVED_JS.match(/\.concat\(readingsTextLines\(assignments, _esvText\)\)/g)).toHaveLength(2);
+    expect(SERVED_JS.match(/\.concat\(readingsTextLines\(assignments, readingsMode === 'inline' \? _esvText : null\)\)/g)).toHaveLength(2);
     // ...and neither kept a private copy of the OT/Epistle split.
     expect(SERVED_JS.match(/rd\.epistle\)\s+lines\.push/g)).toBeNull();
   });
@@ -561,30 +561,163 @@ describe('embedding the full ESV text', () => {
     expect(ctx.esvWantedNow()).toBe(true);       // on by default once configured
   });
 
-  it('offers the checkbox only when a key is configured, and says why when not', () => {
+  it('locks the choice to link-only, and says why, when no key is configured', () => {
     const { ctx, el } = ready();
     ctx._esvConfigured = false;
     ctx.renderReminderEsvBlock();
-    expect(el('reminder-esv-cb').disabled).toBe(true);
-    expect(el('reminder-esv-cb').checked).toBe(false);
+    expect(el('reminder-readings-mode').disabled).toBe(true);
+    expect(el('reminder-readings-mode').value).toBe('link');
     expect(el('reminder-esv-note').textContent).toContain('ESV_API_KEY');
-
-    ctx._esvConfigured = true;
-    ctx.renderReminderEsvBlock();
-    expect(el('reminder-esv-cb').disabled).toBe(false);
-    expect(el('reminder-esv-cb').checked).toBe(true);
+    expect(ctx.readingsModeNow()).toBe('link');
   });
 
-  it('remembers the choice being turned off', () => {
-    const { ctx, el } = ready({ localStorage: { ws_office_copy_pref: JSON.stringify({ esv: false }) } });
+  it('defaults to the PDF once a key exists, since that is what keeps the email short', () => {
+    const { ctx, el } = ready();
     ctx._esvConfigured = true;
     ctx.renderReminderEsvBlock();
-    expect(el('reminder-esv-cb').checked).toBe(false);
-    expect(ctx.esvWantedNow()).toBe(false);
+    expect(el('reminder-readings-mode').disabled).toBe(false);
+    expect(el('reminder-readings-mode').value).toBe('pdf');
+    expect(ctx.readingsModeNow()).toBe('pdf');
+    expect(ctx.esvWantedNow()).toBe(true);
+  });
+
+  it('remembers a chosen mode', () => {
+    const withMode = (m) => {
+      const h = ready({ localStorage: { ws_office_copy_pref: JSON.stringify({ readings: m }) } });
+      h.ctx._esvConfigured = true;
+      return h;
+    };
+    expect(withMode('link').ctx.readingsModeNow()).toBe('link');
+    expect(withMode('inline').ctx.readingsModeNow()).toBe('inline');
+    expect(withMode('pdf').ctx.readingsModeNow()).toBe('pdf');
+    // A junk value falls back to the default rather than a mode that cannot run.
+    expect(withMode('banana').ctx.readingsModeNow()).toBe('pdf');
+    // ...and link-only still wins whenever there is no key, whatever is stored.
+    const noKey = ready({ localStorage: { ws_office_copy_pref: JSON.stringify({ readings: 'inline' }) } });
+    noKey.ctx._esvConfigured = false;
+    expect(noKey.ctx.readingsModeNow()).toBe('link');
+    expect(noKey.ctx.esvWantedNow()).toBe(false);
   });
 
   it('learns the key is configured from the scheduler config', () => {
     // _esvConfigured is set from /admin/api/scheduler/config's hasEsvApiKey.
     expect(getSchedulerInlineParts().js).toContain('_esvConfigured = !!cfg.hasEsvApiKey');
+  });
+});
+
+// ── The readings PDF ─────────────────────────────────────────────────────────
+//
+// Four passages inline makes a very long email, so the full text can instead
+// ride along as an attached sheet. Built in the browser and base64'd, exactly
+// like the .ics already is — no library, since this app carries no third-party
+// JS anywhere. Helvetica is a Base14 font so nothing is embedded.
+//
+// A companion check in test/readings-pdf-render.test.js parses the generated
+// bytes with a real PDF reader; these tests cover the shape and the wiring.
+
+describe('readings PDF attachment', () => {
+  const assignmentsFor = (role) => ([{
+    date: 'Aug 16, 2026', dateISO: '2026-08-16', svc: '8am', role,
+  }]);
+  const TEXT = {
+    'Isaiah 2:1-5': '[1] The word that Isaiah the son of Amoz saw. (ESV)',
+    'Romans 13:11-14': '[11] Besides this you know the time. (ESV)',
+  };
+
+  it('produces a real PDF, named for the Sunday', () => {
+    const { ctx } = ready();
+    const att = ctx.readingsPdfAttachment({ name: 'Larry Hawkins' }, assignmentsFor('Lector'), TEXT);
+    expect(att.filename).toBe('Readings Aug 16, 2026.pdf');
+    const pdf = Buffer.from(att.content, 'base64').toString('binary');
+    expect(pdf.startsWith('%PDF-1.4')).toBe(true);
+    expect(pdf.trimEnd().endsWith('%%EOF')).toBe(true);
+  });
+
+  it('attaches nothing when no text was resolved, rather than an empty sheet', () => {
+    const { ctx } = ready();
+    expect(ctx.readingsPdfAttachment({ name: 'L' }, assignmentsFor('Lector'), {})).toBeNull();
+    expect(ctx.readingsPdfAttachment({ name: 'L' }, assignmentsFor('Acolyte'), TEXT)).toBeNull();
+  });
+
+  it('keeps the calendar file alongside the readings sheet', () => {
+    const { ctx } = ready();
+    const ical = { filename: 'worship-schedule.ics', content: 'aWNz' };
+    const readings = { filename: 'Readings.pdf', content: 'cGRm' };
+    expect(ctx.emailAttachments('aWNz', readings).map((a) => a.filename))
+      .toEqual(['worship-schedule.ics', 'Readings.pdf']);
+    // ...and the calendar still goes on its own when there is no sheet.
+    expect(ctx.emailAttachments('aWNz', null)).toEqual([ical]);
+  });
+
+  it('strips characters a filename cannot carry', () => {
+    const { ctx } = ready();
+    const att = ctx.readingsPdfAttachment({ name: 'L' },
+      [{ date: 'Aug/16 "2026"', dateISO: '2026-08-16', svc: '8am', role: 'Lector' }], TEXT);
+    expect(att.filename).toBe('Readings Aug16 2026.pdf');
+    expect(att.filename).not.toMatch(/[/"]/);
+  });
+
+  it('escapes the PDF string delimiters rather than corrupting the file', () => {
+    const { ctx } = ready();
+    const bs = String.fromCharCode(92);
+    expect(ctx.pdfEscape('a(b)c')).toBe('a' + bs + '(b' + bs + ')c');
+    expect(ctx.pdfEscape('a' + bs + 'b')).toBe('a' + bs + bs + 'b');
+  });
+
+  it('maps the punctuation ESV text really uses into WinAnsi', () => {
+    const { ctx } = ready();
+    // Curly quotes and dashes are mapped, not dropped — losing them would
+    // change the words on the page.
+    expect(ctx.pdfWinAnsi('“Quoted”').charCodeAt(0)).toBe(147);
+    expect(ctx.pdfWinAnsi('“Quoted”').charCodeAt(7)).toBe(148);
+    expect(ctx.pdfWinAnsi('a—b').charCodeAt(1)).toBe(151);
+    expect(ctx.pdfWinAnsi('a’s').charCodeAt(1)).toBe(146);
+    // Anything else becomes "?" rather than an invalid byte in the file.
+    expect(ctx.pdfWinAnsi('中')).toBe('?');
+    // Every byte must fit in a single char, or the xref offsets go wrong.
+    const out = ctx.pdfWinAnsi('“a—b’c中é');
+    for (let i = 0; i < out.length; i++) expect(out.charCodeAt(i)).toBeLessThan(256);
+  });
+
+  it('wraps to the column and breaks a word too long to fit', () => {
+    const { ctx } = ready();
+    const lines = ctx.pdfWrap('x'.repeat(400), 468, 11);
+    expect(lines.length).toBeGreaterThan(1);
+    lines.forEach((l) => expect(ctx.pdfTextWidth(l, 11)).toBeLessThanOrEqual(468));
+  });
+
+  it('never emits a line wider than the column', () => {
+    const { ctx } = ready();
+    const words = 'Jerusalem plowshares pruning-hooks LORD nation anymore establishment'.split(' ');
+    const para = Array.from({ length: 300 }, (_, i) => words[i % words.length]).join(' ');
+    ctx.pdfWrap(para, 468, 11).forEach((l) => {
+      expect(ctx.pdfTextWidth(l, 11)).toBeLessThanOrEqual(468);
+    });
+  });
+
+  it('flows onto more pages rather than off the bottom of one', () => {
+    const { ctx } = ready();
+    // Comfortably more than one page holds (~44 lines x ~17 words), so this
+    // really exercises the page break rather than passing on a short fixture.
+    const long = { 'Isaiah 2:1-5': Array.from({ length: 2000 }, () => 'word').join(' ') };
+    const pdf = ctx.buildReadingsPdfFor({ name: 'L' }, assignmentsFor('Lector'), long);
+    const count = (pdf.match(/\/Type \/Page[^s]/g) || []).length;
+    expect(count).toBeGreaterThan(1);
+    expect(pdf).toContain('/Count ' + count);
+  });
+
+  it('carries the Crossway notice on the sheet', () => {
+    const { ctx } = ready();
+    const pdf = ctx.buildReadingsPdfFor({ name: 'L' }, assignmentsFor('Lector'), TEXT);
+    expect(pdf).toContain('Crossway');
+    expect(pdf).toContain('All rights reserved');
+  });
+
+  it('sends the text to the sheet OR the body, never both', () => {
+    // Attaching the PDF *and* embedding the same words is the long email the
+    // attachment exists to avoid.
+    const both = SERVED_JS.match(/readingsMode === 'inline' \? _esvText : null/g);
+    expect(both).toHaveLength(4);   // 2 send paths x (html + text)
+    expect(SERVED_JS.match(/readingsMode === 'pdf'/g)).toHaveLength(2);
   });
 });
