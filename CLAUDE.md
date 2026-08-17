@@ -470,6 +470,36 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### BRAND7 — Artwork re-made at 2.5x; the 512 icon is a downsample at last (2026-08-17, DONE)
+The designer re-ran the mark through an AI agent. **BRAND2's 240px ceiling is lifted** — the mark
+arrives at 627x627, so every icon is now a DOWNSAMPLE rather than an upscale.
+- **⚠ The first re-make was a JPEG, and JPEG cannot hold a logo.** No alpha, so the "transparent"
+  background was solid `#000000` (77% of the file) and would have been a black rectangle on the
+  white login card; lossy, so each quadrant carried 3,200-4,500 distinct values with the dominant
+  colour holding only 10-22% of its own area. **Un-keying it is not possible and this was proven,
+  not asserted**: the wordmark, church and cross are dark navy *on black*, so at any coverage they
+  are mathematically indistinguishable from the ground — keyed out, they came back as ghosts.
+  Ask for **PNG-32, transparent**, every time.
+- The PNG re-make is clean: 82.8% fully transparent, 15.6% essentially opaque, ~1.6% in between —
+  a real anti-aliased edge, not a keyed matte. Distinct values per quadrant fell to 835-987.
+- **Colours still drift on every re-make** (`#64A53A`/`#246CD1`/`#2CA9BB`/`#F39F22` this time), so
+  they are snapped per quadrant by scaling each channel `target/dominant` — preserves shading and
+  the anti-aliased edge, unlike a flat replace. Bounded to the cropped mark square, because the
+  quadrant test would otherwise also catch the blue "TIMOTHY LUTHERAN CHURCH" text (BRAND5).
+- **⚠ The supplied art has a TRANSPARENT centre disc; ours must be WHITE.** The sidebar is
+  `var(--navy)`, so a navy church on a transparent disc over navy is invisible. A white circle is
+  composited UNDER the art (not painted over the gaps) so the ring's inner edge blends; `r=168`
+  of 627 — larger and it leaks through the mark's own axis gaps.
+- **⚠ App icons are the mark on a navy `#16294A` rounded plate, not the bare mark.** The first
+  rebuild dropped the plate and nobody would have noticed until it hit a home screen. Geometry is
+  now measured off the live icons and reproduced: radius 19.7%, mark 70.9%, maskable 60.7% on a
+  full bleed. **Diff a new icon against the shipped one before replacing it.**
+- Served sizes are deliberately not the master: the mark renders at 40/28px so it ships at 256px
+  (17.6 KB, down from 42), the lockup at max-width 300px so it ships at 900px (49.8 KB). **The
+  lockup's aspect changed 2.449 -> 2.687, so the login `<img width/height>` had to change with it**
+  or the reserved space is wrong.
+- `npm test` (1448/1448, markup and assets only). **Not verified**: a real browser or a phone.
+
 ### BRAND6 — Icon URLs versioned; stale-icon caveat closed (2026-08-17, DONE)
 - **A green deploy did NOT mean new artwork**: after v1.182.0, `/icons/connect-mark.png` still
   returned the old bytes. **Always re-fetch the live icon URL and check it, not just the deploy.**
