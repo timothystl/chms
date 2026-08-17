@@ -480,6 +480,10 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
   directly (js-core.js imports nothing, so no cycle).
 - **This retires the "warm cache shows the old icon for a day" caveat in BRAND1/BRAND2** — that was
   a fixable defect, not a fact of life.
+- **Verified live after the deploy, not assumed**: `connect-mark.png`, `connect-lockup.png` and
+  `favicon.svg` fetch byte-identical (md5) to the repo copies, and the mark's four quadrants sample
+  `#6FA84E` / `#407CD1` / `#47B0B9` / `#E8A93C` — GROW is teal, where before the fix the same URL
+  still served `#1A62AC`. The shell and login page both emit `?v=` on every icon reference.
 
 ### BRAND5 — Mark recolored to the website's four values (2026-08-16, DONE)
 - **Canva offering only three colors was the artwork, not Canva**: both right quadrants are one
@@ -575,8 +579,9 @@ so two decisions were made rather than copied:
   the UI's.** They are brighter than `--color-teal`/`--color-gold`. Pointing the UI palette at them
   moves every chart, chip and status color — that is RD1/PAL2, not a logo swap.
 - **⚠ Icons are proxied from GitHub `main`** (`/icons/*`, `/favicon.svg`), so they do not change on
-  a branch deploy, and `max-age=86400` means a warm cache or installed PWA can show the old icon
-  for a day after merge.
+  a branch deploy. ~~and `max-age=86400` means a warm cache or installed PWA can show the old icon
+  for a day after merge~~ — **the stale-cache half is fixed; see BRAND6.** The branch-deploy half
+  still stands.
 - **Icon PNGs are generated, and Chromium is not a rasterizer.** Below ~64px `--screenshot` emits
   corrupt output, and at any size it loses ~87px of viewport to browser chrome (a 1024×1024 request
   renders 1024×937, bottom cut) — both found by checking pixel alpha, not by looking. All sizes now
