@@ -470,6 +470,32 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### BRAND6 — Icon URLs versioned; stale-icon caveat closed (2026-08-17, DONE)
+- **A green deploy did NOT mean new artwork**: after v1.182.0, `/icons/connect-mark.png` still
+  returned the old bytes. **Always re-fetch the live icon URL and check it, not just the deploy.**
+- **Two caches, neither busted by deploying.** Cloudflare keys the proxy subrequest on the
+  UPSTREAM GitHub url; browsers key on the client url. Both were constant filenames.
+- Both now carry `?v=DEPLOY_VERSION`. Shell versioning happens at assembly time in `html-chms.js`
+  because `html-head.js` is a static `String.raw`; `html-templates.js` imports DEPLOY_VERSION
+  directly (js-core.js imports nothing, so no cycle).
+- **This retires the "warm cache shows the old icon for a day" caveat in BRAND1/BRAND2** — that was
+  a fixable defect, not a fact of life.
+
+### BRAND5 — Mark recolored to the website's four values (2026-08-16, DONE)
+- **Canva offering only three colors was the artwork, not Canva**: both right quadrants are one
+  blue, so RECEIVE and GROW share a fill and a color-based picker cannot separate them.
+- **⚠ `Connect.svg` (Drive) is a raster in an SVG wrapper** — `<defs/>` + one `<image>`, zero
+  paths, same 1248x832, mean difference 2.30/255 vs the original sheet. Its metadata declares
+  `ContainsAiGeneratedContent`. **No re-export will yield vector; only a redraw will.**
+- **Recolor selects by POSITION** (side of the mark's centre), which is exactly what Canva cannot
+  do. Targets are timothystl.org's live value accents, not the sheet's legend.
+- **Edges preserved by un-mixing** `a*C_src + (1-a)*white` and recompositing, never a flat replace.
+- **⚠ Bound the recolor to the mark (`R_OUTER`)** — unbounded, the quadrant test also caught the
+  blue "TIMOTHY LUTHERAN CHURCH" text and turned it teal. Found by rendering, not by reading.
+- **⚠ Check `DEPLOY_VERSION` on `origin/main` right before pushing.** Two collisions in one
+  evening from parallel sessions; this shipped as 1.182.0 because 1.181.0 was taken mid-work.
+- Does **not** fix sharpness — source is still ~240px.
+
 ### BRAND4 — Login uses the designer's lockup artwork (2026-08-16, DONE)
 - The sheet was re-sent with no message; **it is byte-identical to the original upload** (same
   sha256). No new resolution — BRAND2's 240px ceiling and missing teal still stand. **Check the
@@ -1997,6 +2023,28 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   - **SC7-FIX3** — User reported the exact same "Could not generate an image. Try Download instead." error still live after SC7-FIX2 shipped, meaning the XML fix wasn't the whole story. Found a second, independent bug in the same function: the SVG's blob URL was minted via the opener window's global `URL.createObjectURL`, but consumed by an `Image` instantiated from the **popup** window (`ppWin.Image` — deliberately, so the popup's own loaded Google Fonts apply during rasterization). Recent Chrome partitions `blob:` URLs per-Document, so a blob URL created in one document is not reliably loadable by an `<img>` living in a different document even when same-origin — exactly the img-fails-silently-then-`onerror`-fires pattern the user hit. Fixed by minting and revoking the URL through `ppWin.URL` instead of the opener's `URL`, keeping creation and consumption in the same realm. `npm test` (187/187), `node --check` on both built `<script>` blocks, `scheduler/index.html` resynced. **Not verified**: an actual browser — same standing caveat, now narrowed further; if this recurs, next thing to check is whether `document.fonts.ready` in the popup ever resolves for the loaded Google Fonts link, and whether the SVG-in-`<img>` foreignObject rasterization technique itself is supported in the browser being tested. Done 2026-07-22 (v1.55.4). (`src/scheduler-html.js`)
   - **SC7-FIX4** — User confirmed the exact same error live at v1.55.4 (after SC7-FIX3's blob-URL-realm fix deployed and was verified via `deploy.yml`'s own run history to have actually gone out — ruling out the CI/deploy-pipeline gap documented elsewhere in this file). Actual root cause, found this time: the app's Content-Security-Policy header (`SEC_HEADERS` in `src/auth.js`) sets `img-src * data:` — and per the CSP spec, the `*` wildcard source explicitly does **not** cover the `blob:`/`data:`/`filesystem:` schemes (they must be listed by name even when `*` is present). `data:` was already listed, but `blob:` was not — so every `<img src="blob:...">` load was silently blocked by CSP the whole time, independent of both the XML-well-formedness fix (SC7-FIX2) and the cross-document blob-URL-realm fix (SC7-FIX3), which is exactly why neither of those actually resolved it: this bug was present underneath both. The print-preview popup (`window.open('')` + `document.write()`) inherits its opener's CSP, so this applied there too. Fixed by adding `blob:` to `img-src`. This is the one directive in `SEC_HEADERS` that needed it — `connect-src` governs fetch/XHR, not `<img>` loads, so it was never in play. `npm test` (187/187), `node --check` on both built app-JS bundles and the worker entry point. **Not verified**: an actual browser — if this still doesn't resolve it, next check whether the browser's dev tools Console/Network tab shows any remaining CSP violation or a different failure entirely (the SVG-in-`<img>`-via-foreignObject rasterization technique itself, per SC7-FIX3's note). Done 2026-07-22 (v1.55.5). (`src/auth.js`)
   - **SC7-FIX5** — User confirmed the CSP fix deployed (v1.55.5) but the exact same generic error is still shown; clarified the on-screen preview itself renders fine (the always-worked `.pp-page` HTML/CSS, unrelated to the export pipeline) — it's specifically the save/export step that fails, with no way from the generic message to tell which of several remaining possibilities is the actual cause. Rather than guess a fourth time, added real diagnostics: `ppExportCanvas()`'s callback now carries a `reason` string (surfaced directly in the on-page status line, e.g. "Could not generate an image (SecurityError: ...)", plus `console.error`'d for anyone who does have devtools open) instead of the prior bare `cb(null)` that discarded the actual failure. Also instrumented the one remaining, most-likely suspect: `canvas.toBlob()` returning no data with no thrown exception (which the prior try/catch wouldn't have caught, since it's not an exception) now reports "toBlob returned no data (canvas may be tainted)" — some browsers set a canvas's origin-clean flag to false for any SVG image containing `<foreignObject>` content, even fully local/same-origin content, which would make `toBlob()`/`getImageData()` permanently unable to read the canvas back regardless of CSP or blob-URL realm; this is the next real bug to look for once the specific `reason` text from a live retry is known — SC7-FIX2/FIX3/FIX4 already ruled out well-formedness, blob-URL realm, and CSP as at least partial causes. `npm test` (187/187), `node --check` on the built script and both app-JS bundles, `scheduler/index.html` resynced. **Not verified**: an actual browser. Done 2026-07-23 (v1.55.6). (`src/scheduler-html.js`)
+
+### CI1 — ⚠ Auto-merge silently deleted the DEPLOY_VERSION export (2026-08-17, DONE)
+Found by a real CI failure whose symptom was three tests failing in `asset-cache-policy.test.js`
+and `service-worker.test.js` — **files the branch never touched** — while passing on `main` alone
+AND on the branch alone.
+- **Cause was `.github/scripts/resolve-auto-merge-conflicts.js`, not the branch.** Its
+  DEPLOY_VERSION auto-resolution rebuilt the line as a bare **`var DEPLOY_VERSION`** while
+  `js-core.js` declares **`export const DEPLOY_VERSION`** — so the named export vanished, every
+  importer read `undefined`, and the asset route was asked for version `undefined` (→ `no-store`,
+  not `immutable`). The `var` form is real but lives inside the `JS_CORE` template literal, a
+  different line that is never the conflicted one.
+- **⚠ If tests fail in files a branch did not touch, and pass on both sides separately, suspect
+  the auto-merge resolver before the branch.** That is the signature.
+- Fixed: the declaration is captured from the conflicting side and rebuilt, never retyped; plus a
+  backstop that refuses to write a resolved file with no `DEPLOY_VERSION` export. Script now has
+  `module.exports` (direct invocation unchanged) so it is testable —
+  `test/auto-merge-resolver.test.js` covers both conflict shapes, the refusal cases, and couples
+  the guard to how `js-core.js` really declares the constant.
+- Verified by reconstructing the exact conflicted file: old code → no export; new code →
+  `export const DEPLOY_VERSION = '1.183.1';`. Pre-existing; would have fired for any two branches
+  racing on that line. (`.github/scripts/resolve-auto-merge-conflicts.js`,
+  `test/auto-merge-resolver.test.js`)
 
 ### SC14 — Readings can travel as an attached PDF, not a long email (2026-08-17, DONE)
 Reported while setting up the ESV key: embedding four passages inline makes a very long email.

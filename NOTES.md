@@ -24,7 +24,46 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
-### v1.182.0 — SC14: the readings can travel as an attached PDF instead of a long email (2026-08-17)
+### v1.184.1 — CI: auto-merge silently deleted the DEPLOY_VERSION export (2026-08-17)
+
+Found by a real CI failure on the SC14 branch: three tests failed in
+`test/asset-cache-policy.test.js` and `test/service-worker.test.js` — **files that branch never
+touched** — while the same tests passed on `main` alone and on the branch alone.
+
+**Cause: `.github/scripts/resolve-auto-merge-conflicts.js`, not the branch.** When two `claude/**`
+branches collide on the `DEPLOY_VERSION` line, that script auto-resolves it — but it rebuilt the
+line as a bare **`var DEPLOY_VERSION = '...'`**, while `js-core.js` declares
+**`export const DEPLOY_VERSION`**. Auto-resolution therefore deleted the named export, every
+importer read `undefined`, and the failures landed in unrelated files:
+
+- `/admin/app-member.js: expected 'no-store' to match /immutable/` — the asset route was asked for
+  version `undefined`, so it correctly refused to be cached
+- `.toMatch() expects to receive a string, but got undefined`
+- the service worker's `chms-static-<version>` cache key stopped matching
+
+The `var` form is not imaginary — it appears in `js-core.js` inside the `JS_CORE` template
+literal, which is a different line and never the conflicted one. Easy mistake, invisible until two
+branches raced.
+
+**Fix**: the declaration is now captured from the conflicting side and rebuilt, never retyped, so
+whatever form the file uses survives. Plus a backstop — the resolved file is checked for a
+`DEPLOY_VERSION` **export** before it is written, and the job fails rather than pushing a build
+that imports `undefined`. The script gained a `module.exports` (running it directly is unchanged)
+so the logic is testable without a merge in progress; `test/auto-merge-resolver.test.js` covers
+both conflict shapes, the refusal cases, and couples the guard to how `js-core.js` really declares
+the constant.
+
+Verified by reconstructing the exact conflicted file: the old code produces a file with no export,
+the new code produces `export const DEPLOY_VERSION = '1.183.1';`.
+
+**This was pre-existing infrastructure, hit by chance.** It would have fired for any two branches
+racing on the version line, in either direction.
+
+(`.github/scripts/resolve-auto-merge-conflicts.js`, `test/auto-merge-resolver.test.js`)
+
+---
+
+### v1.184.0 — SC14: the readings can travel as an attached PDF instead of a long email (2026-08-17)
 
 Reported while setting up the ESV key: *"just embedding the text of the readings is a long email. Is
 there a way to turn that into a document to attach?"* Correct — four passages inline is a wall of
@@ -69,6 +108,75 @@ panel stays on link-only and says so.
 `test/readings-pdf-render.test.js`, `test/scheduler-readings.test.js`)
 
 ---
+### v1.183.0 — Icon URLs are versioned, so new artwork actually reaches people (2026-08-17)
+
+v1.182.0's recolor deployed green and the live mark was **still blue**: `/icons/connect-mark.png`
+returned 200 with the OLD bytes (39,432 — the previous file's exact size). Caught by fetching the
+live URL and re-sampling its quadrants, not by trusting the deploy.
+
+**Two caches, and the deploy busts neither.** `/icons/*` and `/favicon.svg` are proxied from
+`raw.githubusercontent.com/.../main` with `cacheTtl: 86400`, and the filenames never change:
+- **Cloudflare keys its subrequest cache on the UPSTREAM url**, which was constant, so the worker
+  kept serving the copy it fetched a day earlier.
+- **Browsers key on the client url**, also constant, so anyone who had loaded the old mark would
+  hold it for another day regardless.
+
+Both now carry `?v=DEPLOY_VERSION`, the same mechanism app-JS has used since v1.35.0:
+- worker → appended to the `raw.githubusercontent.com` fetch (GitHub ignores unknown params;
+  Cloudflare sees a new key)
+- shell → applied at assembly time in `html-chms.js`, since `html-head.js` is a static
+  `String.raw` with no interpolation
+- login page → `html-templates.js` now imports `DEPLOY_VERSION` (js-core.js imports nothing, so
+  no cycle) and interpolates it into its three icon references
+
+**This closes a caveat carried since BRAND1** ("a warm cache or installed PWA can show the old icon
+for a day after merge") — it was a real defect, not a fact of life. Any future artwork change now
+reaches people on the next version bump instead of whenever the TTL happens to lapse.
+
+`npm test` (1448/1448, unchanged). Plus `node --check` on the worker and an assertion that every
+icon URL in both the shell and the login page carries the version. **Not verified**: a live
+browser — but the live URL will be re-checked after deploy, which is what found this.
+(`tlc-volunteer-worker.js`, `src/html-chms.js`, `src/html-templates.js`)
+
+### v1.182.0 — The mark's four quadrants recolored to the website's values (2026-08-16)
+
+Canva would only offer three colors to edit. **That was not a Canva limitation — the artwork
+contains three.** Both right-hand quadrants are one blue, so RECEIVE and GROW share a fill and
+Canva, which selects by color, cannot tell them apart. Confirmed three ways: sampling the
+quadrants, counting distinct colors across the whole mark, and Canva's own picker.
+
+**`Connect.svg` from Drive is not vector.** Uploaded to chase resolution; its entire body is
+`<defs/>` plus one `<image>` holding a 1248x832 base64 PNG — zero paths. Same dimensions as the
+original sheet; compared pixel-by-pixel over the mark, mean difference **2.30/255**, i.e. the same
+picture. Its own metadata says `<ContainsAiGeneratedContent>Yes</ContainsAiGeneratedContent>` with
+a C2PA manifest, and each "flat" quadrant holds 150-275 distinct values. **This artwork has never
+existed as editable shapes, so no re-export will produce vector** — that needs a redraw.
+
+**Recolored by POSITION, which is the one thing Canva cannot do**: which side of the mark's centre
+a pixel falls on, rather than what color it is. Targets are timothystl.org's own value accents,
+read off the live site: WELCOME `#6FA84E` / RECEIVE `#3E7BD1` / GROW `#45AFB8` / GO `#E8A93C`.
+
+**Anti-aliasing is preserved by un-mixing, not replacing.** Each pixel is `a*C_src + (1-a)*white`;
+solving for coverage and recompositing with the new color keeps every soft edge. A flat replace
+would have left jaggies at every boundary.
+
+**⚠ The first run recolored the wordmark too.** "Which side of the centre" is meaningless once you
+leave the mark, so the blue "TIMOTHY LUTHERAN CHURCH" text and the rule under CONNECT — both
+down-and-right of the mark — came out teal. Caught by rendering the login page, not by reading the
+code. Fixed with an `R_OUTER = 125` bound; the pixel count fell from 61,677 to 16,259.
+
+Every asset regenerated from the corrected sheet: mark, lockup, all six icon PNGs, favicon.
+Verified by re-sampling the finished mark — two quadrants exact, two within 1-2 per channel (the
+un-mixing working against noisy source pixels).
+
+**⚠ Second version collision in one evening.** `origin/main` was already at `1.181.0` from a
+parallel session by the time this was ready, so this ships as `1.182.0`. **Re-reading
+`DEPLOY_VERSION` from `origin/main` immediately before pushing is what caught it** — the practice
+recorded in v1.180.0, now proven twice.
+
+`npm test` (1390/1390, unchanged — assets only). Plus CSS brace balance and div balance on both
+shells and the login page. **Not verified**: a live browser. **What this does NOT fix**: sharpness.
+The source is still ~240px, so the 512 icon remains an upscale. (`icons/*`, `favicon.svg`)
 
 ### v1.181.0 — SC13: links go to esv.org; the full ESV text can be embedded (2026-08-16)
 
