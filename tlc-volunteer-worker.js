@@ -223,14 +223,16 @@ async function _fetch(req, env) {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: SCHED_CORS });
 
     if (path === '/favicon.svg' && method === 'GET') {
-      const fRes = await fetch('https://raw.githubusercontent.com/timothystl/chms/main/favicon.svg', { cf: { cacheEverything: true, cacheTtl: 86400 } });
+      const fRes = await fetch('https://raw.githubusercontent.com/timothystl/chms/main/favicon.svg?v=' + DEPLOY_VERSION, { cf: { cacheEverything: true, cacheTtl: 86400 } });
       return new Response(fRes.ok ? fRes.body : '', { status: fRes.ok ? 200 : 404, headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' } });
     }
     // App icons (Connect mark) — proxied from the repo so they update on deploy.
+    // The ?v= is load-bearing: Cloudflare keys the subrequest cache on the upstream URL, so
+    // without it a redeploy keeps serving the previously cached artwork for the full 24h TTL.
     if (path.startsWith('/icons/') && method === 'GET') {
       const m = path.match(/^\/icons\/(icon-(?:16|32|180|192|512|512-maskable)\.png|connect-(?:mark|lockup)\.png)$/);
       if (m) {
-        const fRes = await fetch('https://raw.githubusercontent.com/timothystl/chms/main/icons/' + m[1], { cf: { cacheEverything: true, cacheTtl: 86400 } });
+        const fRes = await fetch('https://raw.githubusercontent.com/timothystl/chms/main/icons/' + m[1] + '?v=' + DEPLOY_VERSION, { cf: { cacheEverything: true, cacheTtl: 86400 } });
         const ct = m[1].endsWith('.svg') ? 'image/svg+xml' : 'image/png';
         return new Response(fRes.ok ? fRes.body : '', { status: fRes.ok ? 200 : 404, headers: { 'Content-Type': ct, 'Cache-Control': 'public, max-age=86400' } });
       }

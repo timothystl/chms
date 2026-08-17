@@ -202,9 +202,14 @@ if (_headStyleStart === -1 || _headStyleEnd === -1) {
   throw new Error('html-chms.js: could not locate the <style> block in HTML_HEAD');
 }
 export const CHMS_APP_CSS = HTML_HEAD.slice(_headStyleStart + '<style>'.length, _headStyleEnd);
-const HTML_HEAD_LINKED = HTML_HEAD.slice(0, _headStyleStart)
+const HTML_HEAD_LINKED = (HTML_HEAD.slice(0, _headStyleStart)
   + `<link rel="stylesheet" href="/admin/app.css?v=${DEPLOY_VERSION}">`
-  + HTML_HEAD.slice(_headStyleEnd + '</style>'.length);
+  + HTML_HEAD.slice(_headStyleEnd + '</style>'.length))
+  // Same cache-busting reason as app.css: /icons/* is served `max-age=31536000`-adjacent
+  // (86400) and the filenames never change, so a browser holding the old mark would keep it
+  // for a day after the artwork changes. Done here rather than in html-head.js because that
+  // file is a static String.raw with no interpolation.
+  .replace(/(\/icons\/[a-z0-9-]+\.png)"/g, `$1?v=${DEPLOY_VERSION}"`);
 
 // ── Scheduler embed, lazy-loaded instead of inlined ────────────────────────────────────────
 // This bundle is ~321KB — over half of what the shell used to weigh — and the Scheduler tab is
