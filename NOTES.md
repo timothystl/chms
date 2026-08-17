@@ -24,6 +24,49 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.186.0 — BRAND7: logo artwork re-made at 2.5x, every icon rebuilt (2026-08-17)
+
+The designer had the mark re-made. It arrives at **627x627** against the 240px that BRAND2
+recorded as a hard ceiling, so `icon-512.png` is a downsample for the first time instead of an
+upscale. That is the sharpness fix the last four BRAND entries could not deliver in code.
+
+**The first re-make was a JPEG and had to be rejected.** JPEG carries no alpha, so its
+"transparent" background was solid `#000000` — 77% of the file, and a black rectangle on the white
+login card. It is also lossy: each quadrant held 3,200-4,500 distinct values with the dominant
+colour covering only 10-22% of its own area (the visible confetti around "TIMOTHY LUTHERAN CHURCH"
+and the yellow-green fringe under the mark). **Salvage was attempted and shown to be impossible**,
+rather than assumed: keying the black out recovers the bright quadrants, but the wordmark, church
+and cross are dark navy *on black* and are mathematically indistinguishable from the ground at any
+coverage — they came back as ghosts. The rendered proof was what settled it.
+
+The PNG re-make is sound: 82.8% fully transparent, 15.6% essentially opaque, ~1.6% in between —
+a genuine anti-aliased edge, not a keyed matte — and 835-987 distinct values per quadrant.
+
+Three corrections applied on our side, each one a thing the supplied file gets wrong every time:
+
+1. **Colours drift on every re-make** (`#64A53A` / `#246CD1` / `#2CA9BB` / `#F39F22` here). Each
+   quadrant is snapped by scaling its channels `target/dominant`, which preserves the shading and
+   the anti-aliased edge where a flat replace would leave jaggies. Bounded to the cropped mark
+   square — unbounded, the quadrant test also catches the blue church-name text (the BRAND5 bug).
+2. **The supplied centre disc is transparent; ours has to be white.** The sidebar is
+   `var(--navy)`, so a navy church on a transparent disc over navy simply disappears. A white
+   circle is composited *under* the art so the ring's inner edge blends into it; `r=168` of 627,
+   because anything larger leaks out through the mark's own axis gaps.
+3. **App icons are the mark on a navy `#16294A` rounded plate.** The first rebuild shipped the
+   bare mark and dropped the plate — caught only by diffing against the live icons, not by
+   reading. Geometry is now measured off what is deployed and reproduced exactly: corner radius
+   19.7%, mark 70.9% of the plate, maskable 60.7% on a full bleed.
+
+Served sizes are deliberately smaller than the master: the mark renders at 40px/28px so it ships
+at 256px (**17.6 KB, down from 42 KB**), the lockup renders at max-width 300px so it ships at
+900px (49.8 KB for 3.5x the pixels). The lockup's aspect moved 2.449 → 2.687, so the login page's
+`<img width/height>` moved with it or the reserved space would be wrong.
+
+`npm test` (1448/1448 — markup and assets only, no logic touched). **Not verified**: a live
+browser, a phone home screen, or an installed PWA. **Still raster** — 627px covers every current
+use, but a banner or a print piece would exhaust it. Only vector ends that.
+(`icons/*`, `favicon.svg`, `src/html-templates.js`)
+
 ### v1.185.0 — SC15: the Liturgist is sent all four readings (2026-08-17)
 
 Church's own call: *"The liturgist should be sent all three readings, lector only epistle and ot."*
