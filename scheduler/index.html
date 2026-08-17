@@ -676,21 +676,93 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .br-person { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:.85rem; font-family: var(--font-body); }
 .br-empty { font-size:.8rem; color:var(--warm-gray); font-style:italic; padding:2px 0 4px; }
 
-.av-cols { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; }
-.av-col { padding:0 16px; }
-.av-col:first-child { padding-left:0; }
-.av-col:last-child { padding-right:0; }
-.av-col + .av-col { border-left:1px solid var(--border); }
-.av-col-hdr { font-weight:700; font-size:.82rem; margin-bottom:10px; font-family: var(--font-head); }
-.av-card { border-radius:9px; padding:8px 10px; margin-bottom:8px; font-size:.85rem; font-family: var(--font-body); }
-.av-card-name { font-weight:700; }
-.av-card-any { background:var(--pale-sage); border:1px solid var(--soft-sage); color:var(--on-pale-sage); }
-.av-card-limited { background:var(--pale-gold); border:1px solid var(--honey); color:var(--on-pale-gold); }
-.av-card-away { background:var(--error-bg); border:1px solid var(--error-border); color:var(--on-error-bg); }
-@media (max-width: 700px) {
-  .av-cols { grid-template-columns:1fr; }
-  .av-col + .av-col { border-left:none; border-top:1px solid var(--border); padding-top:12px; margin-top:4px; }
-  .av-col { padding-left:0; padding-right:0; }
+/* ── People & Availability: month chips, rail, and the board ───────────── */
+.pt-stats { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; font-family: var(--font-body); }
+.pt-chip { background:var(--white); border:1px solid var(--border); border-radius:10px; padding:8px 14px; font-size:.82rem; color:var(--warm-gray); }
+.pt-chip strong { color:var(--steel-anchor); font-size:1rem; margin-left:2px; }
+.pt-chip-muted { color:var(--warm-gray); font-style:italic; }
+.pt-chip-bad { background:var(--error-bg); border-color:var(--error-border); color:var(--on-error-bg); }
+.pt-chip-bad strong { color:var(--on-error-bg); }
+.pt-chip-warn { background:var(--pale-gold); border-color:var(--honey); color:var(--on-pale-gold); }
+.pt-chip-warn strong { color:var(--on-pale-gold); }
+.pt-chip-ok { background:var(--pale-sage); border-color:var(--soft-sage); color:var(--on-pale-sage); }
+.pt-chip-ok strong { color:var(--on-pale-sage); }
+
+.pt-layout { display:grid; grid-template-columns:minmax(0,1.72fr) minmax(270px,1fr); gap:20px; align-items:start; }
+.pt-rail { display:flex; flex-direction:column; gap:16px; min-width:0; }
+.pt-rail-card { background:var(--linen); border:1px solid var(--border); border-radius:12px; padding:14px 16px; font-family: var(--font-body); }
+.pt-rail-hd { font-family: var(--font-head); font-weight:700; font-size:.95rem; color:var(--steel-anchor); }
+.pt-rail-sub { font-size:.78rem; color:var(--warm-gray); margin:3px 0 11px; }
+.pt-alert { border-radius:10px; padding:10px 12px; margin-bottom:9px; }
+.pt-alert:last-child { margin-bottom:0; }
+.pt-alert-t { font-size:.82rem; font-weight:700; margin-bottom:3px; }
+.pt-alert-b { font-size:.79rem; color:var(--charcoal); line-height:1.45; }
+.pt-alert-bad { background:var(--error-bg); border:1px solid var(--error-border); }
+.pt-alert-bad .pt-alert-t { color:var(--on-error-bg); }
+.pt-alert-warn { background:var(--pale-gold); border:1px solid var(--honey); }
+.pt-alert-warn .pt-alert-t { color:var(--on-pale-gold); }
+.pt-alert-ok { background:var(--pale-sage); border:1px solid var(--soft-sage); }
+.pt-alert-ok .pt-alert-t { color:var(--on-pale-sage); }
+.pt-alert-info { background:var(--blue-mist); border:1px solid var(--ice-blue); }
+.pt-alert-info .pt-alert-t { color:var(--steel-anchor); }
+.pt-depth { display:flex; flex-direction:column; gap:9px; }
+.pt-depth-row { display:flex; align-items:center; gap:9px; }
+.pt-depth-name { font-size:.8rem; font-weight:600; color:var(--steel-anchor); width:104px; flex-shrink:0; }
+.pt-depth-bar { flex:1; height:8px; border-radius:999px; background:var(--white); border:1px solid var(--border); overflow:hidden; min-width:0; }
+.pt-depth-fill { display:block; height:100%; border-radius:999px; }
+.pt-depth-ok { background:var(--sage); }
+.pt-depth-warn { background:var(--amber); }
+.pt-depth-bad { background:var(--danger-btn); }
+.pt-depth-num { font-size:.74rem; color:var(--warm-gray); white-space:nowrap; }
+
+.pt-load { font-size:.85rem; font-weight:700; color:var(--steel-anchor); white-space:nowrap; }
+.pt-flag { display:inline-block; margin-top:3px; font-size:.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; border-radius:999px; padding:1px 8px; white-space:nowrap; font-family: var(--font-body); }
+.pt-flag-bad { background:var(--error-bg); color:var(--on-error-bg); border:1px solid var(--error-border); }
+.pt-flag-warn { background:var(--pale-gold); color:var(--on-pale-gold); border:1px solid var(--honey); }
+.pt-flag-ok { background:var(--pale-sage); color:var(--on-pale-sage); border:1px solid var(--soft-sage); }
+
+.pt-board-legend { display:flex; flex-wrap:wrap; gap:14px; align-items:center; font-size:.78rem; color:var(--charcoal); margin-bottom:12px; font-family: var(--font-body); }
+.pt-board-legend span { display:flex; align-items:center; gap:5px; }
+.pt-board-hint { color:var(--warm-gray); font-style:italic; }
+.pt-sw { width:12px; height:12px; border-radius:3px; display:inline-block; flex-shrink:0; }
+.pt-sw-serving { background:var(--pale-sage); border:1px solid var(--soft-sage); }
+.pt-sw-free { background:var(--white); border:1px solid var(--ice-blue); }
+.pt-sw-away { background:var(--linen); border:1px solid var(--amber); }
+.pt-sw-conflict { background:var(--error-bg); border:1px solid var(--error-border); }
+.pt-board-scroll { background:var(--white); border:1px solid var(--border); border-radius:12px; overflow-x:auto; }
+.pt-board-pane { min-width:880px; padding:14px 16px 18px; }
+.pt-brow { display:grid; gap:6px; margin-bottom:6px; align-items:stretch; }
+.pt-bhead { padding-bottom:8px; margin-bottom:4px; border-bottom:1px solid var(--border); align-items:end; }
+/* The name column is sticky, not the header row: this pane only scrolls sideways. */
+.pt-bcorner, .pt-bname { position:sticky; left:0; z-index:2; background:var(--white); }
+.pt-bcorner { font-size:.68rem; font-weight:700; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.05em; align-self:end; font-family: var(--font-body); }
+.pt-bcorner-r { position:static; text-align:right; }
+.pt-bdate { font-family: var(--font-head); font-weight:700; font-size:.9rem; color:var(--steel-anchor); align-self:end; }
+.pt-bname { display:flex; flex-direction:column; justify-content:center; gap:1px; text-align:left; border:1px solid var(--border); border-radius:10px; padding:8px 11px; min-width:0; cursor:pointer; font-family: var(--font-body); }
+.pt-bname:hover { background:var(--blue-mist); }
+.pt-bname-n { font-size:.85rem; font-weight:700; color:var(--steel-anchor); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pt-bname-s { font-size:.7rem; color:var(--warm-gray); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pt-bcell { display:flex; flex-direction:column; justify-content:center; gap:2px; text-align:left; border-radius:10px; padding:8px 10px; min-height:52px; min-width:0; cursor:pointer; font-family: var(--font-body); }
+.pt-bcell:hover { filter:brightness(0.97); }
+.pt-bcell-t { font-size:.78rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pt-bcell-s { font-size:.68rem; color:var(--warm-gray); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pt-b-serving { background:var(--pale-sage); border:1px solid var(--soft-sage); }
+.pt-b-serving .pt-bcell-t { color:var(--on-pale-sage); }
+.pt-b-free { background:var(--white); border:1px solid var(--ice-blue); }
+.pt-b-free .pt-bcell-t { color:var(--warm-gray); }
+.pt-b-away { background:var(--linen); border:1px solid var(--amber); }
+.pt-b-away .pt-bcell-t { color:var(--on-pale-gold); }
+.pt-b-conflict { background:var(--error-bg); border:1px solid var(--error-border); }
+.pt-b-conflict .pt-bcell-t { color:var(--on-error-bg); }
+.pt-b-locked { cursor:not-allowed; opacity:.85; }
+.pt-bbal { display:flex; flex-direction:column; align-items:flex-end; justify-content:center; gap:3px; }
+.pt-bbal-n { font-size:.8rem; font-weight:700; color:var(--steel-anchor); white-space:nowrap; }
+
+@media (max-width: 900px) {
+  .pt-layout { grid-template-columns:1fr; }
+}
+@media (max-width: 760px) {
+  .pt-board-pane { padding:12px; }
 }
 
 /* ── Embedded mode (inside ChMS SPA iframe) ─────────────── */
@@ -747,7 +819,11 @@ body.embedded #app-content { display:block!important; }
              style="max-width:240px;font-size:.85rem;margin-left:auto;" oninput="peopleSearchQuery=this.value;renderPeopleList();">
     </div>
     <div id="people-role-filters" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;"></div>
-    <div id="people-list" style="overflow-x:auto;"></div>
+    <div id="people-stats" class="pt-stats"></div>
+    <div class="pt-layout">
+      <div id="people-list" style="overflow-x:auto;min-width:0;"></div>
+      <div id="people-rail" class="pt-rail"></div>
+    </div>
   </div>
 </div>
 
@@ -2112,9 +2188,6 @@ function setPeopleSort(field) {
 // ── Availability derivation (pure, no new storage beyond preferredSundays/absenceStart/absenceUntil) ──
 var ALL_ROLES_IN_ORDER = PER_ROLES.concat(SHARED_ROLES);
 function isoToMMDD(iso) { if (!iso) return ''; var parts = iso.split('-'); return parts[1]+'/'+parts[2]; }
-function personIsAnySunday(p)     { return (!p.preferredSundays || p.preferredSundays.length===0) && !p.absenceUntil; }
-function personIsLimitedSunday(p) { return (p.preferredSundays && p.preferredSundays.length>0) && !p.absenceUntil; }
-function personIsAway(p)          { return !!p.absenceUntil; }
 function personAvailabilityLine(p) {
   if (!p.preferredSundays || p.preferredSundays.length===0) return 'Any Sunday';
   return p.preferredSundays.map(function(n){ return n+ordSuffix(n); }).join(', ') + ' Sunday'+(p.preferredSundays.length>1?'s':'')+' only';
@@ -2154,13 +2227,19 @@ function renderPeopleList() {
   document.getElementById('people-count').textContent = allPeople.length;
   renderPeopleRoleFilters();
 
+  // One walk of the loaded month feeds the chips, the rail, the roster's
+  // "this month" column and the board — see peopleMonthStats.
+  var monthStats = peopleMonthStats(allPeople);
+  renderPeopleStats(monthStats, allPeople.length);
+  renderPeopleRail(monthStats, allPeople);
+
   if (allPeople.length === 0) {
     container.innerHTML = '<div class="empty-state"><div class="icon">&#128101;</div><p>No people added yet. Use the form above to add volunteers.</p></div>';
     return;
   }
 
   if (peopleView === 'role')         { container.innerHTML = renderPeopleByRoleHtml(allPeople); return; }
-  if (peopleView === 'availability')  { container.innerHTML = renderPeopleAvailabilityHtml(allPeople); return; }
+  if (peopleView === 'availability')  { container.innerHTML = renderPeopleBoardHtml(allPeople, monthStats); return; }
 
   // ── List view (default) ──
   var q = (peopleSearchQuery || '').trim().toLowerCase();
@@ -2212,6 +2291,7 @@ function renderPeopleList() {
     +'<th onclick="setPeopleSort(\'name\')">Name'+arrow('name')+'</th>'
     +'<th onclick="setPeopleSort(\'role\')">Roles'+arrow('role')+'</th>'
     +'<th onclick="setPeopleSort(\'service\')">Service'+arrow('service')+'</th>'
+    +(monthStats.hasSchedule ? '<th>'+esc(monthKeyLabel(currentMonthKey))+'</th>' : '')
     +'<th></th>'
     +'</tr></thead><tbody>';
 
@@ -2238,6 +2318,11 @@ function renderPeopleList() {
       +'</td>'
       +'<td><div class="pt-roles">'+roleTags+'</div></td>'
       +'<td><span class="pt-svc">'+esc(svcMap[p.servicePreference]||p.servicePreference)+'</span></td>'
+      +(monthStats.hasSchedule ? (function(){
+          var r = monthStats.byId[p.id] || { count:0, flag:'', flagCls:'' };
+          return '<td><div class="pt-load">'+r.count+' of '+monthStats.sundays.length+'</div>'
+            + (r.flag ? '<span class="pt-flag '+r.flagCls+'">'+esc(r.flag)+'</span>' : '') + '</td>';
+        })() : '')
       +'<td class="pt-actions">'
       +'<button class="btn btn-outline btn-sm" data-action="edit" data-id="'+p.id+'" style="margin-right:4px;">Edit</button>'
       +'<button class="btn btn-danger btn-sm" data-action="delete" data-id="'+p.id+'">Remove</button>'
@@ -2271,31 +2356,266 @@ function renderPeopleByRoleHtml(allPeople) {
   return html;
 }
 
-// ── Availability view: 3 columns ──
-function renderPeopleAvailabilityHtml(allPeople) {
-  var any = allPeople.filter(personIsAnySunday).sort(function(a,b){ return a.name.localeCompare(b.name); });
-  var limited = allPeople.filter(personIsLimitedSunday).sort(function(a,b){ return a.name.localeCompare(b.name); });
-  var away = allPeople.filter(personIsAway).sort(function(a,b){ return a.name.localeCompare(b.name); });
+// ══════════════════════════════════════════════════════════════════
+// PEOPLE & AVAILABILITY: this month, read off the loaded schedule
+// ══════════════════════════════════════════════════════════════════
+//
+// Everything below derives from data that already exists — the loaded month in
+// currentSchedule, and each person's own blackoutDates / absence window. There
+// is no new store and no new endpoint: "away" is a blackout date, which
+// eligible(), Auto-Fill and the role picker have always honored, so marking
+// someone away here really does keep them out of next month's fill.
+//
+// ⚠ There is deliberately NO second person editor. The design this came from
+// draws its own right-hand drawer, but #person-panel already carries every
+// field it shows (name, email, roles, service preference, preferred Sundays,
+// role-by-Sunday overrides, primary-for, blackouts, absence). A second editor
+// that looks like the real one is the SAC2 defect — the obvious thing to change
+// turns out to be the copy that is not wired up. Rows and cells open the panel.
 
-  function col(title, cls, list, lineFn) {
-    var inner = list.length
-      ? list.map(function(p){
-          return '<div class="av-card '+cls+'"><div class="av-card-name">'+esc(p.name)+'</div>'
-            + (lineFn ? '<div>'+esc(lineFn(p))+'</div>' : '') + '</div>';
-        }).join('')
-      : '<div style="font-size:.82rem;color:var(--warm-gray);font-style:italic;">None</div>';
-    return '<div class="av-col"><div class="av-col-hdr">'+title+' ('+list.length+')</div>'+inner+'</div>';
+var PEOPLE_HEAVY_AT = 3;   // "carrying a lot" starts here
+
+// The Sundays the board has columns for: the loaded month's regular services.
+// A special service has its own roles and times and is not a column (same
+// reasoning as the Schedule grid).
+function peopleMonthSundays() {
+  var out = [];
+  (currentSchedule || []).forEach(function(row) {
+    if (row.type === 'special') return;
+    out.push({ dateISO: row.date.toISOString().slice(0,10), label: fmtDate(row.date), row: row });
+  });
+  return out;
+}
+
+function personAwayOn(p, dateISO) {
+  return (p.blackoutDates || []).indexOf(dateISO) !== -1 || isOnAbsence(p, dateISO);
+}
+// An absence window is a date range, not a click target — the board can only
+// toggle the blackout list, so it says which one is holding a cell.
+function personAwayIsAbsence(p, dateISO) {
+  return (p.blackoutDates || []).indexOf(dateISO) === -1 && isOnAbsence(p, dateISO);
+}
+
+// One walk of the loaded month, shared by the chips, the roster rows, the rail
+// and the board — so a person the chips call "not yet scheduled" can never be
+// a person the board shows serving.
+function peopleMonthStats(allPeople) {
+  var sundays = peopleMonthSundays();
+  var jobs = {};   // personId -> dateISO -> [labels]
+  sundays.forEach(function(s) {
+    var r = s.row;
+    function note(pid, label) {
+      if (!pid) return;
+      if (!jobs[pid]) jobs[pid] = {};
+      (jobs[pid][s.dateISO] = jobs[pid][s.dateISO] || []).push(label);
+    }
+    PER_ROLES.forEach(function(role) {
+      note(r.assignments[role]['8am'], roleLabel(role) + ' 8:00');
+      note(r.assignments[role]['10:45am'], roleLabel(role) + ' 10:45');
+    });
+    SHARED_ROLES.forEach(function(role) { note(r.assignments[role].shared, roleLabel(role)); });
+  });
+
+  var rows = allPeople.map(function(p) {
+    var mine = jobs[p.id] || {};
+    var served = Object.keys(mine);
+    var awayISOs = sundays.filter(function(s){ return personAwayOn(p, s.dateISO); }).map(function(s){ return s.dateISO; });
+    var conflicts = awayISOs.filter(function(iso){ return !!mine[iso]; });
+    var flag = '', flagCls = '';
+    if (conflicts.length)                  { flag = 'Conflict'; flagCls = 'pt-flag-bad'; }
+    else if (!sundays.length)              { flag = ''; }
+    else if (served.length === 0)          { flag = 'Not scheduled'; flagCls = 'pt-flag-bad'; }
+    else if (served.length >= PEOPLE_HEAVY_AT) { flag = 'Heavy'; flagCls = 'pt-flag-ok'; }
+    else if (awayISOs.length >= 2)         { flag = awayISOs.length + ' away'; flagCls = 'pt-flag-warn'; }
+    return { p: p, jobs: mine, count: served.length, awayISOs: awayISOs, conflicts: conflicts, flag: flag, flagCls: flagCls };
+  });
+
+  return {
+    sundays: sundays,
+    hasSchedule: sundays.length > 0,
+    rows: rows,
+    byId: rows.reduce(function(m, r){ m[r.p.id] = r; return m; }, {}),
+    serving: rows.filter(function(r){ return r.count > 0; }).length,
+    idle: rows.filter(function(r){ return r.count === 0; }),
+    heavy: rows.filter(function(r){ return r.count >= PEOPLE_HEAVY_AT; }),
+    away: rows.filter(function(r){ return r.awayISOs.length > 0; }),
+    conflicts: rows.filter(function(r){ return r.conflicts.length > 0; })
+  };
+}
+
+function renderPeopleStats(st, total) {
+  var wrap = document.getElementById('people-stats');
+  if (!wrap) return;
+  var chips = '<span class="pt-chip">Volunteers <strong>'+total+'</strong></span>';
+  if (!st.hasSchedule) {
+    // Every other figure is "this month", and without a generated month there
+    // is no honest answer — printing zeros would read as "nobody is serving".
+    wrap.innerHTML = chips + '<span class="pt-chip pt-chip-muted">No schedule generated for '
+      + esc(monthKeyLabel(currentMonthKey)) + ' yet &mdash; the month figures need one.</span>';
+    return;
+  }
+  wrap.innerHTML = chips
+    + '<span class="pt-chip">Serving in '+esc(monthKeyLabel(currentMonthKey))+' <strong>'+st.serving+'</strong></span>'
+    + '<span class="pt-chip pt-chip-bad">Not yet scheduled <strong>'+st.idle.length+'</strong></span>'
+    + '<span class="pt-chip pt-chip-warn">Away some Sundays <strong>'+st.away.length+'</strong></span>'
+    + '<span class="pt-chip pt-chip-ok">Carrying '+PEOPLE_HEAVY_AT+'+ Sundays <strong>'+st.heavy.length+'</strong></span>';
+}
+
+function renderPeopleRail(st, allPeople) {
+  var rail = document.getElementById('people-rail');
+  if (!rail) return;
+  var names = function(list, extra) {
+    return list.slice(0, 8).map(function(r){ return esc(r.p.name) + (extra ? extra(r) : ''); }).join(' \u00b7 ')
+      + (list.length > 8 ? ' \u00b7 +' + (list.length - 8) + ' more' : '');
+  };
+
+  var alerts = '';
+  if (!st.hasSchedule) {
+    alerts = '<div class="pt-alert pt-alert-info"><div class="pt-alert-t">Nothing to check yet</div>'
+      + '<div class="pt-alert-b">Generate ' + esc(monthKeyLabel(currentMonthKey))
+      + ' on the Schedule tab and the gaps show up here.</div></div>';
+  } else {
+    if (st.conflicts.length) alerts += '<div class="pt-alert pt-alert-bad">'
+      + '<div class="pt-alert-t">Scheduled on a Sunday they are away</div>'
+      + '<div class="pt-alert-b">' + names(st.conflicts, function(r){
+          return ' (' + r.conflicts.map(isoToMMDD).join(', ') + ')'; }) + '. Needs a swap.</div></div>';
+    if (st.idle.length) alerts += '<div class="pt-alert pt-alert-bad">'
+      + '<div class="pt-alert-t">' + st.idle.length + ' on the roster served no Sundays</div>'
+      + '<div class="pt-alert-b">' + names(st.idle) + '.</div></div>';
+    if (st.heavy.length) alerts += '<div class="pt-alert pt-alert-ok">'
+      + '<div class="pt-alert-t">' + st.heavy.length + ' carrying ' + PEOPLE_HEAVY_AT + '+ Sundays</div>'
+      + '<div class="pt-alert-b">' + names(st.heavy, function(r){ return ' \u2014 ' + r.count; })
+      + '. Moving one Sunday each spreads the load.</div></div>';
+    if (st.away.length) alerts += '<div class="pt-alert pt-alert-warn">'
+      + '<div class="pt-alert-t">' + st.away.length + ' away for part of the month</div>'
+      + '<div class="pt-alert-b">' + names(st.away, function(r){
+          return ' (' + r.awayISOs.map(isoToMMDD).join(', ') + ')'; }) + '.</div></div>';
+    if (!alerts) alerts = '<div class="pt-alert pt-alert-info"><div class="pt-alert-t">All clear</div>'
+      + '<div class="pt-alert-b">Nobody is unused, over-used, or double-booked this month.</div></div>';
   }
 
-  return '<div class="av-cols">'
-    + col('Any Sunday', 'av-card-any', any, null)
-    + col('Limited Sundays', 'av-card-limited', limited, personAvailabilityLine)
-    + col('Currently Away', 'av-card-away', away, function(p){ return isoToMMDD(p.absenceStart||p.absenceUntil)+' – '+isoToMMDD(p.absenceUntil); })
-    + '</div>';
+  // Depth counts who COULD serve a role, and separately who is clear to — a
+  // role with four people who are all away is not four deep this month.
+  var depth = ALL_ROLES_IN_ORDER.map(function(role) {
+    var pool = allPeople.filter(function(p){ return p.roles.indexOf(role) > -1; });
+    var clear = pool.filter(function(p){ var r = st.byId[p.id]; return !r || !r.awayISOs.length; }).length;
+    var cls = pool.length <= 1 ? 'pt-depth-bad' : (pool.length <= 3 ? 'pt-depth-warn' : 'pt-depth-ok');
+    var pct = Math.min(100, Math.round((pool.length / 6) * 100));
+    return '<div class="pt-depth-row">'
+      + '<span class="pt-depth-name">'+esc(roleLabel(role))+'</span>'
+      + '<span class="pt-depth-bar"><span class="pt-depth-fill '+cls+'" style="width:'+pct+'%;"></span></span>'
+      + '<span class="pt-depth-num">'+pool.length+(st.hasSchedule && clear !== pool.length ? ' ('+clear+' clear)' : '')+'</span>'
+      + '</div>';
+  }).join('');
+
+  rail.innerHTML = '<div class="pt-rail-card"><div class="pt-rail-hd">Needs a look</div>'
+      + '<p class="pt-rail-sub">Gaps to close before you generate next month.</p>' + alerts + '</div>'
+    + '<div class="pt-rail-card"><div class="pt-rail-hd">Depth by role</div>'
+      + '<p class="pt-rail-sub">How many people can fill each role at all.</p>'
+      + '<div class="pt-depth">' + depth + '</div></div>';
+}
+
+// ── Availability board: people down, this month's Sundays across ──
+function renderPeopleBoardHtml(allPeople, st) {
+  if (!st.hasSchedule) {
+    return '<div class="empty-state"><div class="icon">&#128197;</div>'
+      + '<p>No schedule generated for ' + esc(monthKeyLabel(currentMonthKey)) + ' yet. '
+      + 'The board shows who is serving, free or away on each Sunday of the loaded month.</p></div>';
+  }
+  var tmpl = 'grid-template-columns:210px repeat(' + st.sundays.length + ', minmax(118px, 1fr)) 96px;';
+  var html = '<div class="pt-board-legend">'
+    + '<span><i class="pt-sw pt-sw-serving"></i> Serving</span>'
+    + '<span><i class="pt-sw pt-sw-free"></i> Free</span>'
+    + '<span><i class="pt-sw pt-sw-away"></i> Away</span>'
+    + '<span><i class="pt-sw pt-sw-conflict"></i> Conflict</span>'
+    + '<span class="pt-board-hint">Click a cell to mark someone away, or open them back up.</span>'
+    + '</div>'
+    + '<div class="pt-board-scroll"><div class="pt-board-pane">'
+    + '<div class="pt-brow pt-bhead" style="'+tmpl+'">'
+      + '<span class="pt-bcorner">Volunteer</span>';
+  st.sundays.forEach(function(s){ html += '<span class="pt-bdate">'+esc(s.label)+'</span>'; });
+  html += '<span class="pt-bcorner pt-bcorner-r">This month</span></div>';
+
+  var rows = allPeople.map(function(p){ return st.byId[p.id]; }).filter(Boolean);
+  rows.forEach(function(r) {
+    html += '<div class="pt-brow" style="'+tmpl+'">'
+      + '<button type="button" class="pt-bname" data-action="edit" data-id="'+esc(r.p.id)+'">'
+        + '<span class="pt-bname-n">'+esc(r.p.name)+'</span>'
+        + '<span class="pt-bname-s">'+esc(r.p.roles.length ? r.p.roles.map(roleLabel).join(', ') : 'no roles set')+'</span>'
+      + '</button>';
+    st.sundays.forEach(function(s) {
+      var job = (r.jobs[s.dateISO] || []).join(' \u00b7 ');
+      var away = r.awayISOs.indexOf(s.dateISO) !== -1;
+      var absence = away && personAwayIsAbsence(r.p, s.dateISO);
+      var state = away ? (job ? 'conflict' : 'away') : (job ? 'serving' : 'free');
+      var top = away ? (job ? 'Conflict' : 'Away') : (job ? 'Serving' : 'Free');
+      var sub = job ? job : (away ? (absence ? 'on an absence' : 'unavailable') : 'available');
+      // An absence window is a date range set on the person, so a single cell
+      // cannot clear it — say so rather than offering a click that does nothing.
+      html += '<button type="button" class="pt-bcell pt-b-'+state+(absence?' pt-b-locked':'')+'"'
+        + ' data-away-id="'+esc(r.p.id)+'" data-away-date="'+esc(s.dateISO)+'"'
+        + (absence ? ' data-away-locked="1" title="Set by this person\'s absence dates \u2014 edit them on the person"' : '')
+        + '><span class="pt-bcell-t">'+esc(top)+'</span><span class="pt-bcell-s">'+esc(sub)+'</span></button>';
+    });
+    html += '<span class="pt-bbal"><span class="pt-bbal-n">'+r.count+' of '+st.sundays.length+'</span>'
+      + (r.flag ? '<span class="pt-flag '+r.flagCls+'">'+esc(r.flag)+'</span>' : '') + '</span>'
+      + '</div>';
+  });
+  html += '</div></div>';
+  return html;
+}
+
+// The field set POST /scheduler/volunteers expects. Kept next to the board's
+// write because a blackout toggled here MUST reach D1 the same way the person
+// panel's Save does — savePeople() alone is localStorage, and the next d1Pull()
+// would quietly restore the old value. A test asserts these keys match the ones
+// savePerson sends, so the two cannot drift.
+function volunteerApiFields(p) {
+  return {
+    person_id: p.personId,
+    reminder_email: p.email || '',
+    roles: p.roles || [],
+    primary_for: p.primaryFor || [],
+    preferred_sundays: p.preferredSundays || [],
+    service_preference: p.servicePreference || 'both',
+    role_sunday_overrides: p.roleSundayOverrides || {},
+    blackout_dates: (p.blackoutDates || []).slice(),
+    absence_start: p.absenceStart || '',
+    absence_until: p.absenceUntil || ''
+  };
+}
+
+function togglePersonAway(id, dateISO) {
+  var people = getPeople();
+  var p = people.filter(function(x){ return x.id === id; })[0];
+  if (!p || !dateISO) return;
+  if (personAwayIsAbsence(p, dateISO)) {
+    alert(p.name + ' is away on ' + dateISO + ' because of their absence dates. Edit those on the person to change it.');
+    return;
+  }
+  var list = (p.blackoutDates || []).slice();
+  var at = list.indexOf(dateISO);
+  if (at > -1) list.splice(at, 1); else { list.push(dateISO); list.sort(); }
+  p.blackoutDates = list;
+  savePeople(people);
+  renderPeopleList();
+  queueD1Push();
+  // A relational volunteer's record lives in D1, not the blob — without this the
+  // next pull overwrites the change and it silently disappears.
+  if (p.personId) {
+    fetch('/admin/api/scheduler/volunteers', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(volunteerApiFields(p))
+    }).then(function(r){ return r.json(); }).then(function(d) {
+      if (d && d.error) alert('Could not save availability: ' + d.error);
+    }).catch(function(e){ alert('Could not save availability: ' + e.message); });
+  }
 }
 
 document.getElementById('people-list').addEventListener('click', function(e) {
-  var btn = e.target.closest('button[data-action]');
+  var cell = e.target.closest('[data-away-id]');
+  if (cell) { togglePersonAway(cell.getAttribute('data-away-id'), cell.getAttribute('data-away-date')); return; }
+  var btn = e.target.closest('[data-action]');
   if (!btn) return;
   var id = btn.getAttribute('data-id');
   if (btn.getAttribute('data-action') === 'edit')   editPerson(id);

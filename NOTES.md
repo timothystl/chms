@@ -24,6 +24,51 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.188.0 — SC17: People & Availability — the loaded month, on the People tab (2026-08-17)
+
+Applied the **People and Availability** design handoff. The People tab stops being a static
+roster and starts answering "who is carrying this month, who is not, and who is away."
+
+- **⚠ No second person editor was built.** The handoff draws its own right-hand edit drawer, but
+  `#person-panel` already carries every field that drawer shows — name, email, roles, service
+  preference, preferred Sundays, role-by-Sunday overrides, primary-for, blackouts, absence. A
+  second editor that looks like the real one is the **SAC2** defect exactly: it becomes the
+  obvious thing to change and it is the copy nobody sees. Roster rows and board cells open the
+  panel that already exists.
+- **One walk of the month feeds everything.** New `peopleMonthStats()` reads `currentSchedule`
+  once and produces per-person jobs, count, away Sundays and conflicts; the chips, the roster's
+  new month column, the rail and the board all render from it, so the chips cannot call someone
+  "not yet scheduled" while the board shows them serving. A person filling two roles on one
+  Sunday counts that Sunday once.
+- **"Away" is a blackout date — the store `eligible()`, Auto-Fill and the role picker have always
+  honored.** No new table, no new endpoint, and marking someone away really does keep them out of
+  next month's fill. **⚠ The write-through matters**: `savePeople()` is localStorage only, and a
+  relational volunteer's record lives in D1, so the toggle also POSTs `/scheduler/volunteers` —
+  without it the next `d1Pull()` quietly restores the old value and the change appears to vanish.
+  New `volunteerApiFields()` builds that body, and a test derives the panel's own field list from
+  the served source so the two cannot drift.
+- **An absence WINDOW is not a click target.** It is a date range on the person, so a single cell
+  cannot clear it; those cells are marked locked and say which setting is holding them, rather
+  than offering a click that silently does nothing.
+- **A conflict — away on a Sunday they are assigned — is surfaced first**, in the row flag and at
+  the top of the rail. It was previously invisible.
+- **With no schedule generated the month figures are withheld, not zeroed.** Zeros would read as
+  "nobody is serving" rather than "no month yet"; the chips, the roster column, the rail and the
+  board each say so in their own words. A special service is not a board column, same reasoning
+  as the Schedule grid.
+- **The old three-column Availability view is deleted, not orphaned** — renderer, its three
+  predicates and its CSS — along with the dead 700px media query that only styled it.
+- `npm test` (1539/1539, 27 new in `test/scheduler-people-availability.test.js`, driving the real
+  served script in a `vm`); **every new test verified non-vacuous** by injecting the exact
+  regression it guards (10 injections, 10 correct failure sets). **Two of my own assertions were
+  wrong and were corrected rather than forced**: one sliced to the first `/scheduler/volunteers`
+  in the file, which is an unrelated earlier call, so it asserted against an empty string; the
+  other counted `<thead>` as a `<th>`. Plus `node --check` on the served `<script>`, CSS brace
+  balance and div balance on both builds, confirmation the new selectors are scoped under
+  `.sched-root` by the embed transform, and `scheduler/index.html` resynced by evaluating the
+  module (SC5). **Not verified**: a live browser.
+  (`src/scheduler-html.js`, `scheduler/index.html`, `test/scheduler-people-availability.test.js`)
+
 ### v1.187.0 — SC16: Grid view — the whole month as one table (2026-08-17)
 
 Applied the **Sunday Volunteer Grid View** design handoff. Adds a **Grid** position to the
