@@ -470,6 +470,17 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### BRAND6 — Icon URLs versioned; stale-icon caveat closed (2026-08-17, DONE)
+- **A green deploy did NOT mean new artwork**: after v1.182.0, `/icons/connect-mark.png` still
+  returned the old bytes. **Always re-fetch the live icon URL and check it, not just the deploy.**
+- **Two caches, neither busted by deploying.** Cloudflare keys the proxy subrequest on the
+  UPSTREAM GitHub url; browsers key on the client url. Both were constant filenames.
+- Both now carry `?v=DEPLOY_VERSION`. Shell versioning happens at assembly time in `html-chms.js`
+  because `html-head.js` is a static `String.raw`; `html-templates.js` imports DEPLOY_VERSION
+  directly (js-core.js imports nothing, so no cycle).
+- **This retires the "warm cache shows the old icon for a day" caveat in BRAND1/BRAND2** — that was
+  a fixable defect, not a fact of life.
+
 ### BRAND5 — Mark recolored to the website's four values (2026-08-16, DONE)
 - **Canva offering only three colors was the artwork, not Canva**: both right quadrants are one
   blue, so RECEIVE and GROW share a fill and a color-based picker cannot separate them.

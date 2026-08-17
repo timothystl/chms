@@ -24,6 +24,36 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.183.0 — Icon URLs are versioned, so new artwork actually reaches people (2026-08-17)
+
+v1.182.0's recolor deployed green and the live mark was **still blue**: `/icons/connect-mark.png`
+returned 200 with the OLD bytes (39,432 — the previous file's exact size). Caught by fetching the
+live URL and re-sampling its quadrants, not by trusting the deploy.
+
+**Two caches, and the deploy busts neither.** `/icons/*` and `/favicon.svg` are proxied from
+`raw.githubusercontent.com/.../main` with `cacheTtl: 86400`, and the filenames never change:
+- **Cloudflare keys its subrequest cache on the UPSTREAM url**, which was constant, so the worker
+  kept serving the copy it fetched a day earlier.
+- **Browsers key on the client url**, also constant, so anyone who had loaded the old mark would
+  hold it for another day regardless.
+
+Both now carry `?v=DEPLOY_VERSION`, the same mechanism app-JS has used since v1.35.0:
+- worker → appended to the `raw.githubusercontent.com` fetch (GitHub ignores unknown params;
+  Cloudflare sees a new key)
+- shell → applied at assembly time in `html-chms.js`, since `html-head.js` is a static
+  `String.raw` with no interpolation
+- login page → `html-templates.js` now imports `DEPLOY_VERSION` (js-core.js imports nothing, so
+  no cycle) and interpolates it into its three icon references
+
+**This closes a caveat carried since BRAND1** ("a warm cache or installed PWA can show the old icon
+for a day after merge") — it was a real defect, not a fact of life. Any future artwork change now
+reaches people on the next version bump instead of whenever the TTL happens to lapse.
+
+`npm test` (1448/1448, unchanged). Plus `node --check` on the worker and an assertion that every
+icon URL in both the shell and the login page carries the version. **Not verified**: a live
+browser — but the live URL will be re-checked after deploy, which is what found this.
+(`tlc-volunteer-worker.js`, `src/html-chms.js`, `src/html-templates.js`)
+
 ### v1.182.0 — The mark's four quadrants recolored to the website's values (2026-08-16)
 
 Canva would only offer three colors to edit. **That was not a Canva limitation — the artwork
