@@ -17,13 +17,21 @@ function fail(msg) {
   process.exit(1);
 }
 
-const conflicted = execSync('git diff --name-only --diff-filter=U', { encoding: 'utf8' })
-  .split('\n').map(s => s.trim()).filter(Boolean);
 
-if (!conflicted.length) fail('Merge reported conflicts but git diff --diff-filter=U found none — unexpected state.');
+// The declaration is captured from the conflicting side and REBUILT, never
+// retyped. js-core.js declares this as `export const DEPLOY_VERSION` — an
+// earlier version of this script wrote back a bare `var DEPLOY_VERSION`, which
+// silently removed the named export, so every importer got `undefined` and the
+// asset-cache and service-worker tests failed on a branch whose own diff was
+// fine. (The `var` form does appear in this file, but inside the JS_CORE
+// template literal, which is a different line and never the conflicted one.)
+const VERSION_LINE = /^([ \t]*(?:export[ \t]+)?(?:const|let|var)[ \t]+DEPLOY_VERSION[ \t]*=[ \t]*)'([\d.]+)'([ \t]*;[ \t]*)$/;
 
-for (const f of conflicted) {
-  if (!ALLOWED_FILES.has(f)) fail(`Conflict in ${f} is outside the auto-resolvable set (${[...ALLOWED_FILES].join(', ')}) — needs a human to merge this branch.`);
+function parseVersionSide(text) {
+  const lines = text.split('\n').filter(l => l.trim());
+  if (lines.length !== 1) return null;      // more than the version line — not this shape
+  const m = VERSION_LINE.exec(lines[0]);
+  return m ? { prefix: m[1], version: m[2], suffix: m[3] } : null;
 }
 
 function resolveVersionFile(path) {
@@ -33,12 +41,15 @@ function resolveVersionFile(path) {
   let out = src;
   for (const hunk of hunks) {
     const [whole, ours, theirs] = hunk;
-    const ourVer = /DEPLOY_VERSION\s*=\s*'([\d.]+)'/.exec(ours);
-    const theirVer = /DEPLOY_VERSION\s*=\s*'([\d.]+)'/.exec(theirs);
-    if (!ourVer || !theirVer) fail(`${path}: conflict hunk doesn't look like a DEPLOY_VERSION collision — refusing to guess.\n${whole}`);
-    const higher = maxVersion(ourVer[1], theirVer[1]);
-    const bumped = bumpPatch(higher);
-    out = out.replace(whole, `var DEPLOY_VERSION = '${bumped}';`);
+    const o = parseVersionSide(ours), t = parseVersionSide(theirs);
+    if (!o || !t) fail(`${path}: conflict hunk doesn't look like a DEPLOY_VERSION collision — refusing to guess.\n${whole}`);
+    const bumped = bumpPatch(maxVersion(o.version, t.version));
+    out = out.replace(whole, `${o.prefix}'${bumped}'${o.suffix}`);
+  }
+  // Checks the property that matters — it is still a named export — without
+  // pinning the exact spacing, so reformatting that line is not a merge failure.
+  if (!/^\s*export\s+const\s+DEPLOY_VERSION\s*=\s*'[\d.]+'\s*;/m.test(out)) {
+    fail(`${path}: the resolved file no longer exports DEPLOY_VERSION — refusing to push a build that imports undefined.`);
   }
   fs.writeFileSync(path, out);
   console.log(`Resolved ${path}: DEPLOY_VERSION -> bumped patch above both sides.`);
@@ -75,17 +86,35 @@ function resolveChangelogFile(path) {
   console.log(`Resolved ${path}: kept both changelog entries (incoming branch's entry first).`);
 }
 
-for (const f of conflicted) {
-  if (f === 'src/frontend/js-core.js') resolveVersionFile(f);
-  else resolveChangelogFile(f);
+function main() {
+  const conflicted = execSync('git diff --name-only --diff-filter=U', { encoding: 'utf8' })
+    .split('\n').map(s => s.trim()).filter(Boolean);
+
+  if (!conflicted.length) fail('Merge reported conflicts but git diff --diff-filter=U found none — unexpected state.');
+
+  for (const f of conflicted) {
+    if (!ALLOWED_FILES.has(f)) fail(`Conflict in ${f} is outside the auto-resolvable set (${[...ALLOWED_FILES].join(', ')}) — needs a human to merge this branch.`);
+  }
+
+  for (const f of conflicted) {
+    if (f === 'src/frontend/js-core.js') resolveVersionFile(f);
+    else resolveChangelogFile(f);
+  }
+
+  // Check the actual file content for leftover markers, not git's index state — the index still
+  // shows these paths as "unmerged" until `git add` runs below, regardless of whether the content
+  // was fully resolved.
+  const stillConflicted = conflicted.filter(f => /^<<<<<<< /m.test(fs.readFileSync(f, 'utf8')));
+  if (stillConflicted.length) fail(`Conflict markers remain after resolution attempt:\n${stillConflicted.join('\n')}`);
+
+  execSync('git add ' + conflicted.map(f => `"${f}"`).join(' '), { stdio: 'inherit' });
+  execSync('git commit --no-edit', { stdio: 'inherit' });
+  console.log('Auto-resolved all conflicts and committed the merge.');
 }
 
-// Check the actual file content for leftover markers, not git's index state — the index still
-// shows these paths as "unmerged" until `git add` runs below, regardless of whether the content
-// was fully resolved.
-const stillConflicted = conflicted.filter(f => /^<<<<<<< /m.test(fs.readFileSync(f, 'utf8')));
-if (stillConflicted.length) fail(`Conflict markers remain after resolution attempt:\n${stillConflicted.join('\n')}`);
+// Exported so the resolution logic can be tested without a real merge in
+// progress; `node .github/scripts/resolve-auto-merge-conflicts.js` still runs
+// the whole thing exactly as the workflow invokes it.
+module.exports = { resolveVersionFile, resolveChangelogFile, maxVersion, bumpPatch, ALLOWED_FILES };
 
-execSync('git add ' + conflicted.map(f => `"${f}"`).join(' '), { stdio: 'inherit' });
-execSync('git commit --no-edit', { stdio: 'inherit' });
-console.log('Auto-resolved all conflicts and committed the merge.');
+if (require.main === module) main();
