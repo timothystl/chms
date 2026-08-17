@@ -556,6 +556,59 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .fw-month-sec .fw-row-date { font-size:1.15rem; }
 .fw-month-sec .fw-row-sub { font-size:.82rem; }
 
+/* ── Grid view: Sundays across, roles down ─────────────────────────────────
+   Like month view, the rail is a week PICKER with nothing to pick, so it is
+   hidden rather than removed. The role-label column is sticky to the LEFT
+   (not the header to the top) because the only scrolling this pane does is
+   horizontal, and a role name is what a reader needs kept in view. */
+.fw-layout.fw-grid .wr-rail { display:none; }
+.fw-layout.fw-grid .fw-detail { padding:18px 20px; }
+.fw-grid-stats { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; font-family: var(--font-body); }
+.fw-gstat { background:var(--blue-mist); border:1px solid var(--ice-blue); border-radius:8px; padding:5px 12px; font-size:.82rem; color:var(--charcoal); }
+.fw-gstat strong { color:var(--steel-anchor); }
+.fw-gstat-open { color:var(--danger-btn); }
+.fw-gstat-ok { color:var(--sage); }
+.fw-grid-scroll { background:var(--white); border:1px solid var(--border); border-radius:12px; overflow-x:auto; }
+.fw-grid-pane { min-width:940px; padding:14px 16px 18px; }
+.gr-row { display:grid; gap:6px; margin-bottom:6px; align-items:stretch; }
+.gr-head { padding-bottom:8px; margin-bottom:4px; border-bottom:1px solid var(--border); align-items:end; }
+.gr-corner, .gr-rowlbl, .gr-footlbl { position:sticky; left:0; z-index:2; background:var(--white); }
+.gr-corner, .gr-footlbl { font-size:.68rem; font-weight:700; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.05em; align-self:center; font-family: var(--font-body); }
+.gr-corner { align-self:end; padding-bottom:6px; }
+.gr-colhd { display:flex; flex-direction:column; align-items:flex-start; gap:3px; padding:2px 4px 4px; min-width:0; }
+.gr-coldate { font-family: var(--font-head); font-weight:700; font-size:1rem; color:var(--steel-anchor); line-height:1.1; }
+.gr-colsub { font-size:.72rem; color:var(--warm-gray); max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.gr-pill { font-size:.68rem; font-weight:700; border-radius:999px; padding:1px 8px; white-space:nowrap; font-family: var(--font-body); }
+.gr-pill-open { background:var(--pale-gold); color:var(--on-pale-gold); border:1px solid var(--honey); }
+.gr-pill-full { background:var(--pale-sage); color:var(--on-pale-sage); border:1px solid var(--soft-sage); }
+.gr-band { font-size:.75rem; font-weight:700; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.05em; margin:16px 0 8px; font-family: var(--font-body); }
+.gr-rowlbl { background:var(--linen); border:1px solid var(--border); border-radius:10px; padding:9px 12px; display:flex; flex-direction:column; justify-content:center; gap:2px; }
+.gr-rowlbl-name { font-size:.88rem; font-weight:700; color:var(--steel-anchor); font-family: var(--font-body); }
+.gr-rowlbl-cov { font-size:.7rem; color:var(--warm-gray); }
+/* Overrides the base .role-row flex bar — same class, so the click delegation,
+   the filled/empty colors and the hover all still come from there. */
+.role-row.gr-cell { display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:3px; min-height:58px; padding:8px 10px; margin-bottom:0; min-width:0; }
+.gr-cell-top { display:flex; align-items:center; gap:5px; min-width:0; max-width:100%; }
+.gr-cell .rr-name { font-size:.88rem; }
+.gr-open { font-size:.68rem; font-weight:700; color:var(--danger-btn); text-transform:uppercase; letter-spacing:.04em; font-family: var(--font-body); }
+.gr-foot { margin-top:14px; padding-top:12px; border-top:1px solid var(--border); margin-bottom:0; }
+.gr-cov { display:flex; align-items:center; gap:8px; padding:2px 4px; min-width:0; }
+.gr-bar { flex:1; height:8px; border-radius:999px; background:var(--linen); overflow:hidden; min-width:0; }
+.gr-bar-fill { display:block; height:100%; background:var(--sage); border-radius:999px; }
+.gr-cov-num { font-size:.75rem; font-weight:700; color:var(--steel-anchor); white-space:nowrap; font-family: var(--font-body); }
+.gr-specials { margin-top:16px; background:var(--linen); border:1px solid var(--border); border-radius:10px; padding:12px 14px; font-family: var(--font-body); }
+.gr-specials-hd { font-size:.7rem; font-weight:700; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.06em; }
+.gr-specials-note { font-size:.8rem; color:var(--charcoal); margin:6px 0 9px; }
+.gr-specials-list { display:flex; flex-wrap:wrap; gap:8px; }
+.gr-special { display:flex; flex-direction:column; align-items:flex-start; gap:1px; background:var(--white); border:1px solid var(--ice-blue); border-radius:9px; padding:7px 12px; cursor:pointer; font-family: var(--font-body); text-align:left; }
+.gr-special:hover { background:var(--blue-mist); }
+.gr-special-date { font-weight:700; font-size:.84rem; color:var(--steel-anchor); }
+.gr-special-name { font-size:.74rem; color:var(--warm-gray); }
+@media (max-width: 760px) {
+  .fw-layout.fw-grid .fw-detail { padding:12px; }
+  .fw-grid-pane { padding:12px; }
+}
+
 /* ── Readings strip: what the Lector and Liturgist are emailed ─────────── */
 .fw-readings { background:var(--linen); border:1px solid var(--border); border-radius:10px; padding:11px 14px; margin-bottom:16px; font-family: var(--font-body); }
 .fw-readings-hd { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:7px; }
@@ -720,7 +773,8 @@ body.embedded #app-content { display:block!important; }
         <h2 style="margin:0; border:none; padding:0;">Schedule</h2>
         <div class="seg-switch" id="fw-view-switch">
           <button type="button" class="seg-btn active" data-fw-view="week" title="One Sunday at a time">Week</button>
-          <button type="button" class="seg-btn" data-fw-view="month" title="Every Sunday this month at once">Month</button>
+          <button type="button" class="seg-btn" data-fw-view="month" title="Every Sunday this month, stacked">Month</button>
+          <button type="button" class="seg-btn" data-fw-view="grid" title="Whole month in one grid — Sundays across, roles down">Grid</button>
         </div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -2879,14 +2933,22 @@ function focusWeekDefaultIdx() {
 }
 
 // 'week' = one Sunday at a time (the rail picks it); 'month' = every Sunday
-// of the loaded month stacked in the detail pane. Both render from the SAME
-// per-Sunday builder below, so the two views cannot drift apart.
+// of the loaded month stacked in the detail pane; 'grid' = the whole month as
+// one table, Sundays across and roles down. Week and Month render from the SAME
+// per-Sunday builder below, so those two cannot drift apart. Grid is a different
+// SHAPE — it has to be, since its unit is a column of Sundays rather than one
+// Sunday — but every cell in it resolves through roleSlotView(), the same
+// function a role row resolves through, so what a slot MEANS is decided once.
+var FW_VIEW_MODES = ['week', 'month', 'grid'];
 var focusWeekViewMode = 'week';
 function getFocusWeekViewMode() {
-  try { return localStorage.getItem('ws_fw_view') === 'month' ? 'month' : 'week'; } catch(e) { return 'week'; }
+  try {
+    var v = localStorage.getItem('ws_fw_view');
+    return FW_VIEW_MODES.indexOf(v) > -1 ? v : 'week';
+  } catch(e) { return 'week'; }
 }
 function setFocusWeekViewMode(mode) {
-  focusWeekViewMode = (mode === 'month') ? 'month' : 'week';
+  focusWeekViewMode = FW_VIEW_MODES.indexOf(mode) > -1 ? mode : 'week';
   try { localStorage.setItem('ws_fw_view', focusWeekViewMode); } catch(e) {}
   applyFocusWeekViewMode();
   closeRolePicker();
@@ -2894,7 +2956,10 @@ function setFocusWeekViewMode(mode) {
 }
 function applyFocusWeekViewMode() {
   var layout = document.getElementById('fw-layout');
-  if (layout) layout.classList.toggle('fw-month', focusWeekViewMode === 'month');
+  if (layout) {
+    layout.classList.toggle('fw-month', focusWeekViewMode === 'month');
+    layout.classList.toggle('fw-grid', focusWeekViewMode === 'grid');
+  }
   document.querySelectorAll('#fw-view-switch [data-fw-view]').forEach(function(btn) {
     btn.classList.toggle('active', btn.getAttribute('data-fw-view') === focusWeekViewMode);
   });
@@ -2963,6 +3028,10 @@ function renderFocusWeekDetail() {
   if (focusWeekSelectedIdx >= currentSchedule.length) focusWeekSelectedIdx = 0;
   var pMap = {}; getPeople().forEach(function(p){ pMap[p.id]=p; });
 
+  if (focusWeekViewMode === 'grid') {
+    pane.innerHTML = focusWeekGridHtml(pMap);
+    return;
+  }
   if (focusWeekViewMode === 'month') {
     pane.innerHTML = currentSchedule.map(function(row, idx) {
       return '<div class="fw-month-sec">' + focusWeekRowHtml(idx, pMap) + '</div>';
@@ -3062,35 +3131,199 @@ function focusWeekRowHtml(rowIdx, pMap) {
   return html;
 }
 
-function buildRoleRowHtml(rowIdx, role, svc, svcIdxOrNull, pid, pMap, dateISO, ordinal) {
-  var person = pid ? pMap[pid] : null;
-  var people = getPeople();
-  var primaryPerson = null;
-  people.forEach(function(p){ if ((p.primaryFor||[]).indexOf(role)>-1 && !primaryPerson) primaryPerson = p; });
-  var isPrimary = !!(person && primaryPerson && person.id === primaryPerson.id);
-  var crossSvc = !!(person && svc && svc !== 'shared' && person.servicePreference !== 'both' && person.servicePreference !== svc);
+var RR_CONF_COLORS = { pending:'var(--amber)', confirmed:'var(--sage)', declined:'var(--danger-btn)', needs_changes:'var(--amber)' };
+var RR_CONF_LABELS = { pending:'Pending', confirmed:'Confirmed', declined:'Declined', needs_changes:'Needs Change' };
 
+// What one assignment slot MEANS, resolved once: who is in it, whether they are
+// the primary for the role, whether they are filling from the other service,
+// the confirmation key and its status, and the data-* attributes the click
+// delegation reads. The role row (Week/Month) and the grid cell are two
+// LAYOUTS over this — the second layout is the reason it is a function at all,
+// since a hand-inlined copy is how the two would come to disagree about, say,
+// which key a confirmation pill cycles.
+function roleSlotView(rowIdx, role, svc, svcIdxOrNull, pid, pMap, dateISO) {
+  var person = pid ? pMap[pid] : null;
+  var primaryPerson = null;
+  getPeople().forEach(function(p){ if ((p.primaryFor||[]).indexOf(role)>-1 && !primaryPerson) primaryPerson = p; });
   var confKey = svcIdxOrNull==null ? (dateISO+'|'+role+'|'+svc) : null;
   var confStatus = (confKey && pid) ? (getConfirmations()[confKey] || 'pending') : null;
-  var confColors = { pending:'var(--amber)', confirmed:'var(--sage)', declined:'var(--danger-btn)', needs_changes:'var(--amber)' };
-  var confLabels = { pending:'Pending', confirmed:'Confirmed', declined:'Declined', needs_changes:'Needs Change' };
+  return {
+    person: person,
+    isPrimary: !!(person && primaryPerson && person.id === primaryPerson.id),
+    crossSvc: !!(person && svc && svc !== 'shared' && person.servicePreference !== 'both' && person.servicePreference !== svc),
+    confKey: confKey,
+    confStatus: confStatus,
+    confColor: confStatus ? RR_CONF_COLORS[confStatus] : '',
+    confLabel: confStatus ? RR_CONF_LABELS[confStatus] : '',
+    attrs: 'data-row="'+rowIdx+'" data-role="'+esc(role)+'" data-svc="'+esc(svc||'')+'"'
+      + (svcIdxOrNull!=null ? ' data-svc-idx="'+svcIdxOrNull+'"' : '')
+  };
+}
 
-  var nameHtml = person ? '<span class="rr-name">'+esc(person.name)+'</span>' : '<span class="rr-name placeholder">&mdash; assign &mdash;</span>';
-  var star = isPrimary ? '<span class="rr-star" title="Primary / Always-First">&#9733;</span>' : '';
-  var otherSvc = crossSvc ? '<span class="rr-otherSvc">other svc</span>' : '';
-  var confHtml = confStatus
-    ? '<span class="rr-conf" style="color:'+confColors[confStatus]+';" data-conf-key="'+esc(confKey)+'">'
-      +'<span class="rr-conf-dot" style="background:'+confColors[confStatus]+';"></span>'+confLabels[confStatus]+'</span>'
-    : '';
+function rrStarHtml(v)     { return v.isPrimary ? '<span class="rr-star" title="Primary / Always-First">&#9733;</span>' : ''; }
+function rrOtherSvcHtml(v) { return v.crossSvc ? '<span class="rr-otherSvc">other svc</span>' : ''; }
+function rrConfHtml(v) {
+  if (!v.confStatus) return '';
+  return '<span class="rr-conf" style="color:'+v.confColor+';" data-conf-key="'+esc(v.confKey)+'">'
+    + '<span class="rr-conf-dot" style="background:'+v.confColor+';"></span>'+v.confLabel+'</span>';
+}
 
-  var attrs = 'data-row="'+rowIdx+'" data-role="'+esc(role)+'" data-svc="'+esc(svc||'')+'"'
-    + (svcIdxOrNull!=null ? ' data-svc-idx="'+svcIdxOrNull+'"' : '');
+function buildRoleRowHtml(rowIdx, role, svc, svcIdxOrNull, pid, pMap, dateISO, ordinal) {
+  var v = roleSlotView(rowIdx, role, svc, svcIdxOrNull, pid, pMap, dateISO);
+  var nameHtml = v.person ? '<span class="rr-name">'+esc(v.person.name)+'</span>' : '<span class="rr-name placeholder">&mdash; assign &mdash;</span>';
 
   return '<div class="role-row-wrap">'
-    + '<button type="button" class="role-row'+(person?'':' empty')+'" '+attrs+'>'
+    + '<button type="button" class="role-row'+(v.person?'':' empty')+'" '+v.attrs+'>'
       + '<span class="rr-text"><span class="rr-role">'+esc(roleLabel(role))+'</span>'+nameHtml+'</span>'
-      + star + otherSvc + confHtml
+      + rrStarHtml(v) + rrOtherSvcHtml(v) + rrConfHtml(v)
     + '</button>'
+    + '</div>';
+}
+
+// ── Grid view: the whole month at once, Sundays across and roles down ───────
+//
+// The three bands (8:00 / 10:45 / Both Services) are the same three the Week
+// view prints, in the same order, and every cell carries the same data-row /
+// data-role / data-svc attributes a role row carries — so the existing
+// #fw-detail delegation opens the same picker and cycles the same confirmation
+// without knowing which view drew the cell. Nothing about assignment is
+// reimplemented here; only the arrangement is new.
+//
+// ⚠ A special service is NOT a column. Its services are not 8:00/10:45 and its
+// roles are free text, so it has no row to land on in a fixed role grid — and
+// quietly leaving it out of a month view would be the worse failure. It is
+// named below the grid instead, with a way into the Week view that can edit it.
+function focusWeekGridColumns() {
+  var cols = [];
+  currentSchedule.forEach(function(row, idx) {
+    if (row.type !== 'special') cols.push({ idx: idx, row: row });
+  });
+  return cols;
+}
+
+function focusWeekGridHtml(pMap) {
+  var cols = focusWeekGridColumns();
+  var specials = [];
+  currentSchedule.forEach(function(row, idx) { if (row.type === 'special') specials.push({ idx: idx, row: row }); });
+
+  if (!cols.length) {
+    return '<div class="empty-state"><div class="icon">&#128197;</div>'
+      + '<p>No regular Sundays in this month yet &mdash; the grid lays Sundays out as columns.</p></div>'
+      + focusWeekGridSpecialsHtml(specials);
+  }
+
+  var confs = getConfirmations();
+  var tmpl = 'grid-template-columns:184px repeat(' + cols.length + ', minmax(150px, 1fr));';
+
+  // Per-column tallies, and the month totals derived from the same walk so the
+  // chips can never claim a total the columns beneath them do not add up to.
+  var serving = {};
+  var totSlots = 0, totFilled = 0, totConfirmed = 0;
+  cols.forEach(function(c) {
+    var st = sundayStats(c.idx, pMap, confs);
+    c.stats = st;
+    c.total = st.filled + st.open;
+    totSlots += c.total;
+    totFilled += st.filled;
+    totConfirmed += st.cfmd;
+    var r = c.row;
+    PER_ROLES.forEach(function(role) {
+      ['8am','10:45am'].forEach(function(svc) {
+        var pid = r.assignments[role][svc];
+        if (pid && pMap[pid]) serving[pid] = true;
+      });
+    });
+    SHARED_ROLES.forEach(function(role) {
+      var pid = r.assignments[role].shared;
+      if (pid && pMap[pid]) serving[pid] = true;
+    });
+  });
+
+  var html = '<div class="fw-grid-stats">'
+    + '<span class="fw-gstat">Slots this month <strong>'+totSlots+'</strong></span>'
+    + '<span class="fw-gstat">Filled <strong>'+totFilled+'</strong></span>'
+    + '<span class="fw-gstat">Open <strong class="fw-gstat-open">'+(totSlots-totFilled)+'</strong></span>'
+    + '<span class="fw-gstat">Confirmed <strong class="fw-gstat-ok">'+totConfirmed+'</strong></span>'
+    + '<span class="fw-gstat">Volunteers serving <strong>'+Object.keys(serving).length+'</strong></span>'
+    + '</div>';
+
+  html += '<div class="fw-grid-scroll"><div class="fw-grid-pane">';
+
+  // Header: one column per Sunday, with its own staffing state.
+  html += '<div class="gr-row gr-head" style="'+tmpl+'">'
+    + '<div class="gr-corner">Role</div>';
+  cols.forEach(function(c) {
+    var dateISO = c.row.date.toISOString().slice(0,10);
+    var open = c.stats.open;
+    var pill = open > 0
+      ? '<span class="gr-pill gr-pill-open">'+open+' open slot'+(open!==1?'s':'')+'</span>'
+      : '<span class="gr-pill gr-pill-full">&#10003; Fully staffed</span>';
+    html += '<div class="gr-colhd">'
+      + '<span class="gr-coldate">'+esc(fmtDate(c.row.date))+'</span>'
+      + '<span class="gr-colsub">'+esc(focusWeekRowSubLabel(c.row, dateISO))+'</span>'
+      + pill
+      + '</div>';
+  });
+  html += '</div>';
+
+  function band(label, roles, svc) {
+    var out = '<div class="gr-band">'+esc(label)+'</div>';
+    roles.forEach(function(role) {
+      var cells = '', filled = 0;
+      cols.forEach(function(c) {
+        var dateISO = c.row.date.toISOString().slice(0,10);
+        var pid = svc === 'shared' ? c.row.assignments[role].shared : c.row.assignments[role][svc];
+        var v = roleSlotView(c.idx, role, svc, null, pid, pMap, dateISO);
+        if (v.person) filled++;
+        cells += '<button type="button" class="role-row gr-cell'+(v.person?'':' empty')+'" '+v.attrs+'>'
+          + (v.person
+              ? '<span class="gr-cell-top"><span class="rr-name">'+esc(v.person.name)+'</span>'
+                  + rrStarHtml(v) + rrOtherSvcHtml(v) + '</span>' + rrConfHtml(v)
+              : '<span class="rr-name placeholder">&mdash; assign &mdash;</span>'
+                  + '<span class="gr-open">Open</span>')
+          + '</button>';
+      });
+      out += '<div class="gr-row" style="'+tmpl+'">'
+        + '<div class="gr-rowlbl"><span class="gr-rowlbl-name">'+esc(roleLabel(role))+'</span>'
+          + '<span class="gr-rowlbl-cov">'+filled+' of '+cols.length+' Sunday'+(cols.length!==1?'s':'')+'</span></div>'
+        + cells
+        + '</div>';
+    });
+    return out;
+  }
+
+  html += band('8:00 AM', PER_ROLES, '8am');
+  html += band('10:45 AM', PER_ROLES, '10:45am');
+  html += band('Both Services', SHARED_ROLES, 'shared');
+
+  html += '<div class="gr-row gr-foot" style="'+tmpl+'">'
+    + '<div class="gr-footlbl">Coverage</div>';
+  cols.forEach(function(c) {
+    var pct = c.total ? Math.round((c.stats.filled / c.total) * 100) : 0;
+    html += '<div class="gr-cov">'
+      + '<span class="gr-bar"><span class="gr-bar-fill" style="width:'+pct+'%;"></span></span>'
+      + '<span class="gr-cov-num">'+c.stats.filled+'/'+c.total+'</span>'
+      + '</div>';
+  });
+  html += '</div>';
+
+  html += '</div></div>' + focusWeekGridSpecialsHtml(specials);
+  return html;
+}
+
+function focusWeekGridSpecialsHtml(specials) {
+  if (!specials.length) return '';
+  var items = specials.map(function(s) {
+    return '<button type="button" class="gr-special" data-fw-goto="'+s.idx+'">'
+      + '<span class="gr-special-date">'+esc(fmtDate(s.row.date))+'</span>'
+      + '<span class="gr-special-name">'+esc(s.row.name || 'Special Service')+'</span>'
+      + '</button>';
+  }).join('');
+  return '<div class="gr-specials">'
+    + '<div class="gr-specials-hd">Not in the grid</div>'
+    + '<p class="gr-specials-note">A special service sets its own service times and roles, so it has no column here. '
+      + 'Its slots are not counted in the figures above. Open one to edit it:</p>'
+    + '<div class="gr-specials-list">'+items+'</div>'
     + '</div>';
 }
 
@@ -3246,6 +3479,15 @@ document.getElementById('fw-rail').addEventListener('click', function(e) {
 document.getElementById('fw-detail').addEventListener('click', function(e) {
   var rdBtn = e.target.closest('.fw-readings-edit');
   if (rdBtn) { e.stopPropagation(); openReadingsPanel(rdBtn.getAttribute('data-date')); return; }
+  // Grid view lists special services rather than columning them — this is the
+  // way back into a view that can actually edit one.
+  var gotoBtn = e.target.closest('[data-fw-goto]');
+  if (gotoBtn) {
+    e.stopPropagation();
+    focusWeekSelectedIdx = parseInt(gotoBtn.getAttribute('data-fw-goto'), 10);
+    setFocusWeekViewMode('week');
+    return;
+  }
   // A reading reference is a real link out to the passage — let it open.
   if (e.target.closest('.fw-reading a')) return;
   var confEl = e.target.closest('.rr-conf');
@@ -3590,7 +3832,7 @@ document.getElementById('btn-print').addEventListener('click', openPrintPreview)
 // ══════════════════════════════════════════════════════════════════
 // PRINT PREVIEW (SC7) — Single Sunday / Full Month / Bulletin Insert
 // ══════════════════════════════════════════════════════════════════
-var ppMode = 'single';        // 'single' | 'month' | 'bulletin'
+var ppMode = 'single';        // 'single' | 'month' | 'grid' | 'bulletin'
 var ppSelectedIdx = 0;        // index into ppSundayRows
 var ppSundayRows = [];        // currentSchedule filtered to type==='sunday'
 var ppWin = null;             // the print-preview popup window, once opened
@@ -3642,7 +3884,7 @@ function ppUpdatePageSize() {
   if (!ppWin || ppWin.closed) return;
   var el = ppWin.document.getElementById('pp-page-size-style');
   if (!el) return;
-  var rule = ppMode === 'month'
+  var rule = (ppMode === 'month' || ppMode === 'grid')
     ? '@page { size: letter landscape; margin: 0.6in; }'
     : ppMode === 'bulletin'
       ? '@page { size: 7in 8.5in; margin: 0.35in; }'
@@ -3722,6 +3964,70 @@ function ppBuildMonthHtml(rowsIn, titleIn) {
       html += '</tr>';
     });
   });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+// The on-screen Grid, as a sheet for the bulletin board: Sundays across the
+// top, roles down the side, black on white. Transposed from ppBuildMonthHtml
+// on purpose rather than duplicating it — the month table reads a Sunday at a
+// time (which is what a volunteer wants), this reads a role at a time (which
+// is what somebody checking "am I on this month?" wants). An unfilled slot
+// prints the word OPEN, not a dash, because on a wall an empty box reads as
+// finished rather than as still needing somebody.
+//
+// Must stay well-formed XML for the Copy/Download Image path: self-closed void
+// tags, and real Unicode characters instead of HTML named entities.
+function ppBuildGridHtml() {
+  var rows = ppSundayRows.map(ppSundayData);
+  var nameAt = function(d, band, role) {
+    if (band === 'shared') {
+      var s = d.shared.filter(function(r) { return r.role === roleLabel(role); })[0];
+      return s ? s.name : '';
+    }
+    var svc = d.services.filter(function(x) { return x.time === band; })[0];
+    if (!svc) return '';
+    var r = svc.roles.filter(function(x) { return x.role === role; })[0];
+    return r ? r.name : '';
+  };
+  var colW = rows.length ? Math.floor(76 / rows.length) : 76;
+
+  var html = '<div class="pp-page pp-page-grid">'
+    + '<div style="text-align:center;margin-bottom:12px;">'
+    +   '<div style="font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#000;">Timothy Lutheran Church</div>'
+    +   '<div style="font-size:20.8px;font-weight:800;color:#000;">Worship Volunteer Schedule \\u2014 ' + esc(monthKeyLabel(currentMonthKey)) + '</div>'
+    +   '<div style="font-size:11.5px;color:#333;margin-top:2px;">OPEN = still needs a volunteer. Questions: the church office.</div>'
+    + '</div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;">'
+    + '<colgroup><col style="width:24%;"/>'
+    + rows.map(function() { return '<col style="width:' + colW + '%;"/>'; }).join('')
+    + '</colgroup>'
+    + '<thead><tr>'
+    +   '<th style="border:1px solid #000;padding:5px 7px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;">Role</th>';
+  rows.forEach(function(d) {
+    html += '<th style="border:1px solid #000;padding:5px 7px;text-align:left;">'
+      + '<div style="font-size:13px;font-weight:800;">' + esc(d.dateMonthDay) + '</div>'
+      + '<div style="font-size:10px;font-weight:400;">' + esc(d.ordinalLabel) + '</div>'
+      + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  [{ label: '8:00 AM', roles: PER_ROLES, band: '8:00 AM' },
+   { label: '10:45 AM', roles: PER_ROLES, band: '10:45 AM' },
+   { label: 'Both Services', roles: SHARED_ROLES, band: 'shared' }].forEach(function(b) {
+    html += '<tr><td colspan="' + (rows.length + 1) + '" style="border:1px solid #000;padding:4px 7px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;background:#eee;">'
+      + esc(b.label) + '</td></tr>';
+    b.roles.forEach(function(role) {
+      html += '<tr><td style="border:1px solid #000;padding:5px 7px;font-weight:700;">' + esc(roleLabel(role)) + '</td>';
+      rows.forEach(function(d) {
+        var nm = nameAt(d, b.band, role);
+        html += '<td style="border:1px solid #000;padding:5px 7px;">'
+          + (nm ? esc(nm) : '<span style="font-weight:700;">OPEN</span>') + '</td>';
+      });
+      html += '</tr>';
+    });
+  });
+
   html += '</tbody></table></div>';
   return html;
 }
@@ -4012,6 +4318,7 @@ function buildOfficeScheduleText(scope, dateISO) {
 
 function ppBuildPageHtml() {
   if (ppMode === 'month') return ppBuildMonthHtml();
+  if (ppMode === 'grid') return ppBuildGridHtml();
   var row = ppSundayRows[ppSelectedIdx] || ppSundayRows[0];
   var d = ppSundayData(row);
   return ppMode === 'bulletin' ? ppBuildBulletinHtml(d) : ppBuildSingleHtml(d);
@@ -4049,6 +4356,7 @@ function ppShellHtml() {
     + '.pp-page{background:#fff;box-shadow:0 4px 24px rgba(10,60,92,.18);box-sizing:border-box;}'
     + '.pp-page-single{width:8.5in;min-height:11in;padding:0.85in;}'
     + '.pp-page-month{width:11in;min-height:8.5in;padding:0.6in;}'
+    + '.pp-page-grid{width:11in;min-height:8.5in;padding:0.6in;}'
     + '.pp-page-bulletin{width:7in;height:8.5in;padding:0.35in;}'
     + '@media print{'
     +   '.pp-toolbar-wrap,.pp-hint{display:none !important;}'
@@ -4078,6 +4386,7 @@ function renderPrintPreview() {
     +   '<div class="pp-seg">'
     +     '<button type="button" class="pp-seg-btn' + (ppMode === 'single' ? ' active' : '') + '" data-pp-mode="single">Single Sunday</button>'
     +     '<button type="button" class="pp-seg-btn' + (ppMode === 'month' ? ' active' : '') + '" data-pp-mode="month">Full Month</button>'
+    +     '<button type="button" class="pp-seg-btn' + (ppMode === 'grid' ? ' active' : '') + '" data-pp-mode="grid" title="Sundays across, roles down \\u2014 for the bulletin board">Month Grid</button>'
     +     '<button type="button" class="pp-seg-btn' + (ppMode === 'bulletin' ? ' active' : '') + '" data-pp-mode="bulletin">Bulletin Insert</button>'
     +   '</div>'
     +   (showPicker ? '<select class="pp-sunday-select" id="pp-sunday-select">' + sundayOptions + '</select>' : '')
@@ -4229,7 +4538,9 @@ function openPrintPreview() {
   var fwRow = currentSchedule[focusWeekSelectedIdx];
   var idx = fwRow ? ppSundayRows.indexOf(fwRow) : -1;
   ppSelectedIdx = idx > -1 ? idx : 0;
-  ppMode = 'single';
+  // Open on the sheet that matches what is on screen — printing from the Grid
+  // means the grid. The picker is right there for anything else.
+  ppMode = (focusWeekViewMode === 'grid') ? 'grid' : 'single';
   ppWin = window.open('', 'schedulerPrintPreview', 'width=1000,height=860,scrollbars=yes,resizable=yes');
   if (!ppWin) {
     alert('Please allow pop-ups for this site to use Print Preview.');

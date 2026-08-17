@@ -24,6 +24,51 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.187.0 — SC16: Grid view — the whole month as one table (2026-08-17)
+
+Applied the **Sunday Volunteer Grid View** design handoff. Adds a **Grid** position to the
+Schedule tab's existing Week / Month toggle: every Sunday of the month as a column, every role as
+a row, in the same three bands the Week view prints (8:00 AM · 10:45 AM · Both Services).
+
+**⚠ The handoff's own copy of `src/scheduler-html.js` was stale** — synced 2026-08-16, i.e. before
+SC10–SC15 landed. It was read for the design and never merged over the live file; the grid was
+built onto current `main` instead.
+
+- **A grid cell and a role row are two layouts over ONE slot.** New `roleSlotView()` resolves who
+  is assigned, whether they are the role's primary, whether they are filling from the other
+  service, and the confirmation key + status; `buildRoleRowHtml` and the grid cell both render
+  from it. That is what lets a cell keep the `.role-row` class and the same
+  `data-row`/`data-role`/`data-svc` attributes, so the existing `#fw-detail` delegation opens the
+  same picker and cycles the same confirmation with no new interaction code at all. A second
+  hand-inlined copy is how the two views would come to disagree about who is where (SW17).
+  **Verified byte-for-byte**: Week, Month and a special-service Sunday render identically to
+  `main` after the refactor, including star, "other svc" and both confirmation states.
+- **⚠ A special service is NOT a column, deliberately.** Its services are not 8:00/10:45 and its
+  roles are free text, so it has no row to land on in a fixed role grid. It is named in a strip
+  below the grid — with a button back into Week view, which can edit it — and its slots are
+  excluded from the figures, which the strip says outright. Silently dropping it from a view
+  titled "the whole month" is the FIN58 defect.
+- **The figures come from the same walk that draws the columns**, so Filled + Open always equals
+  Slots and Slots always equals columns x roles. Per-column coverage bars and a per-role
+  "N of M Sundays" sit beside them.
+- **Sticky is on the role-label column (left), not the header (top)** — this pane only ever
+  scrolls horizontally, and a role name is what a reader needs kept in view.
+- **Print gains a fourth mode, "Month Grid"** (landscape letter), transposed from the existing
+  Full Month sheet rather than duplicating it: that one reads a Sunday at a time, this reads a
+  role at a time, which is the question somebody at a bulletin board is asking. **An unfilled slot
+  prints the word OPEN, not a dash** — on a wall an empty box reads as finished. Printing while
+  the Grid is on screen opens on it. Stays well-formed XML (self-closed void tags, real Unicode,
+  no named entities) so Copy/Download Image keeps working (SC7-FIX2).
+- `npm test` (1512/1512, 32 new in `test/scheduler-grid-view.test.js`, driving the real served
+  script in a `vm`); **every new test verified non-vacuous** by injecting the exact regression it
+  guards (8 injections, 8 correct failure sets). Plus `node --check` on the served `<script>`,
+  CSS brace balance on both the standalone and embedded builds, div/button/span balance on the
+  grid output, an XML parse of the print sheet, confirmation that all six new selector groups are
+  scoped under `.sched-root` by the embed transform, and `scheduler/index.html` resynced by
+  evaluating the module (SC5) and confirmed byte-identical. **Not verified**: a live browser or a
+  real print dialog.
+  (`src/scheduler-html.js`, `scheduler/index.html`, `test/scheduler-grid-view.test.js`)
+
 ### v1.186.0 — BRAND7: logo artwork re-made at 2.5x, every icon rebuilt (2026-08-17)
 
 The designer had the mark re-made. It arrives at **627x627** against the 240px that BRAND2
