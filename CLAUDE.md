@@ -3438,3 +3438,10 @@ Run through this at the end of any session before pushing, or at the start of a 
 Create a new branch for each session's work using the pattern `feature/<short-description>` (e.g. `feature/anniversary-widowed-fix`). Do not push directly to main.
 
 **PR workflow:** When working in a cloud session (feature branch required by session config), create the PR using the GitHub MCP tool and immediately merge it — do not leave it as a draft for the user to merge. GitHub Actions deploys on merge to `main`. Always paste the PR URL in the chat so it's visible.
+
+**PR-watch reporting (Andrew's preference, 2026-08-17).** Keep watching PRs after opening them —
+the CI-failure wake is what caught CI1, and without it a broken auto-merge would have sat there.
+But **do not narrate the routine outcomes.** A clean merge, a green deploy, a passing check-in
+needs no message. Speak up only when something needs Andrew: a failure you could not fix, a
+decision only he can make, or a real result he asked for. He sees the raw `<wake>` envelopes in
+his transcript and asked for less noise on top of them, not less vigilance underneath.
