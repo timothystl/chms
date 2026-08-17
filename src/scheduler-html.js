@@ -1166,23 +1166,20 @@ body.embedded #app-content { display:block!important; }
     <p id="readings-panel-subtitle" style="font-size:.85rem;color:var(--warm-gray);margin:0 0 6px;"></p>
     <p id="readings-panel-source" style="font-size:.8rem;color:var(--warm-gray);margin:0 0 16px;"></p>
 
-    <div style="font-size:.7rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Emailed to the Lector</div>
     <div class="field">
-      <label>Old Testament</label>
+      <label>Old Testament <span style="font-weight:400;color:var(--warm-gray);font-size:.78rem;">&mdash; Lector &amp; Liturgist</span></label>
       <input type="text" id="readings-ot" placeholder="e.g. Isaiah 40:1-11" style="width:100%;">
     </div>
     <div class="field" style="margin-top:12px;">
-      <label>Epistle</label>
+      <label>Epistle <span style="font-weight:400;color:var(--warm-gray);font-size:.78rem;">&mdash; Lector &amp; Liturgist</span></label>
       <input type="text" id="readings-epistle" placeholder="e.g. Romans 8:14-17" style="width:100%;">
     </div>
-
-    <div style="font-size:.7rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.06em;margin:20px 0 8px;">Emailed to the Liturgist</div>
-    <div class="field">
-      <label>Gospel</label>
+    <div class="field" style="margin-top:12px;">
+      <label>Gospel <span style="font-weight:400;color:var(--warm-gray);font-size:.78rem;">&mdash; Liturgist</span></label>
       <input type="text" id="readings-gospel" placeholder="e.g. John 3:1-17" style="width:100%;">
     </div>
     <div class="field" style="margin-top:12px;">
-      <label>Psalm</label>
+      <label>Psalm <span style="font-weight:400;color:var(--warm-gray);font-size:.78rem;">&mdash; Liturgist</span></label>
       <input type="text" id="readings-psalm" placeholder="e.g. Psalm 29" style="width:100%;">
     </div>
 
@@ -1404,8 +1401,13 @@ var BIBLE_VERSION_LABEL = 'ESV';
 function readingsForRole(role, rd) {
   if (!rd) return [];
   var r = (role || '').toLowerCase();
+  // The Lector reads the two lessons. The Liturgist gets everything — the three
+  // readings plus the Psalm — because they lead the service around them, not
+  // just the Gospel. (Church's own call, 2026-08-17; before that the Liturgist
+  // was sent only Gospel + Psalm.)
   var pairs = r === 'lector'    ? [['OT', rd.ot], ['Epistle', rd.epistle]]
-            : r === 'liturgist' ? [['Gospel', rd.gospel], ['Psalm', rd.psalm]]
+            : r === 'liturgist' ? [['OT', rd.ot], ['Epistle', rd.epistle],
+                                   ['Gospel', rd.gospel], ['Psalm', rd.psalm]]
             : [];
   return pairs.filter(function(p){ return p[1]; })
               .map(function(p){ return { label: p[0], ref: p[1] }; });
