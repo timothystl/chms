@@ -7,6 +7,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "playwright-core": "^1.48.0",
     "vitest": "^4.1.5",
     "wrangler": "^4.84.1"
   }

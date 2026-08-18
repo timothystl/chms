@@ -39,6 +39,10 @@ function showPageAndLoad(pageId) {
   if (pageId === 'worship' || pageId === 'education' || pageId === 'acceptance' || pageId === 'outreach') {
     loadDynamicMinistryRoles(pageId);
   }
+  if (pageId === 'landing') { svWizardInit(); }
+  if (pageId === 'market') { svMktInit(); svMktLoad(); }
+  else { document.body.classList.remove('sv-market-open'); }
+  svUpdateHeaderCta(pageId);
 }
 
 function navigate(pageId) {
@@ -587,6 +591,12 @@ function renderEventDetailPage(ev) {
 function openEventPage(evId, replaceHistory) {
   ensureEventsData().then(function(events) {
     var ev = events.find(function(e){ return e.id === evId; });
+    if (ev && ev.name === 'Christmas Market') {
+      svMkt.ev = ev;
+      showPageAndLoad('market');
+      history[replaceHistory ? 'replaceState' : 'pushState']({ page: 'market' }, '', '#market');
+      return;
+    }
     document.querySelectorAll('.app-page').forEach(function(p) { p.hidden = true; });
     if (!ev) {
       // Bad/stale link (event removed) — fall back to the events list instead of a dead page.
@@ -818,6 +828,518 @@ function submitSimpleEvent(evId, evName, btnEl) {
   var formEl = btnEl.closest('.ev-card-roles');
   submitVolunteer({ ministry:'events', event_id:evId, event_name:evName, name:name, email:email, phone:phone, roles:roles, notes:notes }, formEl, btnEl);
 }
+
+// ══════════════════════════════════════════════════════════════════
+// SERVE REDESIGN — volunteer wizard (page-landing) + Christmas Market
+// shift picker (page-market). See design_handoff_serve_timothy.
+// ══════════════════════════════════════════════════════════════════
+function svValidEmail(v) { return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(v); }
+
+function svUpdateHeaderCta(pageId) {
+  var btn = document.getElementById('sv-header-cta');
+  if (!btn) return;
+  if (pageId === 'market') {
+    btn.textContent = 'Take a shift';
+    btn.removeAttribute('data-nav-page');
+    btn.onclick = function() { var el = document.getElementById('sv-mkt-shifts'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  } else {
+    btn.textContent = 'Start';
+    btn.setAttribute('data-nav-page', 'landing');
+    btn.onclick = null;
+  }
+}
+
+// ── Volunteer wizard state ──────────────────────────────────────────
+var SV_CATEGORIES = [
+  { key: 'worship',    label: 'Worship' },
+  { key: 'education',  label: 'Christian Education' },
+  { key: 'acceptance', label: 'Acceptance' },
+  { key: 'outreach',   label: 'Outreach' },
+  { key: 'partner',    label: 'Partner ministries' }
+];
+var SV_PARTNER_ROLES = [
+  { ministry: 'lasm', name: 'LASM Volunteer',           description: 'Companionship, transportation, and community care for aging neighbors, alongside four other neighborhood churches.', commitment: 'As your schedule allows' },
+  { ministry: 'wol',  name: 'Word of Life Volunteer',   description: 'Support Christian education for the students of Word of Life Lutheran School.', commitment: 'As your schedule allows' },
+  { ministry: 'cfna', name: 'CFNA Volunteer',           description: 'English classes, tutoring, transportation, and friendship for immigrants and refugees in St. Louis.', commitment: 'As your schedule allows' }
+];
+var svState = { step: 1, cat: 'worship', name: '', email: '', phone: '', notes: '', roles: [], catRoles: {}, _init: false };
+
+function svFetchCatRoles(cat) {
+  if (svState.catRoles[cat]) return Promise.resolve(svState.catRoles[cat]);
+  if (cat === 'partner') { svState.catRoles[cat] = SV_PARTNER_ROLES; return Promise.resolve(SV_PARTNER_ROLES); }
+  return fetch('/api/ministry-roles?ministry=' + cat).then(function(r) { return r.json(); })
+    .then(function(d) { var roles = d.roles || []; svState.catRoles[cat] = roles; return roles; })
+    .catch(function() { return []; });
+}
+
+function svPickedLabel(cat) {
+  var found = null;
+  SV_CATEGORIES.forEach(function(c) { if (c.key === cat) found = c; });
+  return found ? found.label : cat;
+}
+
+function svRenderChips() {
+  var wrap = document.getElementById('sv-chips'); if (!wrap) return;
+  wrap.innerHTML = SV_CATEGORIES.map(function(c) {
+    return '<button type="button" class="sv-chip' + (c.key === svState.cat ? ' active' : '') + '" data-cat="' + c.key + '">' + escH(c.label) + '</button>';
+  }).join('');
+}
+
+function svRenderRoleGroup() {
+  var wrap = document.getElementById('sv-role-groups'); if (!wrap) return;
+  wrap.innerHTML = '<div class="sv-role-grid" id="sv-role-grid"></div>';
+  svFetchCatRoles(svState.cat).then(function(roles) {
+    var grid = document.getElementById('sv-role-grid'); if (!grid) return;
+    if (!roles.length) { grid.innerHTML = '<p style="font-family:var(--sv-sans);color:var(--sv-warm-gray);">No open roles listed here yet.</p>'; return; }
+    grid.innerHTML = roles.map(function(r, i) {
+      return '<button type="button" class="sv-role-card" data-role-idx="' + i + '">'
+        + '<span class="sv-role-title">' + escH(r.name) + '</span>'
+        + (r.description ? '<span class="sv-role-blurb">' + escH(r.description) + '</span>' : '')
+        + (r.commitment ? '<span class="sv-role-commit">' + escH(r.commitment) + '</span>' : '')
+        + '</button>';
+    }).join('');
+  });
+}
+
+function svSelectCategory(cat) {
+  svState.cat = cat;
+  svRenderChips();
+  svRenderRoleGroup();
+}
+
+function svAddRoleFromCard(idx) {
+  var roles = svState.catRoles[svState.cat] || [];
+  var r = roles[idx]; if (!r) return;
+  var catLabel = svPickedLabel(svState.cat);
+  var ministry = svState.cat === 'partner' ? r.ministry : svState.cat;
+  var already = svState.roles.some(function(x) { return x.label === r.name && x.category === catLabel; });
+  if (!already) svState.roles.push({ category: catLabel, ministry: ministry, label: r.name, commitment: r.commitment || '' });
+  svGoStep(3);
+}
+
+function svRemoveRole(i) {
+  svState.roles.splice(i, 1);
+  if (!svState.roles.length) { svGoStep(2); return; }
+  svRenderStep3();
+}
+
+function svRenderStep2Heading() {
+  var h = document.getElementById('sv-step2-h2');
+  if (h) h.textContent = svState.roles.length ? 'Add another role' : 'What sounds like you?';
+  var doneBtn = document.getElementById('sv-step2-done');
+  var countEl = document.getElementById('sv-step2-count');
+  if (doneBtn) doneBtn.hidden = !svState.roles.length;
+  if (countEl) countEl.textContent = svState.roles.length;
+}
+
+function svRenderStep3() {
+  var wrap = document.getElementById('sv-picked-roles'); if (!wrap) return;
+  var h = document.getElementById('sv-step3-h2');
+  if (h) h.textContent = svState.roles.length + (svState.roles.length === 1 ? ' role, ready to send' : ' roles, ready to send');
+  wrap.innerHTML = svState.roles.map(function(r, i) {
+    return '<div class="sv-picked-row"><div class="sv-picked-text"><span class="sv-picked-label">' + escH(r.category) + ': ' + escH(r.label) + '</span>'
+      + (r.commitment ? '<span class="sv-picked-meta">' + escH(r.commitment) + '</span>' : '') + '</div>'
+      + '<button type="button" class="sv-remove-btn" data-remove-role="' + i + '" aria-label="Remove">&times;</button></div>';
+  }).join('');
+}
+
+function svGoStep(n) {
+  ['sv-step1', 'sv-step2', 'sv-step3', 'sv-step-done'].forEach(function(id, idx) {
+    var el = document.getElementById(id);
+    if (el) el.hidden = (idx + 1) !== n;
+  });
+  document.querySelectorAll('#sv-steprail span').forEach(function(s) {
+    s.classList.toggle('active', parseInt(s.dataset.step, 10) === n);
+  });
+  if (n === 2) { svRenderChips(); svRenderRoleGroup(); svRenderStep2Heading(); }
+  if (n === 3) svRenderStep3();
+  var shell = document.getElementById('sv-wizard');
+  if (shell) window.scrollTo({ top: Math.max(0, shell.getBoundingClientRect().top + window.scrollY - 84), behavior: 'smooth' });
+}
+
+function svStep1Next() {
+  var name = document.getElementById('sv-name').value.trim();
+  var email = document.getElementById('sv-email').value.trim();
+  var errEl = document.getElementById('sv-step1-error');
+  if (name.length < 2 || !svValidEmail(email)) {
+    if (errEl) errEl.innerHTML = '<p class="sv-error">We need a name and an email address to follow up with you.</p>';
+    return;
+  }
+  if (errEl) errEl.innerHTML = '';
+  svState.name = name; svState.email = email;
+  svState.phone = document.getElementById('sv-phone').value.trim();
+  svGoStep(2);
+}
+
+function svSubmitWizard() {
+  var btn = document.getElementById('sv-step3-send');
+  svState.notes = document.getElementById('sv-notes').value.trim();
+  var cats = [];
+  svState.roles.forEach(function(r) { if (cats.indexOf(r.category) === -1) cats.push(r.category); });
+  var data = {
+    ministry: cats.join(', ') || 'general',
+    name: svState.name, email: svState.email, phone: svState.phone, notes: svState.notes,
+    roles: svState.roles.map(function(r) { return r.category + ': ' + r.label; })
+  };
+  var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Sending…';
+  fetch('/serve/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+    .then(function(r) { return r.json().then(function(res) { return { ok: r.ok, body: res }; }); })
+    .then(function(r) {
+      if (r.body.ok) { svShowDone(); }
+      else { btn.disabled = false; btn.textContent = orig; var e = document.getElementById('sv-step3-error'); if (e) e.innerHTML = '<p class="sv-error">' + escH(r.body.error || 'Something went wrong. Please try again.') + '</p>'; }
+    })
+    .catch(function() { btn.disabled = false; btn.textContent = orig; var e = document.getElementById('sv-step3-error'); if (e) e.innerHTML = '<p class="sv-error">Could not connect to the server. Please check your internet connection and try again.</p>'; });
+}
+
+function svShowDone() {
+  var h = document.getElementById('sv-done-h2');
+  if (h) h.textContent = 'We’ve got it, ' + (svState.name.split(' ')[0] || '') + '.';
+  ['sv-step1', 'sv-step2', 'sv-step3'].forEach(function(id) { var el = document.getElementById(id); if (el) el.hidden = true; });
+  var done = document.getElementById('sv-step-done'); if (done) done.hidden = false;
+  document.querySelectorAll('#sv-steprail span').forEach(function(s) { s.classList.remove('active'); });
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
+function svReset() {
+  var cache = svState.catRoles;
+  svState = { step: 1, cat: 'worship', name: '', email: '', phone: '', notes: '', roles: [], catRoles: cache, _init: true };
+  ['sv-name', 'sv-email', 'sv-phone', 'sv-notes'].forEach(function(id) { var el = document.getElementById(id); if (el) el.value = ''; });
+  var btn = document.getElementById('sv-step3-send'); if (btn) { btn.disabled = false; btn.textContent = 'Send my interest'; }
+  ['sv-step1-error', 'sv-step3-error'].forEach(function(id) { var el = document.getElementById(id); if (el) el.innerHTML = ''; });
+  svGoStep(1);
+}
+
+function svWizardInit() {
+  if (svState._init) return; svState._init = true;
+  document.getElementById('sv-step1-next').addEventListener('click', svStep1Next);
+  document.getElementById('sv-step2-back').addEventListener('click', function() { svGoStep(1); });
+  document.getElementById('sv-step2-done').addEventListener('click', function() { svGoStep(3); });
+  document.getElementById('sv-step3-add').addEventListener('click', function() { svGoStep(2); });
+  document.getElementById('sv-step3-send').addEventListener('click', svSubmitWizard);
+  document.getElementById('sv-signup-another').addEventListener('click', svReset);
+  document.getElementById('sv-chips').addEventListener('click', function(e) {
+    var b = e.target.closest('[data-cat]'); if (b) svSelectCategory(b.dataset.cat);
+  });
+  document.getElementById('sv-role-groups').addEventListener('click', function(e) {
+    var b = e.target.closest('[data-role-idx]'); if (b) svAddRoleFromCard(parseInt(b.dataset.roleIdx, 10));
+  });
+  document.getElementById('sv-picked-roles').addEventListener('click', function(e) {
+    var b = e.target.closest('[data-remove-role]'); if (b) svRemoveRole(parseInt(b.dataset.removeRole, 10));
+  });
+}
+
+// ── Christmas Market shift picker (page-market) ─────────────────────
+var svMkt = { ev: null, mode: 'job', openJob: null, openWin: null, day: null, shifts: [], submitted: false, toastTimer: null, _init: false };
+
+function svMktEnsureEvent() {
+  if (svMkt.ev) return Promise.resolve(svMkt.ev);
+  return ensureEventsData().then(function(events) {
+    var found = null;
+    events.forEach(function(e) { if (e.name === 'Christmas Market') found = e; });
+    svMkt.ev = found;
+    return found;
+  });
+}
+
+function svMktTimeLabel(r) { return (r.start_time || '') + (r.end_time ? '–' + r.end_time : ''); }
+function svMktDateLabel(r) { return r.role_date ? formatShortDate(r.role_date) : ''; }
+function svMktAvailable(r) { return r.slots > 0 ? (r.slots - (r.filled_count || 0)) : 999; }
+function svMktIsFullServer(r) { return r.slots > 0 && svMktAvailable(r) <= 0; }
+function svMktIsClaimed(r) { var claimed = false; svMkt.shifts.forEach(function(s) { if (s.id === r.id) claimed = true; }); return claimed; }
+
+function svMktSpotsText(r) {
+  if (svMktIsFullServer(r) && !svMktIsClaimed(r)) return 'Full';
+  if (r.slots > 0) return (r.slots - svMktAvailable(r)) + ' of ' + r.slots + ' spots filled';
+  return '';
+}
+
+function svMktToast(kind, role) {
+  var toast = document.getElementById('mkt-toast'); if (!toast) return;
+  var badge = document.getElementById('mkt-toast-badge');
+  var text = document.getElementById('mkt-toast-text');
+  badge.className = 'sv-toast-badge ' + kind;
+  badge.textContent = kind === 'add' ? '✓' : '–';
+  var when = svMktDateLabel(role) + (svMktTimeLabel(role) ? ' ' + svMktTimeLabel(role) : '');
+  text.textContent = (kind === 'add' ? 'Added — ' : 'Removed — ') + role.name + (when ? ' · ' + when : '');
+  toast.classList.add('show');
+  if (svMkt.toastTimer) clearTimeout(svMkt.toastTimer);
+  svMkt.toastTimer = setTimeout(function() { toast.classList.remove('show'); }, 2200);
+}
+
+function svMktToggleClaim(role, flashEl) {
+  var idx = -1;
+  svMkt.shifts.forEach(function(s, i) { if (s.id === role.id) idx = i; });
+  if (idx !== -1) {
+    svMkt.shifts.splice(idx, 1);
+    svMktToast('remove', role);
+  } else {
+    if (svMktIsFullServer(role)) return;
+    svMkt.shifts.push({ id: role.id, name: role.name, dateLabel: svMktDateLabel(role), timeLabel: svMktTimeLabel(role) });
+    svMktToast('add', role);
+    if (flashEl) { flashEl.classList.add('flash'); setTimeout(function() { if (flashEl) flashEl.classList.remove('flash'); }, 420); }
+    if (navigator.vibrate) navigator.vibrate(18);
+  }
+  svMktRenderModeBody();
+  svMktRenderSummary();
+}
+
+function svMktSlotRowHtml(role) {
+  var claimed = svMktIsClaimed(role);
+  var full = svMktIsFullServer(role) && !claimed;
+  var cls = 'sv-slot' + (full ? ' full' : '') + (claimed ? ' claimed' : '');
+  var label = claimed ? '✓ You’re on it — tap to undo' : svMktSpotsText(role);
+  var when = svMktDateLabel(role) + (svMktTimeLabel(role) ? ' · ' + svMktTimeLabel(role) : '');
+  return '<div class="' + cls + '" data-role-id="' + role.id + '"><span class="t">' + escH(role.name)
+    + (when ? ' <span style="font-weight:400;color:var(--sv-warm-gray);font-size:.85em;">(' + escH(when) + ')</span>' : '')
+    + '</span><span class="n">' + label + '</span></div>';
+}
+
+function svMktJobGroups() {
+  var order = [], groups = {};
+  (svMkt.ev.roles || []).forEach(function(r) { if (!groups[r.name]) { groups[r.name] = []; order.push(r.name); } groups[r.name].push(r); });
+  return { order: order, groups: groups };
+}
+
+function svMktRenderByJob() {
+  var g = svMktJobGroups();
+  var html = '<div class="sv-job-grid">';
+  g.order.forEach(function(jobName) {
+    var windows = g.groups[jobName];
+    var openCount = 0;
+    windows.forEach(function(r) { if (!svMktIsFullServer(r) || svMktIsClaimed(r)) openCount++; });
+    var foot = openCount === 0 ? 'All shifts full' : (openCount === 1 ? '1 time open' : openCount + ' times open');
+    var isOpen = svMkt.openJob === jobName;
+    html += '<div>';
+    html += '<button type="button" class="sv-job-card' + (isOpen ? ' expanded' : '') + '" data-job="' + escH(jobName) + '">'
+      + '<span class="sv-role-title">' + escH(jobName) + '</span>'
+      + (windows[0].description ? '<span class="sv-role-blurb">' + escH(windows[0].description) + '</span>' : '')
+      + '<span class="sv-job-foot">' + foot + '</span></button>';
+    if (isOpen) {
+      html += '<div class="sv-panel"><div class="sv-panel-head">When can you take it? Tap a time to claim the shift.</div>';
+      windows.slice().sort(function(a, b) { return (a.role_date + a.start_time) < (b.role_date + b.start_time) ? -1 : 1; }).forEach(function(r) {
+        html += svMktSlotRowHtml(r);
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function svMktDayLabelHtml(dateStr, idx, total) {
+  var d = new Date(dateStr + 'T00:00:00');
+  var weekdays = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+  var wd = weekdays[d.getDay()] || '';
+  var suffix = (idx === total - 1) ? 'MARKET DAY' : 'SETUP';
+  return wd + ' · ' + suffix;
+}
+
+function svMktRenderByTime() {
+  var dates = getUniqueDates(svMkt.ev);
+  var html = '<div class="sv-time-cols">';
+  dates.forEach(function(dateStr, di) {
+    html += '<div class="sv-time-col"><h3>' + svMktDayLabelHtml(dateStr, di, dates.length) + '</h3>';
+    var winMap = {}, order = [];
+    svMkt.ev.roles.filter(function(r) { return r.role_date === dateStr; }).forEach(function(r) {
+      var key = r.start_time + '|' + r.end_time;
+      if (!winMap[key]) { winMap[key] = []; order.push(key); }
+      winMap[key].push(r);
+    });
+    order.sort(function(a, b) { return parseTimeToMinutes(a.split('|')[0]) - parseTimeToMinutes(b.split('|')[0]); });
+    order.forEach(function(key) {
+      var rows = winMap[key];
+      var openCount = 0;
+      rows.forEach(function(r) { if (!svMktIsFullServer(r) || svMktIsClaimed(r)) openCount++; });
+      var winId = dateStr + '|' + key;
+      var isOpen = svMkt.openWin === winId;
+      var t = rows[0].start_time + (rows[0].end_time ? '–' + rows[0].end_time : '');
+      html += '<div class="sv-time-row' + (isOpen ? ' expanded' : '') + '" data-win="' + escH(winId) + '"><span class="t">' + escH(t) + '</span><span class="n">' + (openCount ? openCount + ' job' + (openCount === 1 ? '' : 's') + ' open' : 'all full') + '</span></div>';
+      if (isOpen) {
+        html += '<div class="sv-panel"><div class="sv-panel-head">Jobs open at ' + escH(t) + ' — tap one to take it</div>';
+        rows.forEach(function(r) { html += svMktSlotRowHtml(r); });
+        html += '</div>';
+      }
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function svMktRenderByDay() {
+  var dates = getUniqueDates(svMkt.ev);
+  if (!svMkt.day || dates.indexOf(svMkt.day) === -1) svMkt.day = dates[0];
+  var weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var html = '<div class="sv-day-pills">';
+  dates.forEach(function(dateStr, di) {
+    var d = new Date(dateStr + 'T00:00:00');
+    var label = weekdays[d.getDay()] + (di === dates.length - 1 ? ' — market day' : ' — setup evening');
+    html += '<button type="button" class="sv-day-pill' + (svMkt.day === dateStr ? ' active' : '') + '" data-day="' + dateStr + '">' + escH(label) + '</button>';
+  });
+  html += '</div>';
+  var d2 = new Date(svMkt.day + 'T00:00:00');
+  html += '<div class="sv-panel" style="margin-top:1rem;"><div class="sv-panel-head">Everything open on ' + weekdays[d2.getDay()] + '</div>';
+  svMkt.ev.roles.filter(function(r) { return r.role_date === svMkt.day; })
+    .sort(function(a, b) { return parseTimeToMinutes(a.start_time) - parseTimeToMinutes(b.start_time); })
+    .forEach(function(r) { html += svMktSlotRowHtml(r); });
+  html += '</div>';
+  return html;
+}
+
+function svMktRenderModeBody() {
+  var wrap = document.getElementById('mkt-mode-body'); if (!wrap || !svMkt.ev) return;
+  if (svMkt.mode === 'job') wrap.innerHTML = svMktRenderByJob();
+  else if (svMkt.mode === 'time') wrap.innerHTML = svMktRenderByTime();
+  else wrap.innerHTML = svMktRenderByDay();
+}
+
+function svMktRenderModeToggle() {
+  document.querySelectorAll('#mkt-mode-toggle button').forEach(function(b) { b.classList.toggle('active', b.dataset.mode === svMkt.mode); });
+}
+
+function svMktRenderSummary() {
+  var rows = document.getElementById('mkt-shift-rows');
+  var heading = document.getElementById('mkt-summary-heading');
+  if (heading) heading.textContent = svMkt.shifts.length === 0 ? 'Your shifts' : (svMkt.shifts.length === 1 ? 'Your shift' : 'Your ' + svMkt.shifts.length + ' shifts');
+  if (rows) {
+    rows.innerHTML = svMkt.shifts.length ? svMkt.shifts.map(function(s) {
+      return '<div class="sv-picked-row"><div class="sv-picked-text"><span class="sv-picked-label">' + escH(s.name) + '</span>'
+        + '<span class="sv-picked-meta">' + escH(s.dateLabel) + (s.timeLabel ? ' · ' + escH(s.timeLabel) : '') + '</span></div>'
+        + '<button type="button" class="sv-remove-btn" data-unclaim="' + s.id + '" aria-label="Remove">&times;</button></div>';
+    }).join('') : '<p class="sv-summary-empty">Nothing yet — pick a job or a time above and your shifts collect here.</p>';
+  }
+  var bar = document.getElementById('mkt-stickybar');
+  var count = document.getElementById('mkt-stickybar-count');
+  var showBar = svMkt.shifts.length > 0 && !svMkt.submitted;
+  if (bar) bar.hidden = !showBar;
+  if (count) count.textContent = svMkt.shifts.length + (svMkt.shifts.length === 1 ? ' shift picked' : ' shifts picked');
+  document.body.classList.toggle('sv-market-open', showBar);
+}
+
+function svMktValidateWho() {
+  var nameInput = document.getElementById('mkt-name');
+  var name = nameInput.value.trim();
+  var email = document.getElementById('mkt-email').value.trim();
+  var errEl = document.getElementById('mkt-who-error');
+  if (name.length < 2 || !svValidEmail(email)) {
+    if (errEl) errEl.innerHTML = '<p class="sv-error">We need a name and an email address to follow up with you.</p>';
+    window.scrollTo({ top: Math.max(0, nameInput.getBoundingClientRect().top + window.scrollY - 140), behavior: 'smooth' });
+    nameInput.focus();
+    return false;
+  }
+  if (errEl) errEl.innerHTML = '';
+  return true;
+}
+
+function svMktSubmit() {
+  var shiftErr = document.getElementById('mkt-shift-error');
+  if (!svMkt.shifts.length) {
+    if (shiftErr) shiftErr.innerHTML = '<p class="sv-error">Pick at least one shift below first.</p>';
+    return;
+  }
+  if (shiftErr) shiftErr.innerHTML = '';
+  if (!svMktValidateWho()) return;
+  var btn = document.getElementById('mkt-submit-btn');
+  var name = document.getElementById('mkt-name').value.trim();
+  var email = document.getElementById('mkt-email').value.trim();
+  var phone = document.getElementById('mkt-phone').value.trim();
+  var notes = document.getElementById('mkt-notes').value.trim();
+  var data = { ministry: 'events', event_id: svMkt.ev.id, event_name: svMkt.ev.name, name: name, email: email, phone: phone, notes: notes, role_ids: svMkt.shifts.map(function(s) { return s.id; }) };
+  var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Sending…';
+  fetch('/serve/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+    .then(function(r) { return r.json().then(function(res) { return { ok: r.ok, body: res }; }); })
+    .then(function(r) {
+      if (r.body.ok) { svMktShowDone(name); }
+      else { btn.disabled = false; btn.textContent = orig; if (shiftErr) shiftErr.innerHTML = '<p class="sv-error">' + escH(r.body.error || 'Something went wrong. Please try again.') + '</p>'; }
+    })
+    .catch(function() { btn.disabled = false; btn.textContent = orig; if (shiftErr) shiftErr.innerHTML = '<p class="sv-error">Could not connect to the server. Please check your internet connection and try again.</p>'; });
+}
+
+function svMktShowDone(name) {
+  svMkt.submitted = true;
+  document.getElementById('sv-mkt-you').hidden = true;
+  document.getElementById('sv-mkt-shifts').hidden = true;
+  var bar = document.getElementById('mkt-stickybar'); if (bar) bar.hidden = true;
+  document.body.classList.remove('sv-market-open');
+  var done = document.getElementById('mkt-done'); done.hidden = false;
+  var h = document.getElementById('mkt-done-h2'); if (h) h.textContent = 'Thank you, ' + (name.split(' ')[0] || '') + '.';
+  var list = document.getElementById('mkt-done-shifts');
+  if (list) list.innerHTML = svMkt.shifts.map(function(s) {
+    return '<p>' + escH(s.name) + ' — <em>' + escH(s.dateLabel) + (s.timeLabel ? ' ' + escH(s.timeLabel) : '') + '</em></p>';
+  }).join('');
+  window.scrollTo(0, 0);
+}
+
+function svMktResetAll() {
+  var ev = svMkt.ev;
+  svMkt = { ev: ev, mode: 'job', openJob: null, openWin: null, day: null, shifts: [], submitted: false, toastTimer: null, _init: true };
+  ['mkt-name', 'mkt-email', 'mkt-phone', 'mkt-notes'].forEach(function(id) { var el = document.getElementById(id); if (el) el.value = ''; });
+  ['mkt-who-error', 'mkt-shift-error'].forEach(function(id) { var el = document.getElementById(id); if (el) el.innerHTML = ''; });
+  var btn = document.getElementById('mkt-submit-btn'); if (btn) { btn.disabled = false; btn.textContent = 'Sign me up'; }
+  document.getElementById('sv-mkt-you').hidden = false;
+  document.getElementById('sv-mkt-shifts').hidden = false;
+  document.getElementById('mkt-done').hidden = true;
+  svMktRenderModeToggle();
+  svMktRenderModeBody();
+  svMktRenderSummary();
+  window.scrollTo(0, 0);
+}
+
+function svMktLoad() {
+  svMktEnsureEvent().then(function(ev) {
+    var body = document.getElementById('mkt-mode-body');
+    if (!ev) { if (body) body.innerHTML = '<p style="font-family:var(--sv-sans);color:var(--sv-warm-gray);">Christmas Market sign-ups aren’t open yet — check back soon.</p>'; return; }
+    svMktRenderModeToggle();
+    svMktRenderModeBody();
+    svMktRenderSummary();
+  });
+}
+
+function svMktInit() {
+  if (svMkt._init) return; svMkt._init = true;
+  document.getElementById('mkt-mode-toggle').addEventListener('click', function(e) {
+    var b = e.target.closest('[data-mode]'); if (!b) return;
+    svMkt.mode = b.dataset.mode; svMkt.openJob = null; svMkt.openWin = null;
+    svMktRenderModeToggle(); svMktRenderModeBody();
+  });
+  document.getElementById('mkt-mode-body').addEventListener('click', function(e) {
+    var jobBtn = e.target.closest('[data-job]');
+    if (jobBtn) { svMkt.openJob = svMkt.openJob === jobBtn.dataset.job ? null : jobBtn.dataset.job; svMktRenderModeBody(); return; }
+    var winRow = e.target.closest('[data-win]');
+    if (winRow) { svMkt.openWin = svMkt.openWin === winRow.dataset.win ? null : winRow.dataset.win; svMktRenderModeBody(); return; }
+    var dayPill = e.target.closest('[data-day]');
+    if (dayPill) { svMkt.day = dayPill.dataset.day; svMktRenderModeBody(); return; }
+    var slot = e.target.closest('[data-role-id]');
+    if (slot) {
+      var rid = parseInt(slot.dataset.roleId, 10);
+      var role = null;
+      svMkt.ev.roles.forEach(function(r) { if (r.id === rid) role = r; });
+      if (role) svMktToggleClaim(role, slot);
+    }
+  });
+  document.getElementById('mkt-shift-rows').addEventListener('click', function(e) {
+    var b = e.target.closest('[data-unclaim]'); if (!b) return;
+    var rid = parseInt(b.dataset.unclaim, 10);
+    var role = null;
+    svMkt.ev.roles.forEach(function(r) { if (r.id === rid) role = r; });
+    if (role) svMktToggleClaim(role, null);
+  });
+  document.getElementById('mkt-submit-btn').addEventListener('click', svMktSubmit);
+  document.getElementById('mkt-stickybar-btn').addEventListener('click', function() {
+    var row = document.getElementById('mkt-submit-row');
+    if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+  document.getElementById('mkt-signup-another').addEventListener('click', svMktResetAll);
+}
+
+(function() {
+  var initialVisible = document.querySelector('.app-page:not([hidden])');
+  var initialPageId = initialVisible ? initialVisible.id.replace('page-', '') : 'landing';
+  svWizardInit();
+  svUpdateHeaderCta(initialPageId);
+  if (initialPageId === 'market') { svMktInit(); svMktLoad(); }
+})();
 
 // ── Navigation event delegation (CSP-safe: no inline onclick needed) ─────────
 document.addEventListener('click', function(e) {

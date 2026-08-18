@@ -1,1 +1,63 @@
-export const PUBLIC_LANDING = `<div class="app-page" id="page-landing">  <section class="hero"><div class="hero-photo"><div class="hero-photo-placeholder"><span>[ Photo placeholder ]<br>Drop a photo &mdash; volunteers serving, a smiling group</span></div></div><div class="hero-scrim"></div><div class="hero-content"><p class="hero-eyebrow">Serving Together</p><h1>Every hand <em>makes a difference.</em></h1><p class="hero-sub">See where you might fit in.</p><a href="#ways-to-serve" class="hero-scroll">See where you can help <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></a></div></section>  <main id="ways-to-serve">   <div class="section-intro">     <p>&ldquo;Each of you should use whatever gift you have received to serve others.&rdquo; &mdash; 1 Peter 4:10</p>   </div>    <!-- Core values strip — each tile navigates to its ministry page -->   <div class="values-strip">     <a href="javascript:void(0)" data-nav-page="worship" class="value-tile v-worship">       <span class="value-tile-name">Worship</span>       <span class="value-tile-desc">Lead and support the congregation in praise, prayer, and the sacraments</span>     </a>     <a href="javascript:void(0)" data-nav-page="education" class="value-tile v-education">       <span class="value-tile-name">Christian Education</span>       <span class="value-tile-desc">Nurture faith and discipleship across every age and stage of life</span>     </a>     <a href="javascript:void(0)" data-nav-page="acceptance" class="value-tile v-acceptance">       <span class="value-tile-name">Acceptance</span>       <span class="value-tile-desc">Welcome every person and build a community where all belong</span>     </a>     <a href="javascript:void(0)" data-nav-page="outreach" class="value-tile v-outreach">       <span class="value-tile-name">Outreach</span>       <span class="value-tile-desc">Serve our neighbors and share God's love beyond our walls</span>     </a>   </div>    <a href="javascript:void(0)" data-nav-page="findfit" class="findfit-cta">     <span class="findfit-cta-text">Not sure where to start?</span>     <span class="findfit-cta-link">Tell us     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>   </a>    <p class="section-label">Timothy Lutheran Church</p>   <div class="mrow-list"><a href="javascript:void(0)" data-nav-page="worship" class="mrow worship"><span class="mrow-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></span><span class="mrow-text"><span class="mrow-name">Sunday Worship Roles</span><span class="mrow-desc">Acolytes, altar guild, lectors, musicians &amp; more</span></span><svg class="mrow-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></a><a href="javascript:void(0)" data-nav-page="events" class="mrow events"><span class="mrow-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span><span class="mrow-text"><span class="mrow-name">Community Events</span><span class="mrow-desc">Easter Egg Hunt, Christmas Market, VBS &amp; more</span></span><svg class="mrow-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></a><a href="javascript:void(0)" data-nav-page="acceptance" class="mrow mdo"><span class="mrow-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="mrow-text"><span class="mrow-name">Care Ministry</span><span class="mrow-desc">Stephen Ministry, hospitality &amp; caring ministry</span></span><svg class="mrow-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></a><a href="javascript:void(0)" data-nav-page="outreach" class="mrow property"><span class="mrow-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="mrow-text"><span class="mrow-name">Outreach Ministry</span><span class="mrow-desc">Community Pantry, Bee Ministry &amp; service projects</span></span><svg class="mrow-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></a><a href="javascript:void(0)" data-nav-page="education" class="mrow wol"><span class="mrow-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg></span><span class="mrow-text"><span class="mrow-name">Christian Education</span><span class="mrow-desc">Sunday school, youth group, confirmation, VBS</span></span><svg class="mrow-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></a><a href="javascript:void(0)" data-nav-page="general" class="mrow interest"><span class="mrow-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></span><span class="mrow-text"><span class="mrow-name">I Just Want to Help</span><span class="mrow-desc">Tell us what you enjoy &mdash; we'll find a fit</span></span><svg class="mrow-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></a></div>  </main>    <div class="spacer"></div>   <p class="section-label" id="partner-ministries">Partner Ministries</p>   <div class="mrow-list mrow-list-stacked"><a href="javascript:void(0)" data-nav-page="lasm" class="mrow lasm"><span class="mrow-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="mrow-text"><span class="mrow-name">Lindenwood Area Senior Ministry</span><span class="mrow-desc">Companionship, transportation &amp; meals for seniors</span></span><svg class="mrow-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></a><a href="javascript:void(0)" data-nav-page="wol" class="mrow wol"><span class="mrow-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span><span class="mrow-text"><span class="mrow-name">Word of Life Lutheran School</span><span class="mrow-desc">Support Christian education in the neighborhood</span></span><svg class="mrow-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></a><a href="javascript:void(0)" data-nav-page="cfna" class="mrow cfna"><span class="mrow-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span><span class="mrow-text"><span class="mrow-name">Christian Friends of New Americans</span><span class="mrow-desc">English classes, tutoring &amp; friendship</span></span><svg class="mrow-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></a></div> </div><!-- /page-landing -->   `;
+export const PUBLIC_LANDING = `<div class="app-page sv-page" id="page-landing">
+<section class="sv-hero"><div class="sv-hero-inner">
+<p class="sv-eyebrow">Serving Together</p>
+<h1 class="sv-h1">Every hand <em>makes a difference.</em></h1>
+<p class="sv-hero-body">A three-step way to tell us who you are and what sounds like you. Checking a box is not a commitment.</p>
+</div></section>
+<div class="sv-wrap">
+<div class="sv-shell" id="sv-wizard">
+<div class="sv-steprail" id="sv-steprail">
+<span class="active" data-step="1">1 &middot; You</span><em>&rarr;</em><span data-step="2">2 &middot; Pick a role</span><em>&rarr;</em><span data-step="3">3 &middot; Send it</span>
+</div>
+<div class="sv-section" id="sv-step1">
+<h2 class="sv-h2">First, who are you?</h2>
+<p class="sv-sub">Just enough for a ministry leader to reach you.</p>
+<div class="sv-fields">
+<div class="sv-field"><label for="sv-name">Your name *</label><input type="text" id="sv-name" autocomplete="name"></div>
+<div class="sv-field"><label for="sv-email">Email *</label><input type="email" id="sv-email" autocomplete="email"></div>
+<div class="sv-field"><label for="sv-phone">Phone <span style="font-weight:400;">(optional)</span></label><input type="tel" id="sv-phone" autocomplete="tel"></div>
+</div>
+<div id="sv-step1-error"></div>
+<div class="sv-row">
+<button type="button" class="sv-btn" id="sv-step1-next">Next &mdash; pick a role</button>
+<button type="button" class="sv-link-italic" data-nav-page="market">I'm here about the Christmas Market &rarr;</button>
+</div>
+</div>
+<div class="sv-section" id="sv-step2" hidden>
+<h2 class="sv-h2" id="sv-step2-h2">What sounds like you?</h2>
+<div class="sv-chips" id="sv-chips"></div>
+<div id="sv-role-groups"></div>
+<div class="sv-row" id="sv-step2-actions">
+<button type="button" class="sv-btn-ghost" id="sv-step2-back">&larr; Back</button>
+<button type="button" class="sv-btn" id="sv-step2-done" hidden>Done &mdash; review <span id="sv-step2-count">0</span> role(s)</button>
+</div>
+</div>
+<div class="sv-section" id="sv-step3" hidden>
+<h2 class="sv-h2" id="sv-step3-h2">Ready to send</h2>
+<div id="sv-picked-roles"></div>
+<div class="sv-field" style="margin-top:1.5rem;"><label for="sv-notes">Anything the leader should know</label><textarea id="sv-notes" rows="3" placeholder="Seasons you're free, a skill you'd like to use, a question."></textarea></div>
+<div id="sv-step3-error"></div>
+<div class="sv-row">
+<button type="button" class="sv-btn" id="sv-step3-send">Send my interest</button>
+<button type="button" class="sv-btn-gold" id="sv-step3-add">+ Add another role</button>
+</div>
+</div>
+<div class="sv-section sv-done" id="sv-step-done" hidden>
+<p class="sv-eyebrow">Thank you</p>
+<h2 class="sv-h2" id="sv-done-h2">We've got it.</h2>
+<p class="sv-done-body">A ministry leader will email or call within a week to help you get started. Questions before then? Call the church office at (314) 781-8673.</p>
+<div class="sv-done-actions">
+<a href="https://timothystl.org" class="sv-btn-ghost">Back to timothystl.org</a>
+<button type="button" class="sv-btn-ghost" id="sv-signup-another">Sign up someone else</button>
+</div>
+</div>
+</div>
+<div class="sv-market-teaser">
+<p class="sv-eyebrow" style="color:var(--sv-gold-light)">Weihnachtsmarkt &middot; first Saturday in December</p>
+<h2 class="sv-h2">The Christmas Market is <em>its own animal.</em></h2>
+<p>It takes about ninety of us to pull off &mdash; setup, the grill, hot drinks, cashiers, music, teardown. Shifts run by the job, the hour, or the day, and you can take as many as you like.</p>
+<button type="button" class="sv-btn-gold" data-nav-page="market">Market shifts &rarr;</button>
+</div>
+</div>
+</div><!-- /page-landing -->
+`;

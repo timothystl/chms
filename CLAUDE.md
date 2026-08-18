@@ -470,6 +470,66 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### SITE1 — serve.timothystl.org rebuilt from `design_handoff_serve_timothy` (2026-08-18, DONE)
+Full rework of the public site's two main flows, from a real design handoff (README + two
+`.dc.html` prototypes) matching timothystl.org's own visual language (navy `#1E2D4A` +
+parchment, Newsreader serif + Archivo sans). **No new backend was built — both flows are wired
+onto infrastructure that already existed and already worked**, which is what kept this a UI
+rework rather than a schema change:
+- **Volunteer sign-up (`#landing`, the site root)** is now a 3-step wizard — contact → pick a
+  role (chips: Worship / Christian Education / Acceptance / Outreach / Partner ministries,
+  sourced live from `GET /api/ministry-roles`) → review & send. Tapping a role card adds it and
+  jumps straight to review, per the design's own interaction spec. Submits to the existing
+  `POST /serve/signup` with `roles` as `"Category: Role"` strings — no schema change, since that
+  endpoint already accepted a `ministry` string + a `roles` array. **Partner ministries (LASM,
+  Word of Life, CFNA) have no `ministry_roles` rows** (they're informational pages, not shift
+  rosters), so their three cards are hardcoded in `scripts.js` (`SV_PARTNER_ROLES`) rather than
+  fetched.
+- **Christmas Market (`#market`)** is a new by-job / by-time / by-day shift picker, reading the
+  **real** `serve_events` → `serve_roles` → `signup_slots` data the market already runs on (the
+  same one `MKT1`'s summary endpoint and the admin's Worship Schedule Builder read) via the
+  existing `GET /api/events`. **The design's own "spot counts are placeholders" disclaimer was
+  dropped** — capacity here was never a placeholder, it's `role.slots - role.filled_count` off
+  the real table. Submits to the same `POST /serve/signup`, `event_id` + `role_ids` (the array
+  form that endpoint already validated against `signup_slots` and 409s on a race). A direct visit
+  to `/christmasmarket` (the existing admin-managed `serve_events.slug` redirect, → `/#event-<id>`)
+  now resolves into this new page instead of the old generic per-event picker — `openEventPage()`
+  checks `ev.name === 'Christmas Market'` and redirects into `#market` — so the old redirect
+  infrastructure needed no change.
+- **The old landing page (ministry cards + partner-ministry rows) still exists**, moved to
+  `#ministries` (`src/public/ministries.js`, was `landing.js`) and reachable from the header nav
+  — every individual ministry page (`/worship`, `/education`, `/acceptance`, `/outreach`,
+  `/events`, `/general`, `/lasm`, `/wol`, `/cfna`) is **completely unchanged**, still linked from
+  there exactly as before. The redesign only replaces the *home page* and adds the market page;
+  it does not touch the per-ministry sign-up pages, which keep their own multi-step forms
+  (`_STEP_CFGS` in `scripts.js`) untouched.
+- **The hamburger drawer nav is gone.** The design has no hamburger — three nav items (Volunteer
+  · Christmas Market · Ministries) fit inline in the sticky header, plus a CTA pill outside the
+  nav (label swaps "Start" ↔ "Take a shift" depending on which page is open, per the design).
+  `openDrawer`/`closeDrawer` were left in place rather than deleted — they null-check before
+  touching anything, so with no `#menu-drawer` element left in the markup they're inert, not
+  broken; a future cleanup pass can remove them.
+- **New CSS is scoped under `sv-*` class names and `--sv-*` custom properties**, layered on top
+  of the existing stylesheet in `head.js` rather than replacing it — the untouched ministry pages
+  still read the old `--navy`/`--cream`/`.role-card`/`.ministry-header` etc. tokens/classes, which
+  were left exactly as they were. `--sv-navy` is numerically identical to the existing `--navy`
+  (`#1E2D4A`, confirmed against the site's own `theme-color` meta tag per the handoff) but kept as
+  its own token rather than reused, so a future edit to one palette can't silently repaint the
+  other.
+- **Verified two ways.** `test/serve-redesign.test.js` (25 assertions, runs in CI under
+  `npm test`) checks structural properties against the real assembled `PUBLIC_HTML`/the real
+  served `<script>` block — ids resolve, no duplicates, the script parses standalone (the
+  SC3-BUG1 class check), the submit payloads carry the right shape, capacity/dedupe/validation
+  logic is present. **The actual interactive flows were also driven end-to-end in real headless
+  Chromium** (`scripts/verify-serve-redesign.mjs` / `-2.mjs`, not part of the vitest suite or CI
+  — this repo has no browser-install step, and these two scripts need `playwright-core` installed
+  ad hoc): wizard step-through including validation and reset-clears-fields, market claim/undo/
+  full-slot/sticky-bar/toast/mode-switching, and the `#event-<id>` → `#market` redirect. All
+  passed with no console errors (the only console noise was Google Fonts failing to load in this
+  offline sandbox, unrelated to the app).
+- **Not verified**: an actual production deploy, or the Google Fonts (Newsreader/Archivo) loading
+  for real — this environment has no route to `fonts.googleapis.com`.
+
 ### MKT1 — Christmas Market signup summary for the website admin (2026-08-18, DONE)
 New read-only `GET /api/signups/christmasmarket/summary` (server-to-server), so the website repo's
 Christmas Market admin can show a Volunteers tab. **No new table** — it reads the model the public
