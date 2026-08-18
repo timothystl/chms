@@ -2,6 +2,8 @@
 import { DEPLOY_VERSION } from './frontend/js-core.js';
 import { PUBLIC_HEAD } from './public/head.js';
 import { PUBLIC_LANDING } from './public/landing.js';
+import { PAGE_MARKET } from './public/market.js';
+import { PAGE_MINISTRIES } from './public/ministries.js';
 import { PAGE_FINDFIT } from './public/findfit.js';
 import { PUBLIC_FOOTER } from './public/footer.js';
 import { PUBLIC_SCRIPTS } from './public/scripts.js';
@@ -23,6 +25,8 @@ export const LOGIN_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="U
 export const PUBLIC_HTML =
   PUBLIC_HEAD +
   PUBLIC_LANDING +
+  PAGE_MARKET +
+  PAGE_MINISTRIES +
   PAGE_FINDFIT +
   PAGE_WORSHIP +
   PAGE_EVENTS +
