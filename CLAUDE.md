@@ -470,6 +470,30 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### MKT1 — Christmas Market signup summary for the website admin (2026-08-18, DONE)
+New read-only `GET /api/signups/christmasmarket/summary` (server-to-server), so the website repo's
+Christmas Market admin can show a Volunteers tab. **No new table** — it reads the model the public
+Serve site already writes: `serve_events` ('Christmas Market') -> `serve_roles` (one row per SHIFT:
+name + date + start/end + `slots` capacity) -> `signup_slots` -> `signups`.
+- **A `serve_roles` row is a shift, not a role** — "Parking" at 8:30 and at 11:00 are two rows, so
+  the response groups by name and nests `shifts[]`. **The label must carry its date**: the market
+  runs two days and roles repeat on both.
+- **⚠ `needed` is `null`, never `0`, when `slots` is 0** — that is the column default and means
+  "no capacity recorded"; a 0 reads as fully staffed. Such a shift is not counted in `openShifts`.
+- **`signedUp` counts people, not shifts** (one `signups` row per person per event).
+- **Auth is the existing `X-Intake-Key` / `CHMS_INTAKE_API_KEY`**, same as `/api/intake/*`. It
+  returns names AND emails, so an unset key answers **503**, not an open endpoint. No CORS.
+- **A missing event is a 200 with the empty shape**, never an error — the caller renders "not open
+  yet". `open` is `!hidden`; a hidden event still reports real figures.
+- **⚠ The route must stay above the `/api/*` Breeze-proxy catch-all** in the Worker or it never
+  matches — the same trap `/api/events` is already worked around for.
+- Event resolved by `slug='christmasmarket'` first, then `name='Christmas Market'` — the slug is
+  admin-editable, the name is what `src/db.js` seeds against; either alone is brittle.
+- `npm test` (1545/1545, 11 new); every new test verified non-vacuous (3 injections, 4 correct
+  failures). **Not verified**: a live call from the website Worker. **Depends on G24** —
+  `CHMS_INTAKE_API_KEY` still needs setting on `tlc-newsletter-admin`.
+  (`src/api-scheduler.js`, `tlc-volunteer-worker.js`, `test/market-signup-summary.test.js`)
+
 ### BRAND7 — Artwork re-made at 2.5x; the 512 icon is a downsample at last (2026-08-17, DONE)
 The designer re-ran the mark through an AI agent. **BRAND2's 240px ceiling is lifted** — the mark
 arrives at 627x627, so every icon is now a DOWNSAMPLE rather than an upscale.

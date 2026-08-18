@@ -15,6 +15,7 @@ import {
   handleVolunteerPending, handleVolunteerGeneralPending, handleVolunteerEventPending,
   handleSchedEmailSend, handleSchedRsvpStore, handleSchedRsvpSync, handleEsvPassage,
   handleSchedRsvpPortal, handleSchedRsvp, handleSchedBreezeProxy,
+  handleChristmasMarketSummary,
 } from './src/api-scheduler.js';
 import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
 import { handleIntakeApi } from './src/api-intake.js';
@@ -317,6 +318,18 @@ async function _fetch(req, env) {
     // be adapted for the real member-tier invite flow in Phase 2.
     // Public intake endpoints (gated by X-Intake-Key header, NOT user session).
     // Called server-to-server from the timothystl.org admin worker.
+    // Read-only Christmas Market signup summary for the website repo's admin
+    // (admin.timothystl.org → Christmas Market → Volunteers). Same X-Intake-Key
+    // shared secret as /api/intake/* — see handleChristmasMarketSummary. Must stay
+    // ABOVE the /api/* Breeze-proxy catch-all further down or it never matches.
+    if (path === '/api/signups/christmasmarket/summary' && method === 'GET') {
+      try {
+        return await handleChristmasMarketSummary(req, env);
+      } catch (e) {
+        console.error('Market summary error:', e?.message, e?.stack);
+        return json({ error: 'Internal server error' }, 500);
+      }
+    }
     if (path.startsWith('/api/intake/')) {
       try {
         return await handleIntakeApi(req, env, path);
