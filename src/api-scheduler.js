@@ -145,11 +145,23 @@ export function buildMarketSummary(roles, peopleByRole) {
   return { roles: Array.from(byName.values()), openShifts };
 }
 
+// ⚠ Every response here (success and error alike) carries `Cache-Control: no-store`.
+// This route sat directly behind Cloudflare's default edge caching with no explicit
+// header at all — a first hit that pre-dated the route's own deployment (a generic
+// 404 from the Worker's bottom catch-all) could be cached at the calling colo and
+// keep answering long after the real route existed, while a different colo (or a
+// caller with `cache: 'no-store'` on its own fetch) saw the correct, current answer.
+// See the website repo's Volunteers-tab investigation for the symptom this caused:
+// an external curl succeeded while the live admin screen kept reporting the old 404.
+function noStoreJson(data, status = 200) {
+  return json(data, status, { 'Cache-Control': 'no-store' });
+}
+
 export async function handleChristmasMarketSummary(req, env) {
   const expectedKey = env.CHMS_INTAKE_API_KEY || '';
-  if (!expectedKey) return json({ error: 'Intake not configured' }, 503);
+  if (!expectedKey) return noStoreJson({ error: 'Intake not configured' }, 503);
   if ((req.headers.get('X-Intake-Key') || '') !== expectedKey) {
-    return json({ error: 'Unauthorized' }, 401);
+    return noStoreJson({ error: 'Unauthorized' }, 401);
   }
 
   const empty = { open: false, signedUp: 0, openShifts: 0, roles: [] };
@@ -162,7 +174,7 @@ export async function handleChristmasMarketSummary(req, env) {
   ).bind(XMAS_MARKET_SLUG, XMAS_MARKET_NAME, XMAS_MARKET_SLUG).first();
   // No such event yet — a valid state the caller has to render as "not open yet",
   // so this is a 200 with an empty shape, never an error.
-  if (!ev) return json(empty);
+  if (!ev) return noStoreJson(empty);
 
   const roleRows = await env.DB.prepare(
     'SELECT id, name, slots, sort_order, role_date, start_time, end_time FROM serve_roles WHERE event_id=? ORDER BY role_date, sort_order, id'
@@ -192,7 +204,7 @@ export async function handleChristmasMarketSummary(req, env) {
   ).bind(ev.id).first();
 
   const shaped = buildMarketSummary(roles, peopleByRole);
-  return json({
+  return noStoreJson({
     open: !ev.hidden,
     signedUp: signedUp?.n || 0,
     openShifts: shaped.openShifts,
