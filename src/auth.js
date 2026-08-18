@@ -244,10 +244,10 @@ export function html(content, status = 200, extraHeaders = {}) {
     headers: { 'Content-Type': 'text/html;charset=UTF-8', ...SEC_HEADERS, ...extraHeaders }
   });
 }
-export function json(data, status = 200) {
+export function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', ...SEC_HEADERS }
+    headers: { 'Content-Type': 'application/json', ...SEC_HEADERS, ...extraHeaders }
   });
 }
 export function redirect(url) {

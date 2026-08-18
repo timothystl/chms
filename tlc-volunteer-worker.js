@@ -327,7 +327,7 @@ async function _fetch(req, env) {
         return await handleChristmasMarketSummary(req, env);
       } catch (e) {
         console.error('Market summary error:', e?.message, e?.stack);
-        return json({ error: 'Internal server error' }, 500);
+        return json({ error: 'Internal server error' }, 500, { 'Cache-Control': 'no-store' });
       }
     }
     if (path.startsWith('/api/intake/')) {
@@ -582,5 +582,13 @@ async function _fetch(req, env) {
       // supported way to use the scheduler — redirect any direct hit here into it.
       return new Response(null, { status: 302, headers: { 'Location': 'https://connect.timothystl.org/#scheduler', 'Cache-Control': 'no-store' } });
     }
-    return new Response('Not Found', { status: 404 });
+    // ⚠ Cache-Control: no-store here is load-bearing, not decoration. This is the final
+    // catch-all for every unmatched path — including a route added AFTER this Worker's
+    // first deploy of it, whose earliest hit (before the route existed) would otherwise
+    // be a plain 404 with no cache directive at all. Cloudflare's edge can hold onto that
+    // per-colo, so one caller's requests (always routed through the same nearby colo) keep
+    // seeing a stale "Not Found" long after the real route is live and answering correctly
+    // to a request landing at a different colo. See the Christmas Market volunteer-summary
+    // investigation (`handleChristmasMarketSummary`) for the exact symptom this caused.
+    return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
 }
