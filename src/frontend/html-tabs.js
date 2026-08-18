@@ -1127,12 +1127,14 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <h3 id="vol-signups-title" style="font-size:1rem;font-weight:600;color:var(--charcoal);">All Volunteers <span id="vol-signups-count" style="background:var(--navy);color:var(--white);border-radius:99px;padding:1px 8px;font-size:.75rem;margin-left:4px;">…</span></h3>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button class="btn-secondary" style="font-size:.8rem;" onclick="volToggleDuplicates()" id="vol-dup-btn">Show Duplicates</button>
+            <button class="btn-secondary" style="font-size:.8rem;" onclick="volMergeDuplicateSignups()" id="vol-merge-dup-btn">Merge Duplicate Sign-ups…</button>
             <button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print List</button>
             <a id="vol-export-link" href="/admin/api/export.csv" class="btn-secondary" style="font-size:.8rem;" download>Export CSV</a>
           </div>
         </div>
         <div id="vol-duplicates-panel" style="display:none;background:#fff8f0;border:1px solid #e0b060;border-radius:10px;padding:14px;margin-bottom:12px;">
           <h4 style="font-size:.9rem;font-weight:600;color:#8a5000;margin-bottom:10px;">Emails with multiple signups</h4>
+          <p style="font-size:.78rem;color:#8a5000;margin:-4px 0 10px;">Two rows here for the same event, or the same off-event ministry interest, are the "locked out and had to sign up twice" duplicates from before sign-ups started merging automatically — "Merge Duplicate Sign-ups…" above consolidates those. Two rows for genuinely <em>different</em> events are not duplicates and are left alone either way.</p>
           <div id="vol-duplicates-list"></div>
         </div>
         <div id="vol-status-pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>

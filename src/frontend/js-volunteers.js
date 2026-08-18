@@ -180,6 +180,49 @@ function volToggleDuplicates() {
     });
 }
 
+// One-time cleanup for sign-ups created before an additional shift/role
+// merged into an existing sign-up instead of being rejected as "already
+// signed up" — consolidates any (email, event) pair, or off-event (email,
+// ministry-interest) pair, still sitting as separate rows. Preview-then-
+// confirm, same pattern as the giving tab's force-remove-orphans tool.
+function volMergeDuplicateSignups() {
+  var btn = document.getElementById('vol-merge-dup-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+  api('/admin/api/signups/duplicates')
+    .then(function(data) {
+      var groups = data.groups || [];
+      if (btn) { btn.disabled = false; btn.textContent = 'Merge Duplicate Sign-ups…'; }
+      if (!groups.length) { alert('No duplicate sign-ups found — nothing to merge.'); return; }
+      var lines = groups.slice(0, 12).map(function(g) {
+        var where = g.event_id ? (g.event_name || ('event #' + g.event_id)) : (g.ministry || 'ministry interest');
+        return '• ' + g.email + ' — ' + g.count + ' sign-ups for ' + where;
+      });
+      if (groups.length > 12) lines.push('…and ' + (groups.length - 12) + ' more.');
+      var msg = 'Found ' + groups.length + ' email' + (groups.length === 1 ? '' : 's') + ' with duplicate sign-ups:\n\n'
+        + lines.join('\n')
+        + '\n\nMerging combines each person\'s duplicate rows into one — every shift and role they picked is kept, nothing is dropped, and the extra rows are removed. This cannot be undone. Merge now?';
+      if (!confirm(msg)) return;
+      if (btn) { btn.disabled = true; btn.textContent = 'Merging…'; }
+      api('/admin/api/signups/merge-duplicates', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm_count: groups.length }),
+      }).then(function(res) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Merge Duplicate Sign-ups…'; }
+        if (res && res.error) { alert(res.error + ' Please try again — the duplicate count may have changed.'); return; }
+        alert('Merged ' + res.groups_merged + ' duplicate sign-up' + (res.groups_merged === 1 ? '' : 's') + ' (' + res.signups_removed + ' extra row' + (res.signups_removed === 1 ? '' : 's') + ' removed).');
+        loadSignups();
+        if (_volDupVisible) { _volDupVisible = false; volToggleDuplicates(); }
+      }).catch(function() {
+        if (btn) { btn.disabled = false; btn.textContent = 'Merge Duplicate Sign-ups…'; }
+        alert('Could not merge duplicates. Please try again.');
+      });
+    })
+    .catch(function() {
+      if (btn) { btn.disabled = false; btn.textContent = 'Merge Duplicate Sign-ups…'; }
+      alert('Could not check for duplicates. Please try again.');
+    });
+}
+
 // ── LINK PERSON MODAL ─────────────────────────────────────────────────
 var _volLinkSignupId = 0;
 

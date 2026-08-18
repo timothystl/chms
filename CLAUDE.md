@@ -470,6 +470,67 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### SITE2 — Serve: an already-used email no longer locks a volunteer out (2026-08-18, DONE)
+Reported: someone who wants to pick up an additional Christmas Market shift, or volunteer in one
+more ministry way, got told their email was "already used" with no way to add the new thing —
+`POST /serve/signup` hard-rejected (409, "You've already signed up for this event. Contact us if
+you need to make changes.") any second submission sharing an `email` + `event_id`, full stop.
+- **Now it merges instead of rejecting.** `handleSignup` (`src/api-scheduler.js`) looks up any
+  prior sign-up for the same email + the same event (or, for a ministry-role sign-up with no
+  event, any prior non-event sign-up of theirs) and adds the newly requested shift(s)/role(s) onto
+  that existing `signups` row — new `signup_slots` rows for a time-slotted shift, appended labels
+  in the `roles` JSON array for a ministry role — instead of creating a disconnected second row or
+  blocking the request. A slot that's already theirs is recognized and skipped (no duplicate
+  `signup_slots` row, no re-validation against capacity); a genuinely new slot still 409s if it's
+  actually full, so this doesn't weaken the fairness check.
+- **A pure resubmit (nothing new) is a friendly no-op**, not an error: `already_signed_up:true` in
+  the response, no duplicate email/office-notification/push sent, no DB write. Adding something
+  real returns `merged:true` plus `all_role_ids`/`all_roles` — the person's full current sign-up,
+  not just what was just added — so the confirmation screen can show everything they're down for.
+- **Frontend** (`src/public/scripts.js`, `landing.js`): the Market shift picker
+  (`svMktShowDone`) rebuilds the full shift list from `all_role_ids` against the already-loaded
+  event data (no extra fetch) so a returning volunteer sees every shift they hold, not only the
+  one just picked. The `#landing` wizard (`svShowDone`) and the legacy single-step ministry forms
+  (`showThankYou`) do the same from `all_roles`, with the heading reading "Added!" / "You're
+  already signed up" / "Thank you!" depending on which case it was. New `#sv-done-roles` element
+  (reuses the existing `.sv-done-shifts` styling) lists them.
+- **Historical duplicates get the same treatment, retroactively.** Everyone who hit the old
+  lockout before this shipped is still sitting in `signups` as two (or more) disconnected rows for
+  the same (email, event) or off-event (email, ministry) pair. New admin-only
+  `GET /admin/api/signups/duplicates` (`findDuplicateSignupGroups`) previews every such group;
+  `POST /admin/api/signups/merge-duplicates` (`mergeDuplicateSignupGroup`, both in
+  `src/api-scheduler.js`) consolidates each group into its oldest row using the identical merge
+  rule `handleSignup` now applies live — role labels/ministries union, `signup_slots` move onto the
+  canonical row (skipping a slot it already holds), and a duplicate further along the contact
+  pipeline (e.g. already `confirmed`) is never silently reset back to `new`. Guarded by a
+  `confirm_count` echo-back (same safety pattern as `giving/force-remove-orphans` — G19) so a stale
+  preview can't merge a different set than was reviewed; a real merge writes one `audit_log` row.
+  New **"Merge Duplicate Sign-ups…"** button next to the existing "Show Duplicates" viewer on the
+  Volunteers tab's Signups panel (`volMergeDuplicateSignups()`, `src/frontend/js-volunteers.js`) —
+  previews the count and every group by email/event before confirming, since this is a real,
+  non-reversible data change. The existing "Show Duplicates" panel gained a caption distinguishing
+  a real duplicate (same event, or same off-event ministry pool) from two rows for genuinely
+  different events, which aren't duplicates and are correctly left alone either way.
+- `npm test` (1580/1580, 10 new across `test/serve-signup-merge.test.js` and
+  `test/serve-signup-merge-duplicates.test.js`, run against real in-memory SQLite): adding a second
+  shift to the same event merges into one row and one signup; re-submitting the identical shift is
+  a no-op with no duplicate slot row; a genuinely full NEW shift still 409s even for someone already
+  on the event; adding a second ministry role merges into one row with both labels; a brand-new
+  email still gets its own fresh row; the retroactive cleanup groups correctly, unions slots/roles,
+  never downgrades a further-along status, requires the confirm-count echo (rejects a stale one),
+  and a singleton is left untouched. Plus the served `<script>` extracted from every touched
+  template-literal module (`src/public/scripts.js` — a *non*-`String.raw` literal, needs
+  double-backslash escapes; `src/frontend/js-volunteers.js`/`html-tabs.js` — `String.raw`, needs
+  single-backslash) and `node --check`'d against the real assembled `CHMS_APP_CORE_JS`/
+  `CHMS_APP_EXT_JS` bundles (the SC3-BUG1 class of risk for this codebase's escaping conventions),
+  plus a div-balance check on `landing.js` and the fully assembled `CHMS_HTML`. **Not verified**: a
+  live browser, a real sent email, or the merge tool run against real production D1 — standing
+  caveat for all frontend work in this repo, and this is the one step that needs an admin to
+  actually click the button once live. (`src/api-scheduler.js`, `src/api-admin.js`,
+  `src/public/scripts.js`, `src/public/landing.js`, `src/frontend/js-volunteers.js`,
+  `src/frontend/html-tabs.js`, `test/serve-signup-merge.test.js`,
+  `test/serve-signup-merge-duplicates.test.js`)
+
 ### SITE1 — serve.timothystl.org rebuilt from `design_handoff_serve_timothy` (2026-08-18, DONE)
 Full rework of the public site's two main flows, from a real design handoff (README + two
 `.dc.html` prototypes) matching timothystl.org's own visual language (navy `#1E2D4A` +
