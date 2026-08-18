@@ -24,6 +24,51 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### MKT1 — Christmas Market signup summary for the website admin (2026-08-18)
+
+New read-only, server-to-server `GET /api/signups/christmasmarket/summary` so the website
+repo's Christmas Market admin screen (admin.timothystl.org) can show a Volunteers tab from
+live ChMS data. Backend only — no frontend change, so `DEPLOY_VERSION` is deliberately not
+bumped (it is the cache-buster for the app JS bundles, and CI1 records how easily two
+sessions collide on that line).
+
+- **The data model already existed and is the one the public Serve site writes to** — no new
+  table, no migration. `serve_events` ('Christmas Market', seeded in `src/db.js` with
+  `XMAS_MARKET_ROLES`) → `serve_roles` (one row per shift: `name` + `role_date` +
+  `start_time`/`end_time` + `slots` capacity) → `signup_slots` (the join a public sign-up
+  writes, one row per person per shift) → `signups`. Fill counts come from `signup_slots`,
+  exactly as `handleApiEvents` already computes them.
+- **A `serve_roles` row IS a shift**, not a role — "Parking" at 8:30 and "Parking" at 11:00
+  are two rows. The response groups them by name, which is why `roles[].shifts[]` nests.
+- **⚠ The shift label must carry its date.** The market runs two days (setup Friday, market
+  Saturday) and several roles repeat on both, so a time-only label would be ambiguous.
+  Formatted from a UTC-parsed date so the weekday cannot slide with the Worker's locale.
+- **⚠ `needed` is `null`, never `0`, when `slots` is 0** — that is the column default and
+  means "no capacity recorded", a different fact from "nobody needed". A 0 would render as
+  a fully-staffed shift. Such a shift is also not counted in `openShifts`.
+- **`signedUp` counts people, not shifts** — one `signups` row per person per event (the
+  sign-up POST refuses a second for the same email), so somebody taking three shifts is one
+  volunteer.
+- **Auth is the existing `X-Intake-Key` / `CHMS_INTAKE_API_KEY` shared secret**, the same one
+  `/api/intake/*` already uses in this direction. It returns volunteer names and emails, so a
+  Worker with no key set answers **503** rather than serving PII. No CORS headers — nothing in
+  a browser calls this.
+- **A missing event is a 200 with `{open:false, signedUp:0, openShifts:0, roles:[]}`**, never
+  an error: the caller has to render a "not open yet" state, not crash. `open` is
+  `!serve_events.hidden`; a hidden event still reports its real figures.
+- **⚠ The route must sit above the `/api/*` Breeze-proxy catch-all** in
+  `tlc-volunteer-worker.js` (line ~325 vs ~566) or it never matches. Same trap `/api/events`
+  is already worked around for.
+- The event is resolved by `slug='christmasmarket'` first, falling back to `name='Christmas
+  Market'` — the slug is admin-editable, the name is what `src/db.js` seeds and migrates
+  against, so either alone is brittle.
+- `npm test` (1545/1545, 11 new in `test/market-signup-summary.test.js` against real in-memory
+  SQLite); **every new test verified non-vacuous** by injecting the exact regression it guards
+  (3 injections, 4 correct failures). **Not verified**: a live call from the website Worker.
+  **One step for an admin**: `CHMS_INTAKE_API_KEY` must be set on the website repo's
+  `tlc-newsletter-admin` Worker with the same value as here — see G24, still open.
+  (`src/api-scheduler.js`, `tlc-volunteer-worker.js`, `test/market-signup-summary.test.js`)
+
 ### v1.188.0 — SC17: People & Availability — the loaded month, on the People tab (2026-08-17)
 
 Applied the **People and Availability** design handoff. The People tab stops being a static

@@ -77,6 +77,129 @@ export async function handleApiEvents(env) {
   return json({ events: result });
 }
 
+// ── CHRISTMAS MARKET SIGNUP SUMMARY (cross-Worker, read-only) ─────────
+// GET /api/signups/christmasmarket/summary
+//
+// Serves the website repo's (admin.timothystl.org) Christmas Market admin screen,
+// which shows a read-only "Volunteers" tab. Server-to-server only — no browser
+// calls it, so there are no CORS headers here (matching /api/intake/*), and auth
+// is the same shared-secret header the intake routes already use:
+// X-Intake-Key matching env.CHMS_INTAKE_API_KEY, NOT a user session.
+//
+// It returns volunteer names AND email addresses, so the shared secret is not
+// optional — a missing key on this Worker answers 503 rather than serving PII.
+
+const XMAS_MARKET_SLUG = 'christmasmarket';
+const XMAS_MARKET_NAME = 'Christmas Market';
+
+// "Fri Dec 4" from a stored YYYY-MM-DD. Parsed as UTC and formatted as UTC so the
+// label can never slide a day depending on where the Worker happens to run.
+function marketDateLabel(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return '';
+  const d = new Date(iso + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC',
+  });
+}
+
+// A shift's human label. The market runs across two days (setup Friday, market
+// Saturday) and several roles repeat at different times on both, so the date has
+// to be part of the label or the caller cannot tell one shift from another.
+export function marketShiftLabel(role) {
+  const date = marketDateLabel(role.role_date || '');
+  const start = (role.start_time || '').trim();
+  const end = (role.end_time || '').trim();
+  let time = '';
+  if (start && end) time = start + ' – ' + end;
+  else if (start) time = start;
+  else if (end) time = 'until ' + end;
+  if (date && time) return date + ', ' + time;
+  if (date) return date;
+  if (time) return time;
+  return role.name || 'Shift';
+}
+
+// Pure shaping step, so the grouping/counting rules are testable without a DB.
+// roles: serve_roles rows (already ordered) ; peopleByRole: Map role_id -> [{name,email}]
+export function buildMarketSummary(roles, peopleByRole) {
+  const byName = new Map();
+  let openShifts = 0;
+  for (const role of roles) {
+    const people = peopleByRole.get(role.id) || [];
+    const filled = people.length;
+    // slots = 0 means "no capacity recorded" (the column's default), which is a
+    // different fact from "nobody is needed" — report it as null rather than 0 so
+    // the caller never renders a shift as fully staffed when nothing was ever set.
+    const needed = Number(role.slots) > 0 ? Number(role.slots) : null;
+    if (needed !== null && filled < needed) openShifts++;
+    const name = role.name || 'Volunteers';
+    if (!byName.has(name)) byName.set(name, { name, shifts: [] });
+    byName.get(name).shifts.push({
+      label: marketShiftLabel(role),
+      needed,
+      filled,
+      people,
+    });
+  }
+  return { roles: Array.from(byName.values()), openShifts };
+}
+
+export async function handleChristmasMarketSummary(req, env) {
+  const expectedKey = env.CHMS_INTAKE_API_KEY || '';
+  if (!expectedKey) return json({ error: 'Intake not configured' }, 503);
+  if ((req.headers.get('X-Intake-Key') || '') !== expectedKey) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
+
+  const empty = { open: false, signedUp: 0, openShifts: 0, roles: [] };
+
+  // Resolve the event by its admin-managed short-link slug first, falling back to
+  // the seeded name. The slug is what an admin can change; the name is what
+  // src/db.js seeds and migrates against, so either alone would be brittle.
+  const ev = await env.DB.prepare(
+    "SELECT id, hidden FROM serve_events WHERE slug=? OR name=? ORDER BY (slug=?) DESC, id LIMIT 1"
+  ).bind(XMAS_MARKET_SLUG, XMAS_MARKET_NAME, XMAS_MARKET_SLUG).first();
+  // No such event yet — a valid state the caller has to render as "not open yet",
+  // so this is a 200 with an empty shape, never an error.
+  if (!ev) return json(empty);
+
+  const roleRows = await env.DB.prepare(
+    'SELECT id, name, slots, sort_order, role_date, start_time, end_time FROM serve_roles WHERE event_id=? ORDER BY role_date, sort_order, id'
+  ).bind(ev.id).all();
+  const roles = applyXmasMarketDefaults(XMAS_MARKET_NAME, roleRows.results || []);
+
+  // One join for every signed-up person, rather than a query per shift.
+  const slotRows = await env.DB.prepare(
+    `SELECT ss.role_id, s.name, s.email
+       FROM signup_slots ss
+       JOIN serve_roles sr ON sr.id = ss.role_id
+       JOIN signups      s  ON s.id  = ss.signup_id
+      WHERE sr.event_id = ?
+      ORDER BY s.name, s.id`
+  ).bind(ev.id).all();
+  const peopleByRole = new Map();
+  for (const r of (slotRows.results || [])) {
+    if (!peopleByRole.has(r.role_id)) peopleByRole.set(r.role_id, []);
+    peopleByRole.get(r.role_id).push({ name: r.name || '', email: r.email || '' });
+  }
+
+  // One row per person per event (the signup POST refuses a second one for the
+  // same email), so this counts people, not shifts — somebody taking three shifts
+  // is one volunteer.
+  const signedUp = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM signups WHERE event_id=?'
+  ).bind(ev.id).first();
+
+  const shaped = buildMarketSummary(roles, peopleByRole);
+  return json({
+    open: !ev.hidden,
+    signedUp: signedUp?.n || 0,
+    openShifts: shaped.openShifts,
+    roles: shaped.roles,
+  });
+}
+
 // ── RATE LIMITING ─────────────────────────────────────────────────────
 // Allows max 10 signups per IP per hour using KV as a counter store.
 export async function checkSignupRateLimit(env, req) {
