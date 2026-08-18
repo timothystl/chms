@@ -7944,7 +7944,13 @@ function finCompBaselineDetail() {
     cents: counted.reduce(function(s, r) { return s + r.cents; }, 0),
     rows: rows, countedRows: counted, unmatchedRows: unmatched,
     unmatchedCents: unmatched.reduce(function(s, r) { return s + r.cents; }, 0),
-    canRosterOnly: canRosterOnly, rosterOnly: rosterOnly, prorated: prorated, weeks: weeks
+    canRosterOnly: canRosterOnly, rosterOnly: rosterOnly, prorated: prorated, weeks: weeks,
+    // Whether anything was ACTUALLY annualized, as opposed to the base year merely being in
+    // progress. An account with its own full-year budget is used as-is, so a ledger with budgets
+    // throughout annualizes nothing and must not be labelled as though it had.
+    anyAnnualized: counted.some(function(r) { return r.basis === 'annualized'; }),
+    salaryCents: counted.reduce(function(t, r) { return t + (r.kind === 'salary' ? r.cents : 0); }, 0),
+    benefitCents: counted.reduce(function(t, r) { return t + (r.kind === 'benefit' ? r.cents : 0); }, 0)
   };
 }
 function finCompBaselineCents() { return finCompBaselineDetail().cents; }
@@ -8134,7 +8140,7 @@ function finCompHeaderHtml(totals) {
     + '<div><div class="fin-comp-strip-lbl">Benefits &amp; taxes</div><div class="fin-comp-strip-val">' + finCompMoney(totals.benefitsCents) + '</div></div>'
     + '<div><div class="fin-comp-strip-lbl">FY' + _finPlanTargetYear + ' total</div><div class="fin-comp-strip-val">' + finCompMoney(totals.totalCents) + '</div></div>'
     + '<div class="fin-comp-strip-delta"><div class="fin-comp-strip-lbl">vs FY' + _finPlanBaseYear + ' ' + finCompMoney(totals.baselineCents)
-    + (totals.baseline && totals.baseline.prorated ? ' (annualized)' : '') + '</div>'
+    + (totals.baseline && totals.baseline.anyAnnualized ? ' (annualized)' : '') + '</div>'
     + '<div class="fin-comp-strip-val gold">' + (totals.baselineCents ? finCompMoneySigned(totals.deltaCents) + ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)' : '&mdash;') + '</div></div>'
     + '</div>'
     + '<div class="fin-comp-pills">' + pills + '</div>'
@@ -8244,10 +8250,38 @@ function finCompRenderBaselineNote(totals) {
   }
   var matchedSalary = b.rows.filter(function(r) { return r.kind === 'salary' && r.rosterNames.length; });
   var pooled = b.rows.filter(function(r) { return r.kind === 'benefit'; });
+  // Which SIDE the difference is on, before the account list. A single net figure ("-6.1%") cannot
+  // tell you whether the salaries disagree or the benefits do, and those have completely different
+  // causes — a salary gap is usually an account in the ledger that no rostered worker is paid from,
+  // a benefits gap is usually the ledger carrying coverage the roster does not model. Splitting it
+  // turns "the total is wrong" into one line to look at.
+  var salDelta = totals.salaryCents - b.salaryCents;
+  var benDelta = totals.benefitsCents - b.benefitCents;
+  function cmpRow(label, planCents, baseCents, delta) {
+    var color = delta === 0 ? 'var(--warm-gray)' : (delta > 0 ? 'var(--charcoal)' : 'var(--deep-amber)');
+    return '<tr><td style="padding:2px 8px 2px 0;">' + label + '</td>'
+      + '<td class="num" style="padding:2px 8px;text-align:right;">' + finCompMoney(baseCents) + '</td>'
+      + '<td class="num" style="padding:2px 8px;text-align:right;">' + finCompMoney(planCents) + '</td>'
+      + '<td class="num" style="padding:2px 0 2px 8px;text-align:right;font-weight:700;color:' + color + ';">' + finCompMoneySigned(delta) + '</td></tr>';
+  }
+  var split = '<table style="border-collapse:collapse;font-size:.78rem;margin:8px 0;">'
+    + '<thead><tr><th style="text-align:left;padding:2px 8px 2px 0;color:var(--warm-gray);font-weight:600;">Where the difference is</th>'
+    + '<th style="text-align:right;padding:2px 8px;color:var(--warm-gray);font-weight:600;">FY' + _finPlanBaseYear + ' ledger</th>'
+    + '<th style="text-align:right;padding:2px 8px;color:var(--warm-gray);font-weight:600;">FY' + _finPlanTargetYear + ' plan</th>'
+    + '<th style="text-align:right;padding:2px 0 2px 8px;color:var(--warm-gray);font-weight:600;">Difference</th></tr></thead><tbody>'
+    + cmpRow('Salaries', totals.salaryCents, b.salaryCents, salDelta)
+    + cmpRow('Benefits &amp; taxes', totals.benefitsCents, b.benefitCents, benDelta)
+    + '</tbody></table>'
+    + '<div style="font-size:.72rem;color:var(--warm-gray);margin-bottom:6px;">'
+    + (Math.abs(benDelta) > Math.abs(salDelta)
+        ? 'Most of the gap is on the <b>benefits</b> side: the FY' + _finPlanBaseYear + ' ledger carries ' + finCompMoney(Math.abs(benDelta)) + ' ' + (benDelta < 0 ? 'more' : 'less') + ' in pension, health and employer taxes than this plan computes. That usually means the ledger accounts cover people or coverage the roster does not model &mdash; check the pooled accounts listed below against who is actually on the plan in step 3.'
+        : 'Most of the gap is on the <b>salary</b> side: the FY' + _finPlanBaseYear + ' ledger carries ' + finCompMoney(Math.abs(salDelta)) + ' ' + (salDelta < 0 ? 'more' : 'less') + ' in wages than this plan. That usually means a salary account nobody on this roster is paid from &mdash; see the unmatched accounts below.')
+    + '</div>';
   var out = '<div class="fin-comp-basis">'
     + '<b>How the FY' + _finPlanBaseYear + ' comparison is figured.</b> '
     + 'FY' + _finPlanTargetYear + ' is ' + planParts + ', for the ' + finCompCountedCount() + ' worker(s) counted above. '
-    + 'FY' + _finPlanBaseYear + ' is the same cost categories from the church ledger.';
+    + 'FY' + _finPlanBaseYear + ' is the same cost categories from the church ledger.'
+    + split;
   if (matchedSalary.length) {
     out += '<div class="fin-comp-basis-h">Salaries for people on this roster</div>' + list(matchedSalary);
   }
@@ -8329,7 +8363,11 @@ function finCompRenderDrawer(computed) {
   var acctPayCents = finAccountBudgetCentsForCode(w.accountCode);
   var overridden = c.overridden;
   var salaryBox = '<input type="text" inputmode="decimal" id="fin-comp-salary-' + i + '" value="' + (overridden ? _finCompOverrides[i] : Math.round(c.salaryCents / 100)) + '" oninput="finCompSalaryOverride(' + i + ',finPlanSanitizeWholeDollarInput(this))" style="width:104px;text-align:right;font-weight:700;' + (overridden ? 'background:var(--warm-surface-header);border:1.5px solid var(--color-gold);' : '') + '">';
-  var meta = [w.position, w.yearsExperience + ' yrs', finCompEducationLabel(w), trackSet && trackSet[w.trackKey] ? trackSet[w.trackKey].label : '', w.accountCode ? 'budget line ' + w.accountCode : 'no budget line'].filter(Boolean).join(' &middot; ');
+  // Each part is escaped on its own and then joined with the separator MARKUP. Building the whole
+  // string with "&middot;" inside it and escaping the result turns the separator into literal text
+  // on the page — escape data, never markup.
+  var meta = [w.position, w.yearsExperience + ' yrs', finCompEducationLabel(w), trackSet && trackSet[w.trackKey] ? trackSet[w.trackKey].label : '', w.accountCode ? 'budget line ' + w.accountCode : 'no budget line']
+    .filter(Boolean).map(function(part) { return esc(String(part)); }).join(' &middot; ');
   var base = finCompBaseSalary(_finPlanTargetYear);
   var fields = '<div class="fin-comp-fieldgrid">'
     + '<label class="fin-comp-field">Name<input type="text" id="fin-comp-name-' + i + '" value="' + esc(w.name || '') + '" oninput="finCompWorkerChange(' + i + ',&quot;name&quot;,this.value)"></label>'
@@ -8375,7 +8413,7 @@ function finCompRenderDrawer(computed) {
     + '<div class="fin-comp-drawer-hd">'
     + '<div><div class="fin-comp-chiprow-lbl">Selected worker</div>'
     + '<div class="fin-comp-drawer-name">' + esc(w.name || '(unnamed)') + '</div>'
-    + '<div class="fin-comp-note">' + esc(meta) + '</div></div>'
+    + '<div class="fin-comp-note">' + meta + '</div></div>'
     + '<span onclick="finCompCloseDrawer()" style="font-size:20px;color:var(--warm-gray);cursor:pointer;">&times;</span></div>'
     + '<div class="fin-comp-tiles">'
     + '<div class="fin-comp-tile"><span class="fin-comp-tile-lbl">FY' + _finPlanBaseYear + '</span><span class="fin-comp-tile-val">' + finCompMoney(c.currentCents) + '</span></div>'
