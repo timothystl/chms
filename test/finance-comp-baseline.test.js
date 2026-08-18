@@ -69,6 +69,10 @@ function seed(ctx, leaves, opts) {
   ctx._finCompPerWorkerMethod = {};
   ctx._finCompOverrides = {};
   ctx._finSalaryRoster = opts.roster || [];
+  // This whole file is about the LEDGER basis — reading the base year out of the church accounts.
+  // The tab now defaults to computing the base year from the roster instead (like-for-like, so
+  // "no raise" reads as no change), so these tests pin the basis they are actually testing.
+  ctx._finCompBaseYearBasis = 'ledger';
   return ctx;
 }
 
@@ -105,6 +109,7 @@ describe('the FY base-year figure covers the same cost categories as the plan', 
     const ctx = makeCtx();
     const income = { label: '40085 Retirement Distribution', path: 'Income:40085', children: [], classification: 'Income', depth: 1, hasBudgetInfo: false, totalActualCents: 5000000, totalBudgetCents: 0 };
     ctx._userRole = 'admin';
+    ctx._finCompBaseYearBasis = 'ledger';
     ctx._finPlanBaseYear = 2024; ctx._finPlanTargetYear = 2025;
     ctx._finPlanBaseTree = [
       { label: 'Revenue', path: 'Income', classification: 'Income', depth: 0, hasBudgetInfo: false, totalActualCents: 5000000, totalBudgetCents: 0, children: [income] },
@@ -410,5 +415,102 @@ describe('the base year must cover the same people as the plan', () => {
     expect(ctx.finSalaryBuildSaveBody().compBaselineRosterOnly).toBe(true);
     ctx.finCompToggleBaselineRosterOnly();
     expect(ctx._finCompBaselineRosterOnly).toBe(false);
+  });
+});
+
+// ── The base year computed from the ROSTER ────────────────────────────────────────────────────
+//
+// Reported repeatedly: under "No raise" FY{target} kept coming out BELOW FY{base}. The cause was
+// never arithmetic — the ledger basis measures every payroll-ish ACCOUNT, which at this church also
+// carries daycare/MDO staff, supply preachers and nursery wages, while the plan measures seven
+// named people. Pooled benefit accounts can never be split per person, so no account-level rule
+// fixes it. This basis runs the same model over the same roster at the base year's own rates.
+describe('the base year computed from the roster', () => {
+  function rosterCtx(opts) {
+    const ctx = makeCtx();
+    seed(ctx, [
+      leaf('58001 Pastor Salary', 9880000, 9880000),
+      leaf('58010 Music Salary', 7451600, 7451600),
+      leaf('58050 MDO Payroll', 4094478, 4094478),        // another section's staff
+      leaf('59035 Health Insurance', 6800000, 6800000),   // covers the daycare too
+    ], {
+      baseYear: 2026,
+      roster: [
+        { name: 'Andrew', role: 'pastor', trackKey: '', yearsExperience: 20, accountCode: '58001',
+          selfEmployedFica: true, hasDependents: true, healthMode: 'family', concordia: {} },
+        { name: 'Jinah', role: 'other', trackKey: 'business_manager_music', yearsExperience: 20,
+          accountCode: '58010', selfEmployedFica: false, hasDependents: true, healthMode: 'family', concordia: {} },
+      ],
+    });
+    ctx._finCompBaseYearBasis = 'roster';
+    ctx._finHealthPlanSelectedOption = 'renewal';
+    ctx._finCompBasePlanOption = 'current';
+    ctx._finHealthPlanPremiumOverrides = {};
+    ctx._finSalaryReferenceByYear = {};
+    Object.assign(ctx, opts || {});
+    return ctx;
+  }
+
+  it('lands at no change under "No raise" — the whole point', () => {
+    const ctx = rosterCtx();
+    // Same plan both years removes the premium renewal, isolating "no raise means no change".
+    ctx._finCompBasePlanOption = 'renewal';
+    ctx._finSalaryReferenceByYear = { 2026: { pensionPct: 0.117 }, 2027: { pensionPct: 0.117 } };
+    const t = ctx.finCompTotals(ctx.finCompComputeAll());
+    expect(t.deltaCents).toBe(0);
+    expect(t.baselineCents).toBe(t.totalCents);
+  });
+
+  it('shows a real increase when only the rates move', () => {
+    const ctx = rosterCtx();
+    // Pension 10.70% -> 11.70% and the premium renewal, with salaries flat.
+    const t = ctx.finCompTotals(ctx.finCompComputeAll());
+    expect(t.salaryCents).toBe(ctx.finCompRosterBaselineDetail().salaryCents);
+    expect(t.deltaCents).toBeGreaterThan(0);
+  });
+
+  it('never lets another section\'s payroll into either side', () => {
+    const ctx = rosterCtx();
+    const r = ctx.finCompRosterBaselineDetail();
+    // 58050 MDO Payroll is in the ledger figure and must not be in this one.
+    expect(r.salaryCents).toBe(9880000 + 7451600);
+    ctx._finCompBaseYearBasis = 'ledger';
+    expect(ctx.finCompBaselineCents()).toBeGreaterThan(r.cents);
+  });
+
+  it('prices base-year health on the plan in force then, at the church\'s own figure', () => {
+    const ctx = rosterCtx();
+    // Current plan, family tier: $1,887.36 + $120.61 dental + $61.32 vision a month.
+    expect(ctx.finCompWorkerHealthCents(ctx._finSalaryRoster[0], 'current', 2026)).toBe(2483148);
+    // Renewal, the target year: $2,051.00 + $126.95 + $61.32.
+    expect(ctx.finCompWorkerHealthCents(ctx._finSalaryRoster[0], 'renewal', 2027)).toBe(2687124);
+  });
+
+  it('uses the base year\'s own pension rate, not the target year\'s', () => {
+    const ctx = rosterCtx();
+    const r = ctx.finCompRosterBaselineDetail();
+    const called = 9880000 + 7451600;
+    expect(r.pensionCents).toBe(Math.round(called * 0.107));   // 2026
+    const plan = ctx.finCompTotals(ctx.finCompComputeAll());
+    expect(plan.benefitsCents).toBeGreaterThan(r.benefitCents); // 11.70% in 2027
+  });
+
+  it('takes the base year opt-out figure from the base year, not a per-worker planning override', () => {
+    const ctx = rosterCtx();
+    ctx._finSalaryRoster[1].healthMode = 'optout';
+    ctx._finSalaryRoster[1].healthOptOutOverrideCents = 999900; // a FY2027 planning figure
+    ctx._finSalaryReferenceByYear = { 2026: { healthOptOutCents: 492856 } };
+    expect(ctx.finCompWorkerHealthCents(ctx._finSalaryRoster[1], 'current', 2026)).toBe(492856);
+    // The target year still honours the per-worker override.
+    expect(ctx.finCompWorkerHealthCents(ctx._finSalaryRoster[1], 'renewal', 2027)).toBe(999900);
+  });
+
+  it('is what the tab uses by default, with the ledger still reachable', () => {
+    const ctx = rosterCtx();
+    expect(ctx._finCompBaseYearBasis).toBe('roster');
+    expect(ctx.finCompActiveBaseline().basis).toBe('roster');
+    ctx.finCompSetBaseYearBasis('ledger');
+    expect(ctx.finCompActiveBaseline().basis).toBeUndefined(); // the ledger detail shape
+    expect(ctx.finCompBaselineCents()).toBeGreaterThan(0);
   });
 });

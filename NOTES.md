@@ -24,6 +24,54 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.190.0 — FY base year computed from the roster; dental and vision corrected (2026-08-07)
+
+The "FY2027 comes out lower than FY2026" report, resolved. Two things were wrong.
+
+**1. Dental and vision were stored at twice their real value.** The church supplied the actual
+premiums: **$120.61/mo dental and $61.32/mo vision per worker** on the current plan. The stored
+figures ($2,894.64 and $1,471.68) are exactly 2x those — the renewal packet quotes those lines for
+the two contracts enrolled at the time, and they had been transcribed as if they were per worker.
+Corrected to real per-worker annual amounts. A family-tier worker now prices at **$24,831.48** on
+the current plan — the church's own figure to the cent — and **$26,871.24** on renewal.
+
+This also settles a contradiction recorded under FIN58, which took an earlier "$29,130.48 per
+worker" at face value and doubled the ancillary lines. That figure came from adding the packet's
+dental and vision lines whole. **The packet's dental/vision lines are not per-worker figures; check
+one against the per-worker monthly premium before entering it.**
+
+**2. The base year was measuring a different population, and no account-level rule could fix it.**
+The ledger basis sums every account named like payroll or health. At this church those accounts also
+carry daycare/MDO staff, supply preachers and nursery wages, while the plan models seven named
+people. Against the church's own 2026 figures the same seven cost $428,844 where the ledger reads
+$468,834 — a ~$40k gap that is entirely population. It is not correctable account by account either:
+pooled benefit accounts (health, pension, employer taxes) are charged for the whole staff on one
+line and can never be attributed to a person, so the existing roster-only toggle could only ever fix
+the salary half.
+
+New **roster basis**, now the default: the base year is computed by running the *same model* over
+the *same counted roster* at the base year's own rates and the health plan in force then
+(`finCompRosterBaselineDetail`, `finCompActiveBaseline`). `finCompBenefits` and
+`finCompWorkerHealthCents` take an optional `{year, planOption}` — omitted, every existing caller
+behaves exactly as before. "No raise" therefore lands at **exactly 0%** by construction, and what is
+left is a real move: pension 10.70% -> 11.70% plus the premium renewal. On a realistic roster that
+reads **+1.7%** where the ledger basis read **-11.6%**.
+
+The ledger figure is not hidden — a basis picker switches between them, and the roster note prints
+the ledger total underneath with the difference named and explained. A worker flagged *paid from
+another budget* now leaves **both** years together, so the two sides stay like-for-like by
+construction.
+
+Assumptions the roster basis makes, all stated on screen: each worker's coverage tier and minister
+status were the same in the base year, base-year pay is whatever "current pay" resolves to, and an
+opt-out worker uses the base year's shared opt-out figure rather than a per-worker planning override.
+
+**Verified:** `npm test` (1588/1588, 12 new). Non-vacuous both ways — neutering the roster basis
+fails 3, reverting the dental/vision constants fails 2, including the check against the church's
+stated $24,831.48. The ledger-basis tests now pin the basis they test rather than relying on a
+default. **Not verified:** a live browser, or against the real FY2026 ledger.
+
+
 ### v1.189.0 — Say which side the FY comparison gap is on, and two display bugs (2026-08-07)
 
 Reported at v1.188.0 with a screenshot: under **No raise**, FY2027 came out $28,752 (6.1%) BELOW

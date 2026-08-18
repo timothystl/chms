@@ -6428,6 +6428,8 @@ function finLoadSalaryPlannerData() {
       if (saved.compCustomPct != null) _finCompCustomPct = saved.compCustomPct;
       if (saved.compScalePct != null) _finCompScalePct = saved.compScalePct;
       if (saved.compBaselineRosterOnly != null) _finCompBaselineRosterOnly = !!saved.compBaselineRosterOnly;
+      if (saved.compBaseYearBasis) _finCompBaseYearBasis = saved.compBaseYearBasis === 'ledger' ? 'ledger' : 'roster';
+      if (saved.compBasePlanOption) _finCompBasePlanOption = saved.compBasePlanOption;
       finCompMigrateSavedShape(saved);
     } else if (!_finSalaryRoster.length) {
       _finSalaryRoster = JSON.parse(JSON.stringify(SALARY_STAFF_SEED));
@@ -6471,6 +6473,7 @@ function finSalaryBuildSaveBody() {
     compMethod: _finCompMethod, compPerWorkerMethod: _finCompPerWorkerMethod,
     compOverrides: _finCompOverrides, compCustomPct: _finCompCustomPct, compScalePct: _finCompScalePct,
     compBaselineRosterOnly: _finCompBaselineRosterOnly,
+    compBaseYearBasis: _finCompBaseYearBasis, compBasePlanOption: _finCompBasePlanOption,
     referenceByYear: _finSalaryReferenceByYear, healthPlanPremiumOverrides: _finHealthPlanPremiumOverrides,
     healthFamilySize: _finHealthFamilySize
   };
@@ -7338,11 +7341,11 @@ var HEALTH_PLAN_QUOTE_2027 = {
   enrollmentCounts: { self: 0, selfSpouse: 0, selfChild: 0, family: 2 },
   coinsuranceRate: 0.20,  // "Coinsurance 20%" — the same for every option in this quote
   options: {
-    current: { label: 'Current — Healthy Me HSA-C (BCBS)', tiersMonthlyCents: { self: 70424, selfSpouse: 141552, selfChild: 117608, family: 188736 }, dentalCents: 289464, visionCents: 147168, embedded: true, deductibleFamilyCents: 700000, oopMaxFamilyCents: 1400000, deductibleIndividualCents: 350000, oopMaxIndividualCents: 700000 },
-    renewal: { label: 'Renewal — Stay in Current Plan (Healthy Me HSA-C)', tiersMonthlyCents: { self: 76530, selfSpouse: 153825, selfChild: 127805, family: 205100 }, dentalCents: 304680, visionCents: 147168, embedded: true, deductibleFamilyCents: 800000, oopMaxFamilyCents: 1600000, deductibleIndividualCents: 400000, oopMaxIndividualCents: 800000 },
-    option1: { label: 'Option 1 — Healthy Me HSA-A (BCBS)', tiersMonthlyCents: { self: 89110, selfSpouse: 179111, selfChild: 148814, family: 238815 }, dentalCents: 304680, visionCents: 147168, embedded: false, deductibleFamilyCents: 400000, oopMaxFamilyCents: 800000, deductibleIndividualCents: 200000, oopMaxIndividualCents: 400000 },
-    option2: { label: 'Option 2 — Healthy Me HSA-B (BCBS)', tiersMonthlyCents: { self: 81655, selfSpouse: 164127, selfChild: 136364, family: 218835 }, dentalCents: 304680, visionCents: 147168, embedded: false, deductibleFamilyCents: 600000, oopMaxFamilyCents: 850000, deductibleIndividualCents: 300000, oopMaxIndividualCents: 600000 },
-    option3: { label: 'Option 3 — Healthy Me HSA-D (BCBS)', tiersMonthlyCents: { self: 68614, selfSpouse: 137914, selfChild: 114585, family: 183886 }, dentalCents: 304680, visionCents: 147168, embedded: true, deductibleFamilyCents: 1100000, oopMaxFamilyCents: 1700000, deductibleIndividualCents: 550000, oopMaxIndividualCents: 850000 }
+    current: { label: 'Current — Healthy Me HSA-C (BCBS)', tiersMonthlyCents: { self: 70424, selfSpouse: 141552, selfChild: 117608, family: 188736 }, dentalCents: 144732, visionCents: 73584, embedded: true, deductibleFamilyCents: 700000, oopMaxFamilyCents: 1400000, deductibleIndividualCents: 350000, oopMaxIndividualCents: 700000 },
+    renewal: { label: 'Renewal — Stay in Current Plan (Healthy Me HSA-C)', tiersMonthlyCents: { self: 76530, selfSpouse: 153825, selfChild: 127805, family: 205100 }, dentalCents: 152340, visionCents: 73584, embedded: true, deductibleFamilyCents: 800000, oopMaxFamilyCents: 1600000, deductibleIndividualCents: 400000, oopMaxIndividualCents: 800000 },
+    option1: { label: 'Option 1 — Healthy Me HSA-A (BCBS)', tiersMonthlyCents: { self: 89110, selfSpouse: 179111, selfChild: 148814, family: 238815 }, dentalCents: 152340, visionCents: 73584, embedded: false, deductibleFamilyCents: 400000, oopMaxFamilyCents: 800000, deductibleIndividualCents: 200000, oopMaxIndividualCents: 400000 },
+    option2: { label: 'Option 2 — Healthy Me HSA-B (BCBS)', tiersMonthlyCents: { self: 81655, selfSpouse: 164127, selfChild: 136364, family: 218835 }, dentalCents: 152340, visionCents: 73584, embedded: false, deductibleFamilyCents: 600000, oopMaxFamilyCents: 850000, deductibleIndividualCents: 300000, oopMaxIndividualCents: 600000 },
+    option3: { label: 'Option 3 — Healthy Me HSA-D (BCBS)', tiersMonthlyCents: { self: 68614, selfSpouse: 137914, selfChild: 114585, family: 183886 }, dentalCents: 152340, visionCents: 73584, embedded: true, deductibleFamilyCents: 1100000, oopMaxFamilyCents: 1700000, deductibleIndividualCents: 550000, oopMaxIndividualCents: 850000 }
   }
 };
 // The monthly rate for one tier of one option, honoring an admin override typed on the rates page.
@@ -7364,10 +7367,14 @@ var _finHealthPlanPremiumOverrides = {};
 // live roster's counts are passed in by the UI. A legacy medicalCents override (the pre-tier save
 // shape, one annual figure for the whole group) still wins if one is stored, so nothing an admin
 // typed under the old card is silently discarded.
-// Dental and vision are PER COVERED WORKER, confirmed by the church: only someone on the health
-// plan has them at all, and each covered worker carries the full annual figure. They are simply not
-// tier-priced in the packet the way medical is, which is why they sit as one annual number each
-// rather than a rate per coverage tier.
+// Dental and vision are PER COVERED WORKER, confirmed by the church against real premiums:
+// $120.61/mo dental and $61.32/mo vision each on the current plan, i.e. $1,447.32 and $735.84 a
+// year per worker. The figures stored above are those per-worker annual amounts.
+//
+// ⚠ The renewal packet's own dental and vision lines are TWICE these, because they are quoted for
+// the two contracts enrolled at the time. Transcribing a packet line straight in therefore doubles
+// every covered worker's dental and vision. Check a packet figure against the per-worker monthly
+// premium before entering it.
 //
 // This used to treat those figures as a single group bill divided across whoever was enrolled, so
 // a covered worker's dental and vision fell every time a colleague joined, and adding a covered
@@ -7725,19 +7732,25 @@ function finCompEnrolledCount(roster) {
 // What the church pays for ONE enrolled worker: their own tier's monthly rate for twelve months,
 // plus an even share of dental and vision — which the packet does not tier-price, so there is no
 // per-worker figure to read for those. A hand-entered premium on the worker beats all of it.
-function finCompWorkerHealthCents(w) {
+// planOption/year default to the target year's selected plan, so every existing caller is
+// unchanged; the base-year basis passes the plan that was actually in force then.
+function finCompWorkerHealthCents(w, planOption, year) {
   if (finCompIsCashOnly(w)) return 0;
+  var key = planOption || _finHealthPlanSelectedOption;
   var tier = finCompHealthTier(w);
   if (tier === 'optout') {
+    // A per-worker override is a figure entered for the planning year, so the base year uses the
+    // shared opt-out figure recorded for the base year on "This year's rates".
+    if (year != null && year !== _finPlanTargetYear) return finCompOptOutCents(year);
     return w.healthOptOutOverrideCents != null ? w.healthOptOutOverrideCents : finCompOptOutCents();
   }
   if (w.employeeOnlyPremiumCents != null) return w.employeeOnlyPremiumCents;
-  var opt = HEALTH_PLAN_QUOTE_2027.options[_finHealthPlanSelectedOption];
+  var opt = HEALTH_PLAN_QUOTE_2027.options[key];
   if (!opt) return 0;
-  var rate = finHealthTierMonthlyCents(_finHealthPlanSelectedOption, tier) || 0;
+  var rate = finHealthTierMonthlyCents(key, tier) || 0;
   // Their own dental and vision, not a share of a group bill — so this worker's health cost does
   // not move when a colleague joins or leaves the plan.
-  var perContract = finHealthAncillaryPerContractCents(_finHealthPlanSelectedOption);
+  var perContract = finHealthAncillaryPerContractCents(key);
   return rate * 12 + perContract.dentalCents + perContract.visionCents;
 }
 // Full-time equivalent, as a fraction. A 20%-time worker is 0.2. Used to scale the DISTRICT
@@ -7841,12 +7854,17 @@ function finCompOverrideCount() {
 // What the church pays for one worker (§5.5). Pension and disability apply to every salaried
 // worker regardless of FICA status; a minister's employer FICA is $0 and the employer half they
 // cover themselves is carried separately for display only — never added to a total.
-function finCompBenefits(w, salaryCents) {
-  var pensionRate = finCompPensionRate(_finPlanTargetYear).rate;
-  var disRate = finCompDisabilityRate(_finPlanTargetYear, !!w.hasDependents).rate;
-  var ficaRate = finCompFicaRate();
+// opts = { year, planOption } — omitted, this is the target year on the selected plan, which is
+// every existing caller. The base-year basis passes the base year and the plan in force then, so
+// the same model produces both sides of the comparison.
+function finCompBenefits(w, salaryCents, opts) {
+  var year = (opts && opts.year != null) ? opts.year : _finPlanTargetYear;
+  var planOption = (opts && opts.planOption) || _finHealthPlanSelectedOption;
+  var pensionRate = finCompPensionRate(year).rate;
+  var disRate = finCompDisabilityRate(year, !!w.hasDependents).rate;
+  var ficaRate = finCompFicaRate(year);
   var cashOnly = finCompIsCashOnly(w);
-  var healthCents = finCompWorkerHealthCents(w);
+  var healthCents = finCompWorkerHealthCents(w, planOption, year);
   var pensionCents = cashOnly ? 0 : Math.round(salaryCents * pensionRate);
   var disabilityCents = cashOnly ? 0 : Math.round(salaryCents * disRate);
   // Employer FICA is owed on any W-2 wage however few the hours, so it survives cash-only. Only
@@ -7953,14 +7971,57 @@ function finCompBaselineDetail() {
     benefitCents: counted.reduce(function(t, r) { return t + (r.kind === 'benefit' ? r.cents : 0); }, 0)
   };
 }
-function finCompBaselineCents() { return finCompBaselineDetail().cents; }
+// ── The base year computed from the ROSTER, not read from the ledger ──────────────────────────
+//
+// The ledger basis compares two different POPULATIONS. FY{target} is what the counted roster costs;
+// the ledger figure is every dollar in any account named like payroll or health, which at this
+// church also carries daycare/MDO staff, supply preachers and nursery wages. Measured against the
+// same seven people the church's own 2026 figures give $428,844 while the ledger gives $468,834 —
+// a $40k gap that is entirely population, not arithmetic. And it cannot be corrected account by
+// account: pooled benefit accounts (health, pension, employer taxes) are charged for the whole
+// staff on one line and can never be attributed to a person.
+//
+// So this basis runs the SAME model over the SAME roster with the base year's own rates and the
+// health plan in force then. "No raise" therefore lands at exactly 0% by construction, and any
+// movement left is a real change — the pension going 10.70% to 11.70%, the premium renewal —
+// which is the number a council actually needs.
+//
+// Assumptions it makes, all stated on screen: each worker's coverage tier and minister status were
+// the same in the base year, and their base-year pay is whatever "current pay" resolves to (their
+// linked account's budget, or a typed figure).
+var _finCompBaseYearBasis = 'roster';   // 'roster' | 'ledger'
+var _finCompBasePlanOption = 'current'; // the health plan in force in the base year
+function finCompRosterBaselineDetail() {
+  var rows = finCompCountedEntries().map(function(e) {
+    var w = e.w;
+    var salaryCents = finCompCurrentPayCents(w);
+    var b = finCompBenefits(w, salaryCents, { year: _finPlanBaseYear, planOption: _finCompBasePlanOption });
+    return { name: w.name || '(unnamed)', salaryCents: salaryCents, benefits: b, cents: salaryCents + b.totalCents };
+  });
+  var salaryCents = rows.reduce(function(t, r) { return t + r.salaryCents; }, 0);
+  var benefitCents = rows.reduce(function(t, r) { return t + r.benefits.totalCents; }, 0);
+  return {
+    basis: 'roster', rows: rows, salaryCents: salaryCents, benefitCents: benefitCents,
+    cents: salaryCents + benefitCents,
+    pensionCents: rows.reduce(function(t, r) { return t + r.benefits.pensionCents; }, 0),
+    healthCents: rows.reduce(function(t, r) { return t + r.benefits.healthCents; }, 0),
+    disabilityCents: rows.reduce(function(t, r) { return t + r.benefits.disabilityCents; }, 0),
+    ficaCents: rows.reduce(function(t, r) { return t + r.benefits.ficaCents; }, 0),
+    planOption: _finCompBasePlanOption
+  };
+}
+// Whichever basis is active. The other one stays available so the note can show both.
+function finCompActiveBaseline() {
+  return _finCompBaseYearBasis === 'ledger' ? finCompBaselineDetail() : finCompRosterBaselineDetail();
+}
+function finCompBaselineCents() { return finCompActiveBaseline().cents; }
 function finCompTotals(computed) {
   // Externally funded workers are carried by another budget — see finCompIsExternallyFunded — so
   // every figure below is over the counted roster only.
   var counted = finCompCountedEntries().map(function(e) { return computed[e.i]; });
   var salaryCents = counted.reduce(function(s, c) { return s + c.salaryCents; }, 0);
   var benefitsCents = counted.reduce(function(s, c) { return s + c.benefits.totalCents; }, 0);
-  var baseline = finCompBaselineDetail();
+  var baseline = finCompActiveBaseline();
   var totalCents = salaryCents + benefitsCents;
   return {
     salaryCents: salaryCents, benefitsCents: benefitsCents, totalCents: totalCents,
@@ -8232,7 +8293,72 @@ function finCompRenderPlan(computed, totals) {
 // paid. A salary account nobody on the roster is paid from is therefore called out by name and
 // figure, with a one-click way to leave it out — that is how a no-raise plan came to read as a
 // 6% SAVING, which is as wrong as the 34% increase before it and wrong in the other direction.
+// Shown whichever basis is active. The roster basis prints its own working — the same model that
+// produced FY{target}, run at FY{base} rates — and keeps the ledger figure visible underneath with
+// the difference named, so switching basis never hides a number that was there a moment ago.
+function finCompRenderRosterBaselineNote(totals) {
+  var r = totals.baseline;
+  var ledger = finCompBaselineDetail();
+  var planLabel = (HEALTH_PLAN_QUOTE_2027.options[r.planOption] || {}).label || r.planOption;
+  var salDelta = totals.salaryCents - r.salaryCents;
+  var benDelta = totals.benefitsCents - r.benefitCents;
+  function row(label, base, plan) {
+    var d = plan - base;
+    return '<tr><td style="padding:2px 8px 2px 0;">' + label + '</td>'
+      + '<td style="padding:2px 8px;text-align:right;">' + finCompMoney(base) + '</td>'
+      + '<td style="padding:2px 8px;text-align:right;">' + finCompMoney(plan) + '</td>'
+      + '<td style="padding:2px 0 2px 8px;text-align:right;font-weight:700;color:' + (d === 0 ? 'var(--warm-gray)' : 'var(--charcoal)') + ';">' + (d === 0 ? 'no change' : finCompMoneySigned(d)) + '</td></tr>';
+  }
+  return '<div class="fin-comp-basis">'
+    + finCompRenderBasisPicker()
+    + '<b>FY' + _finPlanBaseYear + ' is the same ' + finCompCountedCount() + ' worker(s), costed at FY' + _finPlanBaseYear + ' rates.</b> '
+    + 'Same model as FY' + _finPlanTargetYear + ' &mdash; each worker&rsquo;s current pay, pension at '
+    + finCompPctFmt(finCompPensionRate(_finPlanBaseYear).rate) + ', disability, employer FICA, and the health plan in force then ('
+    + esc(planLabel) + '). So &ldquo;No raise&rdquo; lands at nothing changed, and anything left is a real rate or premium move.'
+    + '<table style="border-collapse:collapse;font-size:.78rem;margin:8px 0;">'
+    + '<thead><tr><th style="text-align:left;padding:2px 8px 2px 0;color:var(--warm-gray);font-weight:600;"></th>'
+    + '<th style="text-align:right;padding:2px 8px;color:var(--warm-gray);font-weight:600;">FY' + _finPlanBaseYear + '</th>'
+    + '<th style="text-align:right;padding:2px 8px;color:var(--warm-gray);font-weight:600;">FY' + _finPlanTargetYear + '</th>'
+    + '<th style="text-align:right;padding:2px 0 2px 8px;color:var(--warm-gray);font-weight:600;">Change</th></tr></thead><tbody>'
+    + row('Cash salaries', r.salaryCents, totals.salaryCents)
+    + row('Benefits &amp; taxes', r.benefitCents, totals.benefitsCents)
+    + '</tbody></table>'
+    + '<div style="font-size:.72rem;color:var(--warm-gray);">'
+    + (salDelta === 0 ? 'Salaries are unchanged, as expected under this method. ' : '')
+    + (benDelta !== 0 ? 'Benefits move ' + finCompMoneySigned(benDelta) + ' on rates alone &mdash; pension ' + finCompPctFmt(finCompPensionRate(_finPlanBaseYear).rate) + ' &rarr; ' + finCompPctFmt(finCompPensionRate(_finPlanTargetYear).rate) + ', plus the premium renewal.' : '')
+    + '</div>'
+    + '<div style="font-size:.72rem;color:var(--warm-gray);margin-top:8px;border-top:1px solid var(--warm-row-divider);padding-top:6px;">'
+    + 'For reference, the FY' + _finPlanBaseYear + ' <b>ledger</b> spent ' + finCompMoney(ledger.cents)
+    + ' across every account named like payroll or health &mdash; ' + finCompMoney(Math.abs(ledger.cents - r.cents))
+    + (ledger.cents > r.cents ? ' more' : ' less') + ' than these ' + finCompCountedCount() + ' worker(s) cost. '
+    + 'That is a different population (daycare and MDO staff, supply preachers, nursery wages sit in the same accounts), which is why it is not what the plan is measured against. '
+    + '<span class="fin-comp-link" onclick="finCompSetBaseYearBasis(&quot;ledger&quot;)">Compare against the ledger instead</span></div>'
+    + '</div>';
+}
+function finCompRenderBasisPicker() {
+  function pill(key, label) {
+    var active = _finCompBaseYearBasis === key;
+    return '<span class="fin-comp-pill' + (active ? ' active' : '') + '"' + (active ? '' : ' onclick="finCompSetBaseYearBasis(' + volJsAttr(key) + ')"') + '>' + label + '</span>';
+  }
+  return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">'
+    + '<span style="font-size:.74rem;color:var(--warm-gray);">Compare FY' + _finPlanTargetYear + ' against:</span>'
+    + pill('roster', 'the same roster at FY' + _finPlanBaseYear + ' rates')
+    + pill('ledger', 'FY' + _finPlanBaseYear + ' ledger accounts')
+    + '</div>';
+}
+function finCompSetBaseYearBasis(key) {
+  _finCompBaseYearBasis = (key === 'ledger') ? 'ledger' : 'roster';
+  finCompSay(_finCompBaseYearBasis === 'roster'
+    ? 'Comparing against the same roster costed at FY' + _finPlanBaseYear + ' rates.'
+    : 'Comparing against the FY' + _finPlanBaseYear + ' ledger accounts.');
+  finRerenderPlanningPreserveFocus();
+}
+function finCompSetBasePlanOption(key) {
+  _finCompBasePlanOption = key;
+  finRerenderPlanningPreserveFocus();
+}
 function finCompRenderBaselineNote(totals) {
+  if (totals.baseline && totals.baseline.basis === 'roster') return finCompRenderRosterBaselineNote(totals);
   var b = totals.baseline || { rows: [], unmatchedRows: [], countedRows: [], prorated: false, weeks: 52 };
   var planParts = 'cash salaries ' + finCompMoney(totals.salaryCents) + ' + benefits &amp; taxes ' + finCompMoney(totals.benefitsCents)
     + ' (pension, disability, health, employer FICA)';
@@ -8278,6 +8404,7 @@ function finCompRenderBaselineNote(totals) {
         : 'Most of the gap is on the <b>salary</b> side: the FY' + _finPlanBaseYear + ' ledger carries ' + finCompMoney(Math.abs(salDelta)) + ' ' + (salDelta < 0 ? 'more' : 'less') + ' in wages than this plan. That usually means a salary account nobody on this roster is paid from &mdash; see the unmatched accounts below.')
     + '</div>';
   var out = '<div class="fin-comp-basis">'
+    + finCompRenderBasisPicker()
     + '<b>How the FY' + _finPlanBaseYear + ' comparison is figured.</b> '
     + 'FY' + _finPlanTargetYear + ' is ' + planParts + ', for the ' + finCompCountedCount() + ' worker(s) counted above. '
     + 'FY' + _finPlanBaseYear + ' is the same cost categories from the church ledger.'
@@ -8817,7 +8944,7 @@ function finCompRenderRates() {
     + '<div style="overflow-x:auto;"><table class="fin-comp-table" style="min-width:1320px;">'
     + '<thead><tr><th class="fin-comp-th">Plan option</th>'
     + FIN_HEALTH_TIERS.map(function(t) { return '<th class="fin-comp-th num">' + esc(t.label) + ' / mo</th>'; }).join('')
-    + '<th class="fin-comp-th num">Dental / yr</th><th class="fin-comp-th num">Vision / yr</th>'
+    + '<th class="fin-comp-th num">Dental / yr<br><span style="font-weight:400;text-transform:none;">per worker</span></th><th class="fin-comp-th num">Vision / yr<br><span style="font-weight:400;text-transform:none;">per worker</span></th>'
     + '<th class="fin-comp-th num">Deductible &mdash; single</th><th class="fin-comp-th num">Deductible &mdash; family</th>'
     + '<th class="fin-comp-th num">Out-of-pocket max &mdash; single</th><th class="fin-comp-th num">Out-of-pocket max &mdash; family</th>'
     + '<th class="fin-comp-th num">Total monthly</th><th class="fin-comp-th num">Total annual</th></tr></thead>'
