@@ -4,7 +4,9 @@ import { handleChmsApi } from './api-chms.js';
 import { LOGIN_HTML } from './html-templates.js';
 import { randHex, authCardPage, getRolePermissions, permissionsForRole } from './api-utils.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './api-emails.js';
-import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail, handleSchedulerVolunteersApi } from './api-scheduler.js';
+import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail, handleSchedulerVolunteersApi, findDuplicateSignupGroups, mergeDuplicateSignupGroup } from './api-scheduler.js';
+
+function safeParseArr(json) { try { const v = JSON.parse(json || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } }
 
 // Event short-link slug: lowercase, alphanumeric + hyphens only, capped at 64 chars
 // (matches the worker's /<slug> route allowlist regex — a longer slug would save fine
@@ -453,6 +455,44 @@ export async function handleAdminApi(req, env, url, method) {
     if (!VALID_STATUS.includes(b.status)) return json({ error: 'Invalid status' }, 400);
     await env.DB.prepare('UPDATE signups SET status=? WHERE id=?').bind(b.status, parseInt(statusMatch[1])).run();
     return json({ ok: true });
+  }
+
+  // ── Retroactive duplicate sign-up cleanup (SITE2 follow-up) ────────────
+  // Before the merge-instead-of-reject fix, a second sign-up sharing the
+  // same email (+ same event, or off-event the same ministry-interest
+  // pool) created a disconnected second row instead of being added to the
+  // first. This finds and consolidates those, using the exact same merge
+  // rule handleSignup now applies going forward, so historical data ends
+  // up in the shape new sign-ups already land in.
+  if (seg === 'signups/duplicates' && method === 'GET') {
+    const dupRole = await getAuthRole(req, env);
+    if (dupRole !== 'admin' && dupRole !== 'staff') return json({ error: 'Access denied' }, 403);
+    const groups = await findDuplicateSignupGroups(env);
+    return json({
+      groups: groups.map(g => ({
+        email: g.email, event_id: g.eventId, event_name: g.eventName, ministry: g.ministry,
+        count: g.rows.length,
+        signups: g.rows.map(r => ({ id: r.id, name: r.name, roles: safeParseArr(r.roles), created_at: r.created_at })),
+      })),
+    });
+  }
+  if (seg === 'signups/merge-duplicates' && method === 'POST') {
+    const dupRole = await getAuthRole(req, env);
+    if (dupRole !== 'admin' && dupRole !== 'staff') return json({ error: 'Access denied' }, 403);
+    let b; try { b = await req.json(); } catch { b = {}; }
+    const groups = await findDuplicateSignupGroups(env);
+    // Safety confirmation, same pattern as giving/force-remove-orphans: the
+    // caller must echo back the count it just previewed via the GET above,
+    // so a stale/blind POST can't merge a different set than was reviewed.
+    if (b.confirm_count !== groups.length) {
+      return json({ error: `Expected confirm_count=${groups.length} (re-fetch /signups/duplicates first).` }, 409);
+    }
+    let removed = 0;
+    for (const g of groups) removed += await mergeDuplicateSignupGroup(env, g.rows);
+    await env.DB.prepare(
+      `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value) VALUES(?,?,?,?,?,?,?)`
+    ).bind('merge_duplicate_signups', 'signup', 0, '', 'groups_merged', String(groups.length), String(removed)).run().catch(() => {});
+    return json({ ok: true, groups_merged: groups.length, signups_removed: removed });
   }
 
   if (seg === 'events' && method === 'GET') {

@@ -380,6 +380,106 @@ export async function handleSignup(req, env) {
   });
 }
 
+// ── Retroactive duplicate sign-up cleanup ───────────────────────────────────
+// Before handleSignup started merging a second sign-up onto an existing one
+// (same email + same event, or off-event the same email), it created a
+// disconnected second `signups` row instead. These two helpers find and
+// consolidate rows already sitting in that state, using the identical merge
+// rule handleSignup now applies to a live resubmit — so history ends up in
+// the same shape new sign-ups already land in. Used by the admin-only
+// GET/POST /admin/api/signups/duplicates|merge-duplicates routes.
+
+// Groups existing signups sharing the same (email, event) key — the exact
+// key handleSignup now uses to find "an existing sign-up to merge into".
+export async function findDuplicateSignupGroups(env) {
+  const rows = (await env.DB.prepare('SELECT * FROM signups ORDER BY id ASC').all()).results || [];
+  const byKey = new Map();
+  for (const r of rows) {
+    const email = (r.email || '').trim().toLowerCase();
+    if (!email) continue; // nothing to key duplicates on
+    const eventId = r.event_id || 0;
+    const key = eventId ? `e:${eventId}:${email}` : `m:${email}`;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(r);
+  }
+  const groups = [];
+  for (const groupRows of byKey.values()) {
+    if (groupRows.length < 2) continue;
+    const eventId = groupRows[0].event_id || 0;
+    let eventName = null;
+    if (eventId) {
+      const ev = await env.DB.prepare('SELECT name FROM serve_events WHERE id=?').bind(eventId).first();
+      eventName = ev ? ev.name : null;
+    }
+    groups.push({
+      email: groupRows[0].email,
+      eventId,
+      eventName,
+      ministry: (groupRows.map(r => r.ministry).find(Boolean)) || '',
+      rows: groupRows,
+    });
+  }
+  return groups;
+}
+
+// Merges N duplicate signup rows (already known to share an email+event key)
+// into the oldest one, deletes the rest, and returns how many rows were
+// removed. Role labels and ministries union together; slots move onto the
+// canonical row (skipping one it already holds, so a shared slot never
+// double-books); a duplicate further along the contact pipeline than the
+// canonical row (e.g. already "confirmed") is never silently reset to "new".
+export async function mergeDuplicateSignupGroup(env, rows) {
+  const sorted = rows.slice().sort((a, b) => a.id - b.id);
+  const canonical = sorted[0];
+  const dupes = sorted.slice(1);
+  if (!dupes.length) return 0;
+
+  const STATUS_RANK = { new: 0, contacted: 1, confirmed: 2, declined: 2 };
+  let roleLabels; try { roleLabels = JSON.parse(canonical.roles || '[]'); } catch { roleLabels = []; }
+  let ministries = (canonical.ministry || '').split(',').map(s => s.trim()).filter(Boolean);
+  let phone = canonical.phone || '';
+  let notesParts = canonical.notes ? [canonical.notes] : [];
+  let personId = canonical.person_id || null;
+  let contactCount = canonical.contact_count || 0;
+  let contactedAt = canonical.contacted_at || '';
+  let smsOptIn = canonical.sms_reminder_opt_in || 0;
+  let status = canonical.status || 'new';
+
+  for (const d of dupes) {
+    let dLabels; try { dLabels = JSON.parse(d.roles || '[]'); } catch { dLabels = []; }
+    for (const l of dLabels) if (!roleLabels.includes(l)) roleLabels.push(l);
+    for (const m of (d.ministry || '').split(',').map(s => s.trim()).filter(Boolean)) {
+      if (!ministries.includes(m)) ministries.push(m);
+    }
+    if (!phone && d.phone) phone = d.phone;
+    if (d.notes && !notesParts.includes(d.notes)) notesParts.push(d.notes);
+    if (!personId && d.person_id) personId = d.person_id;
+    contactCount += d.contact_count || 0;
+    if (d.contacted_at && d.contacted_at > contactedAt) contactedAt = d.contacted_at;
+    if (d.sms_reminder_opt_in) smsOptIn = 1;
+    if ((STATUS_RANK[d.status || 'new'] || 0) > (STATUS_RANK[status] || 0)) status = d.status;
+
+    const slotRows = (await env.DB.prepare('SELECT role_id FROM signup_slots WHERE signup_id=?').bind(d.id).all()).results || [];
+    for (const sl of slotRows) {
+      const already = await env.DB.prepare('SELECT id FROM signup_slots WHERE signup_id=? AND role_id=?').bind(canonical.id, sl.role_id).first();
+      if (!already) {
+        await env.DB.prepare('INSERT INTO signup_slots (signup_id,role_id) VALUES (?,?)').bind(canonical.id, sl.role_id).run();
+      }
+    }
+    await env.DB.prepare('DELETE FROM signup_slots WHERE signup_id=?').bind(d.id).run();
+    await env.DB.prepare('DELETE FROM signups WHERE id=?').bind(d.id).run();
+  }
+
+  await env.DB.prepare(
+    'UPDATE signups SET roles=?, ministry=?, phone=?, notes=?, person_id=?, contact_count=?, contacted_at=?, sms_reminder_opt_in=?, status=? WHERE id=?'
+  ).bind(
+    JSON.stringify(roleLabels), ministries.join(', '), phone, notesParts.join('\n'),
+    personId, contactCount, contactedAt, smsOptIn, status, canonical.id
+  ).run();
+
+  return dupes.length;
+}
+
 // ── ICAL DOWNLOAD: GET /serve/calendar/:id (was /volunteer/calendar/:id — aliased) ──
 export async function handleCalendar(env, path) {
   const signupId = parseInt(path.split('/').pop());
