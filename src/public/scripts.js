@@ -180,12 +180,33 @@ function updatePreviews() {
 }
 
 // ── Volunteer form submission ─────────────────────────────────────────
-function showThankYou(formEl, signupId) {
+function showThankYou(formEl, body) {
+  body = body || {};
+  var signupId = body.signup_id;
   var calBtn = signupId ? '<a href="/serve/calendar/'+signupId+'" download style="display:inline-flex;align-items:center;gap:.5rem;background:var(--teal);color:#fff;text-decoration:none;padding:.65rem 1.25rem;border-radius:8px;font-weight:600;font-size:.95rem;margin-top:1rem;">\\uD83D\\uDCC5 Add to Calendar (.ics)</a>' : '';
+  var heading, sub;
+  if (body.merged) {
+    heading = 'Added!';
+    sub = 'We\\'ve added this to your sign-up — thanks for volunteering in one more way.';
+  } else if (body.already_signed_up) {
+    heading = 'You\\'re already signed up';
+    sub = 'We already have this on file for you — no changes needed. Contact us if something needs to be different.';
+  } else {
+    heading = 'Thank you!';
+    sub = 'We\\'ve received your interest and will be in touch soon.';
+  }
+  var roles = Array.isArray(body.all_roles) ? body.all_roles.filter(Boolean) : [];
+  var rolesHtml = roles.length
+    ? '<div style="text-align:left;background:var(--cream);border-radius:10px;padding:.9rem 1.1rem;margin-top:1rem;">'
+      + '<div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.4rem;">You\\'re signed up for</div>'
+      + roles.map(function(r){ return '<div style="font-size:.9rem;padding:.15rem 0;">' + escH(r) + '</div>'; }).join('')
+      + '</div>'
+    : '';
   formEl.innerHTML = '<div style="text-align:center;padding:2.5rem 1rem;">'
     + '<div style="font-size:2.5rem;margin-bottom:.75rem;color:var(--gold);">\\u2713</div>'
-    + '<h3 style="margin-bottom:.5rem;">Thank you!</h3>'
-    + '<p style="color:var(--text-muted);">We\\'ve received your interest and will be in touch soon.</p>'
+    + '<h3 style="margin-bottom:.5rem;">' + heading + '</h3>'
+    + '<p style="color:var(--text-muted);">' + sub + '</p>'
+    + rolesHtml
     + calBtn
     + '</div>';
 }
@@ -198,7 +219,7 @@ function submitVolunteer(data, formEl, btnEl) {
   fetch('/serve/signup', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) })
     .then(function(r){return r.json().then(function(res){return {ok:r.ok,body:res};});})
     .then(function(r){
-      if (r.body.ok) { showThankYou(formEl, r.body.signup_id); }
+      if (r.body.ok) { showThankYou(formEl, r.body); }
       else { btnEl.disabled=false; btnEl.innerHTML=origHtml; alert(r.body.error||'Something went wrong. Please try again.'); }
     })
     .catch(function(){ btnEl.disabled=false; btnEl.innerHTML=origHtml; alert('Could not connect to server. Please check your internet connection and try again.'); });
@@ -985,15 +1006,28 @@ function svSubmitWizard() {
   fetch('/serve/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
     .then(function(r) { return r.json().then(function(res) { return { ok: r.ok, body: res }; }); })
     .then(function(r) {
-      if (r.body.ok) { svShowDone(); }
+      if (r.body.ok) { svShowDone(r.body); }
       else { btn.disabled = false; btn.textContent = orig; var e = document.getElementById('sv-step3-error'); if (e) e.innerHTML = '<p class="sv-error">' + escH(r.body.error || 'Something went wrong. Please try again.') + '</p>'; }
     })
     .catch(function() { btn.disabled = false; btn.textContent = orig; var e = document.getElementById('sv-step3-error'); if (e) e.innerHTML = '<p class="sv-error">Could not connect to the server. Please check your internet connection and try again.</p>'; });
 }
 
-function svShowDone() {
+function svShowDone(body) {
+  body = body || {};
   var h = document.getElementById('sv-done-h2');
-  if (h) h.textContent = 'We’ve got it, ' + (svState.name.split(' ')[0] || '') + '.';
+  if (h) {
+    if (body.merged) h.textContent = 'Added, ' + (svState.name.split(' ')[0] || '') + ' — thanks for volunteering in one more way.';
+    else if (body.already_signed_up) h.textContent = 'You’re already on our list, ' + (svState.name.split(' ')[0] || '') + '.';
+    else h.textContent = 'We’ve got it, ' + (svState.name.split(' ')[0] || '') + '.';
+  }
+  var rolesWrap = document.getElementById('sv-done-roles');
+  var roles = Array.isArray(body.all_roles) ? body.all_roles.filter(Boolean) : [];
+  if (rolesWrap) {
+    rolesWrap.innerHTML = roles.length
+      ? roles.map(function(r) { return '<p>' + escH(r) + '</p>'; }).join('')
+      : '';
+    rolesWrap.hidden = !roles.length;
+  }
   ['sv-step1', 'sv-step2', 'sv-step3'].forEach(function(id) { var el = document.getElementById(id); if (el) el.hidden = true; });
   var done = document.getElementById('sv-step-done'); if (done) done.hidden = false;
   document.querySelectorAll('#sv-steprail span').forEach(function(s) { s.classList.remove('active'); });
@@ -1250,22 +1284,41 @@ function svMktSubmit() {
   fetch('/serve/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
     .then(function(r) { return r.json().then(function(res) { return { ok: r.ok, body: res }; }); })
     .then(function(r) {
-      if (r.body.ok) { svMktShowDone(name); }
+      if (r.body.ok) { svMktShowDone(name, r.body); }
       else { btn.disabled = false; btn.textContent = orig; if (shiftErr) shiftErr.innerHTML = '<p class="sv-error">' + escH(r.body.error || 'Something went wrong. Please try again.') + '</p>'; }
     })
     .catch(function() { btn.disabled = false; btn.textContent = orig; if (shiftErr) shiftErr.innerHTML = '<p class="sv-error">Could not connect to the server. Please check your internet connection and try again.</p>'; });
 }
 
-function svMktShowDone(name) {
+function svMktShowDone(name, body) {
+  body = body || {};
   svMkt.submitted = true;
   document.getElementById('sv-mkt-you').hidden = true;
   document.getElementById('sv-mkt-shifts').hidden = true;
   var bar = document.getElementById('mkt-stickybar'); if (bar) bar.hidden = true;
   document.body.classList.remove('sv-market-open');
   var done = document.getElementById('mkt-done'); done.hidden = false;
-  var h = document.getElementById('mkt-done-h2'); if (h) h.textContent = 'Thank you, ' + (name.split(' ')[0] || '') + '.';
+  var h = document.getElementById('mkt-done-h2');
+  if (h) {
+    if (body.merged) h.textContent = 'Added, ' + (name.split(' ')[0] || '') + ' — thanks for picking up more time.';
+    else if (body.already_signed_up) h.textContent = 'You’re already signed up, ' + (name.split(' ')[0] || '') + '.';
+    else h.textContent = 'Thank you, ' + (name.split(' ')[0] || '') + '.';
+  }
+  // Rebuild the full shift list from every role id now on file (this
+  // submission's picks plus anything already claimed in an earlier
+  // sign-up), not just what was picked in this browser session — a
+  // returning volunteer should see everything they're down for, not
+  // only the shift they just added.
+  var allIds = Array.isArray(body.all_role_ids) ? body.all_role_ids : svMkt.shifts.map(function(s) { return s.id; });
+  var byId = {}; svMkt.shifts.forEach(function(s) { byId[s.id] = s; });
+  var allShifts = allIds.map(function(rid) {
+    if (byId[rid]) return byId[rid];
+    var role = (svMkt.ev.roles || []).filter(function(r) { return r.id === rid; })[0];
+    if (!role) return null;
+    return { id: role.id, name: role.name, dateLabel: svMktDateLabel(role), timeLabel: svMktTimeLabel(role) };
+  }).filter(Boolean);
   var list = document.getElementById('mkt-done-shifts');
-  if (list) list.innerHTML = svMkt.shifts.map(function(s) {
+  if (list) list.innerHTML = allShifts.map(function(s) {
     return '<p>' + escH(s.name) + ' — <em>' + escH(s.dateLabel) + (s.timeLabel ? ' ' + escH(s.timeLabel) : '') + '</em></p>';
   }).join('');
   window.scrollTo(0, 0);

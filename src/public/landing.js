@@ -46,6 +46,7 @@ export const PUBLIC_LANDING = `<div class="app-page sv-page" id="page-landing">
 <p class="sv-eyebrow">Thank you</p>
 <h2 class="sv-h2" id="sv-done-h2">We've got it.</h2>
 <p class="sv-done-body">A ministry leader will email or call within a week to help you get started. Questions before then? Call the church office at (314) 781-8673.</p>
+<div id="sv-done-roles" class="sv-done-shifts" hidden></div>
 <div class="sv-done-actions">
 <a href="https://timothystl.org" class="sv-btn-ghost">Back to timothystl.org</a>
 <button type="button" class="sv-btn-ghost" id="sv-signup-another">Sign up someone else</button>

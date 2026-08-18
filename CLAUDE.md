@@ -470,6 +470,41 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### SITE2 — Serve: an already-used email no longer locks a volunteer out (2026-08-18, DONE)
+Reported: someone who wants to pick up an additional Christmas Market shift, or volunteer in one
+more ministry way, got told their email was "already used" with no way to add the new thing —
+`POST /serve/signup` hard-rejected (409, "You've already signed up for this event. Contact us if
+you need to make changes.") any second submission sharing an `email` + `event_id`, full stop.
+- **Now it merges instead of rejecting.** `handleSignup` (`src/api-scheduler.js`) looks up any
+  prior sign-up for the same email + the same event (or, for a ministry-role sign-up with no
+  event, any prior non-event sign-up of theirs) and adds the newly requested shift(s)/role(s) onto
+  that existing `signups` row — new `signup_slots` rows for a time-slotted shift, appended labels
+  in the `roles` JSON array for a ministry role — instead of creating a disconnected second row or
+  blocking the request. A slot that's already theirs is recognized and skipped (no duplicate
+  `signup_slots` row, no re-validation against capacity); a genuinely new slot still 409s if it's
+  actually full, so this doesn't weaken the fairness check.
+- **A pure resubmit (nothing new) is a friendly no-op**, not an error: `already_signed_up:true` in
+  the response, no duplicate email/office-notification/push sent, no DB write. Adding something
+  real returns `merged:true` plus `all_role_ids`/`all_roles` — the person's full current sign-up,
+  not just what was just added — so the confirmation screen can show everything they're down for.
+- **Frontend** (`src/public/scripts.js`, `landing.js`): the Market shift picker
+  (`svMktShowDone`) rebuilds the full shift list from `all_role_ids` against the already-loaded
+  event data (no extra fetch) so a returning volunteer sees every shift they hold, not only the
+  one just picked. The `#landing` wizard (`svShowDone`) and the legacy single-step ministry forms
+  (`showThankYou`) do the same from `all_roles`, with the heading reading "Added!" / "You're
+  already signed up" / "Thank you!" depending on which case it was. New `#sv-done-roles` element
+  (reuses the existing `.sv-done-shifts` styling) lists them.
+- `npm test` (1575/1575, 5 new in `test/serve-signup-merge.test.js` against real in-memory
+  SQLite): adding a second shift to the same event merges into one row and one signup;
+  re-submitting the identical shift is a no-op with no duplicate slot row; a genuinely full NEW
+  shift still 409s even for someone already on the event; adding a second ministry role merges
+  into one row with both labels; a brand-new email still gets its own fresh row. Plus the served
+  `<script>` extracted and `node --check`'d (the SC3-BUG1 class of risk for this template-literal
+  file), and a div-balance check on the new `landing.js` markup. **Not verified**: a live browser
+  or a real sent email — standing caveat for all frontend work in this repo.
+  (`src/api-scheduler.js`, `src/public/scripts.js`, `src/public/landing.js`,
+  `test/serve-signup-merge.test.js`)
+
 ### SITE1 — serve.timothystl.org rebuilt from `design_handoff_serve_timothy` (2026-08-18, DONE)
 Full rework of the public site's two main flows, from a real design handoff (README + two
 `.dc.html` prototypes) matching timothystl.org's own visual language (navy `#1E2D4A` +

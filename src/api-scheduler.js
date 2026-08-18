@@ -230,17 +230,34 @@ export async function handleSignup(req, env) {
   if (!name || !email) return json({ ok: false, error: 'Name and email required' }, 400);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ ok: false, error: 'Please enter a valid email address.' }, 400);
 
-  // Duplicate signup check: same email + same event
-  if (data.event_id) {
-    const dup = await env.DB.prepare(
-      'SELECT id FROM signups WHERE email=? AND event_id=? LIMIT 1'
-    ).bind(email, data.event_id).first();
-    if (dup) return json({ ok: false, error: "You've already signed up for this event. Contact us if you need to make changes." }, 409);
-  }
-
-  // Validate slot availability for time-slotted signups
+  const eventId = data.event_id || 0;
   const roleIds = Array.isArray(data.role_ids) ? data.role_ids : [];
-  for (const rid of roleIds) {
+  const requestedLabels = Array.isArray(data.roles) ? data.roles.map(String) : [];
+
+  // Someone coming back to pick up an additional shift, or to volunteer in
+  // one more way, should see what they already have on file and have the
+  // new thing added to it — not be told an email is "already used" and
+  // locked out. Find any prior sign-up for this same person + this same
+  // event (or, off-event, any prior ministry-interest sign-up of theirs)
+  // and merge into it instead of rejecting the request outright.
+  const existing = eventId
+    ? await env.DB.prepare('SELECT * FROM signups WHERE email=? AND event_id=? ORDER BY id DESC LIMIT 1').bind(email, eventId).first()
+    : await env.DB.prepare("SELECT * FROM signups WHERE email=? AND (event_id IS NULL OR event_id=0) ORDER BY id DESC LIMIT 1").bind(email).first();
+
+  let existingRoleIds = [];
+  let existingLabels = [];
+  if (existing) {
+    const rows = await env.DB.prepare('SELECT role_id FROM signup_slots WHERE signup_id=?').bind(existing.id).all();
+    existingRoleIds = (rows.results || []).map(r => r.role_id);
+    try { existingLabels = JSON.parse(existing.roles || '[]'); } catch { existingLabels = []; }
+  }
+  const newRoleIds = roleIds.filter(rid => !existingRoleIds.includes(rid));
+  const newLabels  = requestedLabels.filter(l => !existingLabels.includes(l));
+
+  // Validate slot availability for any newly requested time-slotted roles
+  // (skip ones the existing sign-up, if any, already holds — re-submitting
+  // a shift you already have shouldn't fail just because it's now full).
+  for (const rid of newRoleIds) {
     const role   = await env.DB.prepare('SELECT slots FROM serve_roles WHERE id=?').bind(rid).first();
     const filled = await env.DB.prepare('SELECT COUNT(*) as n FROM signup_slots WHERE role_id=?').bind(rid).first();
     if (role && role.slots > 0 && (filled?.n || 0) >= role.slots) {
@@ -248,36 +265,70 @@ export async function handleSignup(req, env) {
     }
   }
 
-  const r = await env.DB.prepare(
-    `INSERT INTO signups (event_id,role_id,ministry,name,email,phone,roles,service,sundays,shirt_wanted,shirt_size,notes,sms_reminder_opt_in)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).bind(
-    data.event_id || 0, data.role_id || 0,
-    data.ministry || '', name, email, data.phone || '',
-    JSON.stringify(data.roles || roleIds.map(String)),
-    data.service || '', JSON.stringify(data.sundays || []),
-    data.shirt_wanted ? 1 : 0, data.shirt_size || '', data.notes || '',
-    data.sms_reminder_opt_in ? 1 : 0
-  ).run();
-  const signupId = r.meta?.last_row_id;
+  let signupId, merged, alreadySignedUp, allRoleIds, allRoleLabels;
 
-  for (const rid of roleIds) {
-    await env.DB.prepare('INSERT INTO signup_slots (signup_id,role_id) VALUES (?,?)')
-      .bind(signupId, rid).run();
+  if (existing) {
+    signupId = existing.id;
+    merged = newRoleIds.length > 0 || newLabels.length > 0;
+    allRoleIds = existingRoleIds.concat(newRoleIds);
+    allRoleLabels = existingLabels.concat(newLabels);
+    if (merged) {
+      for (const rid of newRoleIds) {
+        await env.DB.prepare('INSERT INTO signup_slots (signup_id,role_id) VALUES (?,?)').bind(signupId, rid).run();
+      }
+      const combinedMinistries = Array.from(new Set(
+        (existing.ministry || '').split(',').map(s => s.trim()).filter(Boolean)
+          .concat((data.ministry || '').split(',').map(s => s.trim()).filter(Boolean))
+      )).join(', ') || existing.ministry;
+      const newNoteText = (data.notes || '').trim();
+      const combinedNotes = (newNoteText && newNoteText !== (existing.notes || '').trim())
+        ? [existing.notes, newNoteText].filter(Boolean).join('\n')
+        : (existing.notes || '');
+      await env.DB.prepare('UPDATE signups SET roles=?, ministry=?, phone=?, notes=? WHERE id=?')
+        .bind(JSON.stringify(allRoleLabels), combinedMinistries, existing.phone || (data.phone || ''), combinedNotes, signupId)
+        .run();
+    }
+    alreadySignedUp = !merged;
+  } else {
+    merged = false;
+    alreadySignedUp = false;
+    allRoleIds = roleIds;
+    allRoleLabels = requestedLabels.length ? requestedLabels : roleIds.map(String);
+    const r = await env.DB.prepare(
+      `INSERT INTO signups (event_id,role_id,ministry,name,email,phone,roles,service,sundays,shirt_wanted,shirt_size,notes,sms_reminder_opt_in)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      eventId, data.role_id || 0,
+      data.ministry || '', name, email, data.phone || '',
+      JSON.stringify(allRoleLabels),
+      data.service || '', JSON.stringify(data.sundays || []),
+      data.shirt_wanted ? 1 : 0, data.shirt_size || '', data.notes || '',
+      data.sms_reminder_opt_in ? 1 : 0
+    ).run();
+    signupId = r.meta?.last_row_id;
+    for (const rid of roleIds) {
+      await env.DB.prepare('INSERT INTO signup_slots (signup_id,role_id) VALUES (?,?)')
+        .bind(signupId, rid).run();
+    }
   }
 
-  // Send confirmation email to volunteer (non-fatal if email is not configured)
+  // Send confirmation email to volunteer (non-fatal if email is not
+  // configured). Skipped when nothing actually changed (already_signed_up)
+  // so re-submitting the identical form twice doesn't send a second email.
   const resendKey = env.RESEND_API_KEY || '';
   const emailFrom = env.EMAIL_FROM || '';
-  if (resendKey && emailFrom && email) {
+  if (resendKey && emailFrom && email && !alreadySignedUp) {
     const ministry = data.ministry || 'general';
     const ministryLabels = { worship: 'Worship', events: 'Community Events', education: 'Christian Education',
       acceptance: 'Acceptance Ministry', outreach: 'Outreach', transportation: 'Transportation Ministry',
       lasm: 'LASM', wol: 'Word of Life', cfna: 'CFNA', general: 'General Interest' };
     const ministryLabel = ministryLabels[ministry] || ministry;
-    const rolesList = (data.roles && data.roles.length) ? data.roles.join(', ') : '';
-    const rolesLine = rolesList ? `\nRoles/shifts selected: ${rolesList}` : '';
-    const text = `Hi ${name},\n\nThank you for signing up to volunteer at Timothy Lutheran Church!\n\n`
+    const rolesList = allRoleLabels.length ? allRoleLabels.join(', ') : '';
+    const rolesLine = rolesList ? `\nRoles/shifts on file: ${rolesList}` : '';
+    const intro = merged
+      ? `Thanks — we've added this to your existing sign-up at Timothy Lutheran Church!`
+      : `Thank you for signing up to volunteer at Timothy Lutheran Church!`;
+    const text = `Hi ${name},\n\n${intro}\n\n`
       + `Ministry: ${ministryLabel}${rolesLine}\n\n`
       + `We'll be in touch soon with more details. If you have any questions, reply to this email.\n\n`
       + `God's blessings,\nTimothy Lutheran Church\n6704 Fyler Ave, St. Louis, MO 63139\noffice@timothystl.org`;
@@ -285,23 +336,24 @@ export async function handleSignup(req, env) {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from: emailFrom, to: email, reply_to: officeEmail(env),
-        subject: 'Thanks for signing up to serve at Timothy!', text }),
+        subject: merged ? 'Added to your sign-up at Timothy!' : 'Thanks for signing up to serve at Timothy!', text }),
     }).catch(() => { /* non-fatal */ });
   }
 
-  // Notify the office of the new sign-up, if enabled in Settings
-  if (resendKey && emailFrom) {
+  // Notify the office of the new sign-up, if enabled in Settings — only for
+  // a genuinely new addition, not a no-op resubmit of what's already on file.
+  if (resendKey && emailFrom && !alreadySignedUp) {
     const notifyRow = await env.DB.prepare("SELECT value FROM chms_config WHERE key='notify_new_signup'").first();
     if (notifyRow && notifyRow.value === '1') {
       const notifyEmailRow = await env.DB.prepare("SELECT value FROM chms_config WHERE key='volunteer_public_email'").first();
       const notifyTo = (notifyEmailRow && notifyEmailRow.value) || officeEmail(env);
-      const rolesList = (data.roles && data.roles.length) ? data.roles.join(', ') : '';
-      const notifyText = `New volunteer sign-up:\n\nName: ${name}\nEmail: ${email}\nPhone: ${data.phone || '(none)'}\nMinistry: ${data.ministry || '(none)'}${rolesList ? `\nRoles/shifts: ${rolesList}` : ''}${data.notes ? `\nNotes: ${data.notes}` : ''}`;
+      const rolesList = allRoleLabels.length ? allRoleLabels.join(', ') : '';
+      const notifyText = `${merged ? 'Additional volunteer sign-up' : 'New volunteer sign-up'}:\n\nName: ${name}\nEmail: ${email}\nPhone: ${data.phone || '(none)'}\nMinistry: ${data.ministry || '(none)'}${rolesList ? `\nRoles/shifts on file: ${rolesList}` : ''}${data.notes ? `\nNotes: ${data.notes}` : ''}`;
       await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({ from: emailFrom, to: notifyTo, reply_to: email,
-          subject: `New volunteer sign-up: ${name}`, text: notifyText }),
+          subject: `${merged ? 'Additional volunteer sign-up' : 'New volunteer sign-up'}: ${name}`, text: notifyText }),
       }).catch(() => { /* non-fatal */ });
     }
   }
@@ -309,14 +361,23 @@ export async function handleSignup(req, env) {
   // Ring admin staff's phones, alongside the office-notification email above
   // (independent of whether notify_new_signup is on — this is the sidebar
   // "Notifications" opt-in, a different audience than volunteer_public_email).
-  await notifyAdminPush(env, {
-    title: 'New volunteer sign-up',
-    body: name + ' signed up' + (data.ministry ? ' — ' + data.ministry : ''),
-    tag: 'connect-signup',
-    url: '/#volunteers',
-  });
+  if (!alreadySignedUp) {
+    await notifyAdminPush(env, {
+      title: merged ? 'Volunteer sign-up updated' : 'New volunteer sign-up',
+      body: name + (merged ? ' added a shift' : ' signed up') + (data.ministry ? ' — ' + data.ministry : ''),
+      tag: 'connect-signup',
+      url: '/#volunteers',
+    });
+  }
 
-  return json({ ok: true, signup_id: signupId });
+  return json({
+    ok: true,
+    signup_id: signupId,
+    merged,
+    already_signed_up: alreadySignedUp,
+    all_role_ids: allRoleIds,
+    all_roles: allRoleLabels,
+  });
 }
 
 // ── ICAL DOWNLOAD: GET /serve/calendar/:id (was /volunteer/calendar/:id — aliased) ──
