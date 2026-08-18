@@ -717,3 +717,61 @@ describe('workers paid from another budget', () => {
     expect(ctx.finCompCountedCount()).toBe(ctx._finSalaryRoster.length);
   });
 });
+
+// Reported: under "No raise" the plan came out 6.1% BELOW the base year. A single net figure cannot
+// say whether the salaries disagree or the benefits do, and those have different causes — so the
+// base-year note now splits it, and two display bugs visible on the same screen are fixed.
+describe('diagnosing a base-year gap', () => {
+  function addLeaf(label, actualCents, budgetCents) {
+    ctx._finPlanBaseTree[0].children.push({
+      label, path: 'Expenses > ' + label, children: [], classification: 'Expenses',
+      hasBudgetInfo: budgetCents != null, totalActualCents: actualCents, totalBudgetCents: budgetCents || 0,
+    });
+  }
+
+  it('splits the base year into a salary side and a benefits side', () => {
+    addLeaf('59030 Concordia Retirement Plan', 1800000, 2800000);
+    addLeaf('59040 Payroll Taxes', 500000, 800000);
+    const b = ctx.finCompBaselineDetail();
+    // Pension and employer taxes are pooled costs, never wages.
+    expect(b.benefitCents).toBeGreaterThan(0);
+    expect(b.salaryCents).toBeGreaterThan(0);
+    expect(b.salaryCents + b.benefitCents).toBe(b.cents);
+    const pooled = b.countedRows.filter(r => r.kind === 'benefit').map(r => r.label);
+    expect(pooled).toContain('59030 Concordia Retirement Plan');
+    expect(pooled).toContain('59040 Payroll Taxes');
+  });
+
+  it('says which side the gap is on, under the Set pay table', () => {
+    addLeaf('59030 Concordia Retirement Plan', 1800000, 9000000); // deliberately far above the plan
+    const html = render(ctx, 'plan');
+    expect(html).toContain('Where the difference is');
+    expect(html).toContain('Most of the gap is on the <b>benefits</b> side');
+  });
+
+  it('only says "annualized" when an account actually was', () => {
+    // Every seeded account carries its own full-year budget, so nothing is annualized even though
+    // the base year is in progress — the label used to appear regardless.
+    const b = ctx.finCompBaselineDetail();
+    expect(b.countedRows.every(r => r.basis === 'budget')).toBe(true);
+    expect(b.anyAnnualized).toBe(false);
+    // The label itself is the fix — it used to appear whenever the base year was in progress,
+    // regardless of whether any account had actually been annualized.
+    expect(render(ctx, 'plan')).not.toContain('(annualized)');
+    // An account with actuals and no budget is the case that genuinely is annualized.
+    addLeaf('58060 Nursery Wages', 1000000, null);
+    const after = ctx.finCompBaselineDetail();
+    if (after.prorated) {
+      expect(after.anyAnnualized).toBe(true);
+      expect(render(ctx, 'plan')).toContain('(annualized)');
+    }
+  });
+
+  it('renders the worker subtitle as text, not as escaped markup', () => {
+    ctx._finCompSelected = 0;
+    ctx._finCompDrawerOpen = true;
+    const html = render(ctx, 'plan');
+    expect(html).toContain('Senior Pastor');
+    expect(html).not.toContain('&amp;middot;');
+  });
+});

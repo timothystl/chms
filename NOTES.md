@@ -24,6 +24,41 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.189.0 — Say which side the FY comparison gap is on, and two display bugs (2026-08-07)
+
+Reported at v1.188.0 with a screenshot: under **No raise**, FY2027 came out $28,752 (6.1%) BELOW
+the FY2026 figure. No raise cannot cost 6% less, so something on one side is counting a different
+population.
+
+**The tab could not tell you which side.** The comparison already lists the base-year accounts and
+flags salary accounts no rostered worker is paid from — but a single net percentage cannot say
+whether the SALARIES disagree or the BENEFITS do, and those have completely different causes: a
+salary gap is usually a ledger account nobody on the roster is paid from (another section's
+payroll), a benefits gap is usually the ledger carrying coverage the roster does not model. The
+base-year note now opens with a three-column split — FY{base} ledger, FY{target} plan, difference —
+for salaries and for benefits & taxes separately, and states in words which side carries most of the
+gap and what that usually means. `finCompBaselineDetail()` gained `salaryCents`/`benefitCents`,
+summed over the same counted rows the total uses, so the split cannot disagree with the figure.
+
+**Two bugs visible in the same screenshot, both fixed:**
+
+- The selected-worker subtitle rendered as `Lead Pastor &middot; 20 yrs &middot; M.Div.` — literal
+  entity text. The string was built with the separator markup inside it and then passed through
+  `esc()`, which escaped the ampersand. Now each part is escaped on its own and joined with the
+  separator markup. Escape the data, never the markup.
+- The tile read **"VS FY2026 $468,834 (ANNUALIZED)"** even when nothing had been annualized. The
+  label was driven by `prorated`, which is just "the base year is still in progress" — but an
+  account with its own full-year budget is used as-is, so a ledger with budgets throughout
+  annualizes nothing. Now driven by new `anyAnnualized`, true only if some counted row actually
+  used the annualized basis.
+
+**Verified:** `npm test` (1579/1579, 4 new). Each checked non-vacuous by reverting the fix it guards
+— the split test and the subtitle test fail on revert, and the annualized test was strengthened
+after the first version passed against the broken label (it asserted the detail object rather than
+the rendered label, which is the thing that was wrong). **Not verified:** a live browser, or against
+the church's real FY2026 ledger — which is exactly what the new split is there to expose.
+
+
 ### MKT1 — Christmas Market signup summary for the website admin (2026-08-18)
 
 New read-only, server-to-server `GET /api/signups/christmasmarket/summary` so the website
