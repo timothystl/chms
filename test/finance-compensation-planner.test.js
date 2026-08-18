@@ -128,10 +128,10 @@ describe('§5.12 — the worked example, to the cent', () => {
     const c = ctx.finCompComputeAll()[0];
     expect(c.salaryCents).toBe(10647000);
     expect(c.benefits.pensionCents).toBe(1245699);    // $12,457
-    expect(c.benefits.healthCents).toBe(2913048);     // $29,130.48 — medical + own dental + vision
+    expect(c.benefits.healthCents).toBe(2687124);     // $26,871.24 — medical + own dental + vision
     expect(c.benefits.disabilityCents).toBe(186323);  // $1,863
     expect(c.benefits.ficaCents).toBe(0);             // minister
-    expect(c.churchCostCents).toBe(14992070);         // $149,921
+    expect(c.churchCostCents).toBe(14766146);         // $147,661
   });
 
   it('reads him as 99% of district scale and 103% of the LCMS median', () => {
@@ -206,13 +206,13 @@ describe('§10.3 — a rate change moves everything in one render', () => {
 describe('§10.4 — the plan choice only moves enrolled figures', () => {
   it('repricing to Option 1 leaves the opt-out worker untouched', () => {
     const before = ctx.finCompComputeAll();
-    // Family tier: $2,051.00/mo x 12, plus this worker's own dental and vision.
-    expect(before[0].benefits.healthCents).toBe(2913048);
+    // Family tier: $2,051.00/mo x 12, plus this worker's own dental ($1,523.40) and vision ($735.84).
+    expect(before[0].benefits.healthCents).toBe(2687124);
     expect(before[2].benefits.healthCents).toBe(600000);  // opt-out cash
     ctx.finCompPickPlan('option1');
     const after = ctx.finCompComputeAll();
-    expect(after[0].benefits.healthCents).toBe(238815 * 12 + 304680 + 147168);
-    expect(after[1].benefits.healthCents).toBe(238815 * 12 + 304680 + 147168);
+    expect(after[0].benefits.healthCents).toBe(238815 * 12 + 152340 + 73584);
+    expect(after[1].benefits.healthCents).toBe(238815 * 12 + 152340 + 73584);
     expect(after[2].benefits.healthCents).toBe(600000);   // unchanged
   });
 
@@ -692,12 +692,23 @@ describe('workers paid from another budget', () => {
     expect(ctx.finCompTotals(ctx.finCompComputeAll()).worksheetCents).toBeLessThan(beforeWorksheet);
   });
 
-  it('deliberately does NOT change the FY base-year comparison figure', () => {
-    // That number is read off the church's real payroll accounts, not off this roster. Silently
-    // adjusting it here would invent a figure no account supports.
+  it('leaves the LEDGER base-year figure alone — it is read off real accounts', () => {
+    // Under the ledger basis that number comes from the church's own payroll accounts, not this
+    // roster. Silently adjusting it would invent a figure no account supports.
+    ctx._finCompBaseYearBasis = 'ledger';
     const before = ctx.finCompTotals(ctx.finCompComputeAll()).baselineCents;
     flag('Knapp');
     expect(ctx.finCompTotals(ctx.finCompComputeAll()).baselineCents).toBe(before);
+  });
+
+  it('DOES drop them from the roster-computed base year, keeping both sides like-for-like', () => {
+    // This is the whole point of the roster basis: an excluded worker leaves FY{base} and
+    // FY{target} together, so the comparison never ends up measuring different populations.
+    ctx._finCompBaseYearBasis = 'roster';
+    const before = ctx.finCompTotals(ctx.finCompComputeAll()).baselineCents;
+    flag('Knapp');
+    const after = ctx.finCompTotals(ctx.finCompComputeAll()).baselineCents;
+    expect(after).toBeLessThan(before);
   });
 
   it('keeps the worker visible and named, on screen and in the printed report', () => {
@@ -715,5 +726,65 @@ describe('workers paid from another budget', () => {
   it('is off by default, so nothing changes for an existing roster', () => {
     expect(ctx._finSalaryRoster.some(w => ctx.finCompIsExternallyFunded(w))).toBe(false);
     expect(ctx.finCompCountedCount()).toBe(ctx._finSalaryRoster.length);
+  });
+});
+
+// Reported: under "No raise" the plan came out 6.1% BELOW the base year. A single net figure cannot
+// say whether the salaries disagree or the benefits do, and those have different causes — so the
+// base-year note now splits it, and two display bugs visible on the same screen are fixed.
+describe('diagnosing a base-year gap', () => {
+  function addLeaf(label, actualCents, budgetCents) {
+    ctx._finPlanBaseTree[0].children.push({
+      label, path: 'Expenses > ' + label, children: [], classification: 'Expenses',
+      hasBudgetInfo: budgetCents != null, totalActualCents: actualCents, totalBudgetCents: budgetCents || 0,
+    });
+  }
+
+  it('splits the base year into a salary side and a benefits side', () => {
+    addLeaf('59030 Concordia Retirement Plan', 1800000, 2800000);
+    addLeaf('59040 Payroll Taxes', 500000, 800000);
+    const b = ctx.finCompBaselineDetail();
+    // Pension and employer taxes are pooled costs, never wages.
+    expect(b.benefitCents).toBeGreaterThan(0);
+    expect(b.salaryCents).toBeGreaterThan(0);
+    expect(b.salaryCents + b.benefitCents).toBe(b.cents);
+    const pooled = b.countedRows.filter(r => r.kind === 'benefit').map(r => r.label);
+    expect(pooled).toContain('59030 Concordia Retirement Plan');
+    expect(pooled).toContain('59040 Payroll Taxes');
+  });
+
+  it('says which side the gap is on, under the Set pay table', () => {
+    ctx._finCompBaseYearBasis = 'ledger'; // this split belongs to the ledger basis
+    addLeaf('59030 Concordia Retirement Plan', 1800000, 9000000); // deliberately far above the plan
+    const html = render(ctx, 'plan');
+    expect(html).toContain('Where the difference is');
+    expect(html).toContain('Most of the gap is on the <b>benefits</b> side');
+  });
+
+  it('only says "annualized" when an account actually was', () => {
+    ctx._finCompBaseYearBasis = 'ledger'; // annualizing is a ledger-basis concern
+    // Every seeded account carries its own full-year budget, so nothing is annualized even though
+    // the base year is in progress — the label used to appear regardless.
+    const b = ctx.finCompBaselineDetail();
+    expect(b.countedRows.every(r => r.basis === 'budget')).toBe(true);
+    expect(b.anyAnnualized).toBe(false);
+    // The label itself is the fix — it used to appear whenever the base year was in progress,
+    // regardless of whether any account had actually been annualized.
+    expect(render(ctx, 'plan')).not.toContain('(annualized)');
+    // An account with actuals and no budget is the case that genuinely is annualized.
+    addLeaf('58060 Nursery Wages', 1000000, null);
+    const after = ctx.finCompBaselineDetail();
+    if (after.prorated) {
+      expect(after.anyAnnualized).toBe(true);
+      expect(render(ctx, 'plan')).toContain('(annualized)');
+    }
+  });
+
+  it('renders the worker subtitle as text, not as escaped markup', () => {
+    ctx._finCompSelected = 0;
+    ctx._finCompDrawerOpen = true;
+    const html = render(ctx, 'plan');
+    expect(html).toContain('Senior Pastor');
+    expect(html).not.toContain('&amp;middot;');
   });
 });

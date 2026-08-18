@@ -236,21 +236,29 @@ describe('LCMS Missouri District salary calculator', () => {
       const r = finComputeHealthPlanTotalCents('renewal');
       expect(r.medicalCents).toBe(4922400); // $49,224.00 — the packet's own Total Annual
       expect(r.contracts).toBe(2);
-      expect(r.dentalCents).toBe(304680 * 2);   // $3,046.80 each
-      expect(r.visionCents).toBe(147168 * 2);   // $1,471.68 each
-      expect(r.totalCents).toBe(5826096);       // $58,260.96 = 2 x $29,130.48
+      expect(r.dentalCents).toBe(152340 * 2);   // $1,523.40 each ($126.95/mo)
+      expect(r.visionCents).toBe(73584 * 2);    // $735.84 each ($61.32/mo)
+      expect(r.totalCents).toBe(5374248);       // $53,742.48 = 2 x $26,871.24
     });
 
-    it('prices one family-tier worker at the church\'s own $29,130.48', () => {
+    it('prices one family-tier worker at the church\'s own per-worker premiums', () => {
+      // $2,051.00 medical + $126.95 dental + $61.32 vision a month.
       const r = finComputeHealthPlanTotalCents('renewal');
-      expect(r.totalCents / r.contracts).toBe(2913048);
+      expect(r.totalCents / r.contracts).toBe(2687124);
+    });
+
+    it('prices a 2026 (current plan) worker at the church\'s stated $24,831.48', () => {
+      // $1,887.36 medical + $120.61 dental + $61.32 vision a month — the figures the church read
+      // off its own premiums, and the check that the stored numbers are per worker not per group.
+      const r = finComputeHealthPlanTotalCents('current');
+      expect(r.totalCents / r.contracts).toBe(2483148);
     });
 
     it('scales the group total with how many are covered', () => {
       const one = finComputeHealthPlanTotalCents('renewal', null, { self: 0, selfSpouse: 0, selfChild: 0, family: 1 });
       const three = finComputeHealthPlanTotalCents('renewal', null, { self: 0, selfSpouse: 0, selfChild: 0, family: 3 });
-      expect(one.totalCents).toBe(2913048);
-      expect(three.totalCents).toBe(2913048 * 3);
+      expect(one.totalCents).toBe(2687124);
+      expect(three.totalCents).toBe(2687124 * 3);
     });
 
     it('reproduces the printed medical totals for Current, Option 1/2/3', () => {
