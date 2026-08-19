@@ -289,6 +289,18 @@ if (seg === 'people' && method === 'GET') {
   }
   // Member role can only see people with member_type='member'
   if (!canEdit) { where += ` AND LOWER(p.member_type)='member'`; }
+  // …and only people who have not opted out of the directory. `public_directory` is the
+  // person edit modal's "Include in directory" checkbox. It was honored by the printed and
+  // exported directory (api-import.js) and by nothing a member account could actually see,
+  // so an opted-out person still appeared by name, photo, household and member type to every
+  // member — only the per-field dir_hide_* toggles suppressed contact details. The checkbox
+  // is drawn as the PARENT of those toggles, which is precisely the promise that was not
+  // being kept. Decision 2026-08-19: honor it. (SEC16 / P22-A.)
+  //
+  // Column is `INTEGER NOT NULL DEFAULT 1`, so every pre-existing row is already 1 and
+  // nobody disappears from the directory on deploy — only people an admin has since
+  // unchecked. Staff/finance/council/admin views are untouched: they must see everyone.
+  if (!canEdit) { where += ' AND p.public_directory=1'; }
   if (mt) { where += ' AND LOWER(p.member_type)=LOWER(?)'; binds.push(mt); }
   if (tagId) { where += ' AND p.id IN (SELECT person_id FROM person_tags WHERE tag_id=?)'; binds.push(tagId); }
   // Multi-tag AND filter: each tag must match separately
@@ -402,6 +414,11 @@ if (seg === 'people' && method === 'GET') {
   }
   if (wantDisambig) {
     const ph2 = hhIdsUniq.map(() => '?').join(',');
+    // A disambiguated household name is "Smith (John)" — a person's first name. For a
+    // member-role viewer that name has to come from someone who is IN the directory, or the
+    // opt-out leaks through the household label of the very list it excluded them from.
+    // Hardcoded fragment, not user input.
+    const dirOnly = canEdit ? '' : ' AND p2.public_directory=1';
     // The duplicate-name test is an EXISTS bounded to this page's households rather
     // than `LOWER(name) IN (SELECT ... GROUP BY LOWER(name) HAVING COUNT(*)>1)`,
     // which grouped the entire households table on every keystroke. Same semantics
@@ -409,8 +426,8 @@ if (seg === 'people' && method === 'GET') {
     followups.push(db.prepare(
       `SELECT h.id, h.name,
        COALESCE(
-         (SELECT p2.first_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.family_role='head' LIMIT 1),
-         (SELECT p2.first_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 ORDER BY p2.id LIMIT 1)
+         (SELECT p2.first_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.family_role='head'${dirOnly} LIMIT 1),
+         (SELECT p2.first_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1${dirOnly} ORDER BY p2.id LIMIT 1)
        ) as head_first_name
        FROM households h WHERE h.id IN (${ph2})
        AND EXISTS (SELECT 1 FROM households h2 WHERE LOWER(h2.name)=LOWER(h.name) AND h2.id<>h.id)`
@@ -614,8 +631,12 @@ if (pmatch) {
        LEFT JOIN households h ON p.household_id=h.id WHERE p.id=?`
     ).bind(pid).first();
     if (!p) return json({ error: 'Not found' }, 404);
-    // Member role can only view actual members
+    // Member role can only view actual members who are in the directory. Both are 404
+    // rather than 403 — a member has no business learning that a given id exists.
     if (!canEdit && (p.member_type || '').toLowerCase() !== 'member') {
+      return json({ error: 'Not found' }, 404);
+    }
+    if (!canEdit && p.public_directory !== 1) {
       return json({ error: 'Not found' }, 404);
     }
     // Tags are staff-only — never fetched for a member-role viewer (memberSafeView

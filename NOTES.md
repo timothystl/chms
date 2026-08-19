@@ -24,6 +24,77 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.192.0 — Phase 22-A: the member directory honors "Include in directory" (2026-08-19)
+
+Closes SEC16. **This one was a decision before it was a fix** — filtering changes who appears in
+a directory the congregation is about to be invited into, so it was put to the user rather than
+defaulted. Decision 2026-08-19: honor the checkbox.
+
+**What was wrong.** The person edit modal's `pm-public` checkbox is labeled *Include in
+directory*, titled *"Uncheck to hide this person from printed/public directories"*, and is drawn
+as the PARENT of the five `dir_hide_*` field toggles. `public_directory` was honored by the
+printed/exported directory (`api-import.js`) and referenced **nowhere** in the People query
+path — so an opted-out person still appeared by name, photo, household and member type to every
+`member` account, and only the per-field toggles suppressed contact details. The checkbox's
+visual parenthood over those toggles is exactly the promise that was not being kept. **No test
+covered this column at all**: a grep of `test/` for `public_directory` returned nothing.
+
+**Four surfaces, because three would have leaked.**
+1. `GET people` — `AND p.public_directory=1` for member-role viewers. The COUNT query shares the
+   same `where`, so the pagination total agrees with the list rather than promising a page that
+   can never be filled.
+2. `GET people/:id` — **404**, not 403, matching how a non-member `member_type` is already
+   handled. A member has no business learning the id exists.
+3. `GET households/:id` — family chips filtered to visible members.
+4. **⚠ Household-name disambiguation, which is the one that is easy to miss.** A duplicated
+   household name renders as "Doe (John)" — a person's *first name* — and both the list
+   endpoint's batch query and the household endpoint compute it from the head of household
+   regardless of opt-out. An opted-out head's name therefore surfaced on the label of the very
+   list that excluded them. Both now draw from a visible member for member-role viewers only;
+   staff still see the real head.
+
+**A household whose every member has opted out is 404 to a member.** Without it a member could
+walk `/households/1..N` and harvest household names and photos for precisely the families that
+asked to be left out. Unreachable through the UI either way — the only route in is clicking
+someone who IS in the directory — and `js-people.js:333` already `.catch`es, so it degrades
+silently.
+
+**⚠ Nobody disappears on deploy.** The column is `INTEGER NOT NULL DEFAULT 1`, so every
+pre-existing row is already 1; only people an admin has since unchecked are affected.
+
+**⚠ A member who opts themselves out can no longer find themselves in the directory either.**
+`app_users` has no `person_id`, so there is no "always show me myself" carve-out to hang a
+special case on. That is consistent with what the checkbox says, but it will generate a support
+question eventually, so it is written down here.
+
+Staff, finance, council and admin views are untouched — the opt-out hides someone from the
+directory, not from the church office. That is half of what the new tests assert, because
+over-applying this is the real risk in the change.
+
+Tooltip updated to say what the checkbox now actually governs (the printed/exported directory
+AND the member directory in Connect) and to distinguish it from the field toggles beneath it.
+
+**`npm test` 1641/1641** (91 files, 5 skipped), up from 1629/90. New
+`test/member-directory-optout.test.js` — 12 tests running the real `handlePeopleApi` and
+`handleHouseholdsApi` against real in-memory SQLite, member and staff side by side on one
+fixture. `test/member-household-redaction.test.js`'s fixture gained the column the real schema
+has, since the household query now selects it.
+
+**Every new test verified non-vacuous — 8 injections, 8 correct failure sets**, in both
+directions: each of the four filters removed, the empty-household 404 removed, and three
+over-application injections (the filter applied to staff, to the household list for all roles,
+and to disambiguation for all roles).
+
+**⚠ Two of my own tests were vacuous on the first draft and were rewritten, not accepted.** The
+fixture made Jane the head and John the opted-out spouse — so disambiguation never had to choose
+between them, and both disambiguation assertions passed against deliberately broken code. The
+opted-out person is now the HEAD of a duplicated-name household, which is the only arrangement
+that exercises the path. A comment in the fixture says so.
+
+**Not verified**: a live browser, a real phone, or production D1. (`src/api-people.js`,
+`src/api-households.js`, `src/frontend/html-tabs.js`, `src/frontend/js-core.js`,
+`test/member-directory-optout.test.js`, `test/member-household-redaction.test.js`)
+
 ### v1.191.0 — Phase 21: the scheduler backend gate stops treating authentication as authorization (2026-08-19)
 
 Security hotfix, nothing else in it. Closes SEC11-SEC14 and DSN9 from the CR10 review.

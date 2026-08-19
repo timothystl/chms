@@ -19,15 +19,16 @@ beforeEach(() => {
       city TEXT, state TEXT, zip TEXT, notes TEXT, photo_url TEXT);
     CREATE TABLE people (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT,
       member_type TEXT, family_role TEXT, phone TEXT, email TEXT, photo_url TEXT,
-      envelope_number TEXT, anniversary_date TEXT, household_id INTEGER, active INTEGER);
+      envelope_number TEXT, anniversary_date TEXT, household_id INTEGER, active INTEGER,
+      public_directory INTEGER NOT NULL DEFAULT 1);
     CREATE TABLE giving_entries (id INTEGER PRIMARY KEY, batch_id INTEGER, person_id INTEGER,
       amount INTEGER, contribution_date TEXT);
     CREATE TABLE giving_batches (id INTEGER PRIMARY KEY, batch_date TEXT);
     INSERT INTO households VALUES (7,'Doe Family','1 Main St','','St. Louis','MO','63101',
       'PRIVATE pastoral note about this family','hh.jpg');
     INSERT INTO people VALUES
-      (1,'Jane','Doe','member','head','555-1111','jane@x.com','jane.jpg','ENV-9','2005-06-01',7,1),
-      (2,'John','Doe','member','spouse','555-2222','john@x.com','john.jpg','','',7,1);
+      (1,'Jane','Doe','member','head','555-1111','jane@x.com','jane.jpg','ENV-9','2005-06-01',7,1,1),
+      (2,'John','Doe','member','spouse','555-2222','john@x.com','john.jpg','','',7,1,1);
     INSERT INTO giving_batches VALUES (1,'2026-01-05');
     INSERT INTO giving_entries VALUES (1,1,1,250000,'2026-01-05');
   `);
