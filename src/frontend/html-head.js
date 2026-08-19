@@ -157,45 +157,6 @@ a.s-item{text-decoration:none;color:inherit;}
    squeezes — and the sidebar is where someone looks for it. */
 .s-version{padding:6px 14px 2px;font-size:.66rem;letter-spacing:.04em;color:rgba(255,255,255,.38);white-space:nowrap;}
 .s-tip{position:static;transform:none;background:transparent;border:none;padding:0;font-size:13px;color:rgba(255,255,255,.7);white-space:nowrap;pointer-events:none;z-index:auto;}
-/* ── ROLE-BASED VISIBILITY ── */
-/* .require-finance/.require-staff/.require-register, plus the Reports sidebar item's
-   council exclusion, are admin-configurable per role (Settings -> Giving -> ... no, wait
-   actually admin-configurable via applyPermissionUI() in js-core.js, driven by /admin/api/me's
-   permissions field (see api-utils.js) -- NOT hardcoded CSS below. Member always gets false
-   for all three regardless of config (member is a structurally different, non-configurable
-   view), which is why role-member still has its own static rules here as a belt-and-suspenders
-   fallback in case JS hasn't run yet. */
-/* .require-edit     = visible for admin + finance + staff + council (not member) -- fixed, not configurable */
-/* .require-admin    = admin only -- fixed, not configurable */
-/* .no-member        = hidden for member role */
-.role-member .require-finance{display:none!important;}
-.role-member .require-tuitionaid{display:none!important;}
-.role-member .require-financeov{display:none!important;}
-.role-member .require-attendance{display:none!important;}
-.role-finance .require-staff{display:none!important;}
-.role-member .require-staff{display:none!important;}
-.role-member  .require-register{display:none!important;}
-.role-member .require-edit{display:none!important;}
-.role-member .no-member{display:none!important;}
-/* Per-feature EDIT affordances (create/edit buttons inside a feature tab) — hidden by
-   default; applyPermissionUI() in js-core.js adds a body.perm-edit-<item> class for the
-   current role when that item's level is 'edit', which reveals them. Buttons are
-   inline-block, so that's what we restore. The server enforces edit regardless. */
-.require-edit-giving,.require-edit-tuitionaid,.require-edit-finance,.require-edit-attendance,.require-edit-followups,.require-edit-register{display:none!important;}
-body.perm-edit-giving .require-edit-giving,
-body.perm-edit-tuitionaid .require-edit-tuitionaid,
-body.perm-edit-finance .require-edit-finance,
-body.perm-edit-attendance .require-edit-attendance,
-body.perm-edit-followups .require-edit-followups,
-body.perm-edit-register .require-edit-register{display:inline-block!important;}
-.role-finance .require-admin{display:none!important;}
-.role-staff   .require-admin{display:none!important;}
-.role-council .require-admin{display:none!important;}
-/* Anonymous giving (council): the Giving nav and the aggregate reports stay, but any
-   surface that names a donor goes. applyPermissionUI() also hides these inline for the
-   markup present at load; this rule covers anything rendered afterwards. */
-body.perm-giving-anon .require-giving-named{display:none!important;}
-.role-member  .require-admin{display:none!important;}
 /* ── CONTENT AREA ── */
 .content-area{flex:1;display:flex;flex-direction:column;overflow:hidden;margin-left:0;}
 /* ── TOPBAR ── */

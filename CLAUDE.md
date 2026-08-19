@@ -1030,12 +1030,15 @@ likely to be on a phone, on cell data, opening it from the Tithe.ly app tab.
 - [ ] **CR9a** — The shell is still ~193 KB for a member and contains every tab's markup, most of
   it for tabs they cannot open. That is CR1b, and the member tier is now the strongest argument
   for it: it is the single largest remaining item in a member's first load.
-- [ ] **CR9b** — `html-head.js` ships the 39-line `/* ── ROLE-BASED VISIBILITY ── */` block
-  **twice** (lines ~138-176 and ~1449-1487, byte-identical, found while tracing `role-member`).
-  ~2 KB in `app.css` for every user. Deleting the FIRST copy is the behavior-preserving fix —
-  the later one currently wins, so keeping it preserves the cascade exactly (the MOB3/v1.121.3
-  lesson: a media query adds no specificity, so relocating a block changes which rule wins).
-  Left alone here rather than bundled into an unrelated change, with no browser to verify in.
+- [x] **CR9b** — Fixed. `html-head.js` shipped the 39-line `/* ── ROLE-BASED VISIBILITY ── */`
+  block twice, byte-identical. Confirmed neither copy sits inside a `@media` block (both were at
+  the CSS top level, outside any query), so unlike the MOB3/v1.121.3 trap, cascade order genuinely
+  doesn't matter here — the two copies had identical values, not competing ones, so deleting either
+  is behavior-preserving. Deleted the first copy (lines ~160-198) per the original note's own
+  reasoning. Verified: the assembled `HTML_HEAD`'s `<style>` block still brace-balances
+  (1360 open / 1360 close) and now contains exactly one `ROLE-BASED VISIBILITY` occurrence.
+  `npm test` (1601/1601). Not verified in a live browser. Done 2026-08-19 (v1.190.4).
+  (`src/frontend/html-head.js`)
 
 ### ATT-MOB1 — Attendance entry ran off the side of a phone (2026-08-10, DONE)
 Reported from an iPhone: the 8:00 field filled the screen, 10:45 sat past the right edge, and
@@ -1856,17 +1859,29 @@ deliberately did **not** change, because each is architectural and needs its own
   is already queued against the redesign — noting here only that the review independently confirmed
   it, and that the CSP would get to drop its `fonts.googleapis.com`/`fonts.gstatic.com` allowances if
   the fonts were self-hosted, which is a security tidy-up as well as a speed one.
-- [ ] **CR3 — Boot is a serial waterfall.** `js-core.js`'s `load` handler awaits `/admin/api/me` and
-  only then, in `.finally()`, fires `loadTags()` / `loadFunds()` / `loadMemberTypes()` / `showTab()`.
-  The role is needed before the UI renders, but tags/funds/member-types do not depend on it and could
-  be in flight concurrently — currently they cost a second round trip after the first completes. With
-  CR5 also in play the landing sequence is: 622 KB HTML → JS parse → `/me` → dashboard.
+- [x] **CR3 — Fixed. Boot was a serial waterfall.** `loadTags()`/`loadMemberTypes()` never read
+  `_userRole` and both already self-guard with a bare `.catch(){}` plus hardcoded fallbacks — but sat
+  inside the `.finally()` after `/admin/api/me`, costing a full extra serial round trip before either
+  could fire. Both now fire immediately, in parallel with the `/me` call. `loadFunds()` stays gated
+  inside `.finally()` — it's the one call that genuinely depends on role (a member's request is a
+  guaranteed 403 against the giving allowlist, so it's deliberately skipped for that role and can't
+  fire blind). `showTab()`/`initPeopleViewMode()` are unaffected — both still wait for role. Updated
+  `test/member-bundle.test.js`'s `bootCalls()` extraction (it only scanned the `.finally()` block) to
+  also scan the pre-`/me` segment, so the moved calls stay covered by the boot-safety test rather than
+  silently dropping out of it. `npm test` (1601/1601), `node --check` on all 4 built bundles. Not
+  verified in a live browser — can't directly observe the shaved round trip without one, but the
+  change is mechanical and the invariant (role-gated calls stay gated) is what the test enforces.
+  Done 2026-08-19 (v1.190.4). (`src/frontend/js-core.js`, `test/member-bundle.test.js`)
 - [ ] **CR4 — 3,752 inline `style="…"` attributes across `src/frontend/`** (`html-tabs.js` 977,
   `js-finance.js` 958, `js-reports.js` 441, `js-people.js` 304, `js-giving.js` 247…), plus 746
   hardcoded hex colors, 113 of them inside those inline styles. This is RD2/RD4/PAL5 restated with
   current numbers — the count has grown substantially since PAL5 recorded 171, because Finance and the
   Giving redesign were both built in the inline-style idiom. Worth knowing before the redesign that
-  the surface is now roughly 4× what the tracked estimate says.
+  the surface is now roughly 4× what the tracked estimate says. **Re-scoped 2026-08-19 with a real
+  breakdown — see PAL6 under Pre-Redesign Palette Consolidation.** The count has grown again
+  (4,004 `style=` attrs, 812 hex literals) but the shape of the problem is smaller than the raw
+  numbers suggest: only 123 of the 4,004 `style=` attrs actually carry a hardcoded color — the rest
+  are pure layout (flex/gap/padding), which is RD2's structural complaint, not RD4's color-token one.
 - [ ] **CR5 — The dashboard still issues 11 serial D1 queries after the v1.116.0 batching.** What is
   left is genuinely dependency-ordered (anniversary partner pairing, the chunked `annIssueCandidates`
   household lookup, weekly-task seeding, prayer counts). Getting further would mean restructuring
@@ -3162,6 +3177,69 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
 
 **Scope note:** What remains of PAL2/PAL3/PAL5 — SVG chart-fill colors, `js-people.js`/`js-giving.js`/`js-settings.js` inline styles, the public site's own token-set reconciliation, and any hex with no exact token match — changes real rendered output and needs visual verification, not just `node --check`/`npx vitest run`. Expect several more batches, ideally with a live-render check (Playwright or manual) before shipping each.
 
+### PAL6 — CR4/RD1/RD2/RD4/PAL2/PAL5 re-scoped with real numbers, no visual work attempted (2026-08-19)
+Re-measured the whole surface directly against the current tree rather than trusting the carried-forward
+estimates (CR4's 3,752/746, PAL5's 171) — both have grown again, and the shape of the remaining problem
+splits into three genuinely different pieces of work with very different risk profiles. **Nothing visual
+was changed in this pass** — this session has no live browser, same standing caveat as every prior
+frontend change in this file, and RD2/RD4's own color-substitution work is exactly the kind of change
+PAL5 already flagged as needing a real render check before shipping. What follows is the scoping only.
+
+**Current real counts** (`src/frontend/*.js`, 2026-08-19):
+- 4,004 `style="..."` attributes total, up from CR4's 3,752.
+- Of those, only **123** actually embed a hardcoded hex color (`js-giving.js` 25, `js-people.js` 23,
+  `js-reports.js` 21, `html-tabs.js` 17, `js-volunteers.js` 15, the rest single digits). The other
+  **~3,881** are pure layout (`flex`, `gap`, `padding`, `display`) with no color in them at all.
+- 812 hex literals total in `src/frontend/`, up from PAL5's count; 110 more in `src/public/`.
+  276 distinct hex values in the admin app. 43 of the 812 are inside SVG `fill=`/`stroke=`
+  attributes (chart code); the rest are split between `style=` strings and JS color-constant arrays
+  (`AVATAR_TINTS`-style palettes, chart color lists).
+- Legacy token usage is still heavy, not residual: **190** references to the 6 legacy Steel tokens
+  (`--steel-anchor` alone: 114) and **64** to the 8 `--ev-*` tokens. PAL2's "remove the legacy
+  definitions once nothing references them" condition is nowhere close to true yet — RD1/PAL2 have
+  said "In progress" since 2026-07-12 but the actual reference count hasn't been driven toward zero,
+  only the canonical token *set* got defined (PAL1/PAL4).
+
+**This splits cleanly into three pieces, not one:**
+
+1. **RD2 (structural — inline `style=` attrs vs. classes), ~3,881 sites.** This is the one CR4's raw
+   count makes look like the whole problem, but it's pure layout, not color — converting it is a
+   real refactor (string-built HTML → CSS classes) with no design-token angle at all. **Recommend
+   leaving this to the actual visual redesign**, per RD1/RD2's own 2026-07-12 decision — attempting
+   it mechanically risks silently changing layout (a `style="display:flex;gap:8px"` inline rule can
+   interact with cascade in ways a same-named class won't, if two different call sites reused the
+   same class name for slightly different layouts). Not attempted here.
+
+2. **RD4/PAL5 (color — hex → token), ~812 sites + 276 distinct values.** This is the tractable half,
+   but split further by how safe each substitution is:
+   - **Exact-value matches** (a hex literal that equals an existing `--token` value byte-for-byte) —
+     this is what PAL5's "first pass" already validated as safe, mechanical, and it shipped without
+     incident. Extending that same pass to the remaining files (`js-people.js`, `js-giving.js`,
+     `js-settings.js`, `js-reports.js`, `js-attendance.js`, `js-dashboard.js`) is the next concrete,
+     low-risk step — still needs a render check before shipping per PAL5's own standing note, since
+     "the same numeric value" doesn't guarantee "the same intended role" (two colors can coincide by
+     accident, not by design).
+   - **No exact match** — the harder set. A new/one-off hex value needs a human decision about which
+     token family it belongs to (or whether it's a legitimate one-off, e.g. a specific chart series
+     color that shouldn't be forced onto a semantic token). Not safe to auto-map; needs to go through
+     someone who can see the rendered result.
+   - SVG `fill=`/`stroke=` attributes (43 sites, chart code) were explicitly deferred by PAL5 pending
+     confirmation that `var()` actually resolves correctly in an SVG attribute context (vs. a CSS
+     property) in every browser this app needs to support — untested here for the same no-browser
+     reason.
+
+3. **PAL2 (retire legacy token definitions), 190 + 64 = 254 references.** Can't happen until (2) has
+   driven the reference count toward zero — the definitions are still load-bearing. This is a
+   downstream consequence of finishing RD4/PAL5, not independent work.
+
+**Recommended order for whoever executes this next** (needs a live browser or Playwright to verify
+each batch, which this session doesn't have): (a) extend PAL5's exact-match substitution to the
+remaining 6 files, one file per batch, render-checked before merge; (b) work through the no-exact-match
+hex values with a human design call, smallest files first; (c) once legacy-token references hit zero,
+delete the Steel/`--ev-*` definitions (PAL2); (d) RD2's structural inline-style-to-class conversion
+stays parked for the actual redesign, not a cleanup pass — it's the one piece of this whole cluster
+that's a genuine architecture change rather than a mechanical substitution.
+
 ### Volunteer / Events UX Redesign (2026-07)
 - [x] **VUX1** — Public event sign-up: contact-first flow (day-toggle pills + contact card no longer gated behind picking a day), 3-tier capacity badges. Done 2026-07-06 (v1.5.0). (`src/public/scripts.js`, `head.js`)
 - [x] **VUX2** — Public landing: "Not sure where to start?" CTA → 2-tap Find Your Fit guided flow. Done 2026-07-06 (v1.5.0). (`src/public/findfit.js`)
@@ -3386,14 +3464,15 @@ User reviewed the Phase 20 visual-system-audit document and made 4 decisions (se
   regression it guards (all three failed as they should). **Not verified**: a live browser or real
   D1 data. (`src/api-utils.js`, `src/api-reports.js`, `src/frontend/js-giving.js`,
   `test/giving-board.test.js`, `test/giving-fund-categories.test.js`)
-- [ ] **G30** — Pre-existing bug found while building G29, not fixed (out of scope for that session):
-  the giving-statement view function in `js-giving.js` (~line 1299) reads `_churchConfig.giving_url`
-  to build a "set up recurring giving" link, but `GET /admin/api/config/church` actually returns that
-  value under the key `online_giving_url` — so `givingUrl` there has always evaluated to `''`/falsy,
-  meaning that specific link has silently never rendered even when an admin has set the URL in
-  Settings. Fix: change `_churchConfig.giving_url` to `_churchConfig.online_giving_url` at that call
-  site (and any other occurrence of the wrong key — grep for `.giving_url` excluding
-  `online_giving_url`). (noted 2026-07-27)
+- [x] **G30** — Fixed. The giving-statement view function in `js-giving.js` (line 1881) read
+  `_churchConfig.giving_url` to build a "set up recurring giving" link, but `GET
+  /admin/api/config/church` actually returns that value under `online_giving_url` — so `givingUrl`
+  there always evaluated to `''`/falsy and the link silently never rendered even with a URL set in
+  Settings. Confirmed via grep it was the only remaining occurrence of the wrong key (every other
+  call site — `js-reports.js`, `js-settings.js` — already used `online_giving_url` correctly).
+  One-line fix. `npm test` (1601/1601, pre-existing coverage in `test/giving-nudges.test.js` already
+  anticipated this exact fix). Not verified in a live browser. Done 2026-08-19 (v1.190.3).
+  (`src/frontend/js-giving.js`)
 - [ ] **G24** — Manual follow-up needed, outside code: `CHMS_INTAKE_API_KEY` (the same secret value already set on this Worker) needs to also be set as a secret on the website repo's `tlc-newsletter-admin` Worker (admin.timothystl.org) — it isn't there today (that Worker has never called out to ChMS before). Without it, `GET /api/intake/funds` calls from the Giving tab will always get a 401. `wrangler secret put CHMS_INTAKE_API_KEY --name tlc-newsletter-admin`, using the exact same value already configured for this Worker.
 
 ### Dashboard

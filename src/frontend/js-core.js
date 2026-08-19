@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.190.2';
+export const DEPLOY_VERSION = '1.190.4';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -567,6 +567,15 @@ window.addEventListener('load', function() {
   // produced a bare "Access denied" with no explanation — which is exactly what a member
   // account hit on 2026-08-03. Defaulting to the most restrictive role instead means a
   // failed /me under-shows rather than over-shows, and the banner tells the user to reload.
+  //
+  // CR3: loadTags()/loadMemberTypes() don't read _userRole at all (both already self-guard
+  // with a bare .catch(){} and have sane hardcoded fallbacks), so they used to wait behind
+  // /me for no reason — a whole extra serial round trip before the UI could render tags or
+  // member-type options. Fired here, in parallel with /me, instead of inside its .finally().
+  // loadFunds() is the one call that genuinely depends on role (member gets a guaranteed 403
+  // from the giving allowlist), so it stays gated inside .finally() below.
+  loadTags();
+  loadMemberTypes();
   api('/admin/api/me').then(function(d) {
     if (!d || !d.role || d.role === 'unknown') {
       applyRoleUI('member');
@@ -578,12 +587,10 @@ window.addEventListener('load', function() {
     applyRoleUI('member');
     showRoleLoadError();
   }).finally(function() {
-    loadTags();
     // Funds are giving data — the member allowlist doesn't include them, so for a member this
     // is a guaranteed 403. It fails silently, but it's still a wasted round trip on exactly the
     // connection (a phone, on the church's network) where the member tier actually lives.
     if (_userRole !== 'member') loadFunds();
-    loadMemberTypes();
     initPeopleViewMode();
     // Restore tab from URL hash (back/forward or bookmarked link), otherwise default
     var hashTab = location.hash.replace('#', '');
