@@ -470,6 +470,23 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### SITE2 follow-up — Link-to-Person search by name, not email; live-as-you-type (2026-08-19, DONE)
+Two asks after using the new duplicate-merge tools live: (1) the "Link to Person Record" modal
+prefilled and searched its box with the sign-up's **email** first — for a work/personal address
+that never made it into the person's own record, that always came back "No matches found" even
+when the person obviously exists; searching by name would have found them. (2) the box only
+searched on Enter or the Search button — reported as "finicky typing," since nothing visibly
+happened while typing, unlike the People tab's own search box.
+- `volOpenLinkPerson()` now prefills/searches by `name || email` (was `email || name`).
+- New `volLinkSearchInput()` (`oninput`, 300ms debounce) matches the People tab's own
+  `debouncePeople()` pattern, plus a stale-response sequence guard (the PS1 lesson) so a slow
+  broad query can't land after a fast narrow one and overwrite it with worse results. Enter/the
+  Search button still fire immediately, unchanged.
+- `npm test` (1601/1601, no test changes — this is DOM/modal-only logic with no existing coverage
+  in this file, consistent with how the rest of the Volunteers admin UI is tested here), `node
+  --check` on both real assembled bundles, div-balance check on `CHMS_HTML`. **Not verified**: a
+  live browser. (`src/frontend/js-volunteers.js`, `src/frontend/html-tabs.js`)
+
 ### SITE2 — Serve: an already-used email no longer locks a volunteer out (2026-08-18, DONE)
 Reported: someone who wants to pick up an additional Christmas Market shift, or volunteer in one
 more ministry way, got told their email was "already used" with no way to add the new thing —

@@ -1238,7 +1238,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <!-- Search -->
     <div style="display:flex;gap:6px;margin-bottom:8px;">
-      <input type="text" id="vol-link-search" class="form-input" style="flex:1;" placeholder="Search by name or email…" onkeydown="if(event.key==='Enter')volSearchPeople()">
+      <input type="text" id="vol-link-search" class="form-input" style="flex:1;" placeholder="Search by name or email…" oninput="volLinkSearchInput()" onkeydown="if(event.key==='Enter')volSearchPeople()">
       <button class="btn-primary" style="font-size:.82rem;" onclick="volSearchPeople()">Search</button>
     </div>
     <div id="vol-link-results" style="max-height:220px;overflow-y:auto;margin-bottom:10px;"></div>

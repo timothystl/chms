@@ -272,12 +272,17 @@ function volMergeDuplicateSignups() {
 
 // ── LINK PERSON MODAL ─────────────────────────────────────────────────
 var _volLinkSignupId = 0;
+var _volLinkDebounce = null;
+var _volLinkSeq = 0;
 
 function volOpenLinkPerson(signupId, name, email, currentPersonId, currentPersonName) {
   _volLinkSignupId = signupId;
   document.getElementById('vol-link-signup-name').textContent = name;
   var searchEl = document.getElementById('vol-link-search');
-  if (searchEl) { searchEl.value = email || name; }
+  // Search by name, not email — a sign-up's email is often a work/personal
+  // address that never made it into the person's own record, where their
+  // name always will have.
+  if (searchEl) { searchEl.value = name || email; }
   document.getElementById('vol-link-results').innerHTML = '';
   document.getElementById('vol-link-current').style.display = currentPersonId ? '' : 'none';
   if (currentPersonId) {
@@ -285,16 +290,27 @@ function volOpenLinkPerson(signupId, name, email, currentPersonId, currentPerson
     document.getElementById('vol-link-current-id').textContent = currentPersonId;
   }
   openModal('vol-link-person-modal');
-  if (email || name) volSearchPeople();
+  if (name || email) volSearchPeople();
+}
+
+// Debounced live search as the admin types, matching the People tab's own
+// search box (debouncePeople()) — the field previously only searched on
+// Enter/the Search button, which read as unresponsive ("finicky") since
+// nothing visibly happened while typing.
+function volLinkSearchInput() {
+  clearTimeout(_volLinkDebounce);
+  _volLinkDebounce = setTimeout(volSearchPeople, 300);
 }
 
 function volSearchPeople() {
   var q = (document.getElementById('vol-link-search')||{}).value || '';
-  if (!q.trim()) return;
   var resultsEl = document.getElementById('vol-link-results');
+  if (!q.trim()) { if (resultsEl) resultsEl.innerHTML = ''; return; }
   if (resultsEl) resultsEl.innerHTML = '<span style="color:var(--warm-gray);font-size:.85rem;">Searching…</span>';
+  var seq = ++_volLinkSeq;
   api('/admin/api/people?q=' + encodeURIComponent(q) + '&limit=10&archived=0')
     .then(function(d) {
+      if (seq !== _volLinkSeq) return; // a newer keystroke's search has already landed
       var people = d.people || [];
       if (!people.length) {
         if (resultsEl) resultsEl.innerHTML = '<div style="font-size:.85rem;color:var(--warm-gray);padding:6px 0;">No matches found.</div>';
