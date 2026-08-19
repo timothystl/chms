@@ -717,7 +717,7 @@ function givDepLinkCard(batchId, l) {
     + '<div class="giv-dep-field"><label class="giv-dep-field-label">Bank received</label>'
     + '<input type="text" inputmode="decimal" style="width:110px;" id="giv-dep-bank-' + l.deposit_id + '" placeholder="0.00" value="' + (bank === null ? '' : (bank / 100).toFixed(2)) + '" onchange="givDepSaveBank(' + batchId + ',' + l.deposit_id + ')"></div>'
     + '<div class="giv-dep-field"><label class="giv-dep-field-label">Fees</label>'
-    + '<div style="font-size:.9rem;font-weight:700;font-variant-numeric:tabular-nums;padding:5px 0;color:' + (fees === null ? 'var(--warm-gray)' : '#B85C3A') + ';">' + (fees === null ? '&mdash;' : fmtMoney(fees)) + '</div></div>'
+    + '<div style="font-size:.9rem;font-weight:700;font-variant-numeric:tabular-nums;padding:5px 0;color:' + (fees === null ? 'var(--warm-gray)' : 'var(--danger)') + ';">' + (fees === null ? '&mdash;' : fmtMoney(fees)) + '</div></div>'
     + '</div>'
     + '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:8px;">' + others + '</div>'
     + '</div>';
@@ -1072,9 +1072,9 @@ function boardDashboardHtml(d) {
   // Body grid: chart card + navy panel
   var scopeWord = (g.key === 'all') ? 'all funds' : g.label + ' only';
   var legend = '<div class="board-legend">'
-    + '<span><span class="board-swatch" style="background:#C4DDE8;"></span>' + d.prior_year + '</span>'
-    + '<span><span class="board-swatch" style="background:#2E7EA6;"></span>' + d.year + '</span>'
-    + (g.has_budget ? '<span><span class="board-swatch" style="background:#F5E0B0;border:1px solid #C9973A;"></span>Budget</span>' : '')
+    + '<span><span class="board-swatch" style="background:var(--ice-blue);"></span>' + d.prior_year + '</span>'
+    + '<span><span class="board-swatch" style="background:var(--color-teal);"></span>' + d.year + '</span>'
+    + (g.has_budget ? '<span><span class="board-swatch" style="background:var(--pale-gold);border:1px solid var(--color-gold);"></span>Budget</span>' : '')
     + '</div>';
   var chartNote = g.has_budget
     ? 'Thousands of dollars, ' + scopeWord + '. The budget bar is the council-approved plan spread across the year by last year’s pattern.'
@@ -1110,7 +1110,7 @@ function boardNavyHtml(d, g) {
     + con.segments.map(function(s, i) { return '<div style="width:' + Math.max(0, s.pct) + '%;background:' + segColors[i] + ';"></div>'; }).join('') + '</div>';
   var segLabels = '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:rgba(255,255,255,.6);margin-top:5px;">'
     + con.segments.map(function(s) { return '<span>' + esc(s.label) + '</span>'; }).join('') + '</div>';
-  var conText = 'The ten largest ' + unit + ' account for <strong style="color:#fff;">' + con.top10_pct + '%</strong> of '
+  var conText = 'The ten largest ' + unit + ' account for <strong style="color:var(--white);">' + con.top10_pct + '%</strong> of '
     + ((g.key === 'all') ? 'everything received this year' : esc(g.label).toLowerCase() + ' this year') + '.'
     + (con.half_households > 0 ? ' Half of it comes from ' + con.half_households + ' ' + unit + '.' : '');
   return '<div class="board-navy">'
@@ -1135,7 +1135,7 @@ function boardFundTableHtml(d, g) {
   function moneyCell(cents, color) {
     return '<td class="num"' + (color ? ' style="color:' + color + ';"' : '') + '>' + boardMoney(cents) + '</td>';
   }
-  function dashCell() { return '<td class="num" style="color:#8A8377;">—</td>'; }
+  function dashCell() { return '<td class="num" style="color:var(--warm-gray);">—</td>'; }
   function varCell(v) {
     if (v == null) return dashCell();
     var color = v < 0 ? '#B85C3A' : (v > 0 ? '#6B8F71' : '#8A8377');
@@ -1200,8 +1200,8 @@ function boardFundTotalRow(g) {
   var v = g.budget_variance_cents;
   return '<tr class="rpt-total"><td style="color:var(--color-navy);">Total</td>'
     + '<td class="num" style="color:var(--color-navy);">' + boardMoney(g.given_ytd_cents) + '</td>'
-    + (g.budget_ytd_cents == null ? '<td class="num" style="color:#8A8377;">—</td>' : '<td class="num" style="color:var(--color-navy);">' + boardMoney(g.budget_ytd_cents) + '</td>')
-    + (v == null ? '<td class="num" style="color:#8A8377;">—</td>' : '<td class="num" style="color:' + (v < 0 ? '#B85C3A' : '#6B8F71') + ';">' + (v > 0 ? '+' : '') + boardMoney(v) + '</td>')
+    + (g.budget_ytd_cents == null ? '<td class="num" style="color:var(--warm-gray);">—</td>' : '<td class="num" style="color:var(--color-navy);">' + boardMoney(g.budget_ytd_cents) + '</td>')
+    + (v == null ? '<td class="num" style="color:var(--warm-gray);">—</td>' : '<td class="num" style="color:' + (v < 0 ? 'var(--danger)' : 'var(--sage)') + ';">' + (v > 0 ? '+' : '') + boardMoney(v) + '</td>')
     + '<td class="num" style="color:var(--color-navy);">' + boardMoney(g.given_ytd_prior_cents) + '</td></tr>';
 }
 
@@ -1356,10 +1356,10 @@ function boardProjectionBasis(k, method) {
 
   // Compact fund table
   function nvNum(cents, color) { return '<td style="padding:7px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;' + (color ? 'color:' + color + ';' : '') + '">' + boardMoney(cents) + '</td>'; }
-  function nvDash() { return '<td style="padding:7px 8px;border-bottom:1px solid var(--linen);text-align:right;color:#8A8377;">—</td>'; }
+  function nvDash() { return '<td style="padding:7px 8px;border-bottom:1px solid var(--linen);text-align:right;color:var(--warm-gray);">—</td>'; }
   function nvVar(v) {
     if (v == null) return nvDash();
-    return '<td style="padding:7px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;color:' + (v < 0 ? '#B85C3A' : (v > 0 ? '#6B8F71' : '#8A8377')) + ';">' + (v > 0 ? '+' : '') + boardMoney(v) + '</td>';
+    return '<td style="padding:7px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;color:' + (v < 0 ? 'var(--danger)' : (v > 0 ? 'var(--sage)' : 'var(--warm-gray)')) + ';">' + (v > 0 ? '+' : '') + boardMoney(v) + '</td>';
   }
   var th = 'padding:7px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--warm-meta);border-bottom:1.5px solid var(--color-navy);';
   // Combined on the leading fund code, like every other per-fund view. A council page has no
@@ -1377,8 +1377,8 @@ function boardProjectionBasis(k, method) {
   var totVar = k.budget_variance_cents;
   var totRow = '<tr><td style="padding:8px;font-weight:700;">Total</td>'
     + '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(k.given_ytd_cents) + '</td>'
-    + (k.budget_ytd_cents != null ? '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(k.budget_ytd_cents) + '</td>' : '<td style="padding:8px;text-align:right;color:#8A8377;">—</td>')
-    + (totVar == null ? '<td style="padding:8px;text-align:right;color:#8A8377;">—</td>' : '<td style="padding:8px;text-align:right;font-weight:700;color:' + (totVar < 0 ? '#B85C3A' : '#6B8F71') + ';font-variant-numeric:tabular-nums;">' + (totVar > 0 ? '+' : '') + boardMoney(totVar) + '</td>')
+    + (k.budget_ytd_cents != null ? '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(k.budget_ytd_cents) + '</td>' : '<td style="padding:8px;text-align:right;color:var(--warm-gray);">—</td>')
+    + (totVar == null ? '<td style="padding:8px;text-align:right;color:var(--warm-gray);">—</td>' : '<td style="padding:8px;text-align:right;font-weight:700;color:' + (totVar < 0 ? 'var(--danger)' : 'var(--sage)') + ';font-variant-numeric:tabular-nums;">' + (totVar > 0 ? '+' : '') + boardMoney(totVar) + '</td>')
     + '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">' + boardMoney(k.given_ytd_prior_cents) + '</td></tr>';
   var fundTable = '<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:26px;"><thead><tr>'
     + '<th style="text-align:left;' + th + '">Fund</th><th style="text-align:right;' + th + '">YTD</th><th style="text-align:right;' + th + '">Budget</th><th style="text-align:right;' + th + '">Variance</th><th style="text-align:right;' + th + '">' + d.prior_year + '</th>'
@@ -1429,8 +1429,8 @@ function boardPrintSummaryHtml(d) {
       var prior = g.rows.reduce(function(s, f) { return s + (f.prior_cents || 0); }, 0);
       return '<tr><td style="padding:5px 8px;border-bottom:1px solid var(--linen);">' + esc(g.label) + '</td>'
         + '<td class="num" style="padding:5px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;">' + boardMoney(g.total) + '</td>'
-        + '<td class="num" style="padding:5px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;color:#8A8377;">' + boardMoney(prior) + '</td></tr>';
-    }).join('') || '<tr><td colspan="3" style="padding:5px 8px;color:#8A8377;">No funds in this category.</td></tr>';
+        + '<td class="num" style="padding:5px 8px;border-bottom:1px solid var(--linen);text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + boardMoney(prior) + '</td></tr>';
+    }).join('') || '<tr><td colspan="3" style="padding:5px 8px;color:var(--warm-gray);">No funds in this category.</td></tr>';
     return '<div style="margin-bottom:18px;"><div class="board-card-label" style="margin-bottom:6px;">' + esc(cb.label)
       + ' &mdash; ' + boardMoney(cb.given_ytd_cents) + ' YTD</div>'
       + '<table class="rpt-table"><thead><tr><th>Fund</th><th class="num">YTD</th><th class="num">Prior year</th></tr></thead>'

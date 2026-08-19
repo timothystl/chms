@@ -286,7 +286,7 @@ function runPeopleInsights(scope) {
       return '<div' + clickAttrs + '>'
         + '<div style="flex:0 0 120px;font-size:.85rem;color:var(--charcoal);">'+esc(b.label)+'</div>'
         + '<div style="flex:1;background:var(--linen);border-radius:4px;height:15px;overflow:hidden;">'
-        + '<div style="background:#C9973A;height:100%;width:'+pct+'%;"></div></div>'
+        + '<div style="background:var(--color-gold);height:100%;width:'+pct+'%;"></div></div>'
         + '<div style="flex:0 0 90px;text-align:right;font-size:.82rem;color:var(--warm-gray);">'+b.n+' ('+pct+'%)</div></div>';
     }).join('');
     var ageBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
@@ -364,7 +364,7 @@ function runPeopleInsights(scope) {
       + ['member','active'].map(function(s) {
           var lbl = s === 'member' ? 'Members Only' : 'All Active';
           var active = d.scope === s;
-          return '<button class="btn-secondary" style="font-size:.8rem;padding:4px 12px;'+(active?'background:var(--teal);color:#fff;border-color:var(--teal);':'')+'" onclick="runPeopleInsights(\''+s+'\')">'+lbl+'</button>';
+          return '<button class="btn-secondary" style="font-size:.8rem;padding:4px 12px;'+(active?'background:var(--teal);color:var(--white);border-color:var(--teal);':'')+'" onclick="runPeopleInsights(\''+s+'\')">'+lbl+'</button>';
         }).join('')
       + '</div>';
     showRptOutput(
@@ -880,7 +880,7 @@ function runContactCompleteness(scope) {
     }).join('');
     var scopeBtn = function(val, lbl) {
       var active = scope === val;
-      return '<button class="btn-sm" style="padding:4px 10px;font-size:.8rem;' + (active ? 'background:var(--steel-anchor);color:#fff;' : 'background:var(--linen);color:var(--charcoal);') + 'border:1px solid var(--border);border-radius:6px;cursor:pointer;" onclick="runContactCompleteness(\'' + val + '\')">' + lbl + '</button>';
+      return '<button class="btn-sm" style="padding:4px 10px;font-size:.8rem;' + (active ? 'background:var(--steel-anchor);color:var(--white);' : 'background:var(--linen);color:var(--charcoal);') + 'border:1px solid var(--border);border-radius:6px;cursor:pointer;" onclick="runContactCompleteness(\'' + val + '\')">' + lbl + '</button>';
     };
     showRptOutput(
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px;">'
@@ -959,7 +959,7 @@ function runGivingInsights() {
       return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
         + '<div style="flex:0 0 110px;font-size:.85rem;color:var(--charcoal);">' + esc(b.label) + '</div>'
         + '<div style="flex:1;background:var(--linen);border-radius:4px;height:16px;overflow:hidden;position:relative;">'
-        + '<div style="background:#2E7EA6;height:100%;width:' + pct + '%;"></div></div>'
+        + '<div style="background:var(--color-teal);height:100%;width:' + pct + '%;"></div></div>'
         + '<div style="flex:0 0 110px;text-align:right;font-size:.82rem;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + b.n + ' (' + pct + '%)</div></div>';
     }).join('');
     var freqBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
@@ -1040,7 +1040,7 @@ function platOptionCell(opt) {
   return '<td style="text-align:right;">'
     + '<div style="font-weight:600;color:var(--steel-anchor);">' + fmtWholeDollars(opt.target_cents) + '/wk</div>'
     + '<div style="font-size:.74rem;color:var(--warm-gray);">+' + fmtWholeDollars(opt.delta_cents) + '/wk &rarr; +' + fmtWholeDollars(opt.annual_delta_cents) + '/yr</div>'
-    + (opt.impact_text ? '<div style="font-size:.74rem;color:#2E7EA6;margin-top:2px;">' + esc(opt.impact_text) + '</div>' : '')
+    + (opt.impact_text ? '<div style="font-size:.74rem;color:var(--color-teal);margin-top:2px;">' + esc(opt.impact_text) + '</div>' : '')
     + '</td>';
 }
 function renderGivingPlateaus(d) {
@@ -1136,7 +1136,7 @@ function renderGivingPlateaus(d) {
     return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'
       + '<div style="flex:0 0 60px;text-align:right;font-size:.82rem;color:var(--charcoal);font-variant-numeric:tabular-nums;">$' + r.plateau_dollars + '</div>'
       + '<div style="flex:1;background:var(--linen);border-radius:4px;height:14px;overflow:hidden;">'
-      + '<div style="background:#C9973A;height:100%;width:' + pct + '%;"></div></div>'
+      + '<div style="background:var(--color-gold);height:100%;width:' + pct + '%;"></div></div>'
       + '<div style="flex:0 0 46px;text-align:right;font-size:.8rem;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + (r.n||0) + '</div></div>';
   }).join('');
   var distBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
@@ -1300,7 +1300,7 @@ function renderGivingBands(d) {
     var pct = Math.round((b.n || 0) * 100 / maxN);
     return '<tr' + (b.n ? '' : ' style="color:var(--warm-gray);"') + '>'
       + '<td style="font-weight:600;color:var(--steel-anchor);white-space:nowrap;">' + bandLabel(b) + '</td>'
-      + '<td style="min-width:120px;"><div style="background:var(--linen);border-radius:4px;height:12px;overflow:hidden;"><div style="background:#2E7EA6;height:100%;width:' + pct + '%;"></div></div></td>'
+      + '<td style="min-width:120px;"><div style="background:var(--linen);border-radius:4px;height:12px;overflow:hidden;"><div style="background:var(--color-teal);height:100%;width:' + pct + '%;"></div></div></td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (b.n || 0) + '</td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + fmtWholeDollars(b.avg_per_period_cents) + '/' + per + '</td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtWholeDollars(b.total_cents) + '</td>'
@@ -1414,7 +1414,7 @@ function renderGivingVsAttendance(d) {
     + '</div>';
   var legend = '<div style="display:flex;gap:18px;justify-content:center;margin-top:8px;font-size:.82rem;">'
     + '<span><span style="display:inline-block;width:14px;height:14px;background:#5A9E6F;opacity:.55;vertical-align:middle;margin-right:5px;"></span>Attendance (bars, left axis)</span>'
-    + '<span><span style="display:inline-block;width:14px;height:3px;background:#2E7EA6;vertical-align:middle;margin-right:5px;"></span>Giving (line, right axis)</span>'
+    + '<span><span style="display:inline-block;width:14px;height:3px;background:var(--color-teal);vertical-align:middle;margin-right:5px;"></span>Giving (line, right axis)</span>'
     + '</div>';
   return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
     + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving × Attendance — ' + esc(fmtDate(d.from)) + ' to ' + esc(fmtDate(d.to)) + '</h3>'
