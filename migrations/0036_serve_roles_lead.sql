@@ -1,0 +1,11 @@
+-- Who runs a Christmas Market job on the day.
+--
+-- Typed by the coordinator in the Add/Edit shift modal, alongside the shift's own
+-- name, times and spot count — never derived from who signed up. A job lead is
+-- usually a committee member running the job rather than somebody occupying one of
+-- its spots, so reading a lead off signup_slots would leave most jobs blank and
+-- would call the first person to sign up the person in charge.
+--
+-- Blank is a real state, and the website's Volunteers tab prints it as
+-- "Lead · Unassigned", which is honest.
+ALTER TABLE serve_roles ADD COLUMN lead TEXT NOT NULL DEFAULT '';

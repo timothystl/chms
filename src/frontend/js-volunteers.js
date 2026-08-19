@@ -652,7 +652,10 @@ function volRenderEventDetail() {
             var full = r.slots > 0 && (r.filled_count||0) >= r.slots;
             var barColor = full ? '#8C8880' : '#4A5E3A';
             return '<div class="ev-shift-row" onclick="volOpenShiftModal(' + ev.id + ',' + dateArg + ',' + r.id + ')">'
-              + '<div><div class="ev-shift-name">' + esc(r.name) + '</div>' + (r.start_time ? '<div class="ev-shift-time">' + esc(r.start_time) + '&ndash;' + esc(r.end_time||'') + '</div>' : '') + '</div>'
+              + '<div><div class="ev-shift-name">' + esc(r.name) + '</div>'
+                + (r.start_time ? '<div class="ev-shift-time">' + esc(r.start_time) + '&ndash;' + esc(r.end_time||'') + '</div>' : '')
+                + (r.lead ? '<div class="ev-shift-time">Lead &middot; ' + esc(r.lead) + '</div>' : '')
+                + '</div>'
               + '<div class="ev-fill-bar"><div style="width:' + pct + '%;background:' + barColor + ';"></div></div>'
               + '<div class="ev-fill-count" style="color:' + barColor + ';">' + (r.filled_count||0) + ' / ' + (r.slots||0) + '</div>'
               + '<div class="ev-edit-link">Edit</div>'
@@ -741,6 +744,7 @@ function volOpenShiftModal(evId, dayDate, roleId) {
   document.getElementById('vol-shift-start').value = volToTimeInput(role ? (role.start_time||'') : '');
   document.getElementById('vol-shift-end').value = volToTimeInput(role ? (role.end_time||'') : '');
   document.getElementById('vol-shift-slots').value = role ? (role.slots||0) : 0;
+  document.getElementById('vol-shift-lead').value = role ? (role.lead||'') : '';
   document.getElementById('vol-shift-filled-hint').textContent = role
     ? ((role.filled_count||0) + ' of ' + (role.slots||0) + ' filled · safe to change spot count any time')
     : 'New shift · starts with 0 filled';
@@ -758,6 +762,11 @@ function volSaveShift() {
     start_time: volFromTimeInput(document.getElementById('vol-shift-start').value || ''),
     end_time: volFromTimeInput(document.getElementById('vol-shift-end').value || ''),
     slots: parseInt(document.getElementById('vol-shift-slots').value || '0', 10) || 0,
+    // Blank is a real answer, and stays blank. Nobody is guessed at from the sign-up
+    // list -- a lead is usually a committee member running the job rather than one of
+    // the people occupying its spots, so an empty box means "nobody named yet", which
+    // the Christmas Market admin over on the website prints as Unassigned.
+    lead: (document.getElementById('vol-shift-lead').value || '').trim(),
   };
   if (!body.name) { alert('Please enter a shift name.'); return; }
   var url = '/admin/api/events/' + s.eventId + '/roles' + (s.roleId ? '/' + s.roleId : '');

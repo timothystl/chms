@@ -21,7 +21,8 @@ export const DB_INIT = [
     sort_order INTEGER NOT NULL DEFAULT 0,
     role_date TEXT NOT NULL DEFAULT '',
     start_time TEXT NOT NULL DEFAULT '',
-    end_time TEXT NOT NULL DEFAULT ''
+    end_time TEXT NOT NULL DEFAULT '',
+    lead TEXT NOT NULL DEFAULT ''
   )`,
   `CREATE TABLE IF NOT EXISTS signups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1293,6 +1294,12 @@ async function _doInitDb(db) {
     'ALTER TABLE serve_roles ADD COLUMN role_date TEXT NOT NULL DEFAULT ""',
     'ALTER TABLE serve_roles ADD COLUMN start_time TEXT NOT NULL DEFAULT ""',
     'ALTER TABLE serve_roles ADD COLUMN end_time TEXT NOT NULL DEFAULT ""',
+    // Who runs this job on the day. Typed by the coordinator in the Add/Edit shift
+    // modal, never derived from who signed up — a lead is usually a committee member
+    // running the job rather than somebody occupying one of its spots, so reading it
+    // off signup_slots would leave most jobs blank and would call the first person to
+    // sign up the person in charge. Blank is a real state and prints "Unassigned".
+    'ALTER TABLE serve_roles ADD COLUMN lead TEXT NOT NULL DEFAULT ""',
     'ALTER TABLE serve_roles ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE serve_events ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE serve_events ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0',

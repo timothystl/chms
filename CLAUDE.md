@@ -1095,6 +1095,90 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
 they are one role check at one line in `tlc-volunteer-worker.js`, and both are reachable today by the account
 tier CONN2/TLY1 are about to invite the congregation into.
 
+### MKT2 — The market summary sends real shift times and a job lead (2026-08-19, DONE)
+The other half of the website repo's v5.30.0 roster redesign (see its own CLAUDE.md,
+"The vendor row is the form, and the roster is four views"). That side reads this
+endpoint four ways — by job, by time, a grid against the clock, and a master list —
+and three of those four are arithmetic over a start and an end. It had a `label` to
+parse and nothing else. **Four optional fields, all additive: `shifts[].start`,
+`shifts[].end`, `shifts[].date`, and `lead`.** No key that existed was changed or
+removed; the website needed no change at all, because `normalizeRoster()` already
+prefers all four the moment they appear.
+
+- **Three of the four needed no schema work.** `serve_roles.role_date` /
+  `start_time` / `end_time` have been populated since the market's own seed
+  (`XMAS_MARKET_ROLES`, `src/db.js`) — they were simply never in the payload. The
+  SELECT was widened and they are passed through verbatim.
+- **⚠ EVERY TIME IS A WALL CLOCK AND MUST STAY ONE.** `start`/`end` are the stored
+  strings as typed (`9:00 AM`); `date` is a bare `YYYY-MM-DD`. No `Z`, no offset,
+  nothing to convert. The caller reads the literal hour and minute digits out of
+  whatever it is given, so `2026-12-05T15:00:00Z` meaning 9am Central is drawn at
+  3pm — a crew told to arrive six hours late, with nothing on screen looking wrong.
+  A test asserts no time in the payload ends in `Z` or an offset.
+- **⚠ `label` IS STILL SENT.** It is the caller's fallback and it is what a shift
+  with no recorded time still prints. A test pins every pre-existing key.
+- **⚠ `date` GOES ON THE SHIFT, NEVER ON THE GROUP.** A group in this payload is a
+  job NAME, and the market's jobs repeat across both days — Kitchen runs Friday and
+  Saturday — so a group-level date would be wrong for exactly the jobs the day
+  switch exists to separate. A malformed value is dropped rather than passed on.
+
+**`lead` was the one real design question, and the answer is a new
+`serve_roles.lead` column typed by the coordinator** (migration `0036`, a field in
+the existing Add/Edit shift modal, also shown on the shift row so a job with no lead
+is visible without opening it). Nothing in this repo had any per-role owner or
+contact — `grep` for lead/leader/coordinator/owner across the scheduler, the events
+admin and the volunteers UI returned nothing. The three candidates and why this one:
+
+| Option | Why not |
+|---|---|
+| Derive it from a signup | A lead is usually a committee member RUNNING the job, not somebody occupying one of its spots. Most jobs would read blank, and the ones that did not would call whoever signed up first the person in charge. |
+| A separate leads table | A lead is a property of the shift, exactly like its name, times and spot count — all of which are already typed in one modal. A second table is a second place to look and a join to keep in step. |
+| **A column, typed in the shift modal** | One editor, no join, no second source of truth, and it is where somebody already goes to change anything else about that shift. |
+
+- **⚠ NOBODY IS SEEDED. `XMAS_MARKET_ROLES` ships every lead blank, deliberately.**
+  Two of its descriptions name a person ("Help Rick run power cords", "Go with Marla
+  to G&W"), and it is tempting to read those as leads — but that is inferring an
+  assignment nobody made. Blank is a real state, and the website prints it as
+  "Lead · Unassigned", which is honest. The coordinator fills them in.
+- **⚠ THE GROUP LEAD IS WITHHELD WHEN TWO SHIFTS OF ONE JOB NAME DIFFERENT PEOPLE.**
+  The caller reads one lead per job and copies it onto every shift of that job, so a
+  Kitchen led by Marla on Friday and Rick on Saturday cannot both be true of the
+  group — and emitting the first one found would print a real person against the
+  wrong day, which is worse than Unassigned. Per-shift `lead` is always exact and is
+  sent regardless, so the caller can get finer later without another change here.
+- **⚠ `lead` IS WITHHELD FROM THE PUBLIC `/api/events` PAYLOAD.** That route is
+  unauthenticated and, before this column existed, named nobody at all. Everything
+  else `serve_roles` holds is copy written to be read by visitors; a job lead is
+  staff-facing operational detail. The summary endpoint is the one that carries it,
+  and that one is behind `X-Intake-Key` precisely because it already returns names
+  and email addresses.
+
+**Verified end to end across both repos, not just that the JSON changed shape.** The
+real handler was run over the real seed (36 jobs, 67 shifts, both days), and its
+actual output fed into the real website Worker with only the Serve fetch stubbed:
+the Friday/Saturday switch appears and each day shows only its own jobs; the grid
+draws a 7:30–11:00 block at **269px** against the 9:00–11:00 beside it at **152px**;
+"Lead · Rick Vogel" is on the by-job panel and "lead: Marla Beck" on the printed
+sheet, with "Unassigned" where nobody is named; and `/market/volunteers.csv` fills
+Day, Date, Job lead, Start, End and Hours on all 206 rows with none blank.
+
+**⚠ Two honest findings from that pass, worth not overstating this change:**
+(1) **Untimed was already 0, before and after.** The market's own labels
+(`marketShiftLabel()`) always carry the date and both times with explicit AM/PM, so
+the caller's parser reads all 67 — and compared shift by shift, parsing and the
+structured truth **agreed on every one**. The times half of this removes a
+*dependency*, not a live defect: change the label format here and three of the four
+views break silently over there. (2) A shift with genuinely no recorded time still
+reads untimed rather than being given a guess, which is the behavior to keep.
+
+Run: `npx vitest run test/market-signup-summary.test.js test/market-shift-lead.test.js`
+(19 + 8). **Every new test verified non-vacuous** by injecting the exact regression
+it guards — 11 injections, 11 correct failure sets. ⚠ **One of my own checks was
+vacuous and was rewritten**: a "the role guard is really exercised" test re-pointed
+`env.ADMIN_PASSWORD`, which moves the signing key on BOTH sides, so the cookie still
+verified and all eight passed against a removed guard. It now signs with a
+deliberately different key. **Not verified**: a live browser, or a real deploy.
+
 ### SITE2 follow-up — Link-to-Person search by name, not email; live-as-you-type (2026-08-19, DONE)
 Two asks after using the new duplicate-merge tools live: (1) the "Link to Person Record" modal
 prefilled and searched its box with the sign-up's **email** first — for a work/personal address

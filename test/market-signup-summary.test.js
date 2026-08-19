@@ -27,7 +27,8 @@ function makeTestDb() {
     sort_order INTEGER NOT NULL DEFAULT 0,
     role_date TEXT NOT NULL DEFAULT '',
     start_time TEXT NOT NULL DEFAULT '',
-    end_time TEXT NOT NULL DEFAULT ''
+    end_time TEXT NOT NULL DEFAULT '',
+    lead TEXT NOT NULL DEFAULT ''
   )`);
   sqlite.exec(`CREATE TABLE signups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,12 +81,12 @@ function seedMarket(db, { hidden = 0, slug = 'christmasmarket' } = {}) {
   const evId = 1;
   // Two "Parking" shifts on market day plus a setup-day role, so grouping,
   // labeling and per-shift counting are all exercised.
-  s.prepare('INSERT INTO serve_roles (event_id,name,slots,sort_order,role_date,start_time,end_time) VALUES (?,?,?,?,?,?,?)')
-    .run(evId, 'Set up tents', 4, 0, '2026-12-04', '9:00 AM', '11:00 AM');
-  s.prepare('INSERT INTO serve_roles (event_id,name,slots,sort_order,role_date,start_time,end_time) VALUES (?,?,?,?,?,?,?)')
-    .run(evId, 'Parking', 2, 1, '2026-12-05', '8:30 AM', '11:00 AM');
-  s.prepare('INSERT INTO serve_roles (event_id,name,slots,sort_order,role_date,start_time,end_time) VALUES (?,?,?,?,?,?,?)')
-    .run(evId, 'Parking', 2, 2, '2026-12-05', '11:00 AM', '2:30 PM');
+  const ins = 'INSERT INTO serve_roles (event_id,name,slots,sort_order,role_date,start_time,end_time,lead) VALUES (?,?,?,?,?,?,?,?)';
+  // "Set up tents" deliberately has no lead: blank is a real state, and the caller
+  // prints it as Unassigned rather than being handed a guess.
+  s.prepare(ins).run(evId, 'Set up tents', 4, 0, '2026-12-04', '9:00 AM', '11:00 AM', '');
+  s.prepare(ins).run(evId, 'Parking', 2, 1, '2026-12-05', '8:30 AM', '11:00 AM', 'Rick Vogel');
+  s.prepare(ins).run(evId, 'Parking', 2, 2, '2026-12-05', '11:00 AM', '2:30 PM', 'Rick Vogel');
   return evId;
 }
 
@@ -155,6 +156,72 @@ describe('GET /api/signups/christmasmarket/summary', () => {
     expect(tents.shifts[0]).toMatchObject({ needed: 4, filled: 0, people: [] });
   });
 
+  it('sends structured start, end and date alongside the label, as wall clocks', async () => {
+    seedMarket(db);
+    const d = await (await handleChristmasMarketSummary(reqWith(KEY), env)).json();
+    const parking = d.roles.find(r => r.name === 'Parking');
+
+    expect(parking.shifts[0]).toMatchObject({
+      date: '2026-12-05', start: '8:30 AM', end: '11:00 AM',
+    });
+    expect(parking.shifts[1]).toMatchObject({
+      date: '2026-12-05', start: '11:00 AM', end: '2:30 PM',
+    });
+    // The setup day is a different date, which is what lets the caller draw a
+    // Friday/Saturday switch at all.
+    const tents = d.roles.find(r => r.name === 'Set up tents');
+    expect(tents.shifts[0].date).toBe('2026-12-04');
+
+    // The label is the fallback and must survive alongside the structured fields.
+    expect(parking.shifts[0].label).toBe('Sat, Dec 5, 8:30 AM – 11:00 AM');
+  });
+
+  it('never sends a UTC instant or an offset in a time', async () => {
+    seedMarket(db);
+    const d = await (await handleChristmasMarketSummary(reqWith(KEY), env)).json();
+    for (const role of d.roles) {
+      for (const sh of role.shifts) {
+        // A trailing Z or a +HH:MM offset would be read as a wall clock by the
+        // caller and drawn hours away from when the crew is actually asked to be
+        // there. Wall clock only, forever.
+        expect(sh.start).not.toMatch(/Z$|[+-]\d{2}:\d{2}$/);
+        expect(sh.end).not.toMatch(/Z$|[+-]\d{2}:\d{2}$/);
+      }
+    }
+  });
+
+  it('sends the job lead on the group and on each shift', async () => {
+    seedMarket(db);
+    const d = await (await handleChristmasMarketSummary(reqWith(KEY), env)).json();
+    const parking = d.roles.find(r => r.name === 'Parking');
+    expect(parking.lead).toBe('Rick Vogel');
+    expect(parking.shifts.map(sh => sh.lead)).toEqual(['Rick Vogel', 'Rick Vogel']);
+  });
+
+  it('leaves a job with no lead recorded genuinely blank', async () => {
+    seedMarket(db);
+    const d = await (await handleChristmasMarketSummary(reqWith(KEY), env)).json();
+    const tents = d.roles.find(r => r.name === 'Set up tents');
+    expect(tents.lead).toBeUndefined();
+    expect(tents.shifts[0].lead).toBe('');
+  });
+
+  it('keeps every key the caller already depended on', async () => {
+    const evId = seedMarket(db);
+    addVolunteer(db, evId, 'Ray Stoltz', 'ray@example.com', [2]);
+    const d = await (await handleChristmasMarketSummary(reqWith(KEY), env)).json();
+    expect(Object.keys(d).sort()).toEqual(['open', 'openShifts', 'roles', 'signedUp']);
+    for (const role of d.roles) {
+      expect(role).toHaveProperty('name');
+      expect(role).toHaveProperty('shifts');
+      for (const sh of role.shifts) {
+        for (const k of ['label', 'needed', 'filled', 'people']) {
+          expect(sh).toHaveProperty(k);
+        }
+      }
+    }
+  });
+
   it('reports open=false for a hidden event without hiding its data', async () => {
     const evId = seedMarket(db, { hidden: 1 });
     addVolunteer(db, evId, 'Ray Stoltz', 'ray@example.com', [2]);
@@ -189,6 +256,37 @@ describe('market summary shaping', () => {
     expect(out.roles[0].shifts[0].needed).toBeNull();
     // A shift with no stated capacity can't be counted as short-handed.
     expect(out.openShifts).toBe(0);
+  });
+
+  it('withholds a group lead when two shifts of one job name different people', () => {
+    const roles = [
+      { id: 1, name: 'Kitchen', slots: 3, role_date: '2026-12-04', start_time: '9:00 AM', end_time: '11:00 AM', lead: 'Marla Beck' },
+      { id: 2, name: 'Kitchen', slots: 3, role_date: '2026-12-05', start_time: '11:00 AM', end_time: '1:00 PM', lead: 'Rick Vogel' },
+    ];
+    const out = buildMarketSummary(roles, new Map());
+    // Neither name is true of the group, and printing the first one found would put
+    // a real person against the wrong day. Unassigned is the honest answer.
+    expect(out.roles[0].lead).toBeUndefined();
+    // The per-shift figures stay exact either way.
+    expect(out.roles[0].shifts.map(sh => sh.lead)).toEqual(['Marla Beck', 'Rick Vogel']);
+  });
+
+  it('states the group lead when only some shifts of a job name one, and they agree', () => {
+    const roles = [
+      { id: 1, name: 'Kitchen', slots: 3, role_date: '2026-12-05', start_time: '9:00 AM', end_time: '11:00 AM', lead: '' },
+      { id: 2, name: 'Kitchen', slots: 3, role_date: '2026-12-05', start_time: '11:00 AM', end_time: '1:00 PM', lead: 'Marla Beck' },
+    ];
+    expect(buildMarketSummary(roles, new Map()).roles[0].lead).toBe('Marla Beck');
+  });
+
+  it('drops a date that is not a bare YYYY-MM-DD rather than passing it through', () => {
+    const roles = [
+      { id: 1, name: 'Kitchen', slots: 1, role_date: 'Saturday', start_time: '9:00 AM', end_time: '11:00 AM' },
+    ];
+    // The caller tests the same shape before trusting it, so a malformed value would
+    // simply be ignored there -- but sending one at all invites somebody to widen the
+    // test at the other end instead of fixing the data.
+    expect(buildMarketSummary(roles, new Map()).roles[0].shifts[0].date).toBe('');
   });
 
   it('preserves the order shifts arrive in within a role group', () => {
