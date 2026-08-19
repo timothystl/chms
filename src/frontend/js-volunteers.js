@@ -10,13 +10,6 @@ var VOL_MINISTRY_LABELS = {all:'All',worship:'Worship',events:'Events',education
   acceptance:'Acceptance',outreach:'Outreach',transportation:'Transportation',general:'General'};
 var VOL_STATUS_LABELS = {new:'New',contacted:'Contacted',confirmed:'Confirmed',declined:'Declined'};
 
-// JSON.stringify wraps in double quotes, which breaks out of a double-quoted onclick="" attribute.
-// HTML-entity-encoding those quotes lets the browser decode them back to real quotes when it
-// reads the attribute value, without ever closing the attribute early.
-function volJsAttr(v) {
-  return JSON.stringify(v).replace(/"/g, '&quot;');
-}
-
 function volShowSection(section, btn) {
   ['signups', 'mroles', 'events', 'templates'].forEach(function(s) {
     var panel = document.getElementById('vol-panel-' + s);
@@ -44,7 +37,7 @@ function volRenderStatusPills() {
     var cls = st === 'all' ? 'background:' + (_volStatusFilter==='all'?'var(--navy)':'var(--linen)') + ';color:' + (_volStatusFilter==='all'?'#fff':'var(--charcoal)') + ';' : '';
     var pillClass = st === 'all' ? '' : ' status-pill status-' + st;
     var activeRing = _volStatusFilter === st ? 'box-shadow:0 0 0 2px rgba(30,45,74,.4);' : '';
-    return '<span class="' + pillClass + '" style="cursor:pointer;font-size:.78rem;font-weight:600;padding:4px 12px;border-radius:99px;' + cls + activeRing + '" onclick="volSetStatusFilter(' + volJsAttr(st) + ')">' + label + ' (' + counts[st] + ')</span>';
+    return '<span class="' + pillClass + '" style="cursor:pointer;font-size:.78rem;font-weight:600;padding:4px 12px;border-radius:99px;' + cls + activeRing + '" onclick="volSetStatusFilter(' + jsAttr(st) + ')">' + label + ' (' + counts[st] + ')</span>';
   }).join('');
 }
 
@@ -119,7 +112,7 @@ function volRenderSignupsList() {
           + '<div class="vol-sig-actions">'
           + statusSelect
           + '<span style="font-size:.75rem;color:var(--warm-gray);">' + esc((s.created_at||'').slice(0,10)) + '</span>'
-          + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;" onclick="volOpenLinkPerson(' + s.id + ',' + volJsAttr(esc(s.name)) + ',' + volJsAttr(esc(s.email)) + ',' + (s.person_id||'null') + ',' + volJsAttr(esc(s.linked_person_name||'')) + ')" title="Link to person record">'
+          + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;" onclick="volOpenLinkPerson(' + s.id + ',' + jsAttr(s.name) + ',' + jsAttr(s.email) + ',' + (s.person_id||'null') + ',' + jsAttr(s.linked_person_name||'') + ')" title="Link to person record">'
           + (s.person_id ? '↩ Relink' : '+ Link') + '</button>'
           + (s.email ? '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;color:var(--teal);border-color:rgba(46,126,166,.3);" data-sig-id="' + s.id + '" data-sig-name="' + esc(s.name) + '" data-sig-email="' + esc(s.email) + '" data-sig-ministry="' + esc(s.ministry) + '" onclick="volOpenSendEmail(this)">✉ Email</button>' : '')
           + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;color:var(--danger);border-color:rgba(192,57,43,.3);" onclick="volDeleteSignup(' + s.id + ')">Remove</button>'
@@ -978,7 +971,7 @@ function volRenderMRolesList() {
     var label = MR_MINISTRY_LABELS[key] || key || 'Other';
     var collapsed = !q && !!_volMRoleCollapsed[key];
     var hasActive = collapsed && groups[key].some(function(r){ return r.id === _volActiveMRoleId; });
-    return '<div class="ev-list-group-hdr' + (collapsed ? ' collapsed' : '') + '" onclick="volToggleMRoleGroup(' + volJsAttr(key) + ')" title="' + (hasActive ? 'Contains the selected role' : '') + '">'
+    return '<div class="ev-list-group-hdr' + (collapsed ? ' collapsed' : '') + '" onclick="volToggleMRoleGroup(' + jsAttr(key) + ')" title="' + (hasActive ? 'Contains the selected role' : '') + '">'
       + '<span class="ev-list-group-chevron">&#9662;</span>' + esc(label)
       + (hasActive ? '<span class="ev-list-group-active-dot" aria-label="Contains the selected role"></span>' : '') + '</div>'
       + (collapsed ? '' : groups[key].map(function(r) {

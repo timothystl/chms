@@ -24,6 +24,90 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.191.0 — Phase 21: the scheduler backend gate stops treating authentication as authorization (2026-08-19)
+
+Security hotfix, nothing else in it. Closes SEC11-SEC14 and DSN9 from the CR10 review.
+
+**The two criticals were one line.** `tlc-volunteer-worker.js` gated the whole scheduler
+backend block on `schedAuthed = (WORKER_SECRET match) || await isAuthed(req, env)`, with a
+comment saying these routes "must never be publicly reachable without authentication." That was
+true when every session belonged to staff. The `role='member'` tier (CONN1/CONN2) made it false
+— a congregant's read-only directory cookie satisfies `isAuthed()` — so a member reached:
+
+- **`POST /email/send`**: arbitrary `to`/`subject`/`html`/`attachments` through Resend, sent as
+  the church's verified `EMAIL_FROM`. A phishing primitive with the church's own domain
+  reputation behind it, aimed at the congregation.
+- **`/api/*` and `/breeze/*`**: the Breeze proxy, forwarding **any method and any path** with
+  `BREEZE_API_KEY`. Read *and write* on the church's entire Breeze database — giving, notes,
+  everyone the ChMS member view deliberately filters out.
+- **`/serve/pending`, `/serve/general-pending`, `/serve/event-pending`**: volunteer names,
+  emails, phones, free-text notes.
+
+All three were confirmed reachable against the real worker with a real HMAC-signed member
+cookie before the fix, and confirmed 403 with no upstream call after it.
+
+Fixed at the gate, not per handler: `schedPrivileged` (admin/staff, or the worker secret) plus
+one `isPrivilegedSchedPath` set. **⚠ The `X-Worker-Secret` bypass still works** — the
+scheduler's own server-to-server calls ride it. **⚠ `/esv/passage` stays open to any
+authenticated role** (public Scripture text, no PII, key never leaves the server). The
+privileged set is a LIST, not "everything after the gate", specifically so the `/scheduler`
+redirect and the 404 catch-all keep their existing behavior — that catch-all's `no-store` is
+load-bearing. admin/**staff** matches SW1/SW2's bar for the `/admin/api/scheduler/*` siblings;
+the Scheduler tab itself is admin-only, so staff is deliberately a superset of what any UI can
+reach.
+
+**The escaping bug was worse than the review said, and the helper itself was the problem.**
+SEC13 reported `volJsAttr(esc(s.name))` on the Signups "Link" button. Testing the helper
+against hostile input showed `volJsAttr` was **also injectable on its own**: it escaped the
+quotes `JSON.stringify` added but not a literal `&quot;` already inside the value, which the
+HTML parser decodes back into a real quote just the same. So all 25 call sites were wrong, not
+one.
+
+**⚠ The order of the two steps is the whole thing**, and it is now written above the helper:
+
+    esc(JSON.stringify(v))                    ✅ stringify, then escape the finished literal
+    JSON.stringify(esc(v))                    ❌ SEC13 — esc's &quot; survives untouched
+    JSON.stringify(v).replace(/"/g,'&quot;')  ❌ the old volJsAttr — same, for a literal &quot;
+
+`volJsAttr` is therefore replaced by `jsAttr` in `js-core.js` beside `esc()` (retires DSN9 — a
+`vol*`-named helper called 29 times from `js-finance.js`), with a comment stating the two must
+never be composed. Verified against 13 hostile payloads: 0 injections, and every value
+round-trips to the handler byte-identical, so nothing about the Link/select behavior changed.
+
+Six SEC14 sites converted to `jsAttr(raw)`: `js-households.js` (household + person
+autocomplete), `js-reports.js` (household autocomplete), `js-export-import.js`
+(`svMigPickSearchResult`, and `bzlPickSearchResult` normalized even though it happened to be
+safe), `js-tuition-aid.js` (`tapPickSuggestion`). **⚠ Three of them carried a
+`.replace(/'/g,'&#39;')` on an already-`esc`'d value** — a no-op that read as protection, which
+is most of why they survived three previous passes at this bug class.
+
+Reachability was not theoretical: `POST /serve/signup` is fully public and takes `name` with no
+character filter, and `POST /api/intake/connect-card` (the website contact form) is the same for
+person names. Opening **Volunteers → Signups** rendered the button unconditionally.
+
+**Two new test files, 28 tests.** `test/scheduler-route-authz.test.js` drives the real worker
+with real signed cookies per role and asserts both the status code and that nothing reached
+Resend or Breeze; it also derives the route list from the worker's own source, so a route added
+below the gate without a matching entry fails. `test/inline-handler-escaping.test.js` guards the
+class rather than the instances — this is its fourth appearance (VUXBUG2 -> SW11 -> REV1 ->
+SEC13/SEC14) — with three source scans plus the real shipped `jsAttr` run through a full
+attribute-decode-and-execute round trip.
+
+**Every new test verified non-vacuous by injecting the exact regression it guards** (9
+injections, 9 correct failure sets): gate removed, gate widened to any authed role,
+worker-secret bypass broken, a route added below the gate but not to the list, `jsAttr` reverted
+to the old body, `jsAttr` escaping before stringify, SEC13 restored, SEC14 restored, and the
+no-op `.replace` sanitizer restored.
+
+`npm test` 1629/1629 (90 files, 5 skipped — the pypdf-gated block), up from 1601/88. Plus
+`node --check` on all four built bundles and the worker, and a div-balance scan of the assembled
+shell. **Not verified**: a live browser, a real phone, a real sent email, or production D1.
+(`tlc-volunteer-worker.js`, `src/frontend/js-core.js`, `src/frontend/js-volunteers.js`,
+`src/frontend/js-households.js`, `src/frontend/js-reports.js`,
+`src/frontend/js-export-import.js`, `src/frontend/js-tuition-aid.js`,
+`src/frontend/js-finance.js`, `src/frontend/js-giving.js`,
+`test/scheduler-route-authz.test.js`, `test/inline-handler-escaping.test.js`)
+
 ### v1.190.0 — FY base year computed from the roster; dental and vision corrected (2026-08-07)
 
 The "FY2027 comes out lower than FY2026" report, resolved. Two things were wrong.

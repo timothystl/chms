@@ -1403,9 +1403,10 @@ function tapLoadLinkSuggestions(family, child) {
     box.innerHTML = '<div style="font-size:.75rem;color:var(--warm-gray);margin-bottom:4px;">Suggested match' + (scored.length > 1 ? 'es' : '') + ' — click to select, or search below if none fit:</div>'
       + scored.map(function(x) {
         var p = x.p, best = x.score >= 4;
+        var raw = (p.first_name || '') + ' ' + (p.last_name || '');
         var n = esc(p.first_name) + ' ' + esc(p.last_name);
         var hh = p.household_name ? ' <span style="color:var(--warm-gray);font-size:.78rem;">(' + esc(p.household_name) + ')</span>' : '';
-        return '<div class="ac-item" style="border:1px solid var(--border);border-radius:8px;margin-bottom:4px;padding:6px 8px;cursor:pointer;' + (best ? 'background:var(--linen);' : '') + '" onclick="tapPickSuggestion(' + p.id + ',&#39;' + n.replace(/'/g, '&#39;') + '&#39;)">'
+        return '<div class="ac-item" style="border:1px solid var(--border);border-radius:8px;margin-bottom:4px;padding:6px 8px;cursor:pointer;' + (best ? 'background:var(--linen);' : '') + '" onclick="tapPickSuggestion(' + p.id + ',' + jsAttr(raw) + ')">'
           + (best ? '&#9733; ' : '') + n + hh + '</div>';
       }).join('');
   }).catch(function() { box.innerHTML = ''; });

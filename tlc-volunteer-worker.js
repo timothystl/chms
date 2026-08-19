@@ -7,7 +7,7 @@
 // v2 — modular build (src/)
 
 // ── Imports ────────────────────────────────────────────────────────────────────
-import { html, json, isAuthed, getAuthInfo, refreshAuthCookie, SCHED_CORS, isConnectHost, appRootPath } from './src/auth.js';
+import { html, json, isAuthed, getAuthInfo, getAuthRole, refreshAuthCookie, SCHED_CORS, isConnectHost, appRootPath } from './src/auth.js';
 import { initDb } from './src/db.js';
 import { LCMS_CALENDAR_JSON } from './src/lectionary.js';
 import {
@@ -546,14 +546,57 @@ async function _fetch(req, env) {
       }
     }
 
-    // ── Scheduler backend routes — require admin cookie OR WORKER_SECRET ──────
-    // These endpoints expose volunteer PII and church database access; they must
-    // never be publicly reachable without authentication.
+    // ── Scheduler backend routes — require admin/staff cookie OR WORKER_SECRET ──────
+    // These endpoints expose volunteer PII, the church's Resend mail credentials and a
+    // full read/write proxy to the Breeze database.
+    //
+    // ⚠ AUTHENTICATION IS NOT AUTHORIZATION HERE, and that distinction is the whole point
+    // of this block. Until 2026-08-19 the only gate was `isAuthed()`, which was correct when
+    // every session belonged to staff — but the `role='member'` tier (CONN1/CONN2) made it
+    // false. A congregant's read-only directory cookie satisfied `isAuthed()`, so it reached
+    // `POST /email/send` (arbitrary mail sent as the church's verified EMAIL_FROM, an
+    // outright phishing primitive) and the Breeze proxy (any method, any path, carrying
+    // BREEZE_API_KEY — giving, notes, everyone the member view deliberately filters out).
+    // Both were confirmed reachable against the real worker with a real member cookie
+    // before this fix; see SEC11/SEC12 in CLAUDE.md.
+    //
+    // SW1/SW2 hardened the `/admin/api/scheduler/*` siblings to admin/staff in v1.9.0 and
+    // these non-`/admin/api/` routes were never revisited. Same bar is applied here, so the
+    // two halves of the scheduler's own API agree. The Scheduler TAB is admin-only
+    // (`showTab` in js-core.js, plus `require-admin` on the sidebar item), so `staff` is
+    // deliberately a superset of what any UI can actually reach — it exists so a staff
+    // account granted scheduler data through SW1's endpoint is not half-authorized here.
+    //
+    // ⚠ The X-Worker-Secret bypass must keep working: the scheduler's own server-to-server
+    // calls ride it (`_workerHeaders()` in scheduler-html.js), and it predates cookie auth.
     const workerSecret = env.WORKER_SECRET || '';
     const reqSecret    = req.headers.get('X-Worker-Secret') || '';
-    const schedAuthed  = (workerSecret && reqSecret === workerSecret)
-                         || await isAuthed(req, env);
+    const hasWorkerSecret = !!(workerSecret && reqSecret === workerSecret);
+    // getAuthRole is memoized per request (see auth.js `_authCache`), so this costs nothing
+    // beyond the isAuthed() call it replaces.
+    const schedRole    = hasWorkerSecret ? null : await getAuthRole(req, env);
+    const schedAuthed  = hasWorkerSecret || schedRole !== null;
     if (!schedAuthed) return json({ error: 'Unauthorized' }, 401);
+    const schedPrivileged = hasWorkerSecret || schedRole === 'admin' || schedRole === 'staff';
+
+    // Everything in this block except /esv/passage is admin/staff-only. Listed once, as a
+    // set, rather than as a guard per handler — a route added to the block below without a
+    // matching entry here fails CLOSED only if it is also added here, so the companion test
+    // (test/scheduler-route-authz.test.js) asserts the two lists stay in step.
+    // /esv/passage stays open to any authenticated role: it returns public Scripture text
+    // and holds no PII, and the ESV key never leaves the server.
+    const isPrivilegedSchedPath =
+         path === '/serve/pending'         || path === '/volunteer/pending'
+      || path === '/serve/general-pending' || path === '/volunteer/general-pending'
+      || path === '/serve/event-pending'   || path === '/volunteer/event-pending'
+      || path === '/email/send'
+      || path === '/rsvp/store'
+      || path === '/rsvp/sync'
+      || path.startsWith('/breeze/')
+      || (path.startsWith('/api/') && path !== '/api/events');
+    if (isPrivilegedSchedPath && !schedPrivileged) {
+      return json({ error: 'Access denied' }, 403);
+    }
 
     if ((path === '/serve/pending'         || path === '/volunteer/pending')         && method === 'GET') return handleVolunteerPending(env);
     if ((path === '/serve/general-pending' || path === '/volunteer/general-pending') && method === 'GET') return handleVolunteerGeneralPending(env);
