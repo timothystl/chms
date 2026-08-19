@@ -1233,6 +1233,9 @@ function _schemaFingerprint() {
     seedIvanhoePropertyJune2026Notes, seedIvanhoePropertyReservesV2,
     seedIvanhoePropertyValuationV3, seedMinistryRolesFromStatic,
     seedStudentTuitionHistory, seedTuitionAid, seedTuitionYearRates,
+    // Not a seed, but it runs from _doInitDb and its body decides what gets removed — so an
+    // edit to it has to re-trigger the full init the same way a seed edit does.
+    scrubServerManagedSchedulerSecrets,
   ].map((f) => f.toString());
   parts.push(DB_INIT.join('\n'));
   const src = parts.join('\n');
@@ -1243,6 +1246,33 @@ function _schemaFingerprint() {
     h = Math.imul(h, 16777619);
   }
   return (h >>> 0).toString(36) + '-' + src.length.toString(36);
+}
+
+// ── One-time scrub: server-managed secrets out of scheduler_data (SEC17 / P22-B) ────────────
+// ws_breeze_settings historically stored the Breeze API key and WORKER_SECRET alongside real
+// settings, and GET /admin/api/scheduler/data returns that table wholesale to admin OR STAFF.
+// Both values live in the Worker's env and are read from there; the copies here were readable
+// by every staff login, and WORKER_SECRET is the X-Worker-Secret bypass credential — a
+// non-expiring, non-revocable one that outlives deactivating the account it leaked to.
+//
+// api-admin.js now strips these on every write, so nothing can put them back. This removes
+// what is already stored. Deliberately NOT marker-gated: it is a cheap read plus a write only
+// when something is actually there, and re-running it is exactly the behavior wanted if a key
+// ever reappears. It runs whenever the schema fingerprint changes, which includes this deploy.
+export async function scrubServerManagedSchedulerSecrets(db) {
+  const row = await db.prepare(
+    "SELECT value FROM scheduler_data WHERE key='ws_breeze_settings'"
+  ).first().catch(() => null);
+  if (!row || !row.value) return;
+  let parsed;
+  try { parsed = JSON.parse(row.value); } catch { return; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+  const KEYS = ['apiKey', 'workerSecret', 'resendKey', 'emailFrom'];
+  if (!KEYS.some((k) => k in parsed)) return;
+  for (const k of KEYS) delete parsed[k];
+  await db.prepare(
+    "UPDATE scheduler_data SET value=?, updated_at=datetime('now') WHERE key='ws_breeze_settings'"
+  ).bind(JSON.stringify(parsed)).run().catch(() => {});
 }
 
 async function _doInitDb(db) {
@@ -1763,6 +1793,7 @@ async function _doInitDb(db) {
   await seedIvanhoePropertyJune2026(db);
   await seedIvanhoePropertyJune2026Notes(db);
   await seedIvanhoePropertyBaseMinimumReserve(db);
+  await scrubServerManagedSchedulerSecrets(db);
 
   // Recorded LAST, and only on success. If anything above threw, initDb's own catch clears
   // its memoized promise so the next request retries — and because no fingerprint was

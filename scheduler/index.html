@@ -1026,11 +1026,7 @@ body.embedded #app-content { display:block!important; }
 
       <!-- Hidden inputs — populated from server config; read by save handler -->
       <input type="hidden" id="breeze-subdomain">
-      <input type="hidden" id="breeze-apikey">
       <input type="hidden" id="breeze-worker-url">
-      <input type="hidden" id="breeze-worker-secret">
-      <input type="hidden" id="email-resend-key">
-      <input type="hidden" id="email-from">
 
       <div style="margin-top:16px;">
         <!-- Server-managed read-only display -->
@@ -1454,8 +1450,29 @@ async function syncRelationalVolunteers() {
   } catch (e) { /* best-effort — leaves whatever was already in localStorage untouched */ }
 }
 
-function getBreezeSettings() { try { return JSON.parse(localStorage.getItem('ws_breeze_settings') || '{}'); } catch(e) { return {}; } }
-function saveBreezeSettings(o){ localStorage.setItem('ws_breeze_settings', JSON.stringify(o)); }
+// Settings that live in the Worker's env and must never be mirrored into the browser or into
+// D1 (SEC17 / P22-B). ws_breeze_settings is pushed to the scheduler_data table, and
+// GET /admin/api/scheduler/data hands that table to any admin OR STAFF account — so a Breeze
+// API key and the X-Worker-Secret bypass credential sitting in this blob were readable by
+// every staff login, and WORKER_SECRET in particular is non-expiring and non-revocable: it
+// outlives deactivating the account it leaked to.
+//
+// The Resend key was already being deleted on read, one place, by hand. This generalizes that
+// to every server-managed value and moves it to the two functions EVERY reader and writer goes
+// through, rather than a third copy of the same delete (SW17's lesson). None of these four is
+// consumed from this blob anywhere — the Worker reads them from env, and the Settings screen
+// already shows them as "configured on server" from the config endpoint's presence flags.
+//
+// The authoritative guarantee is server-side (api-admin.js strips the same keys on write);
+// this is the half that keeps them out of localStorage.
+var SERVER_MANAGED_SETTING_KEYS = ['apiKey', 'workerSecret', 'resendKey', 'emailFrom'];
+function stripServerManagedSettings(o) {
+  if (!o || typeof o !== 'object') return o;
+  for (var i = 0; i < SERVER_MANAGED_SETTING_KEYS.length; i++) delete o[SERVER_MANAGED_SETTING_KEYS[i]];
+  return o;
+}
+function getBreezeSettings() { try { return stripServerManagedSettings(JSON.parse(localStorage.getItem('ws_breeze_settings') || '{}')); } catch(e) { return {}; } }
+function saveBreezeSettings(o){ localStorage.setItem('ws_breeze_settings', JSON.stringify(stripServerManagedSettings(Object.assign({}, o)))); }
 function getScheduleOverrides() { try { return JSON.parse(localStorage.getItem('ws_schedule_overrides')||'{}'); } catch(e){ return {}; } }
 function saveScheduleOverrides(o){ localStorage.setItem('ws_schedule_overrides', JSON.stringify(o)); }
 
@@ -6376,37 +6393,30 @@ document.getElementById('notify-week-filter').addEventListener('change', functio
 // SETTINGS
 // ══════════════════════════════════════════════════════════════════
 function loadSettingsForm() {
+  // getBreezeSettings strips every server-managed secret on read, so simply loading the form
+  // is what evicts a stale Breeze key / worker secret / Resend key from this browser.
   var s = getBreezeSettings();
-  // Clear any stale Resend key / From address from localStorage. Both now
-  // live in env on the Worker; keeping them around just hides outages.
-  if (s.resendKey || s.emailFrom) {
-    delete s.resendKey; delete s.emailFrom;
-    try { saveBreezeSettings(s); } catch(e) {}
-  }
+  try { saveBreezeSettings(s); } catch(e) {}
   if (s.subdomain)  document.getElementById('breeze-subdomain').value  = s.subdomain;
-  if (s.apiKey)     document.getElementById('breeze-apikey').value     = s.apiKey;
   if (s.workerUrl)  document.getElementById('breeze-worker-url').value = s.workerUrl;
   var tagIds = (s.tagIds || []).join(', ');
   if (tagIds) document.getElementById('breeze-tag-ids').value = tagIds;
   if (s.replyTo)       document.getElementById('email-reply-to').value        = s.replyTo;
   if (s.officeEmail)   document.getElementById('email-office-to').value       = s.officeEmail;
-  if (s.workerSecret)  document.getElementById('breeze-worker-secret').value  = s.workerSecret;
 }
 
 document.getElementById('btn-save-settings').addEventListener('click', function() {
   var subdomain     = document.getElementById('breeze-subdomain').value.trim().replace(/\//g,'');
-  var apiKey        = document.getElementById('breeze-apikey').value.trim();
   var workerUrl     = document.getElementById('breeze-worker-url').value.trim().replace(/\/$/, '');
-  var workerSecret  = document.getElementById('breeze-worker-secret').value.trim();
   var tagIds    = document.getElementById('breeze-tag-ids').value
                     .split(',').map(function(t){ return t.trim().replace(/\D/g,''); }).filter(Boolean);
-  // Resend key + From address now live in env; only Reply-To is user-tweakable here.
-  var resendKey = '';
-  var emailFrom = '';
+  // The Breeze key, the worker secret and the Resend key all live in the Worker's env and are
+  // shown here read-only as "configured on server" — nothing to collect, and saveBreezeSettings
+  // would strip them anyway (SEC17 / P22-B).
   var replyTo   = document.getElementById('email-reply-to').value.trim();
   var officeEmail = document.getElementById('email-office-to').value.trim();
   if (!subdomain) { showAlert('settings-alert','Please enter your Breeze subdomain.','warning'); return; }
-  saveBreezeSettings({ subdomain:subdomain, apiKey:apiKey, workerUrl:workerUrl, workerSecret:workerSecret, tagIds:tagIds, resendKey:resendKey, emailFrom:emailFrom, replyTo:replyTo, officeEmail:officeEmail });
+  saveBreezeSettings({ subdomain:subdomain, workerUrl:workerUrl, tagIds:tagIds, replyTo:replyTo, officeEmail:officeEmail });
   queueD1Push();
   showAlert('settings-alert','Settings saved!','success');
   document.getElementById('settings-status').textContent = '';
@@ -6433,7 +6443,12 @@ document.getElementById('btn-test-breeze').addEventListener('click', function() 
 // ══════════════════════════════════════════════════════════════════
 function breezeGet(path, params) {
   var s = getBreezeSettings();
-  if (!s.subdomain||!s.apiKey) return Promise.reject('No Breeze credentials configured.');
+  // The API key is the Worker's (env.BREEZE_API_KEY) and is no longer held here at all, so the
+  // guard is on the subdomain only and no X-Breeze-Api-Key header is sent. The proxy already
+  // prefers env over that header, so it was ignored in practice — sending it only risked
+  // putting the key in a request log. A Worker with no key configured answers 'Breeze not
+  // configured', and the Settings screen already reports that from the config endpoint.
+  if (!s.subdomain) return Promise.reject('No Breeze subdomain configured.');
 
   var base = (s.workerUrl || window.location.origin).replace(/\/$/, '');
   params = params || {};
@@ -6441,10 +6456,9 @@ function breezeGet(path, params) {
   var url = base + path + (qs ? '?'+qs : '');
   return fetch(url, {
     method: 'GET',
-    headers: Object.assign({
+    headers: {
       'X-Breeze-Subdomain': s.subdomain,
-      'X-Breeze-Api-Key':   s.apiKey,
-    }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
+    },
   })
     .then(function(r) {
       if (!r.ok) throw 'HTTP '+r.status+' ('+url+')';
@@ -6455,7 +6469,8 @@ function breezeGet(path, params) {
 // POST helper — used for /ajax/ endpoints that Breeze requires POST for
 function breezePost(path, fields) {
   var s = getBreezeSettings();
-  if (!s.subdomain||!s.apiKey) return Promise.reject('No Breeze credentials configured.');
+  // Same as breezeGet above: subdomain only, no client-held key.
+  if (!s.subdomain) return Promise.reject('No Breeze subdomain configured.');
 
   // Build form-encoded body (same format as a browser form submit)
   var body = Object.keys(fields).map(function(k) {
@@ -6466,11 +6481,10 @@ function breezePost(path, fields) {
   var url = base + path;
   return fetch(url, {
     method: 'POST',
-    headers: Object.assign({
+    headers: {
       'X-Breeze-Subdomain': s.subdomain,
-      'X-Breeze-Api-Key':   s.apiKey,
       'Content-Type':       'application/x-www-form-urlencoded',
-    }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
+    },
     body: body,
   })
     .then(function(r) {
@@ -7398,6 +7412,13 @@ function saveEventRoles(obj) {
   localStorage.setItem('ws_event_roles', JSON.stringify(obj));
 }
 
+// The X-Worker-Secret branch here (and the eight like it elsewhere in this file) is now
+// permanently inert: getBreezeSettings strips workerSecret on read, so the header is never
+// attached. Left in place rather than removed from nine fetch call sites in one security fix —
+// they are optional-header conditionals, not an auth path that can silently come back, and the
+// invariant is enforced at the two storage functions and again server-side. These calls are
+// same-origin from an admin session, which is what actually authorizes them (see the
+// schedPrivileged gate in tlc-volunteer-worker.js).
 function _workerHeaders() {
   var s = getBreezeSettings();
   return Object.assign({ 'Content-Type': 'application/json' },

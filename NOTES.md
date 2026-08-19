@@ -24,6 +24,83 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.193.0 — Phase 22-B: the Breeze key and WORKER_SECRET stop being stored in D1 (2026-08-19)
+
+Closes SEC17.
+
+**What was wrong.** `ws_breeze_settings` stored `apiKey` (Breeze) and `workerSecret` alongside
+real settings, in localStorage and mirrored into the `scheduler_data` table — and
+`GET /admin/api/scheduler/data` returns that table **wholesale to admin OR staff** (the bar SW1
+set in v1.9.0). So both credentials were readable by every staff login.
+
+**`WORKER_SECRET` is the one that matters.** It is the `X-Worker-Secret` bypass credential for
+the scheduler backend routes Phase 21 just gated — it never expires, it is not scoped to a user,
+and it cannot be revoked individually, so it outlives deactivating the account it leaked to. The
+Breeze key is read/write on the church's whole Breeze database.
+
+**Neither was consumed from that blob.** The Worker reads both from `env`, and the Settings
+screen already displayed them read-only as "🔒 configured on server" from the config endpoint's
+`hasBreezeApiKey`/`hasWorkerSecret` presence flags. The stored copies were pure legacy.
+
+**Fixed at four layers, and the ordering of the guarantees matters:**
+1. **Server write-strip (authoritative)** — `stripServerManagedSettings()` in `api-admin.js`
+   removes `apiKey`/`workerSecret`/`resendKey`/`emailFrom` from `ws_breeze_settings` on **both**
+   write paths (bulk snapshot and per-key). A stale browser tab still running the old bundle
+   cannot put them back. **⚠ Only `ws_breeze_settings` is scrubbed** — a key named `apiKey` on
+   some other record is data, not a credential, and a test pins that.
+2. **One-time D1 scrub** — `scrubServerManagedSchedulerSecrets()` in `db.js`, run from
+   `_doInitDb`, removes what is already stored. Deliberately **not** marker-gated: it is one
+   read plus a write only when something is there, and re-running it is exactly what should
+   happen if a key ever reappears. Added to `_schemaFingerprint`'s list so an edit to its body
+   re-triggers the init the same way a seed edit does.
+3. **Client strip at the two storage chokepoints** — `getBreezeSettings()` strips on read and
+   `saveBreezeSettings()` on write, so all 25 call sites are covered by two edits rather than a
+   third hand-rolled copy of the Resend delete (SW17's lesson). Simply opening Settings now
+   evicts a stale key from that browser.
+4. **Stop sending what we no longer hold** — `breezeGet`/`breezePost` guarded on
+   `!s.subdomain||!s.apiKey` and sent `X-Breeze-Api-Key`. **⚠ Left alone, both helpers would
+   have rejected outright** with "No Breeze credentials configured" once the key was stripped.
+   The proxy already prefers `env.BREEZE_API_KEY` over that header, so it was ignored in
+   practice; sending it only risked putting the key in a request log. Guard is now on the
+   subdomain alone.
+
+**Also removed**: four dead hidden `<input>`s (`breeze-apikey`, `breeze-worker-secret`,
+`email-resend-key`, `email-from`) — declared, populated, never read. A field that silently
+discards what you type is worse than no field.
+
+**⚠ Nine `s.workerSecret ? {…} : {}` header conditionals are left in place and are now
+permanently inert** — documented at `_workerHeaders()`. They are optional-header branches, not
+an auth path that can silently return: the value is stripped on read and again server-side, and
+these calls are same-origin from an admin session, which is what actually authorizes them.
+Rewriting nine `fetch` call sites inside a 500 KB template literal was not worth the risk in a
+security fix; the invariant is enforced where it is enforceable.
+
+`scheduler/index.html` resynced by evaluating the module (SC5), and the served `<script>` block
+re-parsed — this file is a plain template literal, so backslashes double and a stray backtick
+breaks the whole bundle (SC3-BUG1, the repo's most-repeated build break).
+
+**`npm test` 1654/1654** (92 files, 5 skipped), up from 1641/91. New
+`test/scheduler-settings-secrets.test.js` — 13 tests: the pure helper, both server write paths
+against real SQLite, the scrub (including idempotence, a missing row and unparseable JSON), and
+the client half extracted from the **real shipped embed bundle**.
+
+**Every new test verified non-vacuous — 10 injections, 10 correct failure sets**: each write-path
+strip removed, the key list emptied, the helper made to mutate its input, the scrub neutered,
+the client read-strip and write-strip removed, the `X-Breeze-Api-Key` header restored, and a
+secret input field restored in both the markup and the JS.
+
+**⚠ One of my own assertions was wrong twice and was corrected, not forced.** It first tripped
+on the explanatory comment that names the header (the same self-documentation trap as Phase 21)
+and was narrowed to match the header being SET; then it checked only the JS bundle while the
+input it claimed to guard lives in the MARKUP bundle, so restoring a field passed cleanly. Both
+halves are now asserted.
+
+**Not verified**: a live browser, or a real Breeze/scheduler round trip against production D1.
+**One consequence for an admin**: nothing to do — the Settings screen already showed these as
+server-configured, and the scrub runs itself on the first request after deploy.
+(`src/api-admin.js`, `src/db.js`, `src/scheduler-html.js`, `src/scheduler-inline.js`,
+`src/frontend/js-core.js`, `scheduler/index.html`, `test/scheduler-settings-secrets.test.js`)
+
 ### v1.192.0 — Phase 22-A: the member directory honors "Include in directory" (2026-08-19)
 
 Closes SEC16. **This one was a decision before it was a fix** — filtering changes who appears in

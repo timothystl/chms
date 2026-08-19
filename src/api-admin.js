@@ -19,6 +19,24 @@ function normalizeSlug(s) {
 // scheduler/admin/member surfaces) — a matching event slug would shadow the real route.
 const RESERVED_SLUGS = ['scheduler', 'chms', 'portal', 'admin', 'api', 'rsvp', 'volunteer', 'serve', 'connect', 'email', 'member', 'member-setup'];
 
+// Keys inside the ws_breeze_settings blob that live in the Worker's env and must never be
+// persisted to D1 (SEC17 / P22-B). scheduler_data is returned wholesale by
+// GET /admin/api/scheduler/data to admin OR STAFF, so a Breeze API key and the X-Worker-Secret
+// bypass credential stored here were readable by every staff login — and WORKER_SECRET is
+// non-expiring and non-revocable, so it outlives deactivating the account it leaked to.
+//
+// The scheduler client strips these too, but THIS is the authoritative guarantee: a stale
+// browser tab still running the old bundle, or any other caller, cannot put them back.
+export const SERVER_MANAGED_SETTING_KEYS = ['apiKey', 'workerSecret', 'resendKey', 'emailFrom'];
+
+/** Remove server-managed secrets from a ws_breeze_settings value before it is stored. */
+export function stripServerManagedSettings(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const out = { ...value };
+  for (const k of SERVER_MANAGED_SETTING_KEYS) delete out[k];
+  return out;
+}
+
 export const SCHEDULER_KEYS = [
   'ws_people','ws_schedule_v2','ws_history','ws_last_served',
   'ws_schedule_overrides','ws_confirmations','ws_rsvp_tokens',
@@ -64,7 +82,9 @@ export async function handleSchedulerDataApi(req, env, url, method) {
     );
     const ops = [];
     for (const k of SCHEDULER_KEYS) {
-      if (body[k] !== undefined) ops.push(stmt.bind(k, JSON.stringify(body[k])));
+      if (body[k] === undefined) continue;
+      const value = k === 'ws_breeze_settings' ? stripServerManagedSettings(body[k]) : body[k];
+      ops.push(stmt.bind(k, JSON.stringify(value)));
     }
     if (ops.length) await env.DB.batch(ops);
     return json({ ok: true, saved: ops.length });
@@ -83,7 +103,8 @@ export async function handleSchedulerDataApi(req, env, url, method) {
     const key = seg.slice(5);
     if (!SCHEDULER_KEYS.includes(key)) return json({ error: 'Unknown key' }, 400);
     let body; try { body = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-    const value = body.value !== undefined ? body.value : body;
+    const raw = body.value !== undefined ? body.value : body;
+    const value = key === 'ws_breeze_settings' ? stripServerManagedSettings(raw) : raw;
     await env.DB.prepare(
       "INSERT OR REPLACE INTO scheduler_data (key, value, updated_at) VALUES (?, ?, datetime('now'))"
     ).bind(key, JSON.stringify(value)).run();
