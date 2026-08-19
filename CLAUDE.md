@@ -534,11 +534,26 @@ v1.191.0. **Not verified**: a live browser, a real sent email, or production D1.
 - [ ] **P22-E** (retires **SEC20**) — Fail closed, not open, when `RSVP_STORE` is absent: login rate limiting,
   intake rate limiting, and QuickBooks OAuth `state` validation. A missing binding should refuse, not wave
   through.
-- [ ] **P22-F** (retires **SEC21**, and what is left of **CR7** — its (a) and (b); CR7(c) shipped 2026-08-19) — (a) constant-time compare for the break-glass
-  password and `X-Intake-Key`; (b) sliding rather than fixed login rate-limit window; (c) validate the
-  `X-Breeze-Subdomain` fallback against `/^[a-z0-9-]+$/`; (d) require `https:` in `/admin/photo-proxy`;
+- [ ] **P22-F** (retires **SEC21**; **CR7 is fully closed** — a parallel session shipped its (a) and (b),
+  and its own entry is already marked `[x]`) — **⚠ PARTLY DONE ALREADY, commit `c7c1c3a` (2026-08-19).
+  Re-read the code before starting or you will redo two of these.** What shipped there: the constant-time
+  compare for **`X-Intake-Key`** (new `timingSafeEqual()` in `auth.js` — SHA-256 both sides first, so
+  neither length nor position leaks — wired into `api-intake.js` and the Christmas Market summary route),
+  and the narrowed `OPTIONS` handler (`isSchedCorsPath()`, an explicit allowlist; their harness caught a
+  first pass wrongly including `/api/intake/funds`). **Still open, each verified against the code
+  2026-08-19:**
+  (a-ii) the **break-glass password** is still `submittedPass === adminPassword` (`api-admin.js:184`).
+  **⚠ A different credential from `X-Intake-Key`** — and the one whose compromise also forges every
+  session cookie, since it is the HMAC key (SEC15). `timingSafeEqual` already exists, so this is a
+  one-line call-site change;
+  (b) login rate limiting still uses a **fixed** window key (`Math.floor(Date.now()/WINDOW_MS)`), so 10
+  attempts at the end of one bucket plus 10 at the start of the next gives 20 back to back;
+  (c) validate the `X-Breeze-Subdomain` fallback against `/^[a-z0-9-]+$/` — inert while `BREEZE_SUBDOMAIN`
+  is set, but a latent SSRF that would carry the Breeze key to an attacker-chosen host;
+  (d) `/admin/photo-proxy` still checks the hostname and not the scheme, despite its own comment saying
+  "Only proxy HTTPS URLs";
   (e) skip `refreshAuthCookie` on the versioned asset routes so `Set-Cookie` stops riding a
-  `public, immutable` response; (f) narrow the blanket `OPTIONS → SCHED_CORS` handler to the scheduler paths.
+  `public, immutable` response.
 - [ ] **P22-G** (retires **SEC22**) — Delete `financePassword`, `staffPassword`, `memberPassword`,
   `adminEmail` from `handleAdminLogin`; they are assigned and never read.
 
