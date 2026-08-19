@@ -3290,6 +3290,33 @@ context the pattern exists to cover. **Rule: skip any hex literal that already s
   other color/layout change in this codebase's history. Done 2026-08-19 (v1.190.5).
   (`src/frontend/js-giving.js`, `src/frontend/js-reports.js`, `src/frontend/js-attendance.js`,
   `src/frontend/js-settings.js`)
+- [x] **PAL8 — Mapped the remaining no-exact-token hex values, with the user's sign-off per case**
+  (asked via 4 targeted questions rather than guessed). Found two things worth recording before the
+  mappings themselves: **(1) a hard exclusion class, not previously named** — `js-people.js`'s
+  `sendGivingStatement()` and `js-reports.js`'s `buildGiftTable()` (spliced into
+  `renderLetterHTML()`'s `{{gift_table}}`) both build HTML that gets **emailed**, so their hex
+  literals can never become `var(--token)` — a CSS custom property renders as nothing in a
+  recipient's inbox. Left untouched, permanently, not just for this pass. **(2) a self-consistent
+  3-part badge, don't half-convert** — the "deceased" person badge (bg/text/border, all derived
+  from `#6c757d`) would go internally inconsistent if only its text color moved to a token while
+  its alpha-tinted background/border stayed raw hex; no alpha-token convention exists in this
+  codebase to convert the whole trio into, so it's left alone rather than half-fixed. Mapped, with
+  approval: the Giving Nudges report's recurring "upside" green (`#5A9E6F`, 7×) → `var(--sage)`;
+  the address-validation success/warning colors (`#27ae60`/`#e67e22`×2) → `var(--sage)`/
+  `var(--color-gold)`; the Settings "Active" user badge's Tailwind-style green pill
+  (`#D1FAE5`/`#065F46`) → the app's own existing `var(--chip-positive-bg)`/`var(--sage-text)`
+  pairing (already designed for exactly this, just never used here); the "second red" the
+  RD5/PAL5 notes already flagged (`#c0392b`, 5× in the giving reconcile-diagnose view) → merged
+  into `var(--danger)`. Also consolidated, without needing a design call (isolated muted-gray text,
+  not part of any multi-color badge): `#888`×4 and `#A69A88`×1 → `var(--warm-gray)`. 20
+  substitutions total across `js-people.js`/`js-reports.js`/`js-giving.js`/`js-settings.js`.
+  **Not touched, flagged as its own future item**: `js-settings.js`'s `roleColors` object (5
+  distinct hex, one per app role) is a categorical palette, not a 1:1 substitution candidate — would
+  need its own named token family if tokenized. `npm test` (1601/1601), `node --check` on all 4
+  built app-JS bundles and each touched source file, confirmed no nested `var()` and confirmed by
+  grep that both hard-exclusion functions and the deceased badge are still on raw hex. Not verified
+  in a live browser. Done 2026-08-19 (v1.190.8). (`src/frontend/js-people.js`,
+  `src/frontend/js-reports.js`, `src/frontend/js-giving.js`, `src/frontend/js-settings.js`)
 
 ### Volunteer / Events UX Redesign (2026-07)
 - [x] **VUX1** — Public event sign-up: contact-first flow (day-toggle pills + contact card no longer gated behind picking a day), 3-tier capacity badges. Done 2026-07-06 (v1.5.0). (`src/public/scripts.js`, `head.js`)

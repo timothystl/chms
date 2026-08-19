@@ -120,7 +120,7 @@ function renderPeopleDesktop(people) {
       ? esc(p.first_name || p.last_name)
       : esc(p.last_name) + (p.last_name && p.first_name ? ', ' : '') + esc(p.first_name);
     avInner = isOrg
-      ? '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#888;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>'
+      ? '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:var(--warm-gray);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>'
       : (p.photo_url ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">' : initials(p.first_name, p.last_name));
     avClass = 'dir-avatar ' + (isOrg ? 'dir-avatar-org' : 'dir-avatar-' + (p.id % 5));
     clickHandler = _selectMode
@@ -167,7 +167,7 @@ function renderPeopleCards(people) {
       : esc(p.first_name) + (p.first_name && p.last_name ? ' ' : '') + esc(p.last_name);
     var avClass = 'dir-avatar ' + (isOrg ? 'dir-avatar-org' : 'dir-avatar-' + (p.id % 5));
     var avInner = isOrg
-      ? '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#888;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>'
+      ? '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:var(--warm-gray);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>'
       : (p.photo_url ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" style="width:42px;height:42px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">' : initials(p.first_name, p.last_name));
     var clickHandler = _selectMode ? 'togglePersonSelect(' + p.id + ', this)' : 'openPersonQuickView(' + p.id + ')';
     var cb = _selectMode ? '<div class="ppl-card-cb">' + (isSelected ? '&#10003;' : '') + '</div>' : '';
@@ -543,7 +543,7 @@ function renderPeopleMobile(people) {
       + '</div>';
     return '<div class="c-card" onclick="openPersonDetail(' + p.id + ')">'
       + '<div class="c-avatar"' + (isOrg ? '' : ' style="background:' + tint.bg + ';color:' + tint.fg + ';"') + '>' + avInner + '</div>'
-      + '<div class="c-info"><div class="c-name">' + esc(p.first_name) + (p.last_name ? ' ' + esc(p.last_name) : '') + (p.deceased ? ' <span style="font-size:.72rem;color:#888;font-weight:400;">&#x271D; d. ' + (p.death_date||'') + '</span>' : '') + '</div>'
+      + '<div class="c-info"><div class="c-name">' + esc(p.first_name) + (p.last_name ? ' ' + esc(p.last_name) : '') + (p.deceased ? ' <span style="font-size:.72rem;color:var(--warm-gray);font-weight:400;">&#x271D; d. ' + (p.death_date||'') + '</span>' : '') + '</div>'
       + '<div class="c-type">' + typeDotHtml(p.member_type, 7) + '</div>'
       + actions
       + '</div></div>';
@@ -2631,9 +2631,9 @@ function validateAddrResultMsg(r) {
   var dpv = r.dpvConfirmation;
   var isCensus = r.source === 'census';
   var note = isCensus ? ' (via Census geocoder — no USPS/Lob key configured; ask an admin to add one for confirmed deliverability)' : '';
-  if (dpv === 'Y') return '<span style="color:#27ae60;">&#10003; Confirmed deliverable' + note + '</span>';
-  if (dpv === 'S') return '<span style="color:#e67e22;">&#9888; Primary confirmed — apt/suite info needed' + note + '</span>';
-  if (dpv === 'D') return '<span style="color:#e67e22;">&#9888; Primary confirmed — secondary not matched' + note + '</span>';
+  if (dpv === 'Y') return '<span style="color:var(--sage);">&#10003; Confirmed deliverable' + note + '</span>';
+  if (dpv === 'S') return '<span style="color:var(--color-gold);">&#9888; Primary confirmed — apt/suite info needed' + note + '</span>';
+  if (dpv === 'D') return '<span style="color:var(--color-gold);">&#9888; Primary confirmed — secondary not matched' + note + '</span>';
   return isCensus
     ? '<span style="color:var(--danger);">&#10005; Address not matched by the Census geocoder' + note + '</span>'
     : '<span style="color:var(--danger);">&#10005; Address not found by USPS</span>';

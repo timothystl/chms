@@ -622,8 +622,8 @@ function renderGivingDiagnose(d, from, to) {
       return '<tr><td>' + esc(s.fund_name) + '</td>'
         + '<td style="text-align:right;">' + s.total_count + '</td>'
         + '<td style="text-align:right;">' + fmtMoney(s.total_cents) + '</td>'
-        + '<td style="text-align:right;color:#c0392b;"><strong>+' + s.extras_count + '</strong></td>'
-        + '<td style="text-align:right;color:#c0392b;"><strong>+' + fmtMoney(s.extras_cents) + '</strong></td>'
+        + '<td style="text-align:right;color:var(--danger);"><strong>+' + s.extras_count + '</strong></td>'
+        + '<td style="text-align:right;color:var(--danger);"><strong>+' + fmtMoney(s.extras_cents) + '</strong></td>'
         + '<td style="font-size:.78rem;color:var(--warm-gray);">' + esc(classSummary) + '</td></tr>';
     }).join('');
   if (!fundRows) fundRows = '<tr><td colspan="6" style="text-align:center;color:var(--warm-gray);">No funds have extras — DB matches Breeze in this range.</td></tr>';
@@ -648,7 +648,7 @@ function renderGivingDiagnose(d, from, to) {
   }).join('');
 
   var forceBtn = (d.extras_count > 0 && _userRole === 'admin')
-    ? '<button id="rpt-force-remove-btn" class="btn-secondary" style="font-size:.8rem;padding:4px 10px;color:#c0392b;border-color:#c0392b;" onclick="forceRemoveGivingOrphans()">Force Remove ' + d.extras_count + '</button>'
+    ? '<button id="rpt-force-remove-btn" class="btn-secondary" style="font-size:.8rem;padding:4px 10px;color:var(--danger);border-color:var(--danger);" onclick="forceRemoveGivingOrphans()">Force Remove ' + d.extras_count + '</button>'
     : '';
   return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'
     + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Reconcile Diagnose: ' + esc(fmtDate(from)) + ' – ' + esc(fmtDate(to)) + '</h3>'
@@ -660,8 +660,8 @@ function renderGivingDiagnose(d, from, to) {
     + '<div style="display:flex;gap:30px;flex-wrap:wrap;margin-bottom:14px;font-size:.88rem;">'
     +   '<div><strong>DB rows:</strong> ' + d.db_row_count + ' (' + fmtMoney(d.db_total_cents) + ')</div>'
     +   '<div><strong>Breeze payments:</strong> ' + d.breeze_payment_count + '</div>'
-    +   '<div style="color:#c0392b;"><strong>Extras in DB:</strong> ' + d.extras_count + ' (' + fmtMoney(d.extras_total_cents) + ')</div>'
-    +   '<div style="color:#888;"><strong>Missing from DB:</strong> ' + d.missing_from_db_count + '</div>'
+    +   '<div style="color:var(--danger);"><strong>Extras in DB:</strong> ' + d.extras_count + ' (' + fmtMoney(d.extras_total_cents) + ')</div>'
+    +   '<div style="color:var(--warm-gray);"><strong>Missing from DB:</strong> ' + d.missing_from_db_count + '</div>'
     + '</div>'
     + '<h4 style="margin:12px 0 4px 0;">Classification Counts</h4>'
     + '<table class="rpt-table" style="max-width:520px;"><thead><tr><th>Classification</th><th style="text-align:right;">Rows</th></tr></thead><tbody>'
@@ -875,7 +875,7 @@ function runContactCompleteness(scope) {
         + '<div style="font-size:.88rem;color:var(--charcoal);font-weight:600;">' + c.icon + ' ' + esc(c.lbl) + '</div>'
         + '<div style="font-size:.82rem;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + c.n.toLocaleString() + ' of ' + total.toLocaleString() + ' (' + pct + '%)</div></div>'
         + '<div style="background:var(--linen);border-radius:4px;height:12px;overflow:hidden;position:relative;">'
-        + '<div style="background:#5A9E6F;height:100%;width:' + cpct + '%;transition:width .2s;" title="Complete: ' + cpct + '%"></div>'
+        + '<div style="background:var(--sage);height:100%;width:' + cpct + '%;transition:width .2s;" title="Complete: ' + cpct + '%"></div>'
         + '</div></div>';
     }).join('');
     var scopeBtn = function(val, lbl) {
@@ -1072,7 +1072,7 @@ function renderGivingPlateaus(d) {
     + '<div style="font-size:1.5rem;font-weight:700;color:var(--steel-anchor);font-variant-numeric:tabular-nums;">' + (s.total_givers||0) + '</div>'
     + '<div style="font-size:.78rem;color:var(--warm-gray);">' + noun + ' (every fund, whole year &divide; 52)</div></div>'
     + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
-    + '<div style="font-size:1.5rem;font-weight:700;color:#5A9E6F;font-variant-numeric:tabular-nums;">' + fmtWholeDollars(s.total_upside_modest_annual_cents) + '&ndash;' + fmtWholeDollars(s.total_upside_generous_annual_cents) + '</div>'
+    + '<div style="font-size:1.5rem;font-weight:700;color:var(--sage);font-variant-numeric:tabular-nums;">' + fmtWholeDollars(s.total_upside_modest_annual_cents) + '&ndash;' + fmtWholeDollars(s.total_upside_generous_annual_cents) + '</div>'
     + '<div style="font-size:.78rem;color:var(--warm-gray);">est. added giving / year across Modest&ndash;Generous options</div></div>'
     + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
     + '<div style="font-size:1.5rem;font-weight:700;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + (s.low_frequency_givers||0) + '</div>'
@@ -1089,7 +1089,7 @@ function renderGivingPlateaus(d) {
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (t.num_people||0) + '</td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + range + '</td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;">+' + fmtWholeDollars(t.avg_weekly_increase_cents) + '/wk</td>'
-      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#5A9E6F;font-weight:600;">' + fmtWholeDollars(t.upside_modest_annual_cents) + '&ndash;' + fmtWholeDollars(t.upside_generous_annual_cents) + '</td></tr>';
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--sage);font-weight:600;">' + fmtWholeDollars(t.upside_modest_annual_cents) + '&ndash;' + fmtWholeDollars(t.upside_generous_annual_cents) + '</td></tr>';
   }).join('');
   var tierBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
     + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128201; Nudge Targets (Standard option)</div>'
@@ -1166,7 +1166,7 @@ function platOccasionalBlock(list, maxGifts, byHh) {
     var open = (p.link_kind === 'household') ? 'openHouseholdDetail(' : 'openPersonDetail(';
     var badge = p.all_manual_methods
       ? '<span style="font-size:.72rem;color:var(--warm-gray);">check/cash only</span>'
-      : '<span style="font-size:.72rem;color:#5A9E6F;">already has automatic gifts</span>';
+      : '<span style="font-size:.72rem;color:var(--sage);">already has automatic gifts</span>';
     return '<tr style="cursor:pointer;" onclick="' + open + p.link_id + ')">'
       + '<td style="color:var(--steel-anchor);font-weight:600;">' + esc(p.name||'') + '</td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:600;">' + fmtWholeDollars(p.total_cents) + '</td>'
@@ -1304,7 +1304,7 @@ function renderGivingBands(d) {
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (b.n || 0) + '</td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--warm-gray);">' + fmtWholeDollars(b.avg_per_period_cents) + '/' + per + '</td>'
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtWholeDollars(b.total_cents) + '</td>'
-      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:#5A9E6F;font-weight:' + (b.n ? '600' : '400') + ';">' + (b.n ? '+' + fmtWholeDollars(b.uplift_annual_cents) : '—') + '</td></tr>';
+      + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--sage);font-weight:' + (b.n ? '600' : '400') + ';">' + (b.n ? '+' + fmtWholeDollars(b.uplift_annual_cents) : '—') + '</td></tr>';
   }).join('');
 
   var cards = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;">'
@@ -1312,7 +1312,7 @@ function renderGivingBands(d) {
     + '<div style="font-size:1.5rem;font-weight:700;color:var(--steel-anchor);font-variant-numeric:tabular-nums;">' + (s.givers||0) + '</div>'
     + '<div style="font-size:.78rem;color:var(--warm-gray);">' + noun + ' who gave</div></div>'
     + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
-    + '<div style="font-size:1.5rem;font-weight:700;color:#5A9E6F;font-variant-numeric:tabular-nums;">+' + fmtWholeDollars(s.uplift_annual_cents) + '</div>'
+    + '<div style="font-size:1.5rem;font-weight:700;color:var(--sage);font-variant-numeric:tabular-nums;">+' + fmtWholeDollars(s.uplift_annual_cents) + '</div>'
     + '<div style="font-size:.78rem;color:var(--warm-gray);">added / year if every ' + noun.replace(/s$/,'') + ' gave +' + up + '/' + perWord + '</div></div>'
     + '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;">'
     + '<div style="font-size:1.5rem;font-weight:700;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + fmtWholeDollars(s.current_annualized_cents) + '</div>'
@@ -1413,7 +1413,7 @@ function renderGivingVsAttendance(d) {
     + '<div class="rpt-stat"><div class="rpt-stat-num">' + corrVal + '</div><div class="rpt-stat-lbl">Correlation — ' + corrLabel + '</div></div>'
     + '</div>';
   var legend = '<div style="display:flex;gap:18px;justify-content:center;margin-top:8px;font-size:.82rem;">'
-    + '<span><span style="display:inline-block;width:14px;height:14px;background:#5A9E6F;opacity:.55;vertical-align:middle;margin-right:5px;"></span>Attendance (bars, left axis)</span>'
+    + '<span><span style="display:inline-block;width:14px;height:14px;background:var(--sage);opacity:.55;vertical-align:middle;margin-right:5px;"></span>Attendance (bars, left axis)</span>'
     + '<span><span style="display:inline-block;width:14px;height:3px;background:var(--color-teal);vertical-align:middle;margin-right:5px;"></span>Giving (line, right axis)</span>'
     + '</div>';
   return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
