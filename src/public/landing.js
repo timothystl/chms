@@ -53,12 +53,6 @@ export const PUBLIC_LANDING = `<div class="app-page sv-page" id="page-landing">
 </div>
 </div>
 </div>
-<div class="sv-market-teaser">
-<p class="sv-eyebrow" style="color:var(--sv-gold-light)">Weihnachtsmarkt &middot; first Saturday in December</p>
-<h2 class="sv-h2">The Christmas Market is <em>its own animal.</em></h2>
-<p>It takes about ninety of us to pull off &mdash; setup, the grill, hot drinks, cashiers, music, teardown. Shifts run by the job, the hour, or the day, and you can take as many as you like.</p>
-<button type="button" class="sv-btn-gold" data-nav-page="market">Market shifts &rarr;</button>
-</div>
 </div>
 </div><!-- /page-landing -->
 `;
