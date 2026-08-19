@@ -1898,7 +1898,7 @@ export const HTML_TABS_2 = String.raw`
           Mark as deceased
         </label>
         <div>
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;" title="Uncheck to hide this person from printed/public directories">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem;" title="Uncheck to hide this person from the printed/exported directory AND from the member directory in Connect. The toggles below it hide individual fields while still listing the person.">
             <input type="checkbox" id="pm-public" checked onchange="document.getElementById('pm-dir-fields').style.opacity=this.checked?'1':'.4'">
             Include in directory
           </label>

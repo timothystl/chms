@@ -520,10 +520,7 @@ v1.191.0. **Not verified**: a live browser, a real sent email, or production D1.
 #### Phase 22 — Security hardening
 **Goal:** the rest of the CR10 security findings. Independent of each other; safe to land in one PR.
 
-- [ ] **P22-A** (retires **SEC16**) — Make the member directory honor `public_directory`, or change the
-  checkbox's label and tooltip to stop promising it. **This is a decision, not a bug fix** — ask before
-  choosing, since filtering changes who appears in a directory people are about to be invited into. Add the
-  test either way; nothing covers this column today.
+- [x] **P22-A** — DONE 2026-08-19 (v1.192.0), retires **SEC16**. **User decision: honor the checkbox.** Filtered in four places, not the obvious three — the fourth is household-name disambiguation, which renders a person's FIRST NAME into the "Doe (John)" label and drew it from the head of household regardless of opt-out, so an opted-out head surfaced on the label of the very list that excluded them. Also: a household whose every member opted out is 404 to a member (otherwise `/households/1..N` harvests names and photos for exactly the families that asked to be left out). Staff/finance/council/admin untouched — the opt-out hides someone from the directory, not from the office, and half the new tests assert that. 12 new tests against real SQLite; 8 injections, 8 correct failure sets, in both directions. **⚠ Two of my own tests were vacuous on the first draft** (the fixture made the opted-out person the spouse, so disambiguation never had to choose) and were rewritten. **⚠ A member who opts themselves out cannot find themselves in the directory either** — `app_users` has no `person_id`, so there is no carve-out to hang a self-view on. Was:
 - [ ] **P22-B** (retires **SEC17**) — Stop persisting `apiKey`/`workerSecret` in `ws_breeze_settings`. The
   Resend key already got this treatment (`loadSettingsForm` deletes it on read); copy that, plus a
   one-time strip of what is already stored. Both live in `env` and are read from there.
@@ -825,7 +822,7 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   and can grind it offline at their leisure. Recovering it yields both a forged cookie for **any** role and
   the break-glass login itself. A separate high-entropy `SESSION_SECRET` would decouple the two; the
   rotate-to-revoke-everything property that LP8 relies on is preserved either way (rotate the new secret).
-- [ ] **SEC16 — "Include in directory" is not honored by the directory members actually see.** The person
+- [x] **SEC16 — FIXED 2026-08-19 (v1.192.0), P22-A**, by user decision to honor the checkbox. The review missed a fourth surface: household-name disambiguation leaks an opted-out head's first name into the "Doe (John)" label. Original finding: "Include in directory" is not honored by the directory members actually see.** The person
   edit modal's `pm-public` checkbox is labeled *Include in directory*, titled *"Uncheck to hide this person
   from printed/public directories"*, and visually parents the five `dir_hide_*` sub-toggles. `public_directory`
   **is** honored by the printed/exported directory (`src/api-import.js:701,714`) and is referenced **nowhere**

@@ -68,8 +68,17 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
       const h = await db.prepare('SELECT * FROM households WHERE id=?').bind(hid).first();
       if (!h) return json({ error: 'Not found' }, 404);
       const members = (await db.prepare(
-        `SELECT id,first_name,last_name,member_type,family_role,phone,email,photo_url,envelope_number,anniversary_date FROM people WHERE household_id=? AND active=1 ORDER BY family_role,last_name`
+        `SELECT id,first_name,last_name,member_type,family_role,phone,email,photo_url,envelope_number,anniversary_date,public_directory FROM people WHERE household_id=? AND active=1 ORDER BY family_role,last_name`
       ).bind(hid).all()).results || [];
+      // Everyone a member-role viewer is allowed to see in this household. `public_directory`
+      // is the "Include in directory" opt-out (SEC16 / P22-A, decision 2026-08-19); for every
+      // other role this is the full list, so nothing below changes for staff.
+      const visible = role === 'member' ? members.filter((m) => m.public_directory === 1) : members;
+      // A household whose every member has opted out is Not Found to a member. Without this a
+      // member could walk /households/1..N and harvest household names and photos for exactly
+      // the families that asked to be left out — and there is no legitimate way to arrive
+      // here, since the only route in is clicking someone who IS in the directory.
+      if (role === 'member' && !visible.length) return json({ error: 'Not found' }, 404);
       // Household-level envelope # / anniversary: prefer the head of household, else any member with a value set.
       const headMember = members.find(m => m.family_role === 'head') || members[0] || {};
       const envelope_number = headMember.envelope_number || (members.find(m => m.envelope_number) || {}).envelope_number || '';
@@ -79,7 +88,10 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
       if (h.name) {
         const dup = await db.prepare(`SELECT COUNT(*) as n FROM households WHERE LOWER(name)=LOWER(?) AND id!=?`).bind(h.name, hid).first();
         if (dup?.n > 0) {
-          const head = members.find(m => m.family_role === 'head') || members[0];
+          // Disambiguation reads a person's first name into the household label, so it draws
+          // from `visible` — otherwise an opted-out head's name reappears as "Smith (John)"
+          // on the household of the directory that just excluded them.
+          const head = visible.find(m => m.family_role === 'head') || visible[0];
           if (head?.first_name) display_name = disambiguateHHName(h.name, head.first_name);
         }
       }
@@ -95,7 +107,7 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
           name: h.name || '',
           display_name,
           photo_url: h.photo_url || '',
-          members: members.map((m) => ({
+          members: visible.map((m) => ({
             id: m.id,
             first_name: m.first_name || '',
             last_name: m.last_name || '',
