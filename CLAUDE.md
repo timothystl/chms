@@ -1932,8 +1932,13 @@ deliberately did **not** change, because each is architectural and needs its own
   `OPTIONS → SCHED_CORS` handler in the worker answers preflight for *every* path with
   `Access-Control-Allow-Origin: *`; not exploitable today (only the scheduler routes echo CORS headers
   on real responses, and `vol_auth` is `SameSite=Lax`), but it is broader than the scheduler routes it
-  exists for. (c) `ADMIN_HTML` in `html-templates.js` is imported but never routed — dead code, and
-  the review only noticed because its dead inline script showed up in the syntax sweep.
+  exists for. (c) — Fixed 2026-08-19. `ADMIN_HTML` in `html-templates.js` was a 676-line dead
+  export — an old standalone volunteer-admin page from before this app's redesign, imported into
+  `tlc-volunteer-worker.js` but never used to build a `Response` anywhere; the RD3 note had already
+  confirmed its one remaining reference (the retired `/scheduler` route's own link) was itself dead.
+  Deleted the whole export from `html-templates.js` and its now-unused import from the worker;
+  updated the stale in-code comment that pointed at it. `npm test` (1601/1601), `node --check` on
+  both touched files. (`src/html-templates.js`, `tlc-volunteer-worker.js`)
 
 **What the review checked and found clean**, so it does not get re-litigated next time: SQL injection
 (every dynamic `SET`/`ORDER BY`/table name traces to a hardcoded allowlist or a map lookup — the
