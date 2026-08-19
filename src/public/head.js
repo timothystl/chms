@@ -153,12 +153,6 @@ body.sv-market-open .sv-footer { padding-bottom: 120px; }
 .sv-done-shifts p em { color: var(--sv-honey); font-style: italic; }
 .sv-done-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-top: 1rem; }
 
-/* ── christmas market teaser (volunteer page) ── */
-.sv-market-teaser { background: var(--sv-navy); border-radius: 16px; padding: clamp(28px,5vw,44px) clamp(20px,4vw,40px); color: #fff; margin: 40px auto 0; max-width: 1040px; }
-.sv-market-teaser .sv-h2 { color: #fff; margin: .6rem 0 1rem; }
-.sv-market-teaser .sv-h2 em { font-style: italic; color: var(--sv-cream-accent); }
-.sv-market-teaser p { font-family: var(--sv-sans); font-size: 16px; line-height: 1.65; color: var(--sv-body-on-navy); max-width: 40em; margin-bottom: 1.5rem; }
-
 /* ── market page: segmented toggle ── */
 .sv-segtoggle { display: inline-flex; gap: 4px; padding: 4px; background: var(--sv-sand); border-radius: 999px; margin-top: 1.5rem; }
 .sv-segtoggle button { font-family: var(--sv-sans); font-weight: 500; font-size: 14.5px; min-height: 46px; padding: 13px 22px; border-radius: 999px; border: none; background: transparent; color: var(--sv-warm-gray); cursor: pointer; }
