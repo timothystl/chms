@@ -470,6 +470,339 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 ## Queued Items (add new ones here during sessions)
 
+### CR10 — Ground-up code review: security · load speed · design consistency (2026-08-19, REVIEW ONLY — no code changed)
+Asked for as a slow, careful, whole-codebase pass. **Nothing in this session changed a line of application
+code** — every item below is a note, not a fix. Read at **v1.190.6**, `npm test` **1601/1601 green** (88 files,
+5 skipped — the pypdf-gated block) before and after, so everything here is a *coverage gap*, not a regression.
+
+**Method, because it decides how much to trust each item.** Where a claim could be checked mechanically it
+was: the real Worker was booted in Node with a real HMAC-signed cookie and outbound `fetch` intercepted; the
+real shipped `esc()`/`volJsAttr()` were run against hostile input and the result HTML-decoded the way a
+browser decodes an attribute before the JS parser sees it; the real assembled `CHMS_APP_*`/`CHMS_APP_CSS`/
+`CHMS_SCHEDULER_HTML` were measured and cross-referenced. Items proved that way are marked **verified**.
+Everything else is a reading of the source and says so. **Not verified anywhere below**: a live browser, a real
+phone, a real sent email, or production D1 — the standing caveat on all frontend work in this repo.
+
+---
+
+#### Security
+
+- [ ] **SEC11 — ⚠ CRITICAL: `POST /email/send` is an open mail relay for *every* authenticated role, `member`
+  included.** **Verified** — a real `role='member'` cookie drove the real worker and the request reached
+  `https://api.resend.com/emails` carrying `Authorization: Bearer <RESEND_API_KEY>`. The handler
+  (`handleSchedEmailSend`, `src/api-scheduler.js`) reads `to`, `subject`, `text`, `html` and `attachments`
+  straight from the body, forces `from` to the church's verified `EMAIL_FROM`, and has **no role check, no
+  recipient allowlist and no rate limit**. So the lowest tier in the app — a congregant on their phone, the
+  tier CONN2's invite flow is meant to grow to the whole congregation — can send arbitrary mail that arrives
+  as `Timothy Lutheran <noreply@timothystl.org>`. That is a phishing primitive against the congregation with
+  the church's own domain reputation behind it.
+- [ ] **SEC12 — ⚠ CRITICAL: the Breeze API proxy is reachable by every authenticated role.** **Verified** the
+  same way — `GET /api/people?limit=1` on a member cookie proxied to
+  `https://timothystl.breezechms.com/api/people?limit=1` with `Api-key: <BREEZE_API_KEY>`.
+  `handleSchedBreezeProxy` forwards **any method and any path** under `/api/*` or `/breeze/*`, so this is
+  read *and write* access to the church's entire Breeze database — giving, notes, everyone the ChMS member
+  view deliberately filters out — for an account whose whole purpose is a redacted read-only directory.
+- **SEC11/SEC12 share one root cause, and it is worth naming.** The gate above these routes in
+  `tlc-volunteer-worker.js` is `schedAuthed = (WORKER_SECRET match) || await isAuthed(req, env)`, with the
+  comment "must never be publicly reachable without authentication." That was true when every session was
+  staff. Since the `role='member'` tier shipped, **authentication is no longer authorization** at that line.
+  Everything behind it inherits the hole: `/serve/pending`, `/serve/general-pending`, `/serve/event-pending`
+  (volunteer names, emails, phones, free-text notes — **verified** returning to a member cookie),
+  `/rsvp/store`, `/rsvp/sync`, `/email/send`, and the Breeze proxy. **SW1/SW2 hardened
+  `/admin/api/scheduler/*` in v1.9.0 and these non-`/admin/api/` siblings were never revisited.** The fix
+  shape is the one this repo already uses: a role check at that single gate (admin/staff for the write and
+  proxy routes), not per handler.
+- [ ] **SEC13 — ⚠ HIGH: unauthenticated stored XSS, public sign-up form → admin browser.** **Verified by
+  execution.** `src/frontend/js-volunteers.js:122` builds the Signups row's "Link" button as
+  `onclick="volOpenLinkPerson(… + volJsAttr(esc(s.name)) + …)"`. `volJsAttr` is correct on its own
+  (`JSON.stringify` then entity-encode the wrapping quotes — a raw `"` gets JSON-escaped to `\"` first and
+  survives), but **wrapping the value in `esc()` first defeats it**: `esc` turns `"` into `&quot;`, which
+  `JSON.stringify` cannot see and the HTML parser later decodes back into a real quote *inside* the JS string
+  literal. A name of `A");…//` renders as `volOpenLinkPerson(1,"A");…//","…")` and the payload runs.
+  `POST /serve/signup` is fully public, takes `name` with **no length cap and no character filter**, and the
+  row renders that button unconditionally — so merely opening **Volunteers → Signups** executes it in an
+  admin session. CSP does not help: `script-src` carries `'unsafe-inline'`, which permits inline handlers.
+  This is a live recurrence of the class already fixed three times (VUXBUG2, SW11, REV1). The one-word fix is
+  to drop the inner `esc()`; the durable fix is the `data-*` + delegated-listener pattern used two lines
+  below it for the Email button.
+- [ ] **SEC14 — ⚠ HIGH: five more live instances of the same quote-context mismatch, in the person/household
+  autocompletes.** **Verified by execution** — each decoded to a closed call followed by an executing
+  statement. All are `esc(value)` placed directly between `&#39;` delimiters inside an `onclick`, where
+  `esc`'s own `&#39;` decodes back to a real quote:
+  `js-households.js:811` (`selectHousehold`, household display name) · `js-reports.js:1441` (`selectHHAc`,
+  household name) · `js-households.js:847` (`selectPerson`, person name) · `js-export-import.js:813`
+  (`svMigPickSearchResult`, person name) · `js-tuition-aid.js:1408` (`tapPickSuggestion`, person name).
+  **⚠ Three of them carry a *person name*, and person names arrive from the public website contact form** via
+  `POST /api/intake/connect-card`, which caps length and nothing else — same reachability as SEC13.
+  **⚠ The `.replace(/'/g,'&#39;')` sitting on three of those lines is a no-op and reads as protection**: the
+  value was already `esc`'d, so it holds no raw `'` left to replace. `js-export-import.js:925`
+  (`bzlPickSearchResult`) is the one that gets the ordering right — it replaces on the *raw* string first, so
+  the `&` is double-encoded and the quote comes back as inert text. **That ordering is the whole difference;
+  a fix that just copies the neighboring line will copy the bug.**
+- [ ] **SEC15 — Session cookies are HMAC-signed with `ADMIN_PASSWORD`, a human-chosen password.** `auth.js`
+  imports `env.ADMIN_PASSWORD` as the HMAC key for every `vol_auth` cookie. Any holder of a valid cookie —
+  including the lowest-trust `member` account, on their own phone — holds `HMAC(ADMIN_PASSWORD, knownPayload)`
+  and can grind it offline at their leisure. Recovering it yields both a forged cookie for **any** role and
+  the break-glass login itself. A separate high-entropy `SESSION_SECRET` would decouple the two; the
+  rotate-to-revoke-everything property that LP8 relies on is preserved either way (rotate the new secret).
+- [ ] **SEC16 — "Include in directory" is not honored by the directory members actually see.** The person
+  edit modal's `pm-public` checkbox is labeled *Include in directory*, titled *"Uncheck to hide this person
+  from printed/public directories"*, and visually parents the five `dir_hide_*` sub-toggles. `public_directory`
+  **is** honored by the printed/exported directory (`src/api-import.js:701,714`) and is referenced **nowhere**
+  in the People list or detail query path (`src/api-people.js`) — so a person who opted out still appears by
+  name, photo, household and member type to every `member` account; only the per-field toggles suppress
+  contact details. The household detail endpoint (`api-households.js`) likewise lists every active member of a
+  household regardless of the flag. **No test covers `public_directory` at all** (`grep` over `test/` returns
+  nothing). Either the list should filter on it or the checkbox's label and tooltip should stop promising it.
+- [ ] **SEC17 — The Breeze API key and `WORKER_SECRET` are stored in D1 in cleartext and readable by any
+  `staff` account.** `ws_breeze_settings` (`src/scheduler-html.js:6411`) persists
+  `{subdomain, apiKey, workerUrl, workerSecret, tagIds, replyTo, officeEmail}` to localStorage and pushes it
+  to `scheduler_data`; `GET /admin/api/scheduler/data` returns the whole table to `admin` **or `staff`**. The
+  Resend key was deliberately purged from that blob (`loadSettingsForm` deletes it on read) — the same
+  treatment never reached `apiKey`/`workerSecret`. `WORKER_SECRET` is the `X-Worker-Secret` bypass credential
+  for the routes in SEC11/SEC12, i.e. a non-expiring, non-revocable credential that survives deactivating the
+  account it leaked to.
+- [ ] **SEC18 — The Excel/Sheets formula-injection guard exists on the three *frontend* CSV builders and on
+  none of the *backend* ones.** SW15 added it to the giving-diagnose export and the pattern was carried to
+  `attCsvCell`/`finCsvCell`. The server-side exporters still emit raw cells:
+  `src/api-reports.js:496` (prayer requests — `request_text` comes from the **public** prayer form),
+  `src/api-admin.js:692` (volunteers — `name`/`notes` from the **public** sign-up form),
+  `src/api-import.js:1076` (people / giving / register) and `:1271` (Breeze audit). Those are precisely the
+  exports whose content is attacker-supplied. Separately, **`GET giving/statement?format=csv`
+  (`api-reports.js:1770`) does no escaping at all** — it interpolates `fund_name` and `method` into a
+  comma-joined line, so any fund name containing a comma silently shifts every later column — and it puts
+  `person.last_name` unsanitized into the `Content-Disposition` header (a name with a newline makes the
+  Headers constructor throw, turning a statement download into a 500).
+- [ ] **SEC19 — The service worker caches directory PII indefinitely and never purges it.** `SW_JS`
+  (`src/html-chms.js`) stores every `/admin/api/people` response into `API_CACHE = 'chms-api-v1'` — names,
+  emails, phones, addresses — and that cache name is **deliberately excluded from the `activate` eviction
+  list**, so unlike `STATIC_CACHE` it is not versioned by `DEPLOY_VERSION` and never rotates. Nothing clears
+  it on logout (`grep` finds no `caches.delete` outside the SW's own activate). On a shared office machine the
+  data sits on disk after sign-out, and any XSS on the origin (see SEC13/SEC14) can read the whole directory
+  out of it with one `caches.match`. Second, smaller issue in the same file: the shell is cached under the
+  bare key `'/'` with the comment *"the markup itself is completely static — it interpolates nothing
+  per-user"* — **that stopped being true at CR9**, which made `chmsHtmlForRole()` emit one script tag for a
+  member and three for everyone else. Cached under a role-neutral key, an offline relaunch can hand one role
+  the other's script set.
+- [ ] **SEC20 — Three security controls fail *open* when `RSVP_STORE` is unbound.** Login rate limiting
+  (`api-admin.js`), intake rate limiting (`api-intake.js`, an explicit `if (!env.RSVP_STORE) return true`) and
+  **QuickBooks OAuth `state` validation** (`api-finance.js:2794`, `if (env.RSVP_STORE) { …check… }`) all
+  silently become no-ops with no KV binding. Fine today because the binding exists in both `wrangler.toml`
+  and `wrangler.staging.toml` — but a misconfigured environment loses brute-force protection and OAuth CSRF
+  protection with nothing logged and nothing visible on screen.
+- [ ] **SEC21 — Smaller items, grouped.** (a) The break-glass check is `submittedPass === adminPassword` —
+  the one credential compared **non-constant-time**, while the DB path correctly uses `verifyPassword`'s
+  constant-time compare; `X-Intake-Key` is the same shape (already noted as CR7a). (b) Login rate limiting
+  uses a **fixed** window key (`Math.floor(Date.now()/WINDOW_MS)`), so 10 attempts at the end of one bucket
+  plus 10 at the start of the next gives 20 back-to-back. (c) `handleSchedBreezeProxy` falls back to a
+  caller-supplied `X-Breeze-Subdomain` header (CORS-allowlisted) and interpolates it into the upstream host
+  with no validation — inert while `BREEZE_SUBDOMAIN` is set, but a latent SSRF that would carry the Breeze
+  key to an attacker-chosen host; a `/^[a-z0-9-]+$/` check removes it. (d) `/admin/photo-proxy` checks the
+  hostname but not the scheme, despite its own comment saying "Only proxy HTTPS URLs". (e) **Every versioned
+  asset response carries `Set-Cookie` alongside `Cache-Control: public, max-age=31536000, immutable`**
+  (**verified** on all four routes) — `refreshAuthCookie` wraps every response indiscriminately. Browsers
+  handle it, but it is a session cookie on a publicly-cacheable response, and Cloudflare declines to
+  edge-cache a response with `Set-Cookie`, so the edge never serves these at all.
+- [ ] **SEC22 — Dead credentials in the login path.** `handleAdminLogin` assigns `financePassword`,
+  `staffPassword`, `memberPassword` and `adminEmail` from env and **never reads any of them** — four
+  role-password env vars that look live in the code and are not. Pass 5 of this project's own review standard.
+
+---
+
+#### Loading speed
+
+- [ ] **LOAD1 — Measured, so the rest of this section has numbers behind it** (assembled from the real
+  exports, not estimated): shell **194.4 KB** (identical for every role to within 100 bytes, `no-store`, so
+  re-downloaded on every page load) · `app.css` **152.2 KB** (render-blocking `<link>`) · `app-member.js`
+  **252.7 KB** · `app-staff.js` **121.9 KB** · `app-ext.js` **1,273.3 KB** · scheduler embed **91.7 KB +
+  303.3 KB** (lazy) · `PUBLIC_HTML` **204.5 KB**. **Staff first load ≈ 1,994 KB** uncompressed;
+  **member first load ≈ 599 KB**, which is the CR9 win holding up.
+- [ ] **LOAD2 — `app-ext.js` is 1.27 MB and every non-member role gets all of it, whatever their
+  permissions.** It is `JS_GIVING + JS_REPORTS + JS_EXPORT_IMPORT + JS_ATTENDANCE + JS_TUITION_AID +
+  JS_FINANCE + JS_VOLUNTEERS`, and `js-finance.js` alone is **696 KB of the source** — so a `staff` or
+  `council` account with `finance: none` still downloads and parses the entire Finance workspace, Tuition Aid
+  and Giving. **This is exactly CR9's argument one level up**: role gating is visibility, not payload, and
+  the split was made along the member line only. The shell is the only per-request surface, so it can already
+  decide (`chmsHtmlForRole`) — a `finance`/`tuitionaid` split would be the same mechanism, with
+  `ensureFullAppLoaded()` already in place as the lazy fallback for a permission granted later. Same
+  fail-safe-not-small rule applies.
+- [ ] **LOAD3 — The `no-store` shell is 194 KB and it is nearly all tab markup** — CR1b restated with the
+  measurement. Two structural notes found while measuring it: the served document **never closes `<body>` or
+  `<html>`** (`<body>` opens at `html-head.js:1837`; `html-tabs.js` ends mid-markup and the script tags are
+  appended after) — browsers auto-close, and the div-balance checks the tests run would not catch it, but
+  `PUBLIC_HTML` does close both, so this is an inconsistency, not a house style. And the three `<script>`
+  tags carry **no `defer`** (verified: `defer count: 0`).
+- [ ] **LOAD4 — `/admin/scheduler-embed.html` and `/admin/scheduler-embed.js` bypass `assetCacheControl()`**
+  and hardcode `public, max-age=31536000, immutable`. **Verified**: asked for `?v=99.99.99`, `app-ext.js`
+  correctly answers `no-store` and both scheduler routes still answer `immutable`. These are the two assets
+  the mid-rollout stale-pinning defense was written for and does not cover, and
+  `test/asset-cache-policy.test.js`'s own `ASSETS` array lists only the other four — so the gap is encoded in
+  the test as well as the worker. Worst asset to pin stale, too: a mismatched embed HTML/JS pair breaks the
+  tab rather than degrading it.
+- [ ] **LOAD5 — AU2's render-blocking Google Fonts problem applies to the *app*, not just the login page.**
+  `html-head.js:15` is a blocking `<link>` to `fonts.googleapis.com` requesting **three families** (Cormorant
+  Garamond at 8 weight/italic combinations, DM Sans at 5, Lora at 4). On the filtered church network that
+  motivated AU2, the app hangs the same way the login page does, for longer. **And the admin app has no
+  `preconnect` at all** while `PUBLIC_HTML` has two — the cheap half of the fix is already in the codebase,
+  just not on this surface. AU2 is currently written as a login-page item; it is an app-wide one.
+- [ ] **LOAD6 — CR1 never reached `serve.timothystl.org`.** `PUBLIC_HTML` is a single **204.5 KB** document
+  with **57.4 KB of CSS and 80.2 KB of JS inlined**, zero external assets, and — because `html()` sets no
+  `Cache-Control` — no cache directive at all. It is entirely static and per-visitor identical, so it is a
+  better candidate for the immutable-versioned-asset treatment than the admin shell ever was. This is the
+  church's public front door on the same slow network.
+- [ ] **LOAD7 — `await initDb(env.DB)` runs before routing, so static assets pay for it.** `_fetch` calls it
+  as its first statement, ahead of `/icons/*`, `/favicon.svg`, `/admin/app-*.js`, `/admin/app.css` and the
+  TinyMCE proxy — none of which touch D1. The fast path is well built (a source-derived fingerprint, one
+  `chms_config` read, no constant to remember to bump — a genuinely good design) but it is still one D1
+  round-trip on the critical path of a cold isolate for a request that needs no database. Hoisting the pure
+  asset routes above it is free.
+- [ ] **LOAD8 — CR5 confirmed, with the specifics.** The dashboard still runs **~11 serial D1 round-trips**
+  around its two `Promise.all` batches. Three are trivially parallelizable (`birthdays`, `annRows` and
+  `baptismAnniversaries` depend on nothing), and `prayerOpen`/`prayerOpenTotal` are two independent counts run
+  back to back. The weekly-task seed is **five `await`ed `INSERT`s inside a `for` loop** followed by a
+  re-`SELECT` — and since `engagement_tasks` has **no unique constraint on `(title, week_key)`**, two staff
+  opening the dashboard at the same moment on a Monday both see zero rows and both seed, leaving ten tasks.
+  `db.batch()` plus `INSERT … WHERE NOT EXISTS` fixes both at once.
+- [ ] **LOAD9 — `api()` resolves rather than rejects on a server error whenever `opts` is passed, and ~54
+  write calls never notice.** `js-core.js:91` guards the rejection with `&& !opts`, so every POST/PUT/PATCH/
+  DELETE resolves with the `{error}` body and the caller's `.then` runs as though it succeeded unless it
+  checks `d.error` by hand. Counted across `src/frontend`: **230 write-style `api()` calls, 176 check,
+  54 do not** (`js-tuition-aid` 10, `js-giving` 8, `js-volunteers` 7, `js-attendance` 5, `js-finance` 5,
+  `js-settings` 4, `js-dashboard` 4…). This is the mechanism behind the SAC1/SAC3 "Save failed with no
+  reason" and "the button does nothing" reports — the reason is in a body nobody reads. Not a load-speed item
+  strictly, but it is the single highest-leverage frontend correctness fix available: rejecting on `!r.ok`
+  regardless of `opts` would surface 54 silent failures at once (and would need each of those call sites
+  checked for a now-firing `.catch`).
+
+---
+
+#### Design consistency
+
+- [ ] **DSN1 — ⚠ Nine CSS custom properties are undefined in the embedded Scheduler tab, and it is the only
+  Scheduler there is.** **Verified** by extracting the real `CHMS_SCHEDULER_HTML` `<style>` block, collecting
+  every `var(--x)` used without a fallback, and differencing against everything defined in the real
+  `CHMS_APP_CSS` plus the shell. `_scopeCss()` (`src/scheduler-inline.js:89`) drops the scheduler's `:root`
+  wholesale with the comment *"ChMS already declares the same CSS custom properties"* — true for 19 of them
+  and **false for these nine**: `--on-pale-gold` (18×) · `--soft-sage` (14×) · `--honey` (14×) ·
+  `--on-pale-sage` (12×) · `--error-bg` (11×) · `--on-error-bg` (10×) · `--error-border` (10×) ·
+  `--danger-btn` (8×) · `--danger-hover` (1×). **98 declarations** become invalid-at-computed-value-time, on
+  real visible controls — `.btn-danger`, `.alert-danger`, `.tag-service`, `.tag-role`, `td.svc-1045`,
+  `.blackout-chip`, `.dot-err`. RD3 retired the standalone page precisely so the embed would be the only
+  surface; that made this silent instead of merely inconsistent. Fix is nine lines in `html-head.js`, or a
+  build-time assertion that every `var()` the embed uses resolves.
+- [ ] **DSN2 — PAL2's "remove the legacy definitions once nothing references them" is not close.** Counted
+  across `src/frontend`: legacy tokens **1,168 references** (`--warm-gray` 791 · `--linen` 120 ·
+  `--steel-anchor` 113 · `--charcoal` 86 · `--sky-steel` 18 · `--warm-white` 2) against brand tokens **314**
+  (`--color-navy` 173 · `--color-teal` 97 · `--color-gold` 37 · `--color-cream` 7). The `--ev-*` family is
+  nearly retired (**38** total) — that half genuinely landed. RD1/PAL2 have read "In progress" since
+  2026-07-12; the honest status is that PAL1/PAL4 defined the target and almost nothing has migrated to it.
+- [ ] **DSN3 — 423 hex literals, 171 distinct — and the two most common are brand tokens written longhand.**
+  `#2E7EA6` appears **36×** and `#C9973A` **33×** (plus `#1E2D4A` 8×) — ~77 occurrences that are literally
+  `--color-teal`/`--color-gold`/`--color-navy` restated, spread over `js-reports` (11), `js-finance` (8+8),
+  `js-giving` (4+8), `js-attendance` (4+4) and `html-head.js` itself (5+5). PAL7 did the safe exact-match pass
+  and correctly stopped at SVG `fill=`/`stroke=` attributes (**43** literals) and at hex sitting inside a
+  `var(--x, #fallback)` (**24**, deliberate — they are what renders in an emailed letter where custom
+  properties do not resolve). **Also a live drift:** `#c0392b` — the value PAL1 explicitly retired by aliasing
+  `--ev-danger` to `var(--danger)` (`#B85C3A`) — is still hardcoded **13×**, including twice in `html-head.js`
+  itself, so two different reds ship side by side.
+- [ ] **DSN4 — 4,004 inline `style="…"` attributes, but only 99 of them carry a color.** PAL6 called this
+  right and the split is worth keeping in front of whoever picks it up: the color problem (RD4/PAL5) is
+  ~500 sites and mechanical; the *structural* problem (RD2) is ~3,900 pure-layout attributes
+  (`display:flex`, `gap`, `padding`) and is a real refactor, not a substitution. `js-finance.js` alone holds
+  1,267 and `html-tabs.js` 900. Breakpoints, by contrast, are **clean**: exactly the three MOB3 tiers
+  (767/900/1100) with no fourth, plus two `@media print`.
+- [ ] **DSN5 — RD1 counted three token systems; there are five, across four surfaces.** Admin legacy (Steel)
+  · admin brand (`--color-*`) · Scheduler's own 28-token `:root` (PAL4 aligned the *values*, so
+  `--steel-anchor: #1E2D4A` equals `--color-navy` while keeping a separate name) · the public site's original
+  `--navy/--teal/--gold/--cream/--moss/--slate/--plum-*` set · and the public site's `--sv-*` set added by
+  SITE1, where `--sv-navy` and `--navy` are **the same `#1E2D4A` under two names by deliberate choice**. Any
+  redesign scoping should start from five, not three.
+- [ ] **DSN6 — Eight hardcoded `/chms` redirects in the frontend, against `appRootPath()` in the backend.**
+  `js-core.js:89` and seven copies in `js-finance.js` all do `location.href = '/chms'` on a 401. It works —
+  `/chms` still resolves on the Connect host — but it is the pre-CONN6 path, so an expired session lands
+  everyone on the non-canonical URL. `auth.js` documents `CONNECT_HOST`/`appRootPath()` as existing
+  *specifically* because "the knowledge was spread across two files with no shared definition" and cost twelve
+  days; the frontend now holds eight copies of the same stale knowledge with no shared definition at all.
+- [ ] **DSN7 — Accessibility, quantified, since MO5 deferred it without a number.** Across `src/frontend`:
+  **128 click handlers on non-interactive elements** (76 `<div onclick>`, 35 `<span onclick>`, 17
+  `<td onclick>`) against **2** `tabindex` and **9** `role=` — so ~126 controls are keyboard-unreachable and
+  announce as nothing to a screen reader. **18** `aria-label` and **0** `aria-labelledby` across a 1.6 MB
+  application; 13 `<img>` to 12 `alt=`. Not a defect list so much as the size of the a11y pass MO5 promised.
+- [ ] **DSN8 — The `office` → `council` rename (COUNCIL1) is incomplete in user-facing strings.**
+  `api-admin.js:216`'s `roleLabels` map is `{admin, finance, staff, member}` with **no `council`**, so a
+  council account with no `display_name` set shows **"Unknown"** in the topbar. And `api-chms.js`'s write
+  refusal still reads *"editing requires staff, **office**, or finance access"* — a role name that no longer
+  exists anywhere in the UI.
+- [ ] **DSN9 — `volJsAttr` is a `vol*`-namespaced helper defined in `js-volunteers.js` and called 29 times
+  from `js-finance.js`.** Harmless in a concatenated bundle, and it is genuinely the right helper — but the
+  name says Volunteers and the usage says shared, which is the sort of thing that makes a future module split
+  (see LOAD2) fail at exactly the wrong moment. It belongs in `js-core.js` next to `esc()`, and the two
+  should be documented together given SEC13/SEC14.
+
+---
+
+#### Flagged items: status verified against the code
+
+- [x] **DOC1 — Verified genuinely fixed, and the entries above are accurate.** CR7(c) (dead `ADMIN_HTML`
+  export gone, and its import with it) · CR3 (`loadTags`/`loadMemberTypes` now fire in parallel with `/me`;
+  `loadFunds` still correctly gated inside `.finally()`) · CR9b (exactly one `ROLE-BASED VISIBILITY` block in
+  the assembled `<style>`) · G30 (`online_giving_url` is now the only key read; the wrong `giving_url` is
+  gone) · PAL7 (32 substitutions present, `js-people.js` correctly untouched) · CR8 (closed with reasoning
+  that still holds) · MOB1–MOB4 · SEC1–SEC8 · XSS1–XSS4 (`esc()` encodes `'`; `pvField()` wraps in `esc`;
+  the org-website `^https?://` guard is present; `printRegister` escapes) · SW4 (the `handleHouseholdsApi`
+  arity bug — the signature now takes `role` last with a comment explaining why) · SW3 (`getAuthInfo`
+  live-checks `active`/`role` on every request and fails closed on a DB error). **All eight dynamic
+  `UPDATE … SET` builders re-checked individually and every one iterates a hardcoded field list** — the
+  audit-undo allowlist, `SORT_COLS`, and the `sortDir` ternary are all still in place. The SQL-injection
+  clean bill of health from the 2026-08-02 review holds at v1.190.6.
+- [ ] **DOC2 — Verified still open, with current numbers where the entry gives one.** CR1b (the shell is
+  194 KB, not "~192 KB") · CR2 and AU2 (see LOAD5 — and both are narrower than the real problem) · CR5 (see
+  LOAD8) · CR6 (**exactly 7** raw `fetch()` in `js-finance.js`, all `FormData` uploads, and the entry's claim
+  that each handles 401 correctly is accurate — though all seven do it by hardcoding `/chms`, see DSN6) ·
+  CR7(a) and CR7(b) · PAL2/PAL5/PAL6 (see DSN2–DSN4) · RD1/RD2/RD4 (see DSN4/DSN5) · SEC9/SEC10 (MFA and
+  CAPTCHA — SEC11/SEC12/SEC15 above raise the case for SEC9 considerably) · CR9a · TAP3 · TAP6 · PM1 · PL1b ·
+  G3 · SC4 · SC6 Phase 4 · VUX-DEFER1/2 · FIN2/FIN3/FIN4 · BRND3 · G24 · TLY1/TLY2.
+- [ ] **DOC3 — ⚠ Twelve backlog IDs have been reused for unrelated work, and `FIN58` now means three
+  different things.** `FIN58` = the Sankey/Share view (line 2552), the revenue-mix classification fix
+  (1336), *and* the dental/vision per-worker correction (2826). `FIN54` = the Compensation Planner redesign,
+  the health-plan rates table, and `FIN54-OPEN`. Also doubled: `FIN6`, `FIN20`, `FIN33`, `FIN55`, `FIN56`,
+  `FIN57`, `FIN61`, `FIN62`, `FIN63`. (`FIN59` + `FIN59-BUG1..4` is the legitimate pattern and reads fine.)
+  Outside Finance: `BRND1` appears once done and once open — the open copy is stale, the work shipped as PR
+  #315; `CR8` appears once closed and once open with different text; `G3`, `R4`, `R6`, `IN2`, `SC4`, `FH6`,
+  `BR1`, `PF1`, `PF2` are cross-listings of the same item rather than collisions. **Consequence worth caring
+  about: "see FIN58" in a future session resolves to the wrong entry**, and this file is the primary
+  hand-off mechanism between sessions. Cheapest fix is a suffix on the later duplicates (`FIN58b`), not a
+  renumber.
+- [ ] **DOC4 — ⚠ The American-English check documented at the top of this file currently returns 27 hits, and
+  the file says "It should return nothing."** Ran verbatim. Breakdown: **NOTES.md 13** · **CLAUDE.md 12** (of
+  which 4 are the rule quoting its own example words on lines 12/19/31/38 and are unavoidable; the other 8 are
+  real: the British spellings of color ×1, center ×4, gray ×2 and initialize ×1, in the BRAND5/BRAND6/
+  BRAND7 and TINY2 entries) ·
+  **`src/frontend/js-finance.js:7968`** (the British spelling of "labeled", in a comment — comments are
+  explicitly in scope) ·
+  **`test/finance-comp-baseline.test.js:504`** (the British spelling of "honors"). Two are live code. The rule is good and the drift
+  is small; it just is not currently true, and a note that says "run this before opening a PR" is worth
+  keeping green or the next person learns to ignore its output.
+- [ ] **DOC5 — `npm audit` is back to 6 high-severity advisories; REV8 recorded 0 on 2026-07-11.** All
+  dev-tooling and all transitively from the two dev deps: `wrangler → miniflare → sharp` (libvips CVEs) and
+  `→ undici` (5 advisories), `vitest → vite → postcss`/`nanoid`. **Nothing reaches the deployed Worker** — it
+  has no runtime dependencies — and `npm audit fix` resolves all six, exactly as REV8 did. Worth treating as
+  a recurring chore rather than a one-time fix.
+- [ ] **DOC6 — ~800 KB of dead files still tracked, and they are inside the spelling-check surface.** Seven
+  root-level files with **zero references** from `src/`, the worker, `wrangler.toml` or `.github`:
+  `index.html` (157 KB), `mockup.html` (158 KB), `chms-admin.html` (108 KB), `legacyindex.html` (106 KB),
+  `volunteer-admin.html` (71 KB), `slide-builder.html` (64 KB), `volunteer-legacy.html` (43 KB), plus
+  `breeze-proxy-worker.js` (27 KB) — the entry point of the Worker that IN1 deleted in April. And three
+  `src/` modules kept deliberately unimported since CONN1 (`api-member.js` 26 KB, `portal-html.js` 36 KB,
+  `portal-sw-js.js` 1 KB), whose stated purpose — donating their invite-token logic to the member-tier flow —
+  was fulfilled by CONN2 building that flow from scratch in `api-people.js`. None of it ships. It does get
+  swept by `git ls-files | xargs grep`, which is how the documented spelling check and every "does anything
+  still reference X?" search in this repo work.
+
+**Nothing above was acted on.** If any of it is picked up, SEC11 and SEC12 are the two that should not wait —
+they are one role check at one line in `tlc-volunteer-worker.js`, and both are reachable today by the account
+tier CONN2/TLY1 are about to invite the congregation into.
+
 ### SITE2 follow-up — Link-to-Person search by name, not email; live-as-you-type (2026-08-19, DONE)
 Two asks after using the new duplicate-merge tools live: (1) the "Link to Person Record" modal
 prefilled and searched its box with the sign-up's **email** first — for a work/personal address
