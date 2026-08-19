@@ -70,7 +70,12 @@ export async function handleApiEvents(env) {
       const filled = await env.DB.prepare(
         'SELECT COUNT(*) as n FROM signup_slots WHERE role_id=?'
       ).bind(role.id).first();
-      rolesWithFill.push({ ...role, filled_count: filled?.n || 0 });
+      // ⚠ `lead` IS DELIBERATELY WITHHELD FROM THIS PUBLIC ENDPOINT. Everything else
+      // serve_roles holds is copy written to be read by the public; a job lead's name
+      // is staff-facing operational detail, and this route is unauthenticated. Keeping
+      // it out preserves the property this response already has — it names nobody.
+      const { lead: _lead, ...publicRole } = role;
+      rolesWithFill.push({ ...publicRole, filled_count: filled?.n || 0 });
     }
     result.push({ ...ev, roles: applyXmasMarketDefaults(ev.name, rolesWithFill) });
   }
@@ -122,6 +127,17 @@ export function marketShiftLabel(role) {
 
 // Pure shaping step, so the grouping/counting rules are testable without a DB.
 // roles: serve_roles rows (already ordered) ; peopleByRole: Map role_id -> [{name,email}]
+//
+// ⚠ EVERY TIME IN THIS PAYLOAD IS A WALL CLOCK, NEVER AN INSTANT. `start`/`end`
+// are the stored strings verbatim ('9:00 AM'), and `date` is a bare YYYY-MM-DD —
+// no `Z`, no offset, nothing to convert. The caller reads the literal hour and
+// minute digits, so a UTC instant meaning 9am Central would be drawn at 3pm. A
+// church shift at 9:00 means 9:00 in St. Louis to everybody who reads it; do not
+// "fix" these into instants.
+//
+// ⚠ `label` IS STILL SENT AND MUST STAY. It is the caller's fallback when a shift
+// has no recorded time at all, and it is what an untimed shift still prints. The
+// structured fields are additive — nothing here replaces a key that already existed.
 export function buildMarketSummary(roles, peopleByRole) {
   const byName = new Map();
   let openShifts = 0;
@@ -137,12 +153,30 @@ export function buildMarketSummary(roles, peopleByRole) {
     if (!byName.has(name)) byName.set(name, { name, shifts: [] });
     byName.get(name).shifts.push({
       label: marketShiftLabel(role),
+      // ⚠ `date` GOES ON THE SHIFT, NOT ON THE GROUP. A group here is a job NAME,
+      // and the market's jobs repeat across both days — Kitchen runs Friday and
+      // Saturday — so a group-level date would be wrong for exactly the jobs the
+      // day switch exists to separate.
+      date: /^\d{4}-\d{2}-\d{2}$/.test(String(role.role_date || '').trim())
+        ? String(role.role_date).trim() : '',
+      start: (role.start_time || '').trim(),
+      end: (role.end_time || '').trim(),
+      lead: (role.lead || '').trim(),
       needed,
       filled,
       people,
     });
   }
-  return { roles: Array.from(byName.values()), openShifts };
+  // The group's lead, for the caller that reads one lead per job. Only stated when
+  // every shift in the group that names a lead names the SAME person — two shifts
+  // of one job led by different people cannot both be true of the group, and
+  // printing the first one found would put a real name against the wrong shift,
+  // which is worse than "Unassigned". Per-shift `lead` above is always exact.
+  const shaped = Array.from(byName.values()).map((r) => {
+    const named = [...new Set(r.shifts.map((sh) => sh.lead).filter(Boolean))];
+    return named.length === 1 ? { ...r, lead: named[0] } : r;
+  });
+  return { roles: shaped, openShifts };
 }
 
 // ⚠ Every response here (success and error alike) carries `Cache-Control: no-store`.
@@ -177,7 +211,7 @@ export async function handleChristmasMarketSummary(req, env) {
   if (!ev) return noStoreJson(empty);
 
   const roleRows = await env.DB.prepare(
-    'SELECT id, name, slots, sort_order, role_date, start_time, end_time FROM serve_roles WHERE event_id=? ORDER BY role_date, sort_order, id'
+    'SELECT id, name, slots, sort_order, role_date, start_time, end_time, lead FROM serve_roles WHERE event_id=? ORDER BY role_date, sort_order, id'
   ).bind(ev.id).all();
   const roles = applyXmasMarketDefaults(XMAS_MARKET_NAME, roleRows.results || []);
 

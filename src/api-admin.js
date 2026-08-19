@@ -647,9 +647,9 @@ export async function handleAdminApi(req, env, url, method) {
     const evId = parseInt(seg.split('/')[1]);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     const r = await env.DB.prepare(
-      'INSERT INTO serve_roles (event_id,name,description,slots,sort_order,role_date,start_time,end_time) VALUES (?,?,?,?,?,?,?,?)'
+      'INSERT INTO serve_roles (event_id,name,description,slots,sort_order,role_date,start_time,end_time,lead) VALUES (?,?,?,?,?,?,?,?,?)'
     ).bind(evId, b.name||'New Role', b.description||'', b.slots||0, b.sort_order||0,
-           b.role_date||'', b.start_time||'', b.end_time||'').run();
+           b.role_date||'', b.start_time||'', b.end_time||'', (b.lead||'').trim()).run();
     return json({ ok: true, id: r.meta?.last_row_id });
   }
 
@@ -659,9 +659,9 @@ export async function handleAdminApi(req, env, url, method) {
     const parts = seg.split('/'); const rid = parseInt(parts[3]);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
     await env.DB.prepare(
-      'UPDATE serve_roles SET name=?,description=?,slots=?,sort_order=?,role_date=?,start_time=?,end_time=? WHERE id=?'
+      'UPDATE serve_roles SET name=?,description=?,slots=?,sort_order=?,role_date=?,start_time=?,end_time=?,lead=? WHERE id=?'
     ).bind(b.name, b.description||'', b.slots||0, b.sort_order||0,
-           b.role_date||'', b.start_time||'', b.end_time||'', rid).run();
+           b.role_date||'', b.start_time||'', b.end_time||'', (b.lead||'').trim(), rid).run();
     return json({ ok: true });
   }
 

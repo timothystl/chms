@@ -1297,7 +1297,10 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">Start</label><input type="time" id="vol-shift-start"></div>
       <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">End</label><input type="time" id="vol-shift-end"></div>
     </div>
-    <div style="max-width:110px;"><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">Spots</label><input type="number" id="vol-shift-slots" min="0"></div>
+    <div style="display:grid;grid-template-columns:110px 1fr;gap:10px;">
+      <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">Spots</label><input type="number" id="vol-shift-slots" min="0"></div>
+      <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">Job lead</label><input type="text" id="vol-shift-lead" placeholder="Who runs this job (optional)"></div>
+    </div>
     <div id="vol-shift-filled-hint" style="font-size:.72rem;color:var(--ev-muted);margin:-6px 0 2px;"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
       <a href="javascript:void(0)" id="vol-shift-delete" style="color:#c0392b;font-size:.78rem;font-weight:600;text-decoration:none;cursor:pointer;" onclick="volDeleteShift()">Delete shift</a>

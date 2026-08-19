@@ -24,6 +24,41 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.194.0 — Market summary: structured shift times and a job lead (2026-08-19)
+
+MKT2 — the other half of the website repo's v5.30.0 Christmas Market roster
+redesign. `GET /api/signups/christmasmarket/summary` gains four optional fields:
+`shifts[].start`, `shifts[].end`, `shifts[].date` and `lead`. Purely additive — no
+existing key changed or removed, and the website needed no change, because its
+`normalizeRoster()` already prefers all four the moment they appear and falls back
+to parsing the label when they do not.
+
+- **`start`/`end`/`date` needed no new storage** — `serve_roles.role_date` /
+  `start_time` / `end_time` have been populated since the market's own seed and were
+  simply never in the payload. Passed through verbatim as **wall clocks**
+  (`9:00 AM`, `2026-12-05`): no `Z`, no offset. The caller reads the literal digits,
+  so a UTC instant meaning 9am Central would draw the crew at 3pm.
+- **`lead` is a new `serve_roles.lead` column** (migration `0036`), typed by the
+  coordinator in the existing Add/Edit shift modal and shown on the shift row.
+  Nothing in this repo had any per-role owner or contact. It is deliberately NOT
+  derived from who signed up — a lead is usually a committee member running the job
+  rather than somebody occupying one of its spots. **No lead is seeded**; blank is a
+  real state and the website prints it as "Lead · Unassigned".
+- **The group-level `lead` is withheld when two shifts of one job name different
+  people** — the caller reads one lead per job, so printing the first one found puts
+  a real name against the wrong day. Per-shift `lead` is always exact.
+- **`lead` is withheld from the public `/api/events`**, which named nobody before
+  this column existed and still names nobody now.
+
+`npm test` (1670 passed, 5 skipped, 93 files), `node --check` on all four built app
+bundles, div-balance on the assembled shell. Verified end to end across both repos:
+the real handler over the real seed (36 jobs, 67 shifts), its output fed into the
+real website Worker — day switch appears, grid draws a 7:30–11:00 block at 269px
+against 152px for the 9:00–11:00 beside it, leads on the panels and printed sheets,
+CSV Day/Date/Job lead/Start/End filled on all 206 rows. The website's own suites
+re-run unchanged: `admin/market.test.mjs` 318, `test/market-admin.test.mjs` 36,
+`test/admin-redesign.test.mjs` 1257. 11 injections, 11 correct failure sets. Not
+verified: a live browser or a real deploy.
 ### v1.194.0 — Phase 22-C: one CSV escaper per runtime, and the formula guard reaches the server (2026-08-19)
 
 Closes SEC18.
