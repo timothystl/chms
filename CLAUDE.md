@@ -466,6 +466,282 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 
 **Done when:** SW9–SW17 each fixed or formally deferred with a reason; RD1–RD5 are decisions logged here for the redesign, not fix targets. ✅ SW9–SW17 all fixed. RD1/RD2/RD4 (palette consolidation) decided 2026-07-12 and tracked as active work under Queued Items below; RD3/RD5 closed.
 
+### Phases 21–28 — CR10 Remediation Plan (written 2026-08-19)
+**Everything still open in this file is in exactly one phase below, under one alphanumeric code.** The
+`CR10` entry under Queued Items holds the evidence for each finding; this is the running order. Codes are
+`P<phase>-<letter>` and each carries the original item code(s) it retires, so a search for `SEC12` or `PAL5`
+still lands somewhere. Phases 21 and 22 are ordered by risk; 23 onward by dependency, not urgency.
+
+**Standing rules for every phase below** (they are why the earlier phases held up):
+one phase per PR · `npm test` green before and after · `DEPLOY_VERSION` bumped on any frontend change ·
+every new test checked for vacuity by injecting the exact regression it guards · a `Not verified` line
+naming what was not exercised (a live browser, a real phone, real D1, a real sent email).
+
+---
+
+#### Phase 21 — Authorization emergency ⚠ SHIP FIRST, AS ONE HOTFIX
+**Goal:** close the two paths that let the lowest-trust account in the app act as the church, and the
+stored-XSS class that reaches an admin session from a public form. **Nothing else belongs in this PR.**
+
+- [ ] **P21-A** (retires **SEC11**) — Role-gate `POST /email/send`. The gate is `schedAuthed` in
+  `tlc-volunteer-worker.js`, not the handler. `admin`/`staff` only, matching SW1/SW2's decision for the
+  `/admin/api/scheduler/*` siblings.
+- [ ] **P21-B** (retires **SEC12**) — Role-gate the Breeze proxy (`/api/*`, `/breeze/*`) and the rest of the
+  `schedAuthed` block: `/serve/pending`, `/serve/general-pending`, `/serve/event-pending`, `/rsvp/store`,
+  `/rsvp/sync`. `/esv/passage` is the one that can stay open to any authenticated role. **⚠ The
+  `X-Worker-Secret` bypass must keep working** — the scheduler's own server-to-server calls ride it.
+- [ ] **P21-C** (retires **SEC13**) — `js-volunteers.js:122`: drop the inner `esc()` from the three
+  `volJsAttr(esc(…))` calls, or move the button to the `data-*` + delegated-listener pattern already used by
+  the Email button two lines below. **⚠ `volJsAttr` alone is correct; wrapping it in `esc()` is what breaks
+  it.**
+- [ ] **P21-D** (retires **SEC14**) — The five autocomplete handlers: `js-households.js:811` and `:847`,
+  `js-reports.js:1441`, `js-export-import.js:813`, `js-tuition-aid.js:1408`. **⚠ Do not copy the neighboring
+  line to fix these** — `js-export-import.js:925` is the only one that gets the ordering right (replace on
+  the raw string *first*, so the `&` double-encodes), and three of the five carry a `.replace(/'/g,'&#39;')`
+  that is a no-op and reads as protection.
+- [ ] **P21-E** (new) — A regression test for the whole class, because this is its fourth appearance
+  (VUXBUG2 → SW11 → REV1 → SEC13/SEC14). Scan the built bundles for an inline handler whose argument is an
+  `esc()`-derived value sitting between `&#39;`/`&quot;` delimiters, and assert none. Verify non-vacuous by
+  reintroducing SEC13 and watching it fail.
+- [ ] **P21-F** (retires **DSN9**) — Move `volJsAttr` from `js-volunteers.js` to `js-core.js` beside `esc()`,
+  with a comment stating the two must never be composed. It is called 29 times from `js-finance.js` already;
+  it rides here because P21-C/D are the reason anyone will read it next.
+
+**Done when:** a `role='member'` cookie gets 403 from `/email/send` and `/api/people`, driven against the real
+worker the way CR10 verified the hole; a sign-up named `A");…//` renders inert in the Signups list; P21-E
+fails on a deliberate revert.
+
+---
+
+#### Phase 22 — Security hardening
+**Goal:** the rest of the CR10 security findings. Independent of each other; safe to land in one PR.
+
+- [ ] **P22-A** (retires **SEC16**) — Make the member directory honor `public_directory`, or change the
+  checkbox's label and tooltip to stop promising it. **This is a decision, not a bug fix** — ask before
+  choosing, since filtering changes who appears in a directory people are about to be invited into. Add the
+  test either way; nothing covers this column today.
+- [ ] **P22-B** (retires **SEC17**) — Stop persisting `apiKey`/`workerSecret` in `ws_breeze_settings`. The
+  Resend key already got this treatment (`loadSettingsForm` deletes it on read); copy that, plus a
+  one-time strip of what is already stored. Both live in `env` and are read from there.
+- [ ] **P22-C** (retires **SEC18**) — Add the SW15 formula-injection guard to the four server-side CSV
+  exporters (`api-reports.js:496`, `api-admin.js:692`, `api-import.js:1076` and `:1271`). Separately, give
+  `giving/statement?format=csv` real escaping — it has none — and sanitize `person.last_name` before it goes
+  into `Content-Disposition`. One shared `csvCell()` helper, not five copies (SW17's lesson).
+- [ ] **P22-D** (retires **SEC19**) — Purge Cache Storage on logout, and version `API_CACHE` by
+  `DEPLOY_VERSION` like `STATIC_CACHE`. Then either key the cached shell by role or stop caching it — its
+  own comment ("interpolates nothing per-user") stopped being true at CR9.
+- [ ] **P22-E** (retires **SEC20**) — Fail closed, not open, when `RSVP_STORE` is absent: login rate limiting,
+  intake rate limiting, and QuickBooks OAuth `state` validation. A missing binding should refuse, not wave
+  through.
+- [ ] **P22-F** (retires **SEC21**, and what is left of **CR7** — its (a) and (b); CR7(c) shipped 2026-08-19) — (a) constant-time compare for the break-glass
+  password and `X-Intake-Key`; (b) sliding rather than fixed login rate-limit window; (c) validate the
+  `X-Breeze-Subdomain` fallback against `/^[a-z0-9-]+$/`; (d) require `https:` in `/admin/photo-proxy`;
+  (e) skip `refreshAuthCookie` on the versioned asset routes so `Set-Cookie` stops riding a
+  `public, immutable` response; (f) narrow the blanket `OPTIONS → SCHED_CORS` handler to the scheduler paths.
+- [ ] **P22-G** (retires **SEC22**) — Delete `financePassword`, `staffPassword`, `memberPassword`,
+  `adminEmail` from `handleAdminLogin`; they are assigned and never read.
+
+**Done when:** each item fixed or formally deferred with a reason, per this file's convention.
+
+---
+
+#### Phase 23 — Authentication foundation (needs scoping before any code)
+**Goal:** the two items that change how sessions and logins work. Both deserve their own session.
+
+- [ ] **P23-A** (retires **SEC15**) — Move session signing off `ADMIN_PASSWORD` onto a separate
+  high-entropy `SESSION_SECRET`. **⚠ Migration matters more than the change**: every existing cookie is
+  signed with the old key, so plan for accept-either-during-rollout or accept-a-forced-logout, and keep
+  LP8's rotate-to-revoke-everything property pointed at the new secret. Update `SECRETS.md`.
+- [ ] **P23-B** (retires **SEC9**) — MFA, at least for `admin` and `finance`. TOTP setup + QR, verification
+  at login, recovery codes, and a decision on which roles are required. **P23-A first** — MFA on top of a
+  session key that is also a guessable password buys less than it looks like.
+- **SEC10 (CAPTCHA) is closed as deferred** and stays closed unless the threat model changes here.
+
+**Done when:** each has a design decision logged in this file, or is in active implementation.
+
+---
+
+#### Phase 24 — Silent failures
+**Goal:** the correctness items where the app already knows something went wrong and says nothing. Highest
+user-visible payoff per line changed in the whole plan.
+
+- [ ] **P24-A** (retires **LOAD9**) — `api()` must reject on `!r.ok` regardless of whether `opts` was passed.
+  **⚠ This surfaces 54 currently-silent failures at once** (230 write-style calls, 176 already check
+  `d.error`, 54 do not) — every one of those call sites needs a `.catch` before this lands, or a working
+  save starts showing an unhandled rejection. Do the call-site sweep in the same PR, file by file:
+  `js-tuition-aid` 10 · `js-giving` 8 · `js-volunteers` 7 · `js-attendance` 5 · `js-finance` 5 ·
+  `js-settings` 4 · `js-dashboard` 4 · `js-export-import` 3 · `js-core` 2 · `js-households` 2 · `js-people` 2
+  · `js-register` 1 · `js-reports` 1. This is the mechanism behind the SAC1/SAC3 reports.
+- [ ] **P24-B** (retires **LOAD8**, **CR5**) — Dashboard: fold `birthdays`, `annRows` and
+  `baptismAnniversaries` into the existing first `Promise.all` (they depend on nothing), run
+  `prayerOpen`/`prayerOpenTotal` together, and replace the five-`await` weekly-task seed loop with one
+  `db.batch()`. **⚠ Add a unique constraint on `engagement_tasks(title, week_key)` or seed with
+  `INSERT … WHERE NOT EXISTS`** — two staff opening the dashboard the same Monday morning currently both
+  seed and leave ten tasks.
+- [ ] **P24-C** (retires **DSN8**) — Add `council` to `roleLabels` in `api-admin.js` (a council account with
+  no `display_name` currently reads "Unknown"), and fix the write-refusal string in `api-chms.js` that still
+  says "office". COUNCIL1 leftovers.
+
+**Done when:** a forced 500 on a save shows the server's own message; the dashboard's D1 round-trip count is
+measured and recorded; a council user sees their role name.
+
+---
+
+#### Phase 25 — Load speed
+**Goal:** ordered cheapest-first. P25-A and P25-B are one-liners; P25-E is the big one.
+
+- [ ] **P25-A** (retires **LOAD4**) — Route `/admin/scheduler-embed.html` and `.js` through
+  `assetCacheControl()` and add both to `ASSETS` in `test/asset-cache-policy.test.js`. Two of six versioned
+  assets are currently outside the mid-rollout stale-pinning defense, and the test's own list encodes the gap.
+- [ ] **P25-B** (retires **LOAD7**) — Hoist the pure asset routes (`/icons/*`, `/favicon.svg`,
+  `/header-logo.png`, `/admin/app-*.js`, `/admin/app.css`, the TinyMCE proxy) above `await initDb(env.DB)`
+  in `_fetch`. None of them touch D1.
+- [ ] **P25-C** (retires **LOAD5**, **CR2**, **AU2**) — Self-host the fonts, or make the `<link>`
+  non-blocking with a `preconnect`. **⚠ AU2 is written as a login-page item and is not one** — the app shell
+  (`html-head.js:15`) blocks on the same host for three families at 17 weight/italic combinations, and has no
+  `preconnect` at all while `PUBLIC_HTML` already has two. Self-hosting also lets the CSP drop both
+  `fonts.*` allowances.
+- [ ] **P25-D** (retires **CR6**, **DSN6**) — Route the seven `FormData` uploads in `js-finance.js` through
+  `api()` (it passes `opts` straight through, so `FormData` works), and replace all eight hardcoded
+  `location.href = '/chms'` 401 redirects with a shared host-aware helper — the frontend mirror of
+  `appRootPath()`, whose own comment explains why this knowledge must live in one place.
+- [ ] **P25-E** (retires **LOAD2**) — Split `app-ext.js` (1,273 KB) along the permission line the way CR9
+  split along the role line. `js-finance.js` alone is 696 KB of its source, and a `staff` or `council`
+  account with `finance: none` downloads and parses all of it. The shell is the only per-request surface and
+  already decides (`chmsHtmlForRole`); `ensureFullAppLoaded()` is already the lazy fallback for a permission
+  granted later. **⚠ Keep CR9's two rules: fail SAFE (an unrecognized role gets everything), and pin
+  "no global defined twice across bundles" with a test** — the member split's one real bug was a module
+  landing in the wrong half.
+- [ ] **P25-F** (retires **LOAD3**, **CR1b**, **CR9a**) — The 194 KB `no-store` shell, which is nearly all
+  tab markup. CR1b's own caveat still stands: there is no natural lazy trigger, so this needs the boot
+  sequence looked at, not another mechanical extraction. While in there: the served document never closes
+  `<body>` or `<html>`, and the script tags carry no `defer`.
+- [ ] **P25-G** (retires **LOAD6**) — Give `serve.timothystl.org` the CR1 treatment: `PUBLIC_HTML` is a
+  204.5 KB document with 57.4 KB of CSS and 80.2 KB of JS inlined and **no `Cache-Control` at all**. It is
+  entirely static and identical for every visitor — a better candidate for immutable versioned assets than
+  the admin shell ever was, on the same slow network.
+
+**Done when:** each shipped or deferred; measure the same numbers CR10 recorded and put the new ones next to
+the old ones in this file.
+
+---
+
+#### Phase 26 — Design system consolidation (pre-redesign)
+**Goal:** what RD1/RD2/RD4 asked for in 2026-07, restated with measurements. **P26-A is a visible bug, not
+cleanup — do not let it wait for the redesign.**
+
+- [ ] **P26-A** (retires **DSN1**) — Nine CSS custom properties are undefined in the embedded Scheduler once
+  `_scopeCss()` strips its `:root`: `--on-pale-gold` 18x · `--soft-sage` 14x · `--honey` 14x ·
+  `--on-pale-sage` 12x · `--error-bg` 11x · `--on-error-bg` 10x · `--error-border` 10x · `--danger-btn` 8x ·
+  `--danger-hover` 1x — 98 declarations on `.btn-danger`, `.alert-danger`, `.tag-service`, `.tag-role`,
+  `td.svc-1045`, `.blackout-chip`, `.dot-err`. Define them in `html-head.js`, **and add a build-time
+  assertion that every `var()` the embed uses resolves**, or the next token added to the scheduler repeats it.
+  RD3 made the embed the only Scheduler, which is what turned this silent.
+- [ ] **P26-B** (retires **PAL5**, **DSN3**, **RD4**) — Continue PAL7's exact-match hex substitution. 423 hex
+  literals, 171 distinct; the two most common are `#2E7EA6` (36x) and `#C9973A` (33x), which are
+  `--color-teal` and `--color-gold` written longhand. **⚠ Keep PAL7's two rules**: never substitute a hex
+  inside a `var(--x, #fallback)` (24 of them, deliberate — they are what renders in an emailed letter), and
+  never map a value onto a token namespaced for another tab. Also settle the two reds: `#c0392b` is
+  hardcoded 13x including twice in `html-head.js`, and PAL1 retired it.
+- [ ] **P26-C** (retires **PAL2**, **DSN2**) — Migrate legacy token references onto the Palette A set, then
+  delete the legacy definitions. Current state: 1,168 legacy references (`--warm-gray` 791 · `--linen` 120 ·
+  `--steel-anchor` 113 · `--charcoal` 86 · `--sky-steel` 18 · `--warm-white` 2) against 314 brand-token
+  references. The `--ev-*` family is down to 38 and can go first.
+- [ ] **P26-D** (retires **RD2**, **CR4**, **DSN4**) — The structural half: ~3,900 pure-layout inline
+  `style=` attributes (of 4,004 total; only 99 carry a color, which is P26-B's problem). This is a refactor,
+  not a substitution, and RD1/RD2's own 2026-07-12 decision was to let it ride with the redesign. Keep it
+  there unless the redesign slips.
+- [ ] **P26-E** (retires **RD1**, **DSN5**) — Reconcile the palettes. RD1 counted three; there are **five
+  across four surfaces**: admin legacy · admin brand · the Scheduler's own 28-token `:root` · the public
+  site's original `--navy/--teal/--gold/--cream/--moss/--slate/--plum-*` · and the public site's `--sv-*`,
+  where `--sv-navy` and `--navy` are the same `#1E2D4A` under two names by SITE1's deliberate choice. Scope
+  from five.
+- [ ] **P26-F** (retires **DSN7**, **MO5**) — The accessibility pass MO5 deferred, now with a number:
+  128 click handlers on non-interactive elements (76 `<div>`, 35 `<span>`, 17 `<td>`) against 2 `tabindex`
+  and 9 `role=`; 18 `aria-label` and 0 `aria-labelledby` across a 1.6 MB app; 13 `<img>` to 12 `alt=`.
+  **⚠ `aria-labelledby` is an HTML attribute name — see the spelling rule at the top of this file.**
+
+**Done when:** P26-A shipped; the rest either shipped or explicitly folded into the redesign with a date.
+
+---
+
+#### Phase 27 — Repo and process hygiene
+**Goal:** keep the tools that catch problems from going quietly red. All small.
+
+- [ ] **P27-A** (retires **DOC3**) — Suffix the later duplicate backlog IDs (`FIN58b`, `FIN58c`, `FIN54b`,
+  `FIN54c`, `FIN55b`, `FIN56b`, `FIN57b`, `FIN61b`, `FIN62b`, `FIN63b`, `FIN20b`, `FIN33b`, `FIN6b`) rather
+  than renumbering. **This matters because this file is the hand-off between sessions**: "see FIN58" currently
+  resolves to three different features. `G3` also appears twice as the same item — make the second a
+  cross-reference.
+- [ ] **P27-B** (retires **DOC4**) — Get the American-English check back to zero. 27 hits today: NOTES.md 13 ·
+  CLAUDE.md 12 (4 of which are the rule quoting its own example words and are unavoidable — exclude those
+  four lines in the command, or the check can never be green) · `src/frontend/js-finance.js:7968` ·
+  `test/finance-comp-baseline.test.js:504`. The last two are live code.
+- [ ] **P27-C** (retires **DOC5**) — `npm audit fix`. Back to 6 high after REV8 recorded 0 on 2026-07-11; all
+  dev-tooling (`wrangler → miniflare → sharp`/`undici`, `vitest → vite → postcss`/`nanoid`), none reaching
+  the deployed Worker, which has no runtime dependencies. Treat as a recurring chore, not a one-time fix.
+- [ ] **P27-D** (retires **DOC6**) — Delete the ~800 KB of dead tracked files: `index.html` (157 KB),
+  `mockup.html` (158 KB), `chms-admin.html` (108 KB), `legacyindex.html` (106 KB), `volunteer-admin.html`
+  (71 KB), `slide-builder.html` (64 KB), `volunteer-legacy.html` (43 KB), `breeze-proxy-worker.js` (27 KB —
+  the entry point of the Worker IN1 deleted in April), and the three unimported `src/` modules
+  (`api-member.js`, `portal-html.js`, `portal-sw-js.js`), whose stated purpose was fulfilled when CONN2 built
+  the invite flow from scratch in `api-people.js`. **⚠ Confirm nothing outside this repo serves them first**
+  — a `CNAME` file at the root suggests GitHub Pages once did. They are inside the spelling-check and
+  `git ls-files | xargs grep` surface, which is the actual cost.
+
+**Done when:** the spelling check and `npm audit` both return clean, and a search for any backlog code lands
+on exactly one entry.
+
+---
+
+#### Phase 28 — Carried forward (features, external, and one spin-out)
+**Goal:** nothing here came out of CR10; it is the pre-existing backlog, listed so the plan is complete and
+nothing is orphaned. Not ordered.
+
+- [ ] **P28-A** / **G3** — Gift entry workflow improvements. User has detail; needs a scoping session.
+  (Listed twice in this file — see P27-A.)
+- [ ] **P28-B** / **PM1** — Person merge: move giving, tags and household membership to a canonical record,
+  then delete the duplicate. Needs a confirmation UI with a diff view. **The SITE2 sign-up merge tools are a
+  working precedent** — same shape, same confirm-count safety pattern.
+- [ ] **P28-C** / **PL1b** — Pledge tracking: a `pledges` table, pledge vs. actual on the profile and in
+  Giving Insights.
+- [ ] **P28-D** / **TAP3** — The eight remaining tuition config knobs still have no UI (two got one; see the
+  item's own 2026-08-19 note).
+- [ ] **P28-E** / **TAP6** — Offset-0 is deliberately not pin-aware, so a pin made for "next year" is not
+  promoted when that year becomes current. Re-verified unchanged 2026-08-19.
+- [ ] **P28-F** / **SC4** — Mobile self-service "My Schedule". **Blocked**: there is no per-volunteer login,
+  so nothing can answer "which person is me". Needs a volunteer identity decision first.
+- [ ] **P28-G** / **SC6** — Native Scheduler rewrite, Phase 4: port the remaining surfaces (Focus Week,
+  generate/auto-fill, reminders/ICS, Breeze import), each a separate decision. **P26-A touches the same
+  code and should land first.**
+- [ ] **P28-H** / **VUX-DEFER1** — Weekly digest to ministry leaders. `notify_weekly_digest` saves a
+  preference and nothing sends anything; verified 2026-08-19. Still blocked on ministry-leader contact
+  mapping, which does not exist.
+- [ ] **P28-I** / **VUX-DEFER2** — Automated reminder before a volunteer's first Sunday.
+  `sms_reminder_opt_in` is stored and shown in the admin UI ("🔔 Wants a reminder before serving") and
+  nothing sends; verified 2026-08-19. Ministry-role sign-ups are recurring with no date to schedule against.
+- [ ] **P28-J** / **QB1** (new, spun out of the now-closed FIN2) — Match QuickBooks `Deposit` entities against
+  `giving_deposits` by date and amount, to auto-populate the bank amount and the real fee line in the
+  Deposits reconciliation UI instead of the bookkeeper typing the bank total. `Deposit` is a queryable Data
+  API entity (same pattern as `Budget`, which works) and is not called anywhere in this app yet. **Needs the
+  same precedence decision FIN2 settled for sync**: how far to trust an auto-match against manual entry.
+- [ ] **P28-K** / **FIN3** — Confirm the live daycare finance endpoint renders correctly. Needs
+  `DAYCARE_API_URL`/`DAYCARE_API_KEY` set as Worker secrets, then one click of "Sync Daycare App".
+- [ ] **P28-L** / **G24** — Set `CHMS_INTAKE_API_KEY` on `tlc-newsletter-admin` with the same value as here.
+  **MKT1's Christmas Market summary endpoint answers 401 until this is done.**
+- [ ] **P28-M** / **BRND3** — Website-repo follow-up: point the `/volunteer` short-URL redirect at
+  `serve.timothystl.org`. That is D1 data in the other repo, not code here. (The DNS half is demonstrably
+  done — `serve.timothystl.org` is live and `volunteer.timothystl.org` no longer resolves.)
+- [ ] **P28-N** / **TLY1** — Invite member accounts at scale. **This is the organizational gate on the whole
+  member tier**, and CR9/SEC11/SEC12/SEC16 all get more consequential the moment it happens — Phase 21
+  should land first.
+- [ ] **P28-O** / **TLY2** — Unverified: which Tithe.ly link-open mode was in effect for the successful
+  session-persistence test. Only matters if it regresses after a Tithe.ly update.
+
+**Done when:** each item either shipped, formally deferred with a reason, or moved into a phase of its own.
+
+---
+
 ---
 
 ## Queued Items (add new ones here during sessions)
@@ -611,7 +887,7 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
 
 #### Loading speed
 
-- [ ] **LOAD1 — Measured, so the rest of this section has numbers behind it** (assembled from the real
+- [x] **LOAD1 (measurement, complete — not a task) — Measured, so the rest of this section has numbers behind it** (assembled from the real
   exports, not estimated): shell **194.4 KB** (identical for every role to within 100 bytes, `no-store`, so
   re-downloaded on every page load) · `app.css` **152.2 KB** (render-blocking `<link>`) · `app-member.js`
   **252.7 KB** · `app-staff.js` **121.9 KB** · `app-ext.js` **1,273.3 KB** · scheduler embed **91.7 KB +
@@ -755,7 +1031,7 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   `UPDATE … SET` builders re-checked individually and every one iterates a hardcoded field list** — the
   audit-undo allowlist, `SORT_COLS`, and the `sortDir` ternary are all still in place. The SQL-injection
   clean bill of health from the 2026-08-02 review holds at v1.190.6.
-- [ ] **DOC2 — Verified still open, with current numbers where the entry gives one.** CR1b (the shell is
+- [x] **DOC2 (audit, complete — not a task) — Verified still open, with current numbers where the entry gives one.** CR1b (the shell is
   194 KB, not "~192 KB") · CR2 and AU2 (see LOAD5 — and both are narrower than the real problem) · CR5 (see
   LOAD8) · CR6 (**exactly 7** raw `fetch()` in `js-finance.js`, all `FormData` uploads, and the entry's claim
   that each handles 401 correctly is accurate — though all seven do it by hardcoding `/chms`, see DSN6) ·
@@ -2195,7 +2471,7 @@ deliberately did **not** change, because each is architectural and needs its own
   dataset orders of magnitude larger than this one. Revisit only if the row count grows by ~100×.
   Also worth remembering: the People tab defaults to Members-only (`mt:'member'`), so a typical
   search is already scoped to ~300 rows, not 1,000.
-- [ ] **CR1-OLD — original write-up, kept for context: `CHMS_HTML` was 622 KB and served
+- [x] **CR1-OLD — Closed 2026-08-19: superseded, kept only as history.** CR1 shipped 2026-08-03 (v1.118.0) and CR1b/CR9a/LOAD3 carry what is left. Original write-up, kept for context: `CHMS_HTML` was 622 KB and served
   `Cache-Control: no-store`, so it was re-downloaded in full on every single page load.** v1.35.0 moved ~1.2 MB of app JS out to long-cached
   `/admin/app-core.js` + `/admin/app-ext.js` for exactly this reason, but the *shell* was never
   revisited and has since grown to be the dominant uncached cost. Breakdown: `getSchedulerInline()`
@@ -2251,7 +2527,7 @@ deliberately did **not** change, because each is architectural and needs its own
   no longer `GROUP BY`s the entire `households` table per request (bounded `EXISTS` instead, verified
   identical against real SQLite). Done 2026-08-03 (v1.117.0). See NOTES.md. (`src/frontend/js-people.js`,
   `src/api-people.js`)
-- [ ] **CR8 — People search's remaining floor is the unindexable `LIKE '%q%'` scan** across 7 columns
+- [x] **CR8 (duplicate) — Closed 2026-08-19 as a stale second copy.** The `[x]` CR8 above supersedes this: the scan was benchmarked at 0.2-0.5 ms against this church's real scale and closed as not worth an FTS5 index, with "revisit only if the row count grows by ~100x". Original text: People search's remaining floor is the unindexable `LIKE '%q%'` scan** across 7 columns
   (`first_name`, `last_name`, `preferred_name`, `email`, `phone`, `envelope_number`,
   `envelope_history`). A leading wildcard means no index can ever serve it, so every search is a full
   scan of `people` no matter how few round trips wrap it. PS1 removed the duplicated scan and the
@@ -2579,7 +2855,7 @@ Done 2026-07-20 (v1.40.0). (`wrangler.toml`, `tlc-volunteer-worker.js`, `src/htm
   `wrangler.toml` alone doesn't create DNS. (2) Update the `/volunteer` short-URL redirect's
   target in the website's Redirects admin tab from `volunteer.timothystl.org` to
   `serve.timothystl.org` — that's D1 data, not code, so it can't be changed from this repo.
-- [ ] **BRND1** — Companion website-repo change needed in the same pass: `/volunteer` redirect
+- [x] **BRND1 (duplicate) — Closed 2026-08-19 as a stale second copy.** The `[x]` BRND1 above records this same work shipped as `timothystl/website` PR #315, merged 2026-07-20. Original text: Companion website-repo change needed in the same pass: `/volunteer` redirect
   and the contact/prayer intake form targets should point at `serve.timothystl.org` (see that
   repo's own CLAUDE.md queued items).
 ### Scheduler (2026-07-20)
@@ -2820,7 +3096,7 @@ Two asks off the Schedule tab, shipped together.
 
 ### Finance Overview (2026-07-16)
 - [x] **FIN1** — New "Finance" tab (finance/admin only): unified view of QuickBooks Online (Budget vs Actual + account balances, real OAuth sync) and daycare app financials, so staff don't have to dig through QuickBooks' full report set for the two numbers they actually check. Scoped like the Tuition Aid Planner. Done 2026-07-16 (v1.23.0). See NOTES.md for full detail. `src/quickbooks.js`, `src/daycare.js`, `src/api-finance.js`, `src/frontend/js-finance.js`, `migrations/0016_finance.sql`.
-- [ ] **FIN2** — Live QuickBooks verification in progress (sandbox company, 2026-07-16). OAuth connect/disconnect/reconnect all confirmed working (the `vol_auth` `SameSite=Strict`→`Lax` cookie fix, v1.24.1, resolved an initial "Unauthorized" bug on the callback). Account balances sync fine. **Budget vs Actual is currently blocked**: the sandbox consistently returns a QuickBooks "5020 Permission Denied" error on this specific report, even with a verified Budget (renders correctly in the QuickBooks UI) and Primary Admin access — ruled out plan tier (tried Advanced), user permissions, and stale tokens (full disconnect/reconnect). A support ticket is filed with Intuit (tid/error code included); no ETA. v1.24.4 added an automatic fallback that reconstructs the same data from the raw `Budget` entity + `ProfitAndLoss` report when the direct report call fails. **v1.26.1**: the user compared that reconstruction against a real exported "Budget vs. Actuals" report and found it lost QuickBooks' Income/COGS/Expenses categorization (flat alphabetized list) and was silently merging two different accounts that share a leaf name across different categories — rewrote the merge to work directly on the real ProfitAndLoss tree instead of flattening it (see NOTES.md for full detail); verified against a Node harness replicating the real export's exact structure, but still not verified against a live re-sync (5020 error still blocking). Still needs: see whether the fallback returns correct data once tried against the sandbox for real, and re-test the whole flow (including Budget vs Actual) against the real Production company/keys once Intuit approves. If the live fallback still looks wrong, the user's suggested plan B — export Budget vs Actual from QuickBooks as Excel and import it into ChMS directly — is the next thing to try.
+- [x] **FIN2 — Closed 2026-08-19 by its own decision line.** Every fix this thread produced shipped (plural `BudgetVsActuals`, live-sync classification normalization, account-id budget matching, the duplicate-write KPI inflation, the Budget picker, the Danger-Zone clear tool — verified present as `finance/church/clear-all` + `clear-all-preview`), and the entry ends with the explicit decision that live QuickBooks API sync is set aside in favor of month-by-month imports, which are built and unrestricted by year. **One idea inside it was never built and survives as its own item — see QB1 in Phase 28.** Original text follows. Live QuickBooks verification in progress (sandbox company, 2026-07-16). OAuth connect/disconnect/reconnect all confirmed working (the `vol_auth` `SameSite=Strict`→`Lax` cookie fix, v1.24.1, resolved an initial "Unauthorized" bug on the callback). Account balances sync fine. **Budget vs Actual is currently blocked**: the sandbox consistently returns a QuickBooks "5020 Permission Denied" error on this specific report, even with a verified Budget (renders correctly in the QuickBooks UI) and Primary Admin access — ruled out plan tier (tried Advanced), user permissions, and stale tokens (full disconnect/reconnect). A support ticket is filed with Intuit (tid/error code included); no ETA. v1.24.4 added an automatic fallback that reconstructs the same data from the raw `Budget` entity + `ProfitAndLoss` report when the direct report call fails. **v1.26.1**: the user compared that reconstruction against a real exported "Budget vs. Actuals" report and found it lost QuickBooks' Income/COGS/Expenses categorization (flat alphabetized list) and was silently merging two different accounts that share a leaf name across different categories — rewrote the merge to work directly on the real ProfitAndLoss tree instead of flattening it (see NOTES.md for full detail); verified against a Node harness replicating the real export's exact structure, but still not verified against a live re-sync (5020 error still blocking). Still needs: see whether the fallback returns correct data once tried against the sandbox for real, and re-test the whole flow (including Budget vs Actual) against the real Production company/keys once Intuit approves. If the live fallback still looks wrong, the user's suggested plan B — export Budget vs Actual from QuickBooks as Excel and import it into ChMS directly — is the next thing to try.
 
 **2026-07-28 update — confirmed against the real Production company, not just sandbox.** After completing Production OAuth (real `QB_CLIENT_ID`/`QB_CLIENT_SECRET`/`QB_ENVIRONMENT=production`, redirect URI registered under both Intuit app tabs), a real sync against the real church QuickBooks company hit the **identical** `5020 Permission Denied` error on the Budget vs Actual report endpoint (new `intuit_tid`, same error code) — ruling out "sandbox-only artifact" as the explanation for good. The automatic fallback (raw `Budget` entity query + `ProfitAndLoss` report merge, `src/quickbooks.js`/`src/api-finance.js`) fired as designed and the sync still completed with reconstructed data. User confirmed: the 2026 Budget is Published and is a `ProfitAndLoss`-type budget (matches the Budget entity spec exactly — `BudgetType: "ProfitAndLoss"` is the only value QuickBooks supports); the connected user has full Company Admin access. **Intuit will not open a support ticket** for this app/tier, so the earlier "ticket filed, no ETA" status is dead — no formal path to a fix from Intuit is currently available. Given the fallback already reconstructs the same shape from a real, always-accessible endpoint (`SELECT * FROM Budget`, confirmed reachable — only the packaged `BudgetVsActuals` *report* endpoint 5020s), **treat the direct report call as permanently unavailable for this app and the reconstruction path as the primary, not a fallback** — next step is verifying the reconstructed numbers look right against this real company's real data (not just the earlier hand-built fixture/Node harness check), not chasing the report endpoint further. Community research (Intuit Developer Community forum, Stack Overflow `quickbooks-online-api` tag) is the remaining avenue if a fix is wanted later, since the formal support-ticket path is closed off.
 
@@ -2850,9 +3126,9 @@ Two asks off the Schedule tab, shipped together.
 
 **2026-07-28 — decision: live QuickBooks API sync set aside.** After this full chain of real bugs (wrong report endpoint name, unnormalized live-sync classification, $0 budget matching, the duplicate-write inflation above), the user decided to stop pursuing live sync and instead re-download reports directly from QuickBooks and re-upload them **month-by-month** via the existing CSV/Excel import tools (`finance/church/monthly-import-preview`/`monthly-import-commit`, already built, no year restriction). All the fixes above are still shipped and correct — they'd make live sync work properly if ever revisited — but this is no longer the active path. A new admin-only **"Clear Budget & Report Data…"** tool (Finance → Overview → Danger Zone) was built to give a clean slate: clears only `finance_church_entries` + `finance_qb_snapshot` (the church budget/actuals and their cached Overview-card blob) — explicitly, per the user's own correction, **not** Daycare Report, Balance Sheet, or Budget Planning data, and never Commercial Property or giving data. Confirm-count safety pattern matching `giving/force-remove-orphans`. **Not yet exercised live** — this session has no D1/wrangler access, so the tool is built but nothing has actually been cleared; that click has to happen from the live app.
 - [ ] **FIN3** — Daycare app's finance endpoint is now live (a Supabase Edge Function, 2026-07-16) — see SECRETS.md for the exact URL/contract as actually implemented. Fixed a real mismatch in `src/daycare.js` while wiring it up: the client assumed `DAYCARE_API_URL` was a base domain and appended `/api/finance/summary` itself, but the daycare app's real endpoint is a complete, specific Supabase function URL — fixed to fetch `DAYCARE_API_URL` directly with no path appended. Still needs: `DAYCARE_API_URL`/`DAYCARE_API_KEY` set as Worker secrets, then click "Sync Daycare App" in the Finance tab to confirm the real data renders correctly (categories: Tuition Income, Payroll, Payroll Taxes, Workers Comp, Other Payroll Expenses, Other Expenses — `accounts` is always `[]`, balances stay manual-entry only).
-- [ ] **FIN4** — No Settings UI for QB_CLIENT_ID/QB_CLIENT_SECRET/DAYCARE_API_URL/DAYCARE_API_KEY (Worker secrets only, same as Breeze/Brevo/Resend) — consistent with how every other integration in this app is configured, but flagging in case that changes.
+- [x] **FIN4 — Closed 2026-08-19 as intentional, not pending.** The entry itself states the reasoning: Worker secrets are how every integration in this app is configured, and a Settings UI for them would be the outlier. Re-open only if the convention changes. Original text: No Settings UI for QB_CLIENT_ID/QB_CLIENT_SECRET/DAYCARE_API_URL/DAYCARE_API_KEY (Worker secrets only, same as Breeze/Brevo/Resend) — consistent with how every other integration in this app is configured, but flagging in case that changes.
 - [x] **FIN5** — Board-level reporting: Finance tab split into Overview/Church Report/Daycare Report sub-tabs, both year-by-year (calendar year), on-screen + printable/exportable. Daycare Report aggregates the flat sync rows client-side (Actual/Budget by category and year, Income/Expense/Net summary rows). Church Report adds a new QBO multi-year Profit & Loss sync with 3 daycare tie-in lines (Tuition Income/Payroll wages/Total Expenses) shown for reference alongside QuickBooks' own totals, not merged into them. Done 2026-07-17 (v1.26.0). See NOTES.md for full detail. **Superseded by FIN6** — Church Report's data source changed from a live blob cache to a persisted table.
-- [ ] **FIN6 — Church Report v2 (in progress, staged rollout)**. Full plan (schema, live-sync flattening, Excel-import hierarchy detection, This Year/Multi-Year view design, Finance nav consolidation) written up before implementation — see the session's plan doc for the complete design. **This slice done 2026-07-17 (v1.28.0)**: new persisted `finance_church_entries` table (one row per real account's own non-cumulative actual+budget amount — never a QuickBooks "Total for X" subtotal — so roll-ups are always safely re-derivable, avoiding the exact double-counting bug just fixed in v1.26.1), live sync now populates it (multi-year actuals-only flattened first, current-year budget-merge flattened second so the richer row wins), new `finance/church/this-year`/`finance/church/multi-year` endpoints with per-year `import`-wins-over-`qbo_sync` source precedence, and a This Year/Multi-Year toggle in the Church Report UI (This Year: summary cards + remaining-budget progress bars + a ChMS-giving reference line + collapsible full account detail; Multi-Year: same year-by-year table, now read from the persisted table instead of the live blob cache). See NOTES.md for full detail including two real bugs caught and fixed before shipping (a `NULL != NULL` UNIQUE-constraint gap that would have silently duplicated rows on every sync, and a client-side tree-rebuild bug that dropped nested accounts out of their ancestor's rollup when an intermediate grouping label had no own row). **Next slice done 2026-07-17 (v1.29.0)**: (1) the giving reference line now breaks out per-fund (`givingByFund`, joined against `funds`) instead of one lump total, shown as a small table under the existing reference caption. (2) Monthly-granularity sync added for current+prior year only (`profitAndLoss({summarize_column_by:'Month'})`, bounded per the original plan to avoid syncing a full 5-year monthly window) via new `parseMonthColTitle()`/`makeMonthlyExtractor()`, tagging rows with `period_month` 1-12 instead of `0`. (3) New pure function `computeYtdComparison()` (This-Year-YTD vs. Same-Period-Last-Year vs. Last-Year-Full, prior-year-ratio projection with a straight-line fallback) wired into `finance/church/this-year`, rendered as a new "This year vs. last year" table with the board-facing caveat caption from the plan; gracefully shows "not yet available" until the first post-upgrade sync populates monthly rows. Caught and fixed, before shipping, a repeat of the exact backtick-in-`String.raw`-comment bug documented elsewhere in this file (SC3-BUG1/TAP2-BUG class) via the established extract-and-`node --check` verification step. See NOTES.md for full detail.
+- [x] **FIN6 — Church Report v2 — COMPLETE. Closed 2026-08-19**: every slice listed in this entry is marked DONE inside it (persisted `finance_church_entries`, per-fund giving reference line, monthly-granularity sync, `computeYtdComparison`, charts, nav consolidation, CSV/Excel budget import, Balance Sheet import), and the Church Report has since been restyled twice on top of it (FIN27 Phase 2, FIN57). Nothing in the body is still pending. Original text follows. Full plan (schema, live-sync flattening, Excel-import hierarchy detection, This Year/Multi-Year view design, Finance nav consolidation) written up before implementation — see the session's plan doc for the complete design. **This slice done 2026-07-17 (v1.28.0)**: new persisted `finance_church_entries` table (one row per real account's own non-cumulative actual+budget amount — never a QuickBooks "Total for X" subtotal — so roll-ups are always safely re-derivable, avoiding the exact double-counting bug just fixed in v1.26.1), live sync now populates it (multi-year actuals-only flattened first, current-year budget-merge flattened second so the richer row wins), new `finance/church/this-year`/`finance/church/multi-year` endpoints with per-year `import`-wins-over-`qbo_sync` source precedence, and a This Year/Multi-Year toggle in the Church Report UI (This Year: summary cards + remaining-budget progress bars + a ChMS-giving reference line + collapsible full account detail; Multi-Year: same year-by-year table, now read from the persisted table instead of the live blob cache). See NOTES.md for full detail including two real bugs caught and fixed before shipping (a `NULL != NULL` UNIQUE-constraint gap that would have silently duplicated rows on every sync, and a client-side tree-rebuild bug that dropped nested accounts out of their ancestor's rollup when an intermediate grouping label had no own row). **Next slice done 2026-07-17 (v1.29.0)**: (1) the giving reference line now breaks out per-fund (`givingByFund`, joined against `funds`) instead of one lump total, shown as a small table under the existing reference caption. (2) Monthly-granularity sync added for current+prior year only (`profitAndLoss({summarize_column_by:'Month'})`, bounded per the original plan to avoid syncing a full 5-year monthly window) via new `parseMonthColTitle()`/`makeMonthlyExtractor()`, tagging rows with `period_month` 1-12 instead of `0`. (3) New pure function `computeYtdComparison()` (This-Year-YTD vs. Same-Period-Last-Year vs. Last-Year-Full, prior-year-ratio projection with a straight-line fallback) wired into `finance/church/this-year`, rendered as a new "This year vs. last year" table with the board-facing caveat caption from the plan; gracefully shows "not yet available" until the first post-upgrade sync populates monthly rows. Caught and fixed, before shipping, a repeat of the exact backtick-in-`String.raw`-comment bug documented elsewhere in this file (SC3-BUG1/TAP2-BUG class) via the established extract-and-`node --check` verification step. See NOTES.md for full detail.
 **Charts done 2026-07-17**: `renderGroupedBarChart()` extracted from Attendance's `renderMultiYearServiceChart` (verified byte-for-byte identical output on the original before anything else built on it), now backing a This-Year-vs-Last-Year-YTD chart and a Multi-Year Income/Expenses/Net trend chart.
 
 **Nav consolidation — shipped, RESOLVED 2026-07-18: was never a code/design bug, was a stalled deploy pipeline.** Collapsed the Giving/Tuition Aid/Finance sidebar entries into one "Finance" item with a shared flat sub-nav bar across all three tab-panels, and physically moved the 8 giving-related report tiles out of the Reports tab into a new "Giving Reports" section under Finance. User reported the live site still showed the old 3-item nav even in incognito. A screenshot confirmed the exact old structure was still live. Root cause, found by checking `deploy.yml`'s actual run history against `main`'s commit history: **GitHub does not fire other `on: push` workflows for a push made using the default `GITHUB_TOKEN`** (an anti-recursion safeguard) — so every push `auto-merge-claude.yml` (recreated earlier the same day, see the entry above) made to `main` via `git push origin HEAD:main` silently never triggered `deploy.yml`'s own `on: push: [main]` trigger. Several real, correct commits (the nav consolidation, the charts, the daycare-entries Edit-button fix) sat merged-but-undeployed on `main` for ~2 hours before this was diagnosed — nothing was ever wrong with the shipped code itself. Fixed: `auto-merge-claude.yml` now explicitly dispatches `deploy.yml` via `gh workflow run deploy.yml --ref main` (`workflow_dispatch` fired via the API with `GITHUB_TOKEN` is allowed, unlike an implicit push-triggered run) as its final step, plus a `permissions: actions: write` grant to allow that dispatch. Manually triggered a catch-up deploy for the current `main` tip to get everything already-merged actually live. **Lesson for next time a "my change isn't showing up live" report comes in**: check `deploy.yml`'s actual run history against `main`'s commit log FIRST — a gap there means the deploy pipeline itself is broken, which looks identical to a caching issue or a real code bug from the user's side until you check.
@@ -2876,7 +3152,7 @@ Two asks off the Schedule tab, shipped together.
 - [x] **FIN19** — Added a "What the family would actually pay" table to the "is it worth it?" callout, per the user's follow-up ask — the prior version only showed abstract breakeven/delta dollar amounts, not the concrete out-of-pocket figure a family would actually see under each plan. New pure `finHealthPlanEffectiveLoneClaimantTermsCents()` (the deductible/OOP-max that actually applies to a lone claimant — a plan's own individual figures if embedded, its family figures if not) backs a 3-row comparison table (at the breakeven point if one exists, worst case spread across the family, worst case for one family member alone) showing Renewal's actual dollar figure side-by-side with the selected option's, for both the costlier (A/B) and cheaper (D) framings. `npm test` (169/169, extended existing tests to cover the new helper). Not verified in a live browser. Done 2026-07-21 (v1.47.4). (`src/frontend/js-finance.js`, `test/finance-salary-calculator.test.js`)
 - [x] **FIN20** — Three Salary Calculator improvements plus a real UX bug fix, all requested together. (1) **Last year's actual pulled in**: the card now shows FY base-year actual (and budget, if set) across whichever real accounts match the salary/payroll/compensation guess-regex, as a reference figure next to this year's computed roster total — can't prefill the roster itself (no per-worker breakdown exists in the account data), but gives the comparison point the user asked for. (2) **Social Security COLA option**: `finLcmsBaseSalaryCents()` gained an optional `colaPct` param — when the target year has no published district base salary yet, it now compounds the most recent known year's base forward at an admin-entered COLA % instead of always freezing flat; omitting it (or 0) preserves the exact prior flat-fallback behavior, so nothing changed for anyone not using the new field. (3) **FICA shown as compensation, both directions**: self-employed (SECA) workers' row now also shows the hypothetical employer-FICA amount they're personally paying instead (labeled "not a church cost, for reference"), and non-self-employed workers' employer-FICA cell is now labeled "compensation benefit" — making explicit, per the user's ask, that the church's FICA payment is value an employee receives that a self-employed coworker doesn't, and vice versa. New `finSalaryComputeAll()` centralizes the per-worker calc (salary + real employer FICA + hypothetical FICA) so the roster rows, footer totals, and Apply-to-Plan button all read from one source instead of three duplicated reduce() calls. (4) **Bug fix**: every keystroke in a roster text/number field (name, years experience, benefits, COLA %) fully rebuilt the Planning card's innerHTML on every `oninput`, which destroyed and recreated the focused input — losing keyboard focus and, since nothing recaptured it, resetting the whole page's scroll position to the top on every character typed. New `finRerenderPlanningPreserveFocus()` captures the focused element's id, cursor/selection position, and scroll position (both `window.scrollY` and `.content-area`'s own scrollTop) before re-rendering and restores all three after; every Salary Calculator and Health Insurance handler that used to call `finRenderPlanning()` directly now calls this wrapper instead, and the roster's Name/Years-Experience inputs gained stable `id`s so they can be found again post-render. `npm test` (171/171, 2 new COLA tests). Not verified in a live browser — the focus/scroll bug fix in particular needs a real browser check to confirm the `document.activeElement`/`setSelectionRange` restoration behaves as expected; the underlying pure-function changes (COLA growth math) are fully covered by tests. Done 2026-07-21 (v1.48.0). (`src/frontend/js-finance.js`, `test/finance-salary-calculator.test.js`)
 - [x] **FIN21** — Three follow-ups on FIN20. (1) **COLA became a 3-option picker** instead of one free-text field, per the user's explicit ask ("give several choices and we select one to use"): a "Base Salary Growth Method" dropdown offers **LCMS District Historical Average** (new pure `finLcmsHistoricalAvgGrowthPct()` — a real CAGR computed directly from `LCMS_MO_BASE_SALARY_BY_YEAR` itself, 2016→2027, ~2.35%/yr, so it never needs separate updating when the table grows), **Social Security COLA** (new `SSA_COLA_REFERENCE_PCT` = 2.8%, the last officially announced rate for 2026 — the SSA doesn't announce a given year's COLA until each October, so this needs a manual bump once the 2027 figure is announced; commented with the projected 3.7-3.8% range as of this writing), and **Custom / Concordia Plans figure** (free-text, since Concordia's own tool gives a congregation-specific number with no single value to hardcode) — plus "None (flat, default)" preserving the original behavior. Picking a preset fills the adjacent %-used number field, which stays freely editable (editing it directly flips the selector to "Custom"). (2) **Pension Contribution %**: added a new employer-cost line, structurally identical to FICA (new pure `finComputePensionCents()`, a straight % of salary) but always admin-entered — the LCMS guidelines PDF confirms the Concordia Retirement Plan pension is "based on a percentage of reported salary" without stating the rate, since Concordia sets it annually. New "Pension" column in the roster table, added into the footer total and the "Total Salary & Benefits" stat. (3) **Health Insurance last-year pull-in**: the Health Insurance card gained the same "FY{base year} actual across matching accounts" reference line the Salary Calculator got in FIN20, using the card's existing health/insurance/medical/benefit account-matching regex. `npm test` (174/174, 5 new tests including a hand-verified CAGR check and a sanity bound on the COLA constant). Not verified in a live browser. Done 2026-07-21 (v1.49.0). (`src/frontend/js-finance.js`, `test/finance-salary-calculator.test.js`)
-- [ ] **FIN27 — Finance Workspace redesign (in progress, phased)**. A design handoff (5-tab prototype: Overview/Church Report/Property/Planning/Compensation) was scoped with the user before implementation since it visibly conflicted with real logic already built here: the mockup's Compensation math is generic/invented (a flat district-guideline formula, 3 flat-price health tiers) where this app already has the real LCMS Missouri District salary tables + real Concordia pension/disability/health-quote breakeven math (FIN15-22) — **decision: restyle only, keep all real math, no regression**. The mockup's Overview also had a giving-fund `<select>` that doesn't map to anything real (Church Report data is one QuickBooks ledger, not fund-split) — **resolved into a Church Operating / Daycare / Commercial Property domain switcher** per the user's own suggestion, not a fund. Church Report and Property restyle to keep every existing sub-view (multi-year, balance sheet, reserves, capital ledger, valuation calculator, forecast, etc.) — visual restyle only, nothing existing removed. Compensation will eventually split out of Planning into its own tab (user's preference, matching the mockup's 5-tab structure) once its turn comes.
+- [x] **FIN27 — Finance Workspace redesign — COMPLETE (all 5 phases, 2026-07-22).** Closed 2026-08-19: the entry's own Phase 5 line already declared it complete and every phase below is marked done; verified `fin-panel-compensation` exists and `test/finance-salary-calculator.test.js` still passes untouched. RD1/RD2/RD4 remain separately queued, as that line says. A design handoff (5-tab prototype: Overview/Church Report/Property/Planning/Compensation) was scoped with the user before implementation since it visibly conflicted with real logic already built here: the mockup's Compensation math is generic/invented (a flat district-guideline formula, 3 flat-price health tiers) where this app already has the real LCMS Missouri District salary tables + real Concordia pension/disability/health-quote breakeven math (FIN15-22) — **decision: restyle only, keep all real math, no regression**. The mockup's Overview also had a giving-fund `<select>` that doesn't map to anything real (Church Report data is one QuickBooks ledger, not fund-split) — **resolved into a Church Operating / Daycare / Commercial Property domain switcher** per the user's own suggestion, not a fund. Church Report and Property restyle to keep every existing sub-view (multi-year, balance sheet, reserves, capital ledger, valuation calculator, forecast, etc.) — visual restyle only, nothing existing removed. Compensation will eventually split out of Planning into its own tab (user's preference, matching the mockup's 5-tab structure) once its turn comes.
   - **Phase 1 done 2026-07-22 (v1.56.0)**: Overview tab rebuilt — KPI cards, click-to-drill "Are we on budget?" pace panel, income-vs-expense trend chart, year-end projection, balances row, all above the existing (untouched, just relocated) QuickBooks Connection/Board Packet/Daycare Sync operational cards. New backend `computeIncomeExpenseMonthlyTrend()`. New **AHRA "Budget Detail" property-budget import** (a real file the user provided, genuinely different export shape from every QuickBooks import already handled) — new `finance_property_budget_monthly` table + `POST /admin/api/finance/property/ivanhoe/budget-import`, feeding a Revenue vs. Budget vs. Expenses vs. Budget 4-series chart in both the Overview and (once Phase 3 restyles it) the Property tab. See NOTES.md for full detail including the token-audit finding that 6 of the handoff's ~12 net-new hex values were already exact matches for existing brand tokens.
   - **Phase 2 done 2026-07-22 (v1.57.0)**: Church Report visual restyle — KPI cards, cream table header band, sign-aware variance mini-bars, and a navy "Net Income" footer bar replacing the old table row. All sub-views preserved (This Year/Multi-Year/Balance Sheet toggle, Supplies chart, YoY block, pie charts, Board Packet, imports) — restyle only, no behavior change. See NOTES.md for full detail.
   - **Phase 3 done 2026-07-22 (v1.58.0)**: Property tab restyle — shared KPI grid (Occupancy/Monthly Net/Annual Net/Reserves On-Hand, same source as the Overview's Property domain), the existing Valuation/Equity stats kept as a secondary row, a new "Available for Distribution" navy bar (annual net minus this year's reserve contributions and capital spend, explicitly an estimate distinct from the actual Distributions-to-Church record), and a small on-hand-vs-target progress bar on the Property Tax Reserve section. All existing sub-views (reserves table, capital ledger, repairs log, valuation calculator, forecast, insurance allocation) preserved. See NOTES.md for full detail.
@@ -3438,7 +3714,7 @@ Two asks off the Schedule tab, shipped together.
 Raised while answering QuickBooks' Developer app security questionnaire (FIN1/FIN2). Discussed and deliberately deferred rather than rushed in to check a form box — see reasoning below each item.
 
 - [ ] **SEC9 — MFA (multi-factor authentication) for login.** Worth doing for real, especially now that `admin` accounts can connect/disconnect the QuickBooks integration and `finance` accounts see real financial data. Not a quick toggle — needs a proper scoped build: TOTP secret + QR code setup flow, a verification step at login, recovery codes, and a decision on whether to require it for every role or just `admin`/`finance`. Scope this as its own session before building.
-- [ ] **SEC10 — CAPTCHA on login.** Considered and deprioritized: the login already rate-limits to 10 attempts/15 min per IP, which covers the realistic threat (brute-forcing passwords) for a small, internal, non-public login page. Cloudflare Turnstile would be the natural fit if this becomes worth doing (same platform, no new vendor), but the added friction on every login isn't justified without evidence of actual attack attempts in the logs. Revisit if that changes.
+- [x] **SEC10 — Closed 2026-08-19 as formally deferred** (same treatment as MO5), on the entry's own reasoning, which still holds at v1.190.6: rate limiting covers the realistic threat for a small internal login. **⚠ Revisit alongside SEC9 if SEC11/SEC12 change the threat model** — a member tier open to the whole congregation raises the value of a stolen staff password. Original text: CAPTCHA on login. Considered and deprioritized: the login already rate-limits to 10 attempts/15 min per IP, which covers the realistic threat (brute-forcing passwords) for a small, internal, non-public login page. Cloudflare Turnstile would be the natural fit if this becomes worth doing (same platform, no new vendor), but the added friction on every login isn't justified without evidence of actual attack attempts in the logs. Revisit if that changes.
 
 ### App Visual Redesign — Design Handoff (2026-07-14)
 Design package delivered (`ChMS Redesign.dc.html` + `README.md`, Turn 3/#3a + Turn 4/#4a are the agreed direction) proposing one unified visual language across Dashboard/People/Households/Person Profile/Giving/Reports/Scheduler/Volunteers. Per the handoff's own README, this is **visual/UI restyle only** — no functionality, data flow, API, or routing changes. Three structural decisions were confirmed with the user rather than guessed (the handoff explicitly asks for this):
@@ -3460,9 +3736,9 @@ Rollout is phased, each phase visually verified (Playwright against the built HT
 - [x] **TAP2** — Closed via bug fix below: the lack of live-browser verification at build time is exactly what let this ship broken. **TAP2-BUG** — reported "tab won't load" 2026-07-14, traced to the tab-panel markup being appended after `.content-area`/`.app-shell`'s closing marker instead of before it (a pure HTML-structure bug from the original build, confirmed pre-existing by reproducing against commit 0903a86 directly) — the tab-panel rendered ~1000px below the viewport with no flex parent to size it. Fixed by moving the 147-line block to the correct position; the two Tuition Aid modals were already correctly placed (modals are `position:fixed` and don't need `.content-area` nesting). Done 2026-07-14 (v1.16.1). See NOTES.md for the full debugging trace and a technique note for future "won't load" reports that aren't JS syntax errors.
 - [x] **TAP2-BUG2** — Reported "still not working" 2026-07-15, after TAP2-BUG's fix (v1.16.1) had already shipped. Root cause was a merge-order regression, not a repeat of the original bug: the fix (29d5245) correctly placed `#tab-tuitionaid` right before `.content-area`'s closing tag, but merging that branch together with the independent RDS2 branch (`ad400ce`, People filter drawer — added new markup at that exact same location) at `5babf16` re-interleaved the content so the People filter drawer ended up between the household-view close and `.content-area`'s close, pushing the tuition-aid block back out after the close tag — same failure mode (`.tab-panel` with no flex parent to size it) via a different path. Fixed by moving the block back before `</div><!-- /content-area -->` (the People filter drawer legitimately stays after, since it's `position:fixed`). Re-verified with the same technique as TAP2-BUG: byte-offset scan confirms `#tab-tuitionaid` now falls between `.content-area`'s open/close tags, `node --check` on all 3 built `<script>` blocks, and `npm test` (37/37). Done 2026-07-15 (v1.16.2). (`src/frontend/html-tabs.js`)
 - [x] **TAP2-BUG3** — Reported "still can't load tuition data" 2026-07-15, immediately after TAP2-BUG2 shipped (v1.16.2) fixed the tab from rendering blank. Different bug, unrelated to the HTML-nesting issues: `src/api-admin.js`'s `handleAdminApi()` has an explicit allowlist of `seg.startsWith(...)` prefixes that get dispatched into `handleChmsApi()` (and from there into `handleTuitionAidApi()`) — `tuition-aid` was never added to that list when TAP1 was built, so every `/admin/api/tuition-aid/*` request fell through to the generic `return json({error:'Not found'},404)` at the bottom of the function, never reaching the handler that actually reads `tuition_students`/`tuition_config`/`tuition_history`. The frontend's `api()` helper correctly rejects on that 404, which `loadTuitionAid()`'s catch handler renders as "Could not load tuition aid data." — matching the report exactly. Fixed by adding `seg.startsWith('tuition-aid')` to the dispatch allowlist alongside the other domain prefixes. `npm test` (37/37), `node --check` on `api-admin.js`. Done 2026-07-15 (v1.16.3). (`src/api-admin.js`)
-- [ ] **TAP3** — Config knobs (K-8 budget, tuition base/growth rate, LHS standard rate, $2,000 floor, 50% cap) are only editable via direct API calls (`PATCH /admin/api/tuition-aid/config`) — no Settings UI yet. Add one if these need to change without a code deploy.
+- [ ] **TAP3 — still open, re-verified 2026-08-19, but narrower than written.** Two knobs did get a UI since: the per-year actual tuition rate (`tapSaveYearRate`, TAP5's Year Navigator) and the Total Timothy Aid pool (`tapSaveTotalBudget`, TAP14) — and K-8 budget is now derived from that pool (TAP15), so it is effectively covered. `timothy_total_budget_cents` is the **only** key `tapSaveTotalBudget` writes; the remaining eight (`tuition_base_cents`, `tuition_growth_pct`, `lhs_standard_rate_cents`, `lhs_max_award_cents`, `timothy_min_award_cents`, `family_share_cap_pct`, `default_pipeline_fam_pct`, `base_school_year`) are still API-only. Original text: Config knobs (K-8 budget, tuition base/growth rate, LHS standard rate, $2,000 floor, 50% cap) are only editable via direct API calls (`PATCH /admin/api/tuition-aid/config`) — no Settings UI yet. Add one if these need to change without a code deploy.
 - [x] **TAP5** — Multi-year editing, requested 2026-07-15: (1) view past years, (2) edit a year's actual tuition rate once known, (3) edit awards per year, (4) per-family year-over-year history, (5) outside aid that varies year to year. New tables `tuition_year_rates` (school_year → actual tuition rate, overrides the 6%/yr growth formula for that year once set) and `tuition_student_years` (per-student per-year "pin" — outside aid / family % / exact award overrides; survives a student's row later going inactive, so history isn't lost when a family graduates or leaves) — migration `0015_tuition_year_history.sql`, runtime safety-net in `db.js`, seeded once from the existing `tuition_history` rows. Year selector (`tap-year-select`) now spans base_school_year−5..+5 instead of only 0..+5. New "Year Navigator" card: switch years, and set/see the actual tuition rate for whichever year is selected. **Current year (offset 0)** keeps its existing behavior exactly — edits still write straight to the `tuition_students` master row, no behavior change for the primary day-to-day view. **Any other year** — editing outside aid, family share %, or LHS award pins a `tuition_student_years` row for that specific (student, school year) instead, so tuning next year's numbers can never leak into this year's (or vice versa); Apply Aid Policy / Auto-Balance / Reset to Current Awards all route the same way based on which year is being viewed. **Past years** (offset < 0) can't be reconstructed from today's roster (a graduated/removed student simply isn't in it) — they render straight from the pin ledger instead of the grade-progression engine, with an honest empty state for years that predate this feature (no data existed to backfill). New "History" button on every roster row opens a per-student modal listing every pinned year plus today's live numbers, with a "Jump" link back into the main view. Verified with `npm test` (37/37), `node --check` on all 3 built `<script>` blocks, a byte-offset div-balance scan of the new `#tap-planner-current`/`#tap-planner-past` markup, and a standalone Node harness that evaluated the actual served tuition-math functions (`tapSplitFor`/`tapTuitionForYear`/pin isolation) against hand-computed expected values — no live-browser check was possible in this environment. Done 2026-07-15 (v1.17.0). (`migrations/0015_tuition_year_history.sql`, `src/db.js`, `src/api-tuition-aid.js`, `src/frontend/js-tuition-aid.js`, `src/frontend/html-tabs.js`)
-- [ ] **TAP6 (known, scoped limitation)** — Pins are keyed by school-year label, not by year-offset, so a pin set while a year was still in the future stays intact and still applies once that year becomes current (offset 0) *as long as it's read through the normal pin-aware helpers* — but offset-0 reads/writes intentionally bypass the pin layer (see TAP5) to keep today's editing behavior byte-for-byte unchanged, so a pin made for "next year" does **not** automatically become editable as "this year"'s master-row defaults once `base_school_year` is manually advanced at the start of a new school year. The pinned data itself isn't lost (still visible/editable via the History modal or by selecting that year directly), it just isn't promoted to the master row automatically. Workaround until this is built: after bumping `base_school_year`, re-apply Apply Aid Policy / re-enter that year's numbers directly rather than assuming last year's pre-planning carried over. A full fix would mean making offset-0 pin-aware too (reads prefer a pin if one exists for the current label, else fall back to the master row) — deliberately not done now since it touches the most heavily-used, best-tested path in the planner; revisit if the yearly rollover friction becomes a real complaint. (noted 2026-07-15)
+- [ ] **TAP6 (known, scoped limitation; re-verified unchanged 2026-08-19 — `tapSplitFor` still reads `yearIdx !== 0 ? tapPinFor(...) : null`, so offset 0 deliberately bypasses the pin layer exactly as described)** — Pins are keyed by school-year label, not by year-offset, so a pin set while a year was still in the future stays intact and still applies once that year becomes current (offset 0) *as long as it's read through the normal pin-aware helpers* — but offset-0 reads/writes intentionally bypass the pin layer (see TAP5) to keep today's editing behavior byte-for-byte unchanged, so a pin made for "next year" does **not** automatically become editable as "this year"'s master-row defaults once `base_school_year` is manually advanced at the start of a new school year. The pinned data itself isn't lost (still visible/editable via the History modal or by selecting that year directly), it just isn't promoted to the master row automatically. Workaround until this is built: after bumping `base_school_year`, re-apply Apply Aid Policy / re-enter that year's numbers directly rather than assuming last year's pre-planning carried over. A full fix would mean making offset-0 pin-aware too (reads prefer a pin if one exists for the current label, else fall back to the master row) — deliberately not done now since it touches the most heavily-used, best-tested path in the planner; revisit if the yearly rollover friction becomes a real complaint. (noted 2026-07-15)
 - [x] **TAP7** — Reported "past year data didn't import" 2026-07-15, immediately after TAP5 shipped. Not a bug — confirmed by clarifying with the user that this meant the per-family list on a past year's panel, which was correctly showing its documented empty state (TAP5 explicitly scoped out backfilling per-student history for years before this feature existed, since no such data exists anywhere in the app). Two real fixes followed once the user uploaded their source workbook (`Timothy_Tuition_Aid_Master.xlsx`): (1) **`+ Add Family Record` button** added to the past-year panel — creates an `active=0` `tuition_students` row (so it never pollutes the live roster) purely to anchor a `tuition_student_years` pin for the year being viewed; `POST /tuition-aid/students` extended to accept `active` in the body (default unchanged: `1`). (2) **Verified against the actual source data** that no genuine per-student breakdown exists for any year before 2026-27 — confirmed by reading all 7 sheets of the uploaded workbook; its own "Read Me" tab admits 2024-25 was partially estimated and years before that are aggregate-only (already covered by `tuition_history`/`tuition_year_rates`). Found and imported the one real exception: the K-8 Aid Detail sheet's "Parent 2025-26" column, giving actual prior-year family-payment figures for 17 currently-enrolled students — seeded as `tuition_student_years` pins for `2025-26` via a new idempotent `seedParent2025_26(db)` (matched by family+child against the existing `TUITION_SEED_K8` rows, `INSERT OR IGNORE` against the unique constraint). `npm test` (37/37), `node --check` on all 3 built `<script>` blocks, and a Node harness that evaluated the served JS and called `tapOpenPastAdd()` directly to confirm no runtime errors. Rebased past v1.17.1–v1.20.0 (other work that landed on `main` while this was in progress — RDS5 token consolidation, RDS2b household view, two mobile/card fixes, Organization View, best-guess Person-match suggestions); confirmed no real overlap beyond the `DEPLOY_VERSION` line, since that work touches the Link-to-Person modal while this touches the past-year panel. Done 2026-07-16 (v1.20.1). (`src/api-tuition-aid.js`, `src/db.js`, `src/frontend/js-tuition-aid.js`, `src/frontend/html-tabs.js`)
 - [x] **TAP8** — Reported "the WOL kids dont have an LHSA award that is high school only" 2026-07-16, in response to a follow-up "current awards are not accurate" report. Real bug in the new History modal (TAP5's `tapOpenHistory()`), not the underlying data — cross-checked `TUITION_SEED_K8` against the source workbook's K-8 Aid Detail sheet row-by-row and confirmed all 20 current-year figures match exactly, so this was never a data problem. The modal's "current" row unconditionally called `tapSplitFor(s,0)` and gated the LHS Award column on `s.attendsLHS` — which defaults `true` for every student including K-8/WOL ones (it means "still planning to attend LHS once they get there," not "currently in LHS"), so every K-8 student's live row wrongly showed the seeded $1,200 placeholder LHS rate. Mirror-image bug for LHS students: their row ran K-8 split math against inputs that don't apply to them (LHS aid is a flat `lhs_award_cents`, not a tuition/outside-aid/family-% split), producing a nonsense computed "Timothy Award." Fixed by branching on the student's actual current bucket (`tapBucketFor(tapGradeAt(s,0))`) — K-8 shows Outside Aid/Timothy Award/Family Owed with LHS Award blank; LHS shows LHS Award with the other three blank. Verified with a Node harness constructing one of each student type and confirming the rendered HTML. `npm test` (37/37), `node --check` on all 3 built `<script>` blocks. Done 2026-07-16 (v1.20.2). (`src/frontend/js-tuition-aid.js`)
 - [x] **TAP9** — User's coworker updated the source workbook and added a brand-new "Student Tuition History" sheet — genuine per-student, per-year family-payment figures back to 2019-20 (blank = not enrolled that year), cross-referenced against original records by whoever built the workbook. This is exactly the per-student historical data TAP7 confirmed didn't exist anywhere at the time. Extracted via a Python script (not hand-transcribed, to avoid copy errors) covering 19 currently-enrolled students (63 pin-years, 2019-20→2025-26) and 3 no-longer-enrolled students (10 pin-years) who needed new `active=0` shell `tuition_students` rows to anchor their pins (same pattern as the `+ Add Family Record` UI). The 2026-27 column and cells the workbook itself flags as unreconciled (`'?'` for Annette/Evelyn Crim, and Michael Hawkins' 2024-25 per its footnote) were excluded rather than guessed at. Replaces (supersedes, same idempotent `INSERT OR IGNORE` pattern so no migration needed) the narrower `seedParent2025_26` from TAP7 with `seedStudentTuitionHistory(db)` in `src/db.js` — spot-checked several rows against the raw sheet dump by hand before writing the extraction script's output into the seed constants. `npm test` (37/37), `node --check`. Done 2026-07-16 (v1.20.3). (`src/db.js`)
