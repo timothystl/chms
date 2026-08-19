@@ -292,7 +292,6 @@ function _transformJs(js) {
      + '    try {\n'
      + '      var _s = getBreezeSettings();\n'
      + '      if (cfg.subdomain) _s.subdomain = cfg.subdomain;\n'
-     + '      if (cfg.emailFrom) _s.emailFrom = cfg.emailFrom;\n'
      + '      if (cfg.workerUrl) _s.workerUrl = cfg.workerUrl;\n'
      + '      if (Array.isArray(cfg.tagIds) && cfg.tagIds.length && !(_s.tagIds && _s.tagIds.length)) _s.tagIds = cfg.tagIds;\n'
      + '      if (cfg.replyTo && !_s.replyTo) _s.replyTo = cfg.replyTo;\n'
