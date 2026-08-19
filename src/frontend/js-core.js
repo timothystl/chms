@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.194.2';
+export const DEPLOY_VERSION = '1.195.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -667,6 +667,7 @@ function applyRoleUI(role, displayName, permissions) {
     : (permissions || { finance: false, staff: false, register: false, reports: false });
   document.body.classList.remove('role-admin','role-finance','role-staff','role-council','role-member');
   document.body.classList.add('role-' + _userRole);
+  tellServiceWorkerRole(_userRole);
   applyPermissionUI(_userPermissions);
   var badge = document.getElementById('topbar-role');
   if (badge) {
@@ -678,6 +679,21 @@ function applyRoleUI(role, displayName, permissions) {
     }
   }
 }
+// P22-D. The service worker caches the app shell so an installed PWA can launch offline, but
+// since CR9 that shell is NOT the same document for every role — a member gets one script tag,
+// everyone else gets three. The worker cannot tell which role a response was built for, so this
+// is how it finds out: the page names its own role and the worker keys the cached shell by it.
+// Uses serviceWorker.ready rather than .controller, which is still null on the very first load
+// (the worker registers during that same page load and only claims clients afterwards).
+function tellServiceWorkerRole(role) {
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.ready.then(function(reg) {
+      if (reg && reg.active) reg.active.postMessage({ type: 'chms-role', role: role });
+    }).catch(function(){});
+  } catch (e) {}
+}
+
 // Resolved per-item level map for the current role, e.g. {giving:'edit', reports:'view', …}.
 // Delivered by /admin/api/me (see api-utils.js permissionsForRole). Kept here so any code
 // can ask permView()/permEdit() about the logged-in user.

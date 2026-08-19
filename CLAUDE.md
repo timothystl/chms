@@ -528,9 +528,21 @@ v1.191.0. **Not verified**: a live browser, a real sent email, or production D1.
   exporters (`api-reports.js:496`, `api-admin.js:692`, `api-import.js:1076` and `:1271`). Separately, give
   `giving/statement?format=csv` real escaping — it has none — and sanitize `person.last_name` before it goes
   into `Content-Disposition`. One shared `csvCell()` helper, not five copies (SW17's lesson).
-- [ ] **P22-D** (retires **SEC19**) — Purge Cache Storage on logout, and version `API_CACHE` by
-  `DEPLOY_VERSION` like `STATIC_CACHE`. Then either key the cached shell by role or stop caching it — its
-  own comment ("interpolates nothing per-user") stopped being true at CR9.
+- [x] **P22-D** — DONE 2026-08-19 (v1.195.0), retires **SEC19**. Purged on sign-out AND on a 401 — the
+  second is the case sign-out never sees, and the one the shared-office scenario actually turns on
+  (nobody clicks Sign Out; the cookie expires and the next person signs in). The purge rides
+  `waitUntil` **alone** on the `/admin/logout` fetch — **⚠ no `respondWith`, deliberately**, so the
+  worker can never break signing out; a test asserts that, because the obvious "intercept and
+  re-issue" version puts the purge in front of the one request that must never fail. `API_CACHE` is
+  now `'chms-api-' + VERSION`, so `activate` evicts it like the static cache. The shell is keyed by
+  role rather than dropped: **⚠ the worker cannot tell which role a response was built for** (the read
+  side is an offline cold launch — no request, no cookie, no page to ask), so `applyRoleUI()` posts
+  the role and the worker stores it beside the shell in the same version-scoped cache. Sanitized to
+  letters first — it arrives by `postMessage` and lands in a cache key. Cost, accepted: the first
+  offline launch after a deploy falls to the offline page. **⚠ A harness bug, not a worker bug, was
+  found on the way** — the fake `caches` returned the stored `Response` rather than a clone, so a
+  second read saw a consumed body. 8 injections, 8 correct failure sets. `npm test` 1702/1702 (was
+  1672). **Not verified**: a live browser, a real installed PWA, or a real offline relaunch. Was:
 - [ ] **P22-E** (retires **SEC20**) — Fail closed, not open, when `RSVP_STORE` is absent: login rate limiting,
   intake rate limiting, and QuickBooks OAuth `state` validation. A missing binding should refuse, not wave
   through.
@@ -865,7 +877,7 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   comma-joined line, so any fund name containing a comma silently shifts every later column — and it puts
   `person.last_name` unsanitized into the `Content-Disposition` header (a name with a newline makes the
   Headers constructor throw, turning a statement download into a 500).
-- [ ] **SEC19 — The service worker caches directory PII indefinitely and never purges it.** `SW_JS`
+- [x] **SEC19 — FIXED 2026-08-19 (v1.195.0), P22-D.** Both halves: the API cache is versioned and purged on sign-out and on 401, and the shell is keyed by the role the page reports. Original finding: The service worker caches directory PII indefinitely and never purges it. `SW_JS`
   (`src/html-chms.js`) stores every `/admin/api/people` response into `API_CACHE = 'chms-api-v1'` — names,
   emails, phones, addresses — and that cache name is **deliberately excluded from the `activate` eviction
   list**, so unlike `STATIC_CACHE` it is not versioned by `DEPLOY_VERSION` and never rotates. Nothing clears
