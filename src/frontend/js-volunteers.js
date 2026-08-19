@@ -137,40 +137,70 @@ function volDeleteSignup(id) {
     .then(function() { volLoadSignups(); });
 }
 
+function volDupGroupWhere(g) {
+  return g.event_id ? (g.event_name || ('event #' + g.event_id)) : (g.ministry || 'ministry interest');
+}
+
+function volDupGroupRowsHtml(rows, labelField) {
+  return rows.map(function(s) {
+    var roles = Array.isArray(s.roles) ? s.roles : [];
+    var label = labelField === 'email' ? (s.email || '') : (s.name || '');
+    return '<div style="font-size:.8rem;color:#444;padding:2px 0;">' + esc(label) + (roles.length ? ' • ' + roles.map(esc).join(', ') : '')
+      + ' <span style="color:#aaa;">' + esc((s.created_at || '').slice(0, 10)) + '</span>'
+      + ' <button class="btn-secondary" style="font-size:.72rem;padding:1px 7px;margin-left:6px;color:var(--danger);" onclick="volDeleteSignup(' + s.id + ')">Remove</button></div>';
+  }).join('');
+}
+
 function volToggleDuplicates() {
   _volDupVisible = !_volDupVisible;
   var panel = document.getElementById('vol-duplicates-panel');
   var btn = document.getElementById('vol-dup-btn');
   if (!_volDupVisible) { panel.style.display = 'none'; if (btn) btn.textContent = 'Show Duplicates'; return; }
   if (btn) btn.textContent = 'Hide Duplicates';
-  api('/admin/api/signups')
+  volRenderDuplicatesPanel();
+}
+
+function volRenderDuplicatesPanel() {
+  var panel = document.getElementById('vol-duplicates-panel');
+  api('/admin/api/signups/duplicates')
     .then(function(data) {
-      var items = data.signups || [];
-      var byEmail = {};
-      items.forEach(function(s) {
-        var key = (s.email || '').toLowerCase().trim();
-        if (!key) return;
-        if (!byEmail[key]) byEmail[key] = [];
-        byEmail[key].push(s);
-      });
-      var dups = Object.keys(byEmail).filter(function(k) { return byEmail[k].length > 1; });
+      var groups = data.groups || [];
+      var possible = data.possible_groups || [];
       var listEl = document.getElementById('vol-duplicates-list');
-      if (!dups.length) {
-        if (listEl) listEl.innerHTML = '<p style="font-size:.88rem;color:#6a6a6a;">No duplicate emails found.</p>';
-      } else {
-        if (listEl) listEl.innerHTML = dups.map(function(emailKey) {
-          var rows = byEmail[emailKey];
+      if (!listEl) { if (panel) panel.style.display = ''; return; }
+      if (!groups.length && !possible.length) {
+        listEl.innerHTML = '<p style="font-size:.88rem;color:#6a6a6a;">No duplicate sign-ups found.</p>';
+        if (panel) panel.style.display = '';
+        return;
+      }
+      var html = '';
+      if (groups.length) {
+        html += groups.map(function(g) {
+          var ids = g.signups.map(function(s) { return s.id; }).join(',');
           return '<div style="margin-bottom:10px;padding:8px 10px;background:#fff;border-radius:8px;border:1px solid #e8d0a0;">'
-            + '<div style="font-weight:600;font-size:.85rem;color:#8a5000;margin-bottom:4px;">' + esc(emailKey) + ' — ' + rows.length + ' signups</div>'
-            + rows.map(function(s) {
-              var roles = []; try { roles = JSON.parse(s.roles||'[]'); } catch {}
-              return '<div style="font-size:.8rem;color:#444;padding:2px 0;">' + esc(s.name) + ' • ' + esc(s.ministry) + (roles.length ? ' • ' + roles.map(esc).join(', ') : '')
-                + ' <span style="color:#aaa;">' + esc((s.created_at||'').slice(0,10)) + '</span>'
-                + ' <button class="btn-secondary" style="font-size:.72rem;padding:1px 7px;margin-left:6px;color:var(--danger);" onclick="volDeleteSignup(' + s.id + ')">Remove</button></div>';
-            }).join('')
+            + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px;">'
+            + '<div style="font-weight:600;font-size:.85rem;color:#8a5000;">' + esc(g.email) + ' — ' + g.count + ' sign-ups for ' + esc(volDupGroupWhere(g)) + '</div>'
+            + '<button class="btn-secondary" style="font-size:.72rem;padding:2px 9px;" onclick="volMergeSignupIds(\'' + ids + '\')">Merge</button>'
+            + '</div>'
+            + volDupGroupRowsHtml(g.signups, 'name')
             + '</div>';
         }).join('');
       }
+      if (possible.length) {
+        html += '<h4 style="font-size:.85rem;font-weight:600;color:#8a5000;margin:14px 0 8px;">Possible duplicates — same name, different email</h4>'
+          + '<p style="font-size:.76rem;color:#8a5000;margin:-4px 0 10px;">A shared name isn\'t proof of a shared person — check the emails before merging.</p>'
+          + possible.map(function(g) {
+            var ids = g.signups.map(function(s) { return s.id; }).join(',');
+            return '<div style="margin-bottom:10px;padding:8px 10px;background:#fff;border-radius:8px;border:1px solid #e0c0c0;">'
+              + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px;">'
+              + '<div style="font-weight:600;font-size:.85rem;color:#8a5000;">' + esc(g.name) + ' — ' + g.count + ' sign-ups for ' + esc(volDupGroupWhere(g)) + '</div>'
+              + '<button class="btn-secondary" style="font-size:.72rem;padding:2px 9px;" onclick="volMergeSignupIds(\'' + ids + '\')">Merge</button>'
+              + '</div>'
+              + volDupGroupRowsHtml(g.signups, 'email')
+              + '</div>';
+          }).join('');
+      }
+      listEl.innerHTML = html;
       if (panel) panel.style.display = '';
     })
     .catch(function() {
@@ -178,6 +208,23 @@ function volToggleDuplicates() {
       if (listEl) listEl.innerHTML = '<p style="font-size:.88rem;color:var(--danger);">Error loading data.</p>';
       if (panel) panel.style.display = '';
     });
+}
+
+// Merges one specific group's sign-ups (a comma-separated id list, from
+// either the "same email" or "possible duplicate" section above) — the
+// per-group counterpart to the bulk volMergeDuplicateSignups() below.
+function volMergeSignupIds(idsCsv) {
+  var ids = idsCsv.split(',').map(function(s) { return parseInt(s, 10); }).filter(function(n) { return Number.isInteger(n); });
+  if (ids.length < 2) return;
+  if (!confirm('Merge these ' + ids.length + ' sign-ups into one? Every shift and role is kept; the extra rows are removed. This cannot be undone.')) return;
+  api('/admin/api/signups/merge', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: ids }),
+  }).then(function(res) {
+    if (res && res.error) { alert(res.error); return; }
+    loadSignups();
+    if (_volDupVisible) volRenderDuplicatesPanel();
+  }).catch(function() { alert('Could not merge those sign-ups. Please try again.'); });
 }
 
 // One-time cleanup for sign-ups created before an additional shift/role
@@ -211,7 +258,7 @@ function volMergeDuplicateSignups() {
         if (res && res.error) { alert(res.error + ' Please try again — the duplicate count may have changed.'); return; }
         alert('Merged ' + res.groups_merged + ' duplicate sign-up' + (res.groups_merged === 1 ? '' : 's') + ' (' + res.signups_removed + ' extra row' + (res.signups_removed === 1 ? '' : 's') + ' removed).');
         loadSignups();
-        if (_volDupVisible) { _volDupVisible = false; volToggleDuplicates(); }
+        if (_volDupVisible) volRenderDuplicatesPanel();
       }).catch(function() {
         if (btn) { btn.disabled = false; btn.textContent = 'Merge Duplicate Sign-ups…'; }
         alert('Could not merge duplicates. Please try again.');

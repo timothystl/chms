@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { handleAdminApi } from '../src/api-admin.js';
-import { findDuplicateSignupGroups, mergeDuplicateSignupGroup } from '../src/api-scheduler.js';
+import { findDuplicateSignupGroups, mergeDuplicateSignupGroup, findPossibleDuplicateSignupGroups, mergeSignupsByIds } from '../src/api-scheduler.js';
 import { authCookieHeader } from '../src/auth.js';
 
 // Minimal D1-shaped wrapper around node:sqlite, same pattern as
@@ -59,6 +59,22 @@ function seedHistoricalDuplicates(db) {
   s.prepare("INSERT INTO signups (event_id,ministry,name,email,roles) VALUES (0,'outreach','Frank Only','frank@example.com','[\"Food pantry\"]')").run();
 
   return { roleA, roleB, jane1, jane2, bob1, bob2 };
+}
+
+// Same person, same event, but a DIFFERENT email each time (e.g. a personal
+// address on one sign-up, a work address on the other) — never caught by
+// the exact-email grouping above, since that's the same key handleSignup
+// itself uses for a live merge.
+function seedSameNameDifferentEmail(db) {
+  const s = db._raw;
+  const evId = Number(s.prepare("INSERT INTO serve_events (name) VALUES ('Christmas Market')").run().lastInsertRowid);
+  const roleA = Number(s.prepare('INSERT INTO serve_roles (event_id,name,slots,role_date) VALUES (?,?,?,?)').run(evId, 'Move stuff', 5, '2026-12-04').lastInsertRowid);
+  const roleB = Number(s.prepare('INSERT INTO serve_roles (event_id,name,slots,role_date) VALUES (?,?,?,?)').run(evId, 'Grill', 5, '2026-12-05').lastInsertRowid);
+  const row1 = Number(s.prepare("INSERT INTO signups (event_id,ministry,name,email) VALUES (?,'events','Andrew Dinger','dinger.andrew@gmail.com')").run(evId).lastInsertRowid);
+  s.prepare('INSERT INTO signup_slots (signup_id,role_id) VALUES (?,?)').run(row1, roleA);
+  const row2 = Number(s.prepare("INSERT INTO signups (event_id,ministry,name,email,phone) VALUES (?,'events','Andrew Dinger','dinger@timothystl.org','(908) 635-7464')").run(evId).lastInsertRowid);
+  s.prepare('INSERT INTO signup_slots (signup_id,role_id) VALUES (?,?)').run(row2, roleB);
+  return { evId, roleA, roleB, row1, row2 };
 }
 
 function makeReq(cookie, body) {
@@ -149,5 +165,107 @@ describe('GET/POST /admin/api/signups/duplicates|merge-duplicates', () => {
 
     const totalRow = await env.DB.prepare('SELECT COUNT(*) as n FROM signups').first();
     expect(totalRow.n).toBe(3); // jane (merged), bob (merged), frank (untouched singleton)
+  });
+});
+
+describe('findPossibleDuplicateSignupGroups / mergeSignupsByIds — same name, different email', () => {
+  it('is invisible to the exact-email grouping', async () => {
+    const db = makeTestDb();
+    const env = { DB: db };
+    seedSameNameDifferentEmail(db);
+    const groups = await findDuplicateSignupGroups(env);
+    expect(groups.length).toBe(0);
+  });
+
+  it('surfaces the same-name pair, with both distinct emails visible, and leaves a true singleton alone', async () => {
+    const db = makeTestDb();
+    const env = { DB: db };
+    seedSameNameDifferentEmail(db);
+    const possible = await findPossibleDuplicateSignupGroups(env);
+    expect(possible.length).toBe(1);
+    expect(possible[0].name).toBe('Andrew Dinger');
+    expect(possible[0].rows.map(r => r.email).sort()).toEqual(['dinger.andrew@gmail.com', 'dinger@timothystl.org'].sort());
+    expect(possible[0].eventName).toBe('Christmas Market');
+  });
+
+  it('a group already sharing one email is excluded (that is findDuplicateSignupGroups\' job, not this one\'s)', async () => {
+    const db = makeTestDb();
+    const env = { DB: db };
+    seedHistoricalDuplicates(db); // jane's two rows share ONE email
+    const possible = await findPossibleDuplicateSignupGroups(env);
+    expect(possible.find(g => g.name === 'Jane Doe')).toBeUndefined();
+  });
+
+  it('manually merges the same-name pair: unions slots, keeps a non-empty phone', async () => {
+    const db = makeTestDb();
+    const env = { DB: db };
+    const { roleA, roleB, row1, row2 } = seedSameNameDifferentEmail(db);
+    const { removed, canonicalId } = await mergeSignupsByIds(env, [row1, row2]);
+    expect(removed).toBe(1);
+    expect(canonicalId).toBe(row1);
+
+    const row = await env.DB.prepare('SELECT * FROM signups WHERE id=?').bind(row1).first();
+    expect(row.email).toBe('dinger.andrew@gmail.com'); // canonical (oldest) row's own email is kept
+    expect(row.phone).toBe('(908) 635-7464'); // pulled in from the dupe, since canonical had none
+
+    const gone = await env.DB.prepare('SELECT id FROM signups WHERE id=?').bind(row2).first();
+    expect(gone).toBeNull();
+
+    const slots = await env.DB.prepare('SELECT role_id FROM signup_slots WHERE signup_id=?').bind(row1).all();
+    expect(slots.results.map(r => r.role_id).sort()).toEqual([roleA, roleB].sort());
+  });
+
+  it('refuses fewer than 2 ids and a non-existent id', async () => {
+    const db = makeTestDb();
+    const env = { DB: db };
+    const single = await mergeSignupsByIds(env, [1]);
+    expect(single.canonicalId).toBeNull();
+    expect(single.removed).toBe(0);
+  });
+});
+
+describe('POST /admin/api/signups/merge (manual, arbitrary ids)', () => {
+  it('requires staff/admin', async () => {
+    const db = makeTestDb();
+    const env = { DB: db, ADMIN_PASSWORD: 'secret' };
+    const { row1, row2 } = seedSameNameDifferentEmail(db);
+    const r = await handleAdminApi(makeReq('', { ids: [row1, row2] }), env, new URL('https://x/admin/api/signups/merge'), 'POST');
+    expect(r.status).toBe(403);
+  });
+
+  it('rejects fewer than 2 ids', async () => {
+    const db = makeTestDb();
+    const env = { DB: db, ADMIN_PASSWORD: 'secret' };
+    const cookie = (await authCookieHeader(env, 'admin', '')).split(';')[0];
+    const r = await handleAdminApi(makeReq(cookie, { ids: [1] }), env, new URL('https://x/admin/api/signups/merge'), 'POST');
+    expect(r.status).toBe(400);
+  });
+
+  it('merges the two Andrew Dinger rows the GET /duplicates response would surface as a possible duplicate', async () => {
+    const db = makeTestDb();
+    const env = { DB: db, ADMIN_PASSWORD: 'secret' };
+    const { roleA, roleB, row1, row2 } = seedSameNameDifferentEmail(db);
+    const cookie = (await authCookieHeader(env, 'admin', '')).split(';')[0];
+
+    const rPreview = await handleAdminApi(makeReq(cookie), env, new URL('https://x/admin/api/signups/duplicates'), 'GET');
+    const bPreview = await rPreview.json();
+    expect(bPreview.groups.length).toBe(0);
+    expect(bPreview.possible_groups.length).toBe(1);
+    const ids = bPreview.possible_groups[0].signups.map(s => s.id);
+    expect(ids.sort()).toEqual([row1, row2].sort());
+
+    const rMerge = await handleAdminApi(makeReq(cookie, { ids }), env, new URL('https://x/admin/api/signups/merge'), 'POST');
+    expect(rMerge.status).toBe(200);
+    const bMerge = await rMerge.json();
+    expect(bMerge.ok).toBe(true);
+    expect(bMerge.signups_removed).toBe(1);
+
+    const totalRow = await env.DB.prepare('SELECT COUNT(*) as n FROM signups').first();
+    expect(totalRow.n).toBe(1);
+    const slots = await env.DB.prepare('SELECT role_id FROM signup_slots').all();
+    expect(slots.results.map(r => r.role_id).sort()).toEqual([roleA, roleB].sort());
+
+    const rAfter = await handleAdminApi(makeReq(cookie), env, new URL('https://x/admin/api/signups/duplicates'), 'GET');
+    expect((await rAfter.json()).possible_groups.length).toBe(0);
   });
 });

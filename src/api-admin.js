@@ -4,7 +4,7 @@ import { handleChmsApi } from './api-chms.js';
 import { LOGIN_HTML } from './html-templates.js';
 import { randHex, authCardPage, getRolePermissions, permissionsForRole } from './api-utils.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './api-emails.js';
-import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail, handleSchedulerVolunteersApi, findDuplicateSignupGroups, mergeDuplicateSignupGroup } from './api-scheduler.js';
+import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail, handleSchedulerVolunteersApi, findDuplicateSignupGroups, mergeDuplicateSignupGroup, findPossibleDuplicateSignupGroups, mergeSignupsByIds } from './api-scheduler.js';
 
 function safeParseArr(json) { try { const v = JSON.parse(json || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } }
 
@@ -468,11 +468,21 @@ export async function handleAdminApi(req, env, url, method) {
     const dupRole = await getAuthRole(req, env);
     if (dupRole !== 'admin' && dupRole !== 'staff') return json({ error: 'Access denied' }, 403);
     const groups = await findDuplicateSignupGroups(env);
+    const possible = await findPossibleDuplicateSignupGroups(env);
     return json({
       groups: groups.map(g => ({
         email: g.email, event_id: g.eventId, event_name: g.eventName, ministry: g.ministry,
         count: g.rows.length,
         signups: g.rows.map(r => ({ id: r.id, name: r.name, roles: safeParseArr(r.roles), created_at: r.created_at })),
+      })),
+      // Same name, different email — not proof of the same person, so these
+      // are never auto-merged by merge-duplicates below. Each group carries
+      // its own row ids so the UI can send a deliberate merge for just that
+      // group via POST /signups/merge.
+      possible_groups: possible.map(g => ({
+        name: g.name, event_id: g.eventId, event_name: g.eventName, ministry: g.ministry,
+        count: g.rows.length,
+        signups: g.rows.map(r => ({ id: r.id, email: r.email, roles: safeParseArr(r.roles), created_at: r.created_at })),
       })),
     });
   }
@@ -493,6 +503,24 @@ export async function handleAdminApi(req, env, url, method) {
       `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value) VALUES(?,?,?,?,?,?,?)`
     ).bind('merge_duplicate_signups', 'signup', 0, '', 'groups_merged', String(groups.length), String(removed)).run().catch(() => {});
     return json({ ok: true, groups_merged: groups.length, signups_removed: removed });
+  }
+
+  // Manual merge of an admin-picked set of sign-up ids — the general case
+  // behind "these are the same person" even when email (and thus the
+  // automatic grouping above) disagrees, e.g. a personal address on one
+  // sign-up and a work address on another. { ids: [id, id, ...] }, 2+.
+  if (seg === 'signups/merge' && method === 'POST') {
+    const dupRole = await getAuthRole(req, env);
+    if (dupRole !== 'admin' && dupRole !== 'staff') return json({ error: 'Access denied' }, 403);
+    let b; try { b = await req.json(); } catch { b = {}; }
+    const ids = Array.isArray(b.ids) ? b.ids.map(x => parseInt(x)).filter(Number.isInteger) : [];
+    if (ids.length < 2) return json({ error: 'Provide 2 or more signup ids to merge.' }, 400);
+    const { removed, canonicalId } = await mergeSignupsByIds(env, ids);
+    if (!canonicalId) return json({ error: 'Could not find those sign-ups.' }, 404);
+    await env.DB.prepare(
+      `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value) VALUES(?,?,?,?,?,?,?)`
+    ).bind('merge_signups_manual', 'signup', canonicalId, '', 'merged_from', JSON.stringify(ids), String(removed)).run().catch(() => {});
+    return json({ ok: true, signup_id: canonicalId, signups_removed: removed });
   }
 
   if (seg === 'events' && method === 'GET') {

@@ -1133,8 +1133,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           </div>
         </div>
         <div id="vol-duplicates-panel" style="display:none;background:#fff8f0;border:1px solid #e0b060;border-radius:10px;padding:14px;margin-bottom:12px;">
-          <h4 style="font-size:.9rem;font-weight:600;color:#8a5000;margin-bottom:10px;">Emails with multiple signups</h4>
-          <p style="font-size:.78rem;color:#8a5000;margin:-4px 0 10px;">Two rows here for the same event, or the same off-event ministry interest, are the "locked out and had to sign up twice" duplicates from before sign-ups started merging automatically — "Merge Duplicate Sign-ups…" above consolidates those. Two rows for genuinely <em>different</em> events are not duplicates and are left alone either way.</p>
+          <h4 style="font-size:.9rem;font-weight:600;color:#8a5000;margin-bottom:10px;">Duplicate sign-ups</h4>
+          <p style="font-size:.78rem;color:#8a5000;margin:-4px 0 10px;">Two rows here for the same event, or the same off-event ministry interest, are the "locked out and had to sign up twice" duplicates from before sign-ups started merging automatically — "Merge Duplicate Sign-ups…" above consolidates every one at once, or click Merge on just one group below. Two rows for genuinely <em>different</em> events are not duplicates and are left alone either way. A second section below lists sign-ups sharing a name but not an email — check those before merging, since a shared name isn't proof of a shared person.</p>
           <div id="vol-duplicates-list"></div>
         </div>
         <div id="vol-status-pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>

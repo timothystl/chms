@@ -511,14 +511,32 @@ you need to make changes.") any second submission sharing an `email` + `event_id
   non-reversible data change. The existing "Show Duplicates" panel gained a caption distinguishing
   a real duplicate (same event, or same off-event ministry pool) from two rows for genuinely
   different events, which aren't duplicates and are correctly left alone either way.
-- `npm test` (1580/1580, 10 new across `test/serve-signup-merge.test.js` and
+- **Follow-up, same day: the bulk tool only ever matched on email, and a real duplicate can differ
+  there too** — reported live, two "Andrew Dinger" rows on Christmas Market, one signed up from a
+  personal address and one from a work address. `findDuplicateSignupGroups` is keyed on email on
+  purpose (it mirrors `handleSignup`'s own live-merge key, so the automatic bulk tool never guesses
+  at identity) — a shared name is a different, weaker signal and was invisible to it entirely. New
+  `findPossibleDuplicateSignupGroups`/`mergeSignupsByIds` (`src/api-scheduler.js`) find same-name
+  same-event (or same off-event ministry) rows whose emails actually differ — excluding anything
+  the exact-email grouping already owns — and a new `POST /admin/api/signups/merge` (`{ids:[...]}`)
+  merges an admin-picked arbitrary set of rows via the identical consolidation rule. **Deliberately
+  never auto-merged** — a shared name isn't proof of a shared person, so these only ever surface for
+  a human "Merge" click, with both emails shown, never folded into the bulk button. `GET
+  /admin/api/signups/duplicates` now also returns `possible_groups`; the "Show Duplicates" panel
+  gained a second, distinctly-colored section for them with a per-group Merge button (and every
+  email-matched group also gained its own per-group Merge button, not just the all-at-once bulk
+  one) via `volRenderDuplicatesPanel()`/`volMergeSignupIds()` (`src/frontend/js-volunteers.js`).
+- `npm test` (1601/1601, 18 new across `test/serve-signup-merge.test.js` and
   `test/serve-signup-merge-duplicates.test.js`, run against real in-memory SQLite): adding a second
   shift to the same event merges into one row and one signup; re-submitting the identical shift is
   a no-op with no duplicate slot row; a genuinely full NEW shift still 409s even for someone already
   on the event; adding a second ministry role merges into one row with both labels; a brand-new
   email still gets its own fresh row; the retroactive cleanup groups correctly, unions slots/roles,
   never downgrades a further-along status, requires the confirm-count echo (rejects a stale one),
-  and a singleton is left untouched. Plus the served `<script>` extracted from every touched
+  and a singleton is left untouched; the same-name/different-email case is invisible to the
+  email-keyed finder, correctly excludes a group the email finder already owns, and manually merges
+  cleanly (verified non-vacuous by injecting the exact exclusion-bug it guards — confirmed to fail).
+  Plus the served `<script>` extracted from every touched
   template-literal module (`src/public/scripts.js` — a *non*-`String.raw` literal, needs
   double-backslash escapes; `src/frontend/js-volunteers.js`/`html-tabs.js` — `String.raw`, needs
   single-backslash) and `node --check`'d against the real assembled `CHMS_APP_CORE_JS`/

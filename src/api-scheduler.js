@@ -492,6 +492,63 @@ export async function mergeDuplicateSignupGroup(env, rows) {
   return dupes.length;
 }
 
+// Same-name, same-event (or same off-event ministry pool) groups where the
+// EMAILS DIFFER — e.g. someone signed up once from a personal address and
+// once from a work address. findDuplicateSignupGroups can't see these (it
+// keys strictly on email, the same key handleSignup uses for a live merge),
+// and a shared name alone isn't proof of a shared person, so these are
+// never auto-merged — only surfaced for a human to confirm via
+// mergeSignupsByIds. A group already fully covered by the exact-email
+// grouping (every row shares one email) is excluded, since it's not a
+// "different email" case at all.
+export async function findPossibleDuplicateSignupGroups(env) {
+  const rows = (await env.DB.prepare('SELECT * FROM signups ORDER BY id ASC').all()).results || [];
+  const byKey = new Map();
+  for (const r of rows) {
+    const name = (r.name || '').trim().toLowerCase();
+    if (!name) continue;
+    const eventId = r.event_id || 0;
+    const key = eventId ? `e:${eventId}:${name}` : `m:${name}`;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(r);
+  }
+  const groups = [];
+  for (const groupRows of byKey.values()) {
+    const emails = new Set(groupRows.map(r => (r.email || '').trim().toLowerCase()).filter(Boolean));
+    if (groupRows.length < 2 || emails.size < 2) continue;
+    const eventId = groupRows[0].event_id || 0;
+    let eventName = null;
+    if (eventId) {
+      const ev = await env.DB.prepare('SELECT name FROM serve_events WHERE id=?').bind(eventId).first();
+      eventName = ev ? ev.name : null;
+    }
+    groups.push({
+      name: groupRows[0].name,
+      eventId,
+      eventName,
+      ministry: (groupRows.map(r => r.ministry).find(Boolean)) || '',
+      rows: groupRows,
+    });
+  }
+  return groups;
+}
+
+// Merges an admin-picked, arbitrary set of signup ids — the general case
+// behind a manual "these are the same person" decision (different emails,
+// a nickname vs. a legal name, etc.), reusing the identical consolidation
+// rule as the automatic email-keyed merge above.
+export async function mergeSignupsByIds(env, ids) {
+  const rows = [];
+  for (const id of ids) {
+    const r = await env.DB.prepare('SELECT * FROM signups WHERE id=?').bind(id).first();
+    if (r) rows.push(r);
+  }
+  if (rows.length < 2) return { removed: 0, canonicalId: null };
+  const canonicalId = rows.slice().sort((a, b) => a.id - b.id)[0].id;
+  const removed = await mergeDuplicateSignupGroup(env, rows);
+  return { removed, canonicalId };
+}
+
 // ── ICAL DOWNLOAD: GET /serve/calendar/:id (was /volunteer/calendar/:id — aliased) ──
 export async function handleCalendar(env, path) {
   const signupId = parseInt(path.split('/').pop());
