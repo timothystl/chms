@@ -20,7 +20,7 @@ import {
 import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
 import { handleIntakeApi } from './src/api-intake.js';
 import { handleMemberSetup } from './src/api-people.js';
-import { LOGIN_HTML, PUBLIC_HTML, ADMIN_HTML } from './src/html-templates.js';
+import { LOGIN_HTML, PUBLIC_HTML } from './src/html-templates.js';
 import { chmsHtmlForRole, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS, CHMS_APP_EXT_JS, CHMS_APP_CSS, CHMS_SCHEDULER_HTML, CHMS_SCHEDULER_JS } from './src/html-chms.js';
 import { DEPLOY_VERSION } from './src/frontend/js-core.js';
 import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
@@ -577,7 +577,8 @@ async function _fetch(req, env) {
       }
       // The standalone scheduler page is retired — it carried its own pre-rebrand "Steel &
       // Amber" visual identity that was never brought forward, and nothing in the live app
-      // links to it (confirmed: the only reference was in ADMIN_HTML, itself dead/unserved).
+      // links to it (confirmed: the only reference was in the now-deleted dead ADMIN_HTML
+      // export — see CR7(c) — which was itself never routed to anything).
       // The embedded Scheduler tab inside ChMS (src/scheduler-inline.js) is now the only
       // supported way to use the scheduler — redirect any direct hit here into it.
       return new Response(null, { status: 302, headers: { 'Location': 'https://connect.timothystl.org/#scheduler', 'Cache-Control': 'no-store' } });
