@@ -24,6 +24,76 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.194.0 — Phase 22-C: one CSV escaper per runtime, and the formula guard reaches the server (2026-08-19)
+
+Closes SEC18.
+
+**What was wrong.** SW15 added a spreadsheet formula guard to the giving-diagnose export and the
+pattern was carried to two more FRONTEND builders — and to none of the four server-side ones.
+That split had it exactly backwards: the server-side exports are the ones carrying
+attacker-supplied text. `request_text` on the prayer export comes from the **public** prayer
+form; `name` and `notes` on the volunteer export come from the **public** Serve sign-up form. A
+cell beginning `=`, `+`, `-` or `@` is evaluated as a FORMULA by Excel, Sheets and Numbers when
+a staff member opens the file days later.
+
+**And `giving/statement?format=csv` had no escaping at all** — `fund_name` and `method` were
+interpolated straight into a comma-joined line, so a single fund named "Building, Phase 2"
+silently shifted Amount and Method one column to the right for the whole statement. Its
+`Content-Disposition` also carried `person.last_name` raw: a quote truncates the filename and a
+newline makes the Headers constructor **throw**, turning a statement download into a 500.
+
+**Now one escaper per runtime boundary** — `csvCell`/`csvRow` in `api-utils.js` for the server,
+the same pair in `js-core.js` for the browser, and a documented local copy in
+`scheduler-html.js` because that file also ships as the standalone `scheduler/index.html` and
+cannot import from an admin bundle. Three definitions across three runtimes, replacing six
+hand-rolled ones with three different notions of what needs quoting (SW17's lesson). A test runs
+the browser copy and the server copy over the same inputs and asserts they agree, and another
+scans `src/` for any hand-rolled quote-doubling outside the three.
+
+**⚠ One deliberate behavior change: a plain number is EXEMPT from the guard.** The three
+frontend copies guarded a leading `-` unconditionally, which shipped **every negative amount as
+text** — a refund fell straight out of the bookkeeper's `SUM()` with nothing on screen to say
+so, and refunds are real in this data (G6). `-1234.56` is now left alone; `-1+1` and `-1e9` are
+still prefixed. This makes finance exports arithmetically correct in Excel for the first time.
+
+`safeFilenamePart()` sanitizes the surname before it reaches the header, NFKD-then-strip so an
+accented name degrades to "Muller" rather than disappearing.
+
+**⚠ Two SC3-BUG1 build breaks in one edit, both caught by the build rather than by reading.**
+`scheduler-html.js` is a plain template literal, so a backslash in the source is eaten before
+the browser sees it. The first pass wrote the guard as a character-class regex with `\t`/`\r`
+escapes: the escapes vanished and the rendered regex was invalid, killing the whole script. The
+second pass fixed the code and died anyway — in the **comment** that quoted the regex, because
+the rendered tab broke the comment line itself. The shipped version uses `String.fromCharCode`
+and `[0-9]` classes and has no backslash anywhere, in the code or the comment, with a note
+saying why.
+
+**`npm test` 1672/1672** (93 files, 5 skipped), up from 1654/92. New
+`test/csv-export-escaping.test.js` — 18 tests: the pure helpers, the statement export end to end
+against real SQLite (comma-in-fund-name, formula fund name, hostile surname in the header), the
+two public-input exports end to end, and the one-escaper-per-runtime invariant.
+
+**Every new test verified non-vacuous — 12 injections, 12 correct failure sets**: the formula
+guard removed, the number exemption dropped, RFC 4180 quoting removed, the filename sanitizer
+neutered, the statement CSV returned to raw interpolation, the filename left unsanitized, the
+browser copy made to diverge from the server copy, a per-tab escaper reintroduced, hand-rolled
+quoting added to an unrelated module, the scheduler guard removed, and both public-input
+exports returned to a hand escaper.
+
+**⚠ Two of my own test fixtures were wrong and were fixed, not worked around**: the statement
+test called the handler with the wrong route segment and got a null back — every assertion would
+have failed on a null dereference rather than saying what was wrong, so the helper now asserts
+the route matched first. And the public-input fixtures embedded a payload containing a quote
+into inline DDL, which broke the fixture build; rows now go in through bound parameters.
+
+`scheduler/index.html` resynced by evaluating the module (SC5); the served standalone script and
+the embedded bundle both re-parsed, and the served script scanned for stray control characters.
+
+**Not verified**: a live browser, or a real export opened in Excel. (`src/api-utils.js`,
+`src/api-reports.js`, `src/api-admin.js`, `src/api-import.js`, `src/scheduler-html.js`,
+`src/frontend/js-core.js`, `src/frontend/js-attendance.js`, `src/frontend/js-finance.js`,
+`src/frontend/js-reports.js`, `scheduler/index.html`, `test/csv-export-escaping.test.js`)
+
 ### v1.193.0 — Phase 22-B: the Breeze key and WORKER_SECRET stop being stored in D1 (2026-08-19)
 
 Closes SEC17.

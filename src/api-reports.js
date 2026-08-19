@@ -1,7 +1,7 @@
 // ── Reports, Engagement, Prayer API handlers ─────────────────────────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, resolveGeneralFundIds, resolveGeneralFundBudget, buildBoardCategoryBlock, SACRAMENT_YES } from './api-utils.js';
+import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, resolveGeneralFundIds, resolveGeneralFundBudget, buildBoardCategoryBlock, SACRAMENT_YES, csvRow, safeFilenamePart} from './api-utils.js';
 import { resolveChurchYearPrecedence } from './api-finance.js';
 
 // `isFinance` here means "may see an individual's giving". `givingAnon` is the weaker grant
@@ -490,11 +490,10 @@ if (seg === 'prayer-requests/export.csv' && method === 'GET') {
       r.status || '', r.resolution_note || '', r.resolved_at || '',
       r.request_text || '', r.source || '',
     ];
-    csv += vals.map(function(v) {
-      const s = String(v);
-      return s.includes(',') || s.includes('"') || s.includes('\n')
-        ? '"' + s.replace(/"/g, '""') + '"' : s;
-    }).join(',') + '\n';
+    // `request_text` arrives from the PUBLIC prayer form, so this is the export with the most
+    // direct path from a stranger's keyboard to a formula in a staff member's spreadsheet
+    // (SEC18 / P22-C). The escaper this replaced also missed a bare \r.
+    csv += csvRow(vals) + '\n';
   }
   return new Response(csv, { headers: {
     'Content-Type': 'text/csv',
@@ -1765,14 +1764,21 @@ if (seg === 'reports/giving-statement' && method === 'GET') {
   ).bind(personId, String(year)).all()).results || [];
   const total = entries.reduce((s,e) => s + e.amount, 0);
   if (url.searchParams.get('format') === 'csv') {
-    let csv = 'Date,Fund,Amount,Method\n';
+    // This had NO escaping whatever: fund_name and method were interpolated straight into a
+    // comma-joined line, so a single fund named "Building, Phase 2" silently shifted every
+    // later column for the whole statement. The amount keeps its $ prefix, which makes it a
+    // text cell either way, so the number exemption in csvCell does not apply to it.
+    let csv = csvRow(['Date', 'Fund', 'Amount', 'Method']) + '\n';
     for (const e of entries) {
-      csv += `${e.gift_date},${e.fund_name},$${(e.amount/100).toFixed(2)},${e.method}\n`;
+      csv += csvRow([e.gift_date, e.fund_name, '$' + (e.amount / 100).toFixed(2), e.method]) + '\n';
     }
+    // A surname went into the header raw. A quote truncates the filename; a newline makes the
+    // Headers constructor throw, turning a statement download into a 500.
+    const fnamePart = safeFilenamePart(person.last_name, 'statement');
     return new Response(csv, {
       headers: {
         'Content-Type': 'text/csv',
-        'Content-Disposition': `attachment; filename="giving-statement-${person.last_name}-${year}.csv"`
+        'Content-Disposition': `attachment; filename="giving-statement-${fnamePart}-${year}.csv"`
       }
     });
   }

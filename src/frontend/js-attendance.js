@@ -549,18 +549,12 @@ function attRenderHistory() {
       + '</div>';
   }).join('');
 }
-function attCsvCell(v) {
-  v = (v === null || v === undefined) ? '' : String(v);
-  if (/^[=+\-@]/.test(v)) v = "'" + v; // guard against Excel formula injection, same pattern as SW15
-  if (/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
-  return v;
-}
 function attExportHistoryCsv() {
   var rows = [['Date', 'Sunday', '8:00', '10:45', 'Total']];
   attEnteredSundaysAsc().slice().reverse().forEach(function(r) {
     rows.push([r.date, r.name || '', r.att8, r.att1045, r.combined]);
   });
-  var csv = rows.map(function(r) { return r.map(attCsvCell).join(','); }).join('\n');
+  var csv = rows.map(csvRow).join('\n');
   var blob = new Blob([csv + '\n'], { type: 'text/csv' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
