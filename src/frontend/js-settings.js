@@ -386,7 +386,7 @@ var MCE_FIELDS_MIDYEAR = [
 ];
 function mceTokenChip(token) {
   return '<span contenteditable="false" data-mce-token="' + token + '" '
-    + 'style="display:inline-block;background:#EDF5F8;color:#1E2D4A;border:1px solid #B8D4E3;'
+    + 'style="display:inline-block;background:#EDF5F8;color:var(--color-navy);border:1px solid #B8D4E3;'
     + 'border-radius:4px;padding:0 5px;margin:0 1px;font-family:monospace;font-size:.85em;white-space:nowrap;">'
     + token + '</span>';
 }

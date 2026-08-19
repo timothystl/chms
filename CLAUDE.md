@@ -3240,6 +3240,38 @@ delete the Steel/`--ev-*` definitions (PAL2); (d) RD2's structural inline-style-
 stays parked for the actual redesign, not a cleanup pass — it's the one piece of this whole cluster
 that's a genuine architecture change rather than a mechanical substitution.
 
+**⚠ A hazard found and reverted before shipping, 2026-08-19 — this is why (a) below has two
+sub-rules, not one.** A first mechanical exact-hex-match pass against the 5 remaining tab files
+(`js-people.js`/`js-giving.js`/`js-settings.js`/`js-reports.js`/`js-attendance.js`, 46 candidate
+substitutions) was caught in review before commit: a real fraction of the "exact matches" were not
+bare `style="color:#hex"` literals — they were already `var(--token, #hexFallback)` patterns
+(`js-giving.js`'s deposit-reconciliation badges and board narrative are examples). That hex fallback
+is deliberate, not a redundant duplicate of the token: it's what actually renders in a context where
+CSS custom properties don't resolve — an emailed giving letter/receipt, or any HTML opened outside
+the app's own stylesheet. A blind substitution turns `var(--sage, #4A5E3A)` into `var(--sage,
+var(--ev-moss))` — a nested fallback that is exactly as broken as no fallback at all in the one
+context the pattern exists to cover. **Rule: skip any hex literal that already sits inside a
+`var(...)` call's fallback argument** — only substitute a hex that is a bare, standalone literal.
+
+- [x] **PAL7 — Extended PAL5's exact-hex-to-token substitution to the 5 remaining tab files, with
+  the `var(...)`-fallback exclusion above applied.** 34 of the original 46 candidates were bare
+  literals and got substituted (`js-giving.js` 21, `js-reports.js` 8, `js-attendance.js` 2,
+  `js-settings.js` 1, `js-people.js` 2). **`js-people.js`'s 2 were reverted a second time on manual
+  review** — both resolved to `--att-text-2`, a token explicitly namespaced for the Attendance tab,
+  reused here for an unrelated "archived" person-status badge. Visually identical today but a real
+  future hazard: a later redesign narrowing `--att-text-2`'s scope (or deleting it as
+  attendance-only) would silently break an unrelated badge with no visible connection between the
+  two. Net change: `js-people.js` untouched, 4 files touched, 32 substitutions shipped. Every
+  touched line manually traced to confirm it renders only in-app (report views, board dashboard/
+  print-in-place via `body.printing-board`, chart legends) or is stripped before ever reaching a
+  sent email (`mceTokenChip()`'s output is removed by a `data-mce-token` strip regex in
+  `renderLetterHTML()` before a template is rendered — confirmed by tracing the code, not assumed).
+  `npm test` (1601/1601), `node --check` on all 4 built app-JS bundles and each touched source file,
+  div-balance on the assembled shell. Not verified in a live browser — same standing caveat as every
+  other color/layout change in this codebase's history. Done 2026-08-19 (v1.190.5).
+  (`src/frontend/js-giving.js`, `src/frontend/js-reports.js`, `src/frontend/js-attendance.js`,
+  `src/frontend/js-settings.js`)
+
 ### Volunteer / Events UX Redesign (2026-07)
 - [x] **VUX1** — Public event sign-up: contact-first flow (day-toggle pills + contact card no longer gated behind picking a day), 3-tier capacity badges. Done 2026-07-06 (v1.5.0). (`src/public/scripts.js`, `head.js`)
 - [x] **VUX2** — Public landing: "Not sure where to start?" CTA → 2-tap Find Your Fit guided flow. Done 2026-07-06 (v1.5.0). (`src/public/findfit.js`)

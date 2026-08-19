@@ -843,8 +843,8 @@ function renderByServiceChart(d, chartH) {
     pts1045.forEach(function(p){line1045+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.5" fill="#2E7EA6"><title>'+p[3]+' 10:45am: '+p[2]+'</title></circle>';});
   }
   var legend='<div style="display:flex;gap:16px;margin-top:6px;justify-content:center;">'
-    +'<span style="display:flex;align-items:center;gap:5px;font-size:.8rem;"><span style="display:inline-block;width:24px;height:3px;background:#C9973A;"></span>8am</span>'
-    +'<span style="display:flex;align-items:center;gap:5px;font-size:.8rem;"><span style="display:inline-block;width:24px;height:3px;background:#2E7EA6;"></span>10:45am</span>'
+    +'<span style="display:flex;align-items:center;gap:5px;font-size:.8rem;"><span style="display:inline-block;width:24px;height:3px;background:var(--color-gold);"></span>8am</span>'
+    +'<span style="display:flex;align-items:center;gap:5px;font-size:.8rem;"><span style="display:inline-block;width:24px;height:3px;background:var(--color-teal);"></span>10:45am</span>'
     +'</div>';
   var svg='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:'+H+'px;">'+grid+line8+line1045+xlbls+ylbls+'</svg>';
   return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 16px 8px;margin-bottom:16px;"><div style="font-weight:700;color:var(--steel-anchor);font-size:.9rem;margin-bottom:8px;">8am vs 10:45am Trend</div>'+svg+legend+'</div>';
