@@ -24,6 +24,72 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.195.0 — Cached directory data no longer outlives the session (2026-08-19)
+
+P22-D, retiring **SEC19**. Two independent problems in `SW_JS`, both about data cached by
+one session and still sitting there for the next one.
+
+- **`/admin/api/people` — the whole directory: names, emails, phones, addresses — went into
+  a cache named `chms-api-v1`**, a fixed name, and the `activate` handler's eviction list
+  deliberately kept it. So unlike `STATIC_CACHE` it was never rotated by a deploy, and
+  nothing anywhere cleared it on sign-out. On a shared office machine it stayed on disk after
+  the person left, and any XSS on the origin (SEC13/SEC14's class) could read the directory
+  out of it with one `caches.match`. Now `'chms-api-' + VERSION`, so `activate` treats it
+  exactly like the static cache and one deploy's copy cannot survive into the next.
+- **Purged outright at sign-out.** Handled in the worker's `fetch` handler on
+  `/admin/logout`, not in the page, because the Sign Out control is a plain
+  `<a href="/admin/logout">` and because this also catches somebody typing the URL.
+  **⚠ `waitUntil` alone, deliberately — no `respondWith`.** The navigation is left
+  completely untouched, so the worker cannot break signing out even if the purge throws; a
+  test asserts no `respondWith` and no re-fetch, because the obvious "intercept and re-issue"
+  version of this puts the purge in front of the one request that must never fail.
+- **Also purged on a 401** from the people endpoint. That is the case sign-out never sees and
+  the one the shared-machine scenario actually turns on: nobody clicks Sign Out, the tab sits
+  until the cookie expires, and the next person signs in. A 401 is the first moment the
+  worker can know the session ended.
+- **Scoped to the `chms-` prefix**, not `caches.keys()` wholesale. Nothing else on this
+  origin uses Cache Storage today, but deleting another app's cache is not ours to do.
+
+**The shell is now cached per role.** Its own comment claimed the markup "interpolates
+nothing per-user" — true when MOB4 wrote it, and false since CR9 made `chmsHtmlForRole()`
+emit one script tag for a member and three for everyone else. Cached under the bare key `/`,
+an offline relaunch could hand one role the other role's script set.
+
+- **⚠ The worker cannot tell which role a response was built for**, and that is the whole
+  difficulty: the write side could guess, but the read side (an offline cold launch) has no
+  request, no cookie and no page to ask. So the PAGE names its role — `applyRoleUI()` posts
+  `{type:'chms-role'}` once, the worker keeps the answer at `/__chms/shell-role`, and the
+  shell is stored at `/__chms/shell/<role>`. Both live in `STATIC_CACHE` on purpose: it is
+  evicted every deploy, and so are the `?v=` bundles a cached shell references — a shell that
+  outlived its bundles could not boot offline anyway, so the marker's lifetime should match
+  the shell's exactly.
+- **The role is sanitized to letters before it reaches a cache key** — it arrives by
+  `postMessage`, which any page on this origin can send, and it is concatenated into a key.
+- Uses `serviceWorker.ready`, not `.controller`, which is still `null` on the very first load
+  (the worker registers during that same page load and only claims clients afterwards).
+- Cost, accepted: the first offline launch after a deploy, or before the page has ever
+  reported a role, falls to the offline page rather than the cached shell. The alternative
+  the plan also allowed — stop caching the shell — would have given that up permanently and
+  undone MOB4.
+
+**Considered and rejected**: keying the shell by parsing the response body for its script
+tags (the read side still has nothing to compare against), and re-issuing the logout request
+from inside `respondWith` (buys ordering nobody needs, at the cost of putting the worker in
+the path of signing out).
+
+`npm test` (1702/1702, 28 in `test/service-worker.test.js`, up from 17, all driving the real
+generated worker and — for the role handoff — the real shipped `app-member.js` bundle);
+**every new test verified non-vacuous** by injecting the exact regression it guards (8
+injections, 8 correct failure sets). Three existing tests pinned the behavior being corrected
+and were updated, not deleted: the two shell-cache-key assertions, and the eviction test that
+asserted `chms-api-v1` *survives* activate. **⚠ A bug in the test harness, not the worker, was
+found on the way**: the fake `caches` returned the stored `Response` object itself rather than
+a clone, so a second read of one entry saw an already-consumed body — that is what made the
+role marker look broken when it was not. Plus `node --check` on all four built bundles and the
+worker, and a div-balance scan of the assembled `CHMS_HTML`. **Not verified**: a live browser,
+a real installed PWA, or a real offline relaunch. (`src/html-chms.js`,
+`src/frontend/js-core.js`, `test/service-worker.test.js`)
+
 ### v1.194.0 — Market summary: structured shift times and a job lead (2026-08-19)
 
 MKT2 — the other half of the website repo's v5.30.0 Christmas Market roster

@@ -26,7 +26,12 @@ export const SW_JS = `
 // so without the eviction old versions would accumulate forever.
 const VERSION      = '${DEPLOY_VERSION}';
 const STATIC_CACHE = 'chms-static-' + VERSION;
-const API_CACHE    = 'chms-api-v1';
+const API_CACHE    = 'chms-api-' + VERSION;
+// SEC19/P22-D. API_CACHE used to be a fixed 'chms-api-v1' and was deliberately EXCLUDED from
+// the activate eviction below, so the directory it holds — names, emails, phones, addresses —
+// outlived every deploy and was never rotated by anything. Versioning it means the activate
+// handler treats it exactly like STATIC_CACHE: one deploy's copy of the directory does not
+// survive into the next. Logout purges it outright (see purgeChmsCaches).
 
 // The app shell. Served no-store over the wire (it is auth-gated, and that header keeps it out
 // of any shared proxy cache), but the markup itself is completely static — it interpolates
@@ -54,6 +59,57 @@ function isVersionedAsset(url) {
       || url.pathname === '/admin/app.css';
 }
 
+// SEC19/P22-D. Two synthetic cache keys, neither of them a real URL the network ever sees.
+//
+// The shell is cached PER ROLE. Its old comment claimed the markup "interpolates nothing
+// per-user" — true when it was written, and false since CR9 made chmsHtmlForRole() emit one
+// script tag for a member and three for everyone else. Cached under the bare key '/', an
+// offline relaunch could hand one role the other role's script set. The worker cannot know the
+// role from the response, so the PAGE tells it (applyRoleUI posts a 'chms-role' message) and
+// the worker keeps that answer here, in the same version-scoped cache as the shell itself.
+//
+// Both live in STATIC_CACHE on purpose: it is evicted on every deploy, and so are the ?v=
+// bundles the cached shell references — a shell that outlived its bundles could not boot
+// offline anyway, so the marker's lifetime should match the shell's exactly.
+const SHELL_ROLE_KEY = '/__chms/shell-role';
+function shellCacheKey(role) { return '/__chms/shell/' + role; }
+
+// Sanitized hard, because this value is concatenated into a cache key and arrives by
+// postMessage — any page on this origin can send one.
+function sanitizeRole(v) {
+  return (typeof v === 'string' ? v : '').toLowerCase().replace(/[^a-z]/g, '').slice(0, 20) || 'unknown';
+}
+
+function currentShellRole() {
+  return caches.match(SHELL_ROLE_KEY)
+    .then(function(r){ return r ? r.text() : ''; })
+    .then(sanitizeRole)
+    .catch(function(){ return 'unknown'; });
+}
+
+// Everything this app has cached, gone. Called on sign-out and whenever the API answers 401,
+// which together cover both ways a session actually ends on a shared office machine. Scoped to
+// our own 'chms-' prefix rather than caches.keys() wholesale — nothing else on this origin
+// uses Cache Storage today, but deleting another app's cache is not ours to do.
+function purgeChmsCaches() {
+  return caches.keys().then(function(keys) {
+    return Promise.all(keys.filter(function(k){ return k.indexOf('chms-') === 0; })
+                           .map(function(k){ return caches.delete(k); }));
+  }).catch(function(){});
+}
+
+self.addEventListener('message', function(event) {
+  var data = event.data || {};
+  if (data.type === 'chms-role') {
+    var role = sanitizeRole(data.role);
+    event.waitUntil(caches.open(STATIC_CACHE).then(function(c) {
+      return c.put(SHELL_ROLE_KEY, new Response(role));
+    }).catch(function(){}));
+  } else if (data.type === 'chms-logout') {
+    event.waitUntil(purgeChmsCaches());
+  }
+});
+
 self.addEventListener('install', function(event) {
   event.waitUntil(
     caches.open(STATIC_CACHE).then(function(cache) {
@@ -66,6 +122,8 @@ self.addEventListener('install', function(event) {
 self.addEventListener('activate', function(event) {
   event.waitUntil(
     caches.keys().then(function(keys) {
+      // Both names now carry VERSION, so this drops the previous deploy's shell, bundles AND
+      // its cached directory data. Before P22-D the API cache was unversioned and survived here.
       return Promise.all(keys.filter(function(k){
         return k !== STATIC_CACHE && k !== API_CACHE;
       }).map(function(k){ return caches.delete(k); }));
@@ -78,6 +136,16 @@ self.addEventListener('fetch', function(event) {
   if (url.origin !== self.location.origin) return;
   if (event.request.method !== 'GET') return;
 
+  // Sign-out. Handled here rather than in the page because the Sign Out control is a plain
+  // <a href="/admin/logout">, and because this also catches someone typing the URL. The
+  // navigation itself is left completely untouched — no respondWith — so the worker cannot
+  // break signing out even if the purge throws; waitUntil just keeps the worker alive long
+  // enough to finish deleting.
+  if (url.pathname === '/admin/logout') {
+    event.waitUntil(purgeChmsCaches());
+    return;
+  }
+
   // App shell — network-first so a fresh deploy is picked up immediately, falling back to the
   // cached copy when offline. The previous version had this fallback but nothing ever populated
   // the cache, so caches.match() always missed and the fallback could never fire.
@@ -86,11 +154,15 @@ self.addEventListener('fetch', function(event) {
       fetch(event.request).then(function(resp) {
         if (resp && resp.ok) {
           var copy = resp.clone();
-          caches.open(STATIC_CACHE).then(function(c){ c.put('/', copy); });
+          currentShellRole().then(function(role) {
+            return caches.open(STATIC_CACHE).then(function(c){ c.put(shellCacheKey(role), copy); });
+          }).catch(function(){});
         }
         return resp;
       }).catch(function() {
-        return caches.match('/').then(function(cached) {
+        return currentShellRole().then(function(role) {
+          return caches.match(shellCacheKey(role));
+        }).then(function(cached) {
           return cached || new Response(
             '<!DOCTYPE html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline</title><body style="font-family:system-ui;padding:2rem;text-align:center;color:#1E2D4A;background:#F8F4EE"><h1 style="font-weight:500">Offline</h1><p>Connect needs a network connection to load the first time.</p>',
             { status: 503, headers: { 'Content-Type': 'text/html;charset=UTF-8' } }
@@ -126,6 +198,10 @@ self.addEventListener('fetch', function(event) {
           caches.open(API_CACHE).then(function(cache){ cache.put(event.request, resp.clone()); });
           return resp;
         }
+        // A session that ends by expiring rather than by clicking Sign Out is the shared-office
+        // case SEC19 is actually about: nobody logs out, the next person signs in. 401 is the
+        // first moment the worker can know it happened.
+        if (resp.status === 401) purgeChmsCaches();
         return resp;
       }).catch(function() {
         return caches.match(event.request).then(function(cached) {
