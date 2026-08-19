@@ -4609,13 +4609,8 @@ function finExportChurchCsv() {
 }
 
 // ── Shared CSV download helper (Excel/Sheets formula-injection guarded) ─
-function finCsvCell(v) {
-  var s = String(v == null ? '' : v);
-  if (/^[=+\-@]/.test(s)) s = "'" + s;
-  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
 function finDownloadCsv(filename, rows) {
-  var csv = rows.map(function(r) { return r.map(finCsvCell).join(','); }).join('\n');
+  var csv = rows.map(csvRow).join('\n');
   var blob = new Blob([csv + '\n'], { type: 'text/csv' });
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);

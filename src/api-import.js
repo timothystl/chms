@@ -1,7 +1,7 @@
 // ── Import, Config, Register, Export, Breeze Sync API handlers ──────────────
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
-import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS, archiveEnvelope, scanForFeeFields, sanitizeLetterTemplateHtml, logoSizeWarning } from './api-utils.js';
+import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolveRolePermissions, ROLE_PERMISSION_ROLES, ROLE_PERMISSION_ITEM_KEYS, ROLE_PERMISSION_LEVELS, archiveEnvelope, scanForFeeFields, sanitizeLetterTemplateHtml, logoSizeWarning, csvCell, csvRow} from './api-utils.js';
 import { validateImageUpload } from './api-people.js';
 import { sendBrevoTransactionalEmail } from './api-emails.js';
 
@@ -1070,12 +1070,9 @@ if (seg === 'giving/prune-empty-batches' && method === 'POST') {
 
 // ── Export endpoints ─────────────────────────────────────────────
 if (seg.startsWith('export/') && method === 'GET') {
-  const csvEsc = v => {
-    const s = String(v == null ? '' : v);
-    return (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r'))
-      ? '"' + s.replace(/"/g, '""') + '"' : s;
-  };
-  const csvRow = arr => arr.map(csvEsc).join(',');
+  // csvRow/csvCell are shared with every other export in the app — see api-utils.js. The
+  // local escaper this replaced had no spreadsheet formula guard, and these are the people,
+  // giving and register exports.
 
   if (seg === 'export/people') {
     if (!isAdmin) return json({ error: 'Access denied' }, 403);
@@ -1268,7 +1265,9 @@ if (seg === 'giving/breeze-audit-export' && method === 'GET') {
     'fund_3_id','fund_3_name','fund_3_amount',
     'batch_ref','batch_name_current',
   ];
-  const esc2 = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  // Was an always-quote escaper with no formula guard. csvCell quotes only when needed,
+  // which is equally valid CSV, and guards the leading =/+/-/@ this export never did.
+  const esc2 = csvCell;
   const lines = [csvCols.join(',')];
   for (const e of allRaw) {
     let d = null; try { d = typeof e.details === 'string' ? JSON.parse(e.details) : e.details; } catch {}

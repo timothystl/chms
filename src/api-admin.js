@@ -2,7 +2,7 @@
 import { html, json, isAuthed, authCookieHeader, getAuthRole, getAuthInfo, hashPassword, verifyPassword, appRootPath } from './auth.js';
 import { handleChmsApi } from './api-chms.js';
 import { LOGIN_HTML } from './html-templates.js';
-import { randHex, authCardPage, getRolePermissions, permissionsForRole } from './api-utils.js';
+import { randHex, authCardPage, getRolePermissions, permissionsForRole, csvRow } from './api-utils.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './api-emails.js';
 import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail, handleSchedulerVolunteersApi, findDuplicateSignupGroups, mergeDuplicateSignupGroup, findPossibleDuplicateSignupGroups, mergeSignupsByIds } from './api-scheduler.js';
 
@@ -706,12 +706,12 @@ export async function handleAdminApi(req, env, url, method) {
     q += ' ORDER BY s.created_at DESC';
     const rows = await env.DB.prepare(q).bind(...binds).all();
     const cols = ['id','ministry','name','email','phone','roles','service','sundays','shirt_wanted','shirt_size','notes','event_name','created_at'];
-    let csv = cols.join(',') + '\n';
+    // `name` and `notes` here come straight from the PUBLIC sign-up form, so this export is
+    // one of the two that most needs the formula guard csvCell carries (SEC18 / P22-C). The
+    // escaper this replaced also missed a bare \r.
+    let csv = csvRow(cols) + '\n';
     for (const r of (rows.results || [])) {
-      csv += cols.map(c => {
-        const v = r[c] == null ? '' : String(r[c]);
-        return v.includes(',') || v.includes('"') || v.includes('\n') ? '"' + v.replace(/"/g,'""') + '"' : v;
-      }).join(',') + '\n';
+      csv += csvRow(cols.map(c => r[c])) + '\n';
     }
     return new Response(csv, {
       headers: {

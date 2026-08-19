@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.193.0';
+export const DEPLOY_VERSION = '1.194.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -127,6 +127,26 @@ function fmtDate(iso) {
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
+// One CSV escaper for every export the browser builds, matching csvCell in api-utils.js so a
+// people export and an attendance export cannot disagree about what needs quoting. There were
+// three copies of this before (js-attendance, js-finance, js-reports) — SW17's lesson.
+//
+//   1. Formula guard: a cell starting with =, +, -, @ (or a tab/CR a spreadsheet skips past to
+//      find one) is evaluated as a FORMULA by Excel/Sheets/Numbers, against whoever opened the
+//      file. An apostrophe forces plain text.
+//      ⚠ A plain number is EXEMPT, which the three copies this replaces did not do — guarding
+//      a leading "-" unconditionally shipped every negative amount as TEXT, so a refund fell
+//      out of the bookkeeper's SUM() with nothing on screen to say so.
+//   2. RFC 4180 quoting, after the prefix so the apostrophe sits inside the quotes.
+function csvCell(v) {
+  var s = (v === null || v === undefined) ? '' : String(v);
+  var looksLikeFormula = /^[=+\-@\t\r]/.test(s);
+  var isPlainNumber = /^-?\d+(\.\d+)?$/.test(s);
+  var body = (looksLikeFormula && !isPlainNumber) ? "'" + s : s;
+  return /[",\n\r]/.test(body) ? '"' + body.replace(/"/g, '""') + '"' : body;
+}
+function csvRow(values) { return values.map(csvCell).join(','); }
+
 // Render a value as a JavaScript string literal that is safe to sit inside an inline
 // handler attribute — onclick="fn(' + jsAttr(name) + ')".
 //

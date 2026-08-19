@@ -4142,11 +4142,35 @@ document.getElementById('btn-export-csv').addEventListener('click', function() {
   PER_ROLES.forEach(function(r){ headers.push('8am - '+r); });
   PER_ROLES.forEach(function(r){ headers.push('10:45am - '+r); });
   SHARED_ROLES.forEach(function(r){ headers.push('Both - '+roleLabel(r)); });
-  var lines = [headers.map(function(h){ return '"'+h.replace(/"/g,'""')+'"'; }).join(',')];
+  // ⚠ Deliberately a local copy of csvCell rather than the shared one in js-core.js (SEC18 /
+  // P22-C): this file has to stand alone as scheduler/index.html, so it cannot depend on an
+  // admin-app bundle. Same rules as the shared version — formula guard first, plain numbers
+  // exempt so an amount does not ship as text. Every cell here is quoted unconditionally, as
+  // it was before, so no RFC 4180 test is needed.
+  //
+  // ⚠ Written with NO backslash escapes on purpose, in the code AND in this comment. This
+  // file is a plain template literal, so a backslash in the source is eaten before the
+  // browser ever sees it. A first pass here used a character-class regex with tab and CR
+  // escapes: the escapes vanished, the class rendered as a broken regex, and the whole
+  // script died — and the second pass survived in the code but died in a comment that
+  // quoted the regex, because a rendered tab/CR breaks the comment line itself. That is
+  // the SC3-BUG1 class, twice in one edit. Tab and CR come from String.fromCharCode,
+  // the same dodge PDF_BS uses elsewhere in this file.
+  var CSV_TAB = String.fromCharCode(9), CSV_CR = String.fromCharCode(13);
+  var schedCsvCell = function(v) {
+    var t = (v === null || v === undefined) ? '' : String(v);
+    var lead = t.charAt(0);
+    var looksLikeFormula = (lead === '=' || lead === '+' || lead === '-' || lead === '@'
+                            || lead === CSV_TAB || lead === CSV_CR);
+    var isPlainNumber = /^-?[0-9]+([.][0-9]+)?$/.test(t);
+    var body = (looksLikeFormula && !isPlainNumber) ? "'" + t : t;
+    return '"' + body.replace(/"/g,'""') + '"';
+  };
+  var lines = [headers.map(schedCsvCell).join(',')];
   currentSchedule.forEach(function(row) {
     if (row.type === 'special') {
       var emptyCells = headers.slice(2).map(function() { return '""'; }).join(',');
-      lines.push('"'+fmtDate(row.date)+'","'+String(row.name||'Special Service').replace(/"/g,'""')+'",'+emptyCells);
+      lines.push(schedCsvCell(fmtDate(row.date))+','+schedCsvCell(row.name||'Special Service')+','+emptyCells);
       return;
     }
     if (row.type !== 'sunday') return;
@@ -4154,7 +4178,7 @@ document.getElementById('btn-export-csv').addEventListener('click', function() {
     PER_ROLES.forEach(function(role){ var pid=row.assignments[role]['8am'];    cells.push(pid&&pMap[pid]?pMap[pid].name:''); });
     PER_ROLES.forEach(function(role){ var pid=row.assignments[role]['10:45am'];cells.push(pid&&pMap[pid]?pMap[pid].name:''); });
     SHARED_ROLES.forEach(function(role){ var pid=row.assignments[role].shared; cells.push(pid&&pMap[pid]?pMap[pid].name:''); });
-    lines.push(cells.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(','));
+    lines.push(cells.map(schedCsvCell).join(','));
   });
   var blob = new Blob([lines.join('\n')],{type:'text/csv'});
   var url = URL.createObjectURL(blob);

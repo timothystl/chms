@@ -223,6 +223,60 @@ export function isAnonSafeGivingSeg(seg) {
   return ANON_SAFE_GIVING_SEGS.has(String(seg || '').split('?')[0]);
 }
 
+// ── CSV emission ─────────────────────────────────────────────────────────────
+// One escaper for every server-side CSV export (SEC18 / P22-C). Before this there were four
+// hand-rolled quote-escapers with three different notions of which characters need quoting,
+// and a fifth export with no escaping at all — and none of them carried the spreadsheet
+// formula guard SW15 added to the frontend builders.
+//
+// Two jobs, and they have to happen in this order:
+//
+//   1. Formula injection. A cell whose first character is `=`, `+`, `-`, `@` (or a tab/CR that
+//      a spreadsheet skips past to find one) is evaluated as a FORMULA when the file is opened
+//      in Excel, Sheets or Numbers — so `=HYPERLINK(...)` or a DDE payload runs against the
+//      staff member who opened the export. Prefixing with an apostrophe forces plain text.
+//      This is not hypothetical here: the prayer-request export carries `request_text` from
+//      the PUBLIC prayer form, and the volunteer export carries `name`/`notes` from the PUBLIC
+//      sign-up form.
+//
+//      ⚠ A plain number is deliberately EXEMPT. Guarding `-` unconditionally — which is what
+//      the three frontend copies did — turns every negative amount into text, so a refund
+//      stops being counted by the bookkeeper's SUM() and the CSV silently under-reports.
+//      Refunds are real in this data (see G6). `-1+1` still gets the prefix; `-1234.56` does
+//      not.
+//
+//   2. RFC 4180 quoting, applied AFTER the prefix so the apostrophe is inside the quotes
+//      rather than dangling outside them.
+export function csvCell(value) {
+  const s = value === null || value === undefined ? '' : String(value);
+  const looksLikeFormula = /^[=+\-@\t\r]/.test(s);
+  const isPlainNumber = /^-?\d+(\.\d+)?$/.test(s);
+  const body = looksLikeFormula && !isPlainNumber ? "'" + s : s;
+  return /[",\n\r]/.test(body) ? '"' + body.replace(/"/g, '""') + '"' : body;
+}
+
+/** One CSV record from an array of values. Always pair with csvCell — never join raw. */
+export function csvRow(values) {
+  return values.map(csvCell).join(',');
+}
+
+// A filename fragment that is safe inside a Content-Disposition header. A person's surname
+// goes into the giving-statement filename, and a name containing a quote truncates the header
+// while one containing a newline makes the Headers constructor THROW — turning a statement
+// download into a 500. NFKD first so an accented name degrades to its ASCII skeleton
+// ("Muller") rather than vanishing entirely.
+export function safeFilenamePart(value, fallback = 'export') {
+  const cleaned = String(value ?? '')
+    .normalize('NFKD')
+    // Drop the combining marks NFKD just separated out, so an accented name degrades to
+    // "Muller" rather than "Mu-ller" once the non-ASCII sweep below runs.
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+    .slice(0, 60);
+  return cleaned || fallback;
+}
+
 export function randHex(bytes) {
   const a = new Uint8Array(bytes);
   crypto.getRandomValues(a);
