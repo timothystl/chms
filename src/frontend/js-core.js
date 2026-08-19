@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.190.6';
+export const DEPLOY_VERSION = '1.191.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -126,6 +126,29 @@ function fmtDate(iso) {
 }
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+// Render a value as a JavaScript string literal that is safe to sit inside an inline
+// handler attribute — onclick="fn(' + jsAttr(name) + ')".
+//
+// ⚠ THE ORDER OF THESE TWO STEPS IS THE WHOLE THING, and getting it backwards is the single
+// most-repeated bug in this codebase: VUXBUG2, SW11, REV1, then SEC13/SEC14. A browser
+// HTML-decodes an attribute's value BEFORE the JS parser ever sees it, so any escaping that
+// happens before JSON.stringify is undone at exactly the wrong moment.
+//
+//   esc(JSON.stringify(v))   ✅ stringify first, then escape the finished literal. Decoding
+//                               is an exact inverse, so the literal the JS parser sees is the
+//                               one JSON.stringify wrote.
+//   JSON.stringify(esc(v))   ❌ esc turns " into &quot;, which JSON.stringify cannot see and
+//                               so does not escape; the parser decodes it back to a real
+//                               quote INSIDE the string literal and the value breaks out.
+//   JSON.stringify(v).replace(/"/g,'&quot;')  ❌ the previous implementation. Escapes the
+//                               quotes it added but not a literal "&quot;" already in the
+//                               value, which decodes into a real quote just the same.
+//
+// ⚠ NEVER compose this with esc(): jsAttr(esc(x)) reintroduces the second failure above.
+// Pass the RAW value. Escaping for display is a separate call on a separate copy.
+function jsAttr(v) {
+  return esc(JSON.stringify(v === undefined ? '' : v));
 }
 function setStatus(id, msg, type) {
   var el = document.getElementById(id);

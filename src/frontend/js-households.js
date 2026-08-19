@@ -808,7 +808,7 @@ function acHouseholdSearch() {
     var rows = d.households || [];
     ac.innerHTML = rows.slice(0,8).map(function(h) {
       var dn = h.display_name || h.name;
-      return '<div class="ac-item" onclick="selectHousehold(' + h.id + ',&#39;' + esc(dn) + '&#39;)">' + esc(dn) + '</div>';
+      return '<div class="ac-item" onclick="selectHousehold(' + h.id + ',' + jsAttr(dn) + ')">' + esc(dn) + '</div>';
     }).join('') + '<div class="ac-item" style="color:var(--sage);" onclick="createHouseholdFromPerson()">+ Create new household…</div>';
     ac.classList.toggle('open', rows.length > 0 || true);
   });
@@ -843,8 +843,11 @@ function acSearch(input, dropId, hidId) {
   api('/admin/api/people?q=' + encodeURIComponent(q)).then(function(d) {
     var rows = (d.people||[]).slice(0,10);
     ac.innerHTML = rows.map(function(p) {
+      // Raw name for the handler argument, escaped name for display — two different
+      // contexts, so never one string reused for both. See jsAttr's note in js-core.js.
+      var raw = (p.last_name || '') + ', ' + (p.first_name || '');
       var n = esc(p.last_name) + ', ' + esc(p.first_name);
-      return '<div class="ac-item" onclick="selectPerson(this,&#39;' + hidId + '&#39;,&#39;' + dropId + '&#39;,' + p.id + ',&#39;' + n.replace(/'/g,'&#39;') + '&#39;)">' + n + '</div>';
+      return '<div class="ac-item" onclick="selectPerson(this,' + jsAttr(hidId) + ',' + jsAttr(dropId) + ',' + p.id + ',' + jsAttr(raw) + ')">' + n + '</div>';
     }).join('');
     ac.classList.toggle('open', rows.length > 0);
   });

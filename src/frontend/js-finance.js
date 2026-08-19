@@ -75,7 +75,7 @@ function finPageHeader(title, sub, actionsHtml) {
 // redesign and must not gain a shared dependency on it.
 function finPills(items, activeKey, handler) {
   return '<div class="fin-scope-pills">' + items.map(function(i) {
-    return '<button class="fin-scope-pill' + (i.key === activeKey ? ' active' : '') + '" onclick="' + handler + '(' + volJsAttr(i.key) + ')">' + esc(i.label) + '</button>';
+    return '<button class="fin-scope-pill' + (i.key === activeKey ? ' active' : '') + '" onclick="' + handler + '(' + jsAttr(i.key) + ')">' + esc(i.label) + '</button>';
   }).join('') + '</div>';
 }
 // Rounded whole-dollar money for the display-scale figures (KPI values, chart labels), where the
@@ -143,8 +143,8 @@ function finRenderExpensePace(categories, elapsedPct, limit) {
       }).join('') + '</div>';
     }
     return '<div class="fin-pace-row' + (open ? ' open' : '') + '" tabindex="0" role="button"'
-      + ' onclick="finOverviewToggleDrill(' + volJsAttr(cat.path) + ')"'
-      + ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();finOverviewToggleDrill(' + volJsAttr(cat.path) + ');}">'
+      + ' onclick="finOverviewToggleDrill(' + jsAttr(cat.path) + ')"'
+      + ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();finOverviewToggleDrill(' + jsAttr(cat.path) + ');}">'
       + '<div class="fin-pace-row-hdr">'
       + '<span><span class="fin-pace-caret">&#9656;</span><span class="fin-pace-label">' + esc(cat.label) + '</span></span>'
       + '<span style="font-size:12.5px;font-weight:700;color:' + st.color + ';white-space:nowrap;">' + st.label + '</span>'
@@ -2365,7 +2365,7 @@ function finRenderDaycareAllocationConfig() {
 function finDaycareBudgetCellEdit(year, cat, cellEl) {
   if (cellEl.querySelector('input')) return; // already editing
   var current = cellEl.getAttribute('data-raw') || '';
-  cellEl.innerHTML = '<input type="number" step="0.01" class="fin-editable-input" value="' + esc(current) + '" style="width:90px;text-align:right;" onblur="finDaycareBudgetCellSave(' + year + ',' + volJsAttr(cat) + ',this)" onkeydown="if(event.key===\'Enter\')this.blur();">';
+  cellEl.innerHTML = '<input type="number" step="0.01" class="fin-editable-input" value="' + esc(current) + '" style="width:90px;text-align:right;" onblur="finDaycareBudgetCellSave(' + year + ',' + jsAttr(cat) + ',this)" onkeydown="if(event.key===\'Enter\')this.blur();">';
   var input = cellEl.querySelector('input');
   input.focus();
   input.select();
@@ -2595,7 +2595,7 @@ function finRenderDaycareReport() {
   // (Utilities/Insurance), which are always recomputed from the church side.
   function budgetCell(year, cat, v, editable) {
     if (!editable) return moneyCell(v, true);
-    return '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);cursor:pointer;" data-raw="' + (v || '') + '" title="Click to edit" onclick="finDaycareBudgetCellEdit(' + year + ',' + volJsAttr(cat) + ',this)">$' + finFmtMoney(v) + '</td>';
+    return '<td style="text-align:right;padding:5px 8px;color:var(--warm-gray);cursor:pointer;" data-raw="' + (v || '') + '" title="Click to edit" onclick="finDaycareBudgetCellEdit(' + year + ',' + jsAttr(cat) + ',this)">$' + finFmtMoney(v) + '</td>';
   }
   var yearHead1 = '<th></th>' + agg.years.map(function(y) {
     return '<th colspan="2" style="text-align:center;padding:6px 8px;border-bottom:1px solid var(--border);">' + esc(y) + '</th>';
@@ -3239,7 +3239,7 @@ function finDetailStrip(key, title, sub, bodyHtml) {
   return '<div class="fin-card fin-ledger-strip">'
     + '<div class="fin-ledger-strip-hdr">'
     + '<div><div class="fin-ledger-strip-title">' + title + '</div><div class="fin-ledger-strip-sub">' + sub + '</div></div>'
-    + '<button class="btn-secondary" style="white-space:nowrap;" onclick="finChurchToggleDetail(' + volJsAttr(key) + ')">' + (open ? 'Hide &#9662;' : 'Show detail &#9656;') + '</button>'
+    + '<button class="btn-secondary" style="white-space:nowrap;" onclick="finChurchToggleDetail(' + jsAttr(key) + ')">' + (open ? 'Hide &#9662;' : 'Show detail &#9656;') + '</button>'
     + '</div>'
     + (open ? '<div style="margin-top:14px;">' + bodyHtml + '</div>' : '')
     + '</div>';
@@ -5796,7 +5796,7 @@ function finLedgerStrip(key, title, sub, bodyHtml) {
   return '<div class="fin-card fin-ledger-strip">'
     + '<div class="fin-ledger-strip-hdr">'
     + '<div><div class="fin-ledger-strip-title">' + title + '</div><div class="fin-ledger-strip-sub">' + sub + '</div></div>'
-    + '<button class="btn-secondary" style="white-space:nowrap;" onclick="finPropertyToggleLedger(' + volJsAttr(key) + ')">' + (open ? 'Hide &#9662;' : 'Show &#9656;') + '</button>'
+    + '<button class="btn-secondary" style="white-space:nowrap;" onclick="finPropertyToggleLedger(' + jsAttr(key) + ')">' + (open ? 'Hide &#9662;' : 'Show &#9656;') + '</button>'
     + '</div>'
     + (open ? '<div style="margin-top:14px;">' + bodyHtml + '</div>' : '')
     + '</div>';
@@ -6764,12 +6764,12 @@ function finRenderPlanning() {
     var cellVal = editedVal !== undefined ? editedVal : (planRow ? String(Math.round(planRow.planned_amount_cents/100)) : '');
     var projCents = projectedCentsByPath[node.path] || 0;
     var projectedCell = '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
-      ? '<input type="text" inputmode="numeric" id="' + finPlanCellId('fin-plan-cell', node.path) + '" value="' + cellVal + '" class="fin-editable-input" style="width:100px;text-align:right;" oninput="finPlanEditCell(' + volJsAttr(node.path) + ', finPlanSanitizeWholeDollarInput(this))">'
+      ? '<input type="text" inputmode="numeric" id="' + finPlanCellId('fin-plan-cell', node.path) + '" value="' + cellVal + '" class="fin-editable-input" style="width:100px;text-align:right;" oninput="finPlanEditCell(' + jsAttr(node.path) + ', finPlanSanitizeWholeDollarInput(this))">'
       : (cellVal !== '' ? '$' + finFmtMoney(parseFloat(cellVal)) : '<span style="color:var(--warm-gray);">—</span>')) + '</td>';
     var baseEditedVal = _finPlanBaseProjEdits[node.path];
     var baseCellVal = baseEditedVal !== undefined ? baseEditedVal : String(Math.round((baseProjByPath[node.path] || 0)/100));
     var baseProjectedCell = '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
-      ? '<input type="text" inputmode="numeric" id="' + finPlanCellId('fin-baseproj-cell', node.path) + '" value="' + baseCellVal + '" class="fin-editable-input" style="width:100px;text-align:right;color:var(--warm-ink-label);" oninput="finPlanEditBaseProjCell(' + volJsAttr(node.path) + ', finPlanSanitizeWholeDollarInput(this))">'
+      ? '<input type="text" inputmode="numeric" id="' + finPlanCellId('fin-baseproj-cell', node.path) + '" value="' + baseCellVal + '" class="fin-editable-input" style="width:100px;text-align:right;color:var(--warm-ink-label);" oninput="finPlanEditBaseProjCell(' + jsAttr(node.path) + ', finPlanSanitizeWholeDollarInput(this))">'
       : '$' + finFmtMoney((baseProjByPath[node.path] || 0)/100)) + '</td>';
     return '<tr>'
       + finTreeLabelCell(node, node.label, { padV: '4px' })
@@ -8186,7 +8186,7 @@ function finCompHeaderHtml(totals) {
   var pct = totals.baselineCents ? (totals.deltaCents / totals.baselineCents * 100) : null;
   var pills = FIN_COMP_VIEWS.map(function(v) {
     var active = _finCompView === v.key;
-    return '<span class="fin-comp-pill' + (active ? ' active' : '') + '" onclick="finCompSetView(' + volJsAttr(v.key) + ')">' + v.label + '</span>';
+    return '<span class="fin-comp-pill' + (active ? ' active' : '') + '" onclick="finCompSetView(' + jsAttr(v.key) + ')">' + v.label + '</span>';
   }).join('');
   return '<div class="fin-comp-shell">'
     + '<div class="fin-comp-titlebar">'
@@ -8215,11 +8215,11 @@ function finCompSay(msg) { _finCompToast = msg; }
 // ── View 1 — Set pay ───────────────────────────────────────────────────────────────────────
 function finCompRenderPlan(computed, totals) {
   var chips = FIN_COMP_METHODS.map(function(k) {
-    return '<span class="fin-comp-chip' + (_finCompMethod === k ? ' active' : '') + '" onclick="finCompApplyMethodToAll(' + volJsAttr(k) + ')">' + esc(finCompMethodLabel(k)) + '</span>';
+    return '<span class="fin-comp-chip' + (_finCompMethod === k ? ' active' : '') + '" onclick="finCompApplyMethodToAll(' + jsAttr(k) + ')">' + esc(finCompMethodLabel(k)) + '</span>';
   }).join('');
   var heads = FIN_COMP_METHODS.map(function(k) {
     var active = _finCompMethod === k;
-    return '<th class="fin-comp-th num' + (active ? ' active' : '') + '" onclick="finCompApplyMethodToAll(' + volJsAttr(k) + ')" title="Apply to everyone">' + esc(finCompMethodLabel(k)) + '</th>';
+    return '<th class="fin-comp-th num' + (active ? ' active' : '') + '" onclick="finCompApplyMethodToAll(' + jsAttr(k) + ')" title="Apply to everyone">' + esc(finCompMethodLabel(k)) + '</th>';
   }).join('');
   var rows = _finSalaryRoster.map(function(w, i) {
     var c = computed[i];
@@ -8229,7 +8229,7 @@ function finCompRenderPlan(computed, totals) {
       var isActive = !c.overridden && activeKey === k;
       var isEdited = c.overridden && activeKey === k;
       var cls = 'fin-comp-td num' + (isActive ? ' active' : '') + (isEdited ? ' edited' : '');
-      return '<td class="' + cls + '" onclick="finCompPickMethod(' + i + ',' + volJsAttr(k) + ')">'
+      return '<td class="' + cls + '" onclick="finCompPickMethod(' + i + ',' + jsAttr(k) + ')">'
         + (v == null ? '&mdash;' : (isEdited ? finCompMoney(c.salaryCents) + ' &#9998;' : finCompMoney(v))) + '</td>';
     }).join('');
     var vs = finCompVsScale(c.salaryCents, c.worksheetCents);
@@ -8338,7 +8338,7 @@ function finCompRenderRosterBaselineNote(totals) {
 function finCompRenderBasisPicker() {
   function pill(key, label) {
     var active = _finCompBaseYearBasis === key;
-    return '<span class="fin-comp-pill' + (active ? ' active' : '') + '"' + (active ? '' : ' onclick="finCompSetBaseYearBasis(' + volJsAttr(key) + ')"') + '>' + label + '</span>';
+    return '<span class="fin-comp-pill' + (active ? ' active' : '') + '"' + (active ? '' : ' onclick="finCompSetBaseYearBasis(' + jsAttr(key) + ')"') + '>' + label + '</span>';
   }
   return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">'
     + '<span style="font-size:.74rem;color:var(--warm-gray);">Compare FY' + _finPlanTargetYear + ' against:</span>'
@@ -8698,7 +8698,7 @@ function finCompRenderHealth(computed, totals) {
       : perHousehold > 0 ? 'Worker pays ' + finCompMoney(perHousehold) + '/yr more'
       : 'Worker saves ' + finCompMoney(Math.abs(perHousehold)) + '/yr';
     var noteColor = key === 'renewal' || perHousehold <= 0 ? 'var(--sage-text)' : 'var(--danger)';
-    return '<div class="fin-comp-plancard' + (active ? ' active' : '') + '" onclick="finCompPickPlan(' + volJsAttr(key) + ')">'
+    return '<div class="fin-comp-plancard' + (active ? ' active' : '') + '" onclick="finCompPickPlan(' + jsAttr(key) + ')">'
       + '<div style="display:flex;align-items:center;gap:8px;"><span class="fin-comp-radio' + (active ? ' active' : '') + '"></span>'
       + '<span style="font-size:.82rem;font-weight:700;color:var(--color-navy);">' + esc(calc.label) + '</span></div>'
       + '<div style="font-size:20px;font-weight:800;color:var(--color-navy);font-variant-numeric:tabular-nums;">' + finCompMoney(calc.totalCents) + '</div>'
@@ -8841,7 +8841,7 @@ function finCompRateInput(field, year, suffix, width) {
   var shown = raw == null ? '' : (suffix === '%' ? finFmtPctInput(raw) : raw / 100);
   return '<span style="display:inline-flex;align-items:center;gap:3px;">'
     + (suffix === '$' ? '<span style="color:var(--warm-gray);font-weight:400;">$</span>' : '')
-    + '<input type="text" inputmode="decimal" id="fin-comp-ref-' + field + '-' + year + '" value="' + shown + '" oninput="finCompRefChange(' + year + ',' + volJsAttr(field) + ',finSanitizeDecimalInput(this))" style="width:' + (width || 110) + 'px;font-weight:700;">'
+    + '<input type="text" inputmode="decimal" id="fin-comp-ref-' + field + '-' + year + '" value="' + shown + '" oninput="finCompRefChange(' + year + ',' + jsAttr(field) + ',finSanitizeDecimalInput(this))" style="width:' + (width || 110) + 'px;font-weight:700;">'
     + (suffix === '%' ? '<span style="color:var(--warm-gray);font-weight:400;">%</span>' : '') + '</span>';
 }
 function finCompRenderRates() {
@@ -8912,12 +8912,12 @@ function finCompRenderRates() {
     var calc = finComputeHealthPlanTotalCents(key, null, liveCounts);
     function box(field, width) {
       var ov = (_finHealthPlanPremiumOverrides[key] || {})[field];
-      return '<input type="text" inputmode="decimal" id="fin-comp-quote-' + key + '-' + field + '" value="' + (ov != null ? (ov / 100) : '') + '" placeholder="' + (HEALTH_PLAN_QUOTE_2027.options[key][field] / 100).toFixed(2) + '" oninput="finCompQuoteChange(' + volJsAttr(key) + ',' + volJsAttr(field) + ',finSanitizeDecimalInput(this))" style="width:' + width + 'px;text-align:right;">';
+      return '<input type="text" inputmode="decimal" id="fin-comp-quote-' + key + '-' + field + '" value="' + (ov != null ? (ov / 100) : '') + '" placeholder="' + (HEALTH_PLAN_QUOTE_2027.options[key][field] / 100).toFixed(2) + '" oninput="finCompQuoteChange(' + jsAttr(key) + ',' + jsAttr(field) + ',finSanitizeDecimalInput(this))" style="width:' + width + 'px;text-align:right;">';
     }
     var tierBoxes = FIN_HEALTH_TIERS.map(function(t) {
       var ov = ((_finHealthPlanPremiumOverrides[key] || {}).tiersMonthlyCents || {})[t.key];
       var quoted = (HEALTH_PLAN_QUOTE_2027.options[key].tiersMonthlyCents || {})[t.key];
-      return '<td class="fin-comp-td num"><input type="text" inputmode="decimal" id="fin-comp-tier-' + key + '-' + t.key + '" value="' + (ov != null ? (ov / 100) : '') + '" placeholder="' + (quoted == null ? '' : (quoted / 100).toFixed(2)) + '" oninput="finCompTierRateChange(' + volJsAttr(key) + ',' + volJsAttr(t.key) + ',finSanitizeDecimalInput(this))" style="width:88px;text-align:right;"></td>';
+      return '<td class="fin-comp-td num"><input type="text" inputmode="decimal" id="fin-comp-tier-' + key + '-' + t.key + '" value="' + (ov != null ? (ov / 100) : '') + '" placeholder="' + (quoted == null ? '' : (quoted / 100).toFixed(2)) + '" oninput="finCompTierRateChange(' + jsAttr(key) + ',' + jsAttr(t.key) + ',finSanitizeDecimalInput(this))" style="width:88px;text-align:right;"></td>';
     }).join('');
     return '<tr' + (key === _finHealthPlanSelectedOption ? ' class="fin-comp-quote-active"' : '') + '>'
       + '<td class="fin-comp-td"><div style="font-weight:700;color:var(--color-navy);">' + esc(calc.label) + '</div><div style="font-size:.72rem;color:var(--warm-gray);">' + FIN_COMP_PLAN_TAGS[key] + '</div><div style="margin-top:3px;">' + finHealthEmbeddedBadge(key) + '</div></td>'
@@ -8969,7 +8969,7 @@ function finCompRenderRates() {
         var onFile = finCompUsableRanges(w).length;
         var rangeRows = FIN_CONCORDIA_RANGE_KEYS.map(function(r) {
           function box(part) {
-            return '<input type="text" id="fin-comp-range-' + i + '-' + r.key + part + '" value="' + esc(c[r.key + part] == null ? '' : c[r.key + part]) + '" placeholder="&mdash;" oninput="finCompRangeChange(' + i + ',' + volJsAttr(r.key + part) + ',this.value)" style="width:100px;text-align:right;">';
+            return '<input type="text" id="fin-comp-range-' + i + '-' + r.key + part + '" value="' + esc(c[r.key + part] == null ? '' : c[r.key + part]) + '" placeholder="&mdash;" oninput="finCompRangeChange(' + i + ',' + jsAttr(r.key + part) + ',this.value)" style="width:100px;text-align:right;">';
           }
           return '<tr' + (/LCMS/i.test(r.label) ? ' class="fin-comp-lcms-row"' : '') + '>'
             + '<td class="fin-comp-td" style="color:var(--warm-ink-label);font-weight:600;">' + esc(r.label) + '</td>'
@@ -9668,7 +9668,7 @@ function finRenderPropertyMultiYearForecast() {
       + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
       + baseOpts.map(function(b) {
           var on = chosen && b.key === chosen.key;
-          return '<button type="button" onclick="finPmfSetBase(' + volJsAttr(b.key) + ')" aria-pressed="' + (on ? 'true' : 'false')
+          return '<button type="button" onclick="finPmfSetBase(' + jsAttr(b.key) + ')" aria-pressed="' + (on ? 'true' : 'false')
             + '" style="text-align:left;cursor:pointer;border:1px solid ' + (on ? 'var(--color-navy)' : 'var(--border)')
             + ';background:' + (on ? 'var(--color-navy)' : 'var(--white)') + ';color:' + (on ? 'var(--white)' : 'var(--warm-ink-label)')
             + ';border-radius:8px;padding:7px 10px;font-size:12px;font-family:inherit;">'

@@ -1438,7 +1438,7 @@ function acSearchHH(inp) {
     if (!items.length) { drop.classList.remove('open'); return; }
     drop.innerHTML = items.map(function(h) {
       var dn2 = h.display_name || h.name;
-      return '<div class="ac-item" onclick="selectHHAc(' + h.id + ',&#39;' + esc(dn2) + '&#39;)">' + esc(dn2) + '</div>';
+      return '<div class="ac-item" onclick="selectHHAc(' + h.id + ',' + jsAttr(dn2) + ')">' + esc(dn2) + '</div>';
     }).join('');
     drop.classList.add('open');
   });

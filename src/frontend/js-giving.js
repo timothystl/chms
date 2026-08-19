@@ -2137,7 +2137,7 @@ function givNudgesRenderShell() {
   if (!root) return;
   var st = _givNudgesState;
   var optPills = _GIV_NUDGE_OPTIONS.map(function(o) {
-    return '<button class="pill' + (o.key === st.option ? ' active' : '') + '" onclick="givNudgesSetOption(' + volJsAttr(o.key) + ')">' + esc(o.label) + '</button>';
+    return '<button class="pill' + (o.key === st.option ? ' active' : '') + '" onclick="givNudgesSetOption(' + jsAttr(o.key) + ')">' + esc(o.label) + '</button>';
   }).join('');
   root.innerHTML = '<div class="import-card" style="margin:0 0 14px;">'
     + '<h3 style="margin-top:0;">&#128233; Giving nudges</h3>'

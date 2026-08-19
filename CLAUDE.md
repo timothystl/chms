@@ -479,37 +479,41 @@ naming what was not exercised (a live browser, a real phone, real D1, a real sen
 
 ---
 
-#### Phase 21 — Authorization emergency ⚠ SHIP FIRST, AS ONE HOTFIX
+#### Phase 21 — Authorization emergency ✅ COMPLETE 2026-08-19 (v1.191.0)
 **Goal:** close the two paths that let the lowest-trust account in the app act as the church, and the
 stored-XSS class that reaches an admin session from a public form. **Nothing else belongs in this PR.**
 
-- [ ] **P21-A** (retires **SEC11**) — Role-gate `POST /email/send`. The gate is `schedAuthed` in
+- [x] **P21-A** — DONE 2026-08-19 (v1.191.0), retires **SEC11**. Was: Role-gate `POST /email/send`. The gate is `schedAuthed` in
   `tlc-volunteer-worker.js`, not the handler. `admin`/`staff` only, matching SW1/SW2's decision for the
   `/admin/api/scheduler/*` siblings.
-- [ ] **P21-B** (retires **SEC12**) — Role-gate the Breeze proxy (`/api/*`, `/breeze/*`) and the rest of the
+- [x] **P21-B** — DONE 2026-08-19 (v1.191.0), retires **SEC12**. Was: Role-gate the Breeze proxy (`/api/*`, `/breeze/*`) and the rest of the
   `schedAuthed` block: `/serve/pending`, `/serve/general-pending`, `/serve/event-pending`, `/rsvp/store`,
   `/rsvp/sync`. `/esv/passage` is the one that can stay open to any authenticated role. **⚠ The
   `X-Worker-Secret` bypass must keep working** — the scheduler's own server-to-server calls ride it.
-- [ ] **P21-C** (retires **SEC13**) — `js-volunteers.js:122`: drop the inner `esc()` from the three
+- [x] **P21-C** — DONE 2026-08-19 (v1.191.0), retires **SEC13** — and it went further than planned: testing the helper showed **`volJsAttr` was injectable on its own** (it escaped the quotes `JSON.stringify` added but not a literal `&quot;` already in the value), so all 25 call sites were wrong, not one. Fixed in the helper. Was: `js-volunteers.js:122`: drop the inner `esc()` from the three
   `volJsAttr(esc(…))` calls, or move the button to the `data-*` + delegated-listener pattern already used by
   the Email button two lines below. **⚠ `volJsAttr` alone is correct; wrapping it in `esc()` is what breaks
   it.**
-- [ ] **P21-D** (retires **SEC14**) — The five autocomplete handlers: `js-households.js:811` and `:847`,
+- [x] **P21-D** — DONE 2026-08-19 (v1.191.0), retires **SEC14**. All five converted to `jsAttr(raw)`, plus `bzlPickSearchResult` normalized even though its ordering happened to be safe. Was: The five autocomplete handlers: `js-households.js:811` and `:847`,
   `js-reports.js:1441`, `js-export-import.js:813`, `js-tuition-aid.js:1408`. **⚠ Do not copy the neighboring
   line to fix these** — `js-export-import.js:925` is the only one that gets the ordering right (replace on
   the raw string *first*, so the `&` double-encodes), and three of the five carry a `.replace(/'/g,'&#39;')`
   that is a no-op and reads as protection.
-- [ ] **P21-E** (new) — A regression test for the whole class, because this is its fourth appearance
+- [x] **P21-E** — DONE 2026-08-19 (v1.191.0). `test/inline-handler-escaping.test.js`: three source scans plus the real shipped `jsAttr` driven through a full attribute-decode-and-execute round trip against 13 hostile payloads. Was: A regression test for the whole class, because this is its fourth appearance
   (VUXBUG2 → SW11 → REV1 → SEC13/SEC14). Scan the built bundles for an inline handler whose argument is an
   `esc()`-derived value sitting between `&#39;`/`&quot;` delimiters, and assert none. Verify non-vacuous by
   reintroducing SEC13 and watching it fail.
-- [ ] **P21-F** (retires **DSN9**) — Move `volJsAttr` from `js-volunteers.js` to `js-core.js` beside `esc()`,
+- [x] **P21-F** — DONE 2026-08-19 (v1.191.0), retires **DSN9**. Renamed to `jsAttr` rather than moved under its old name, since the implementation had to change anyway; zero `volJsAttr` references remain. Was: Move `volJsAttr` from `js-volunteers.js` to `js-core.js` beside `esc()`,
   with a comment stating the two must never be composed. It is called 29 times from `js-finance.js` already;
   it rides here because P21-C/D are the reason anyone will read it next.
 
 **Done when:** a `role='member'` cookie gets 403 from `/email/send` and `/api/people`, driven against the real
 worker the way CR10 verified the hole; a sign-up named `A");…//` renders inert in the Signups list; P21-E
-fails on a deliberate revert.
+fails on a deliberate revert. ✅ **All three met.** Member cookie: 403 on all eleven privileged routes with
+zero upstream calls, admin/staff and the `X-Worker-Secret` bypass unaffected. Both hostile-name forms
+(`A");…` and `A&quot;);…`) render inert in all three surfaces and still round-trip to the handler
+byte-identical. 9 injections, 9 correct failure sets. `npm test` 1629/1629 (was 1601). See NOTES.md
+v1.191.0. **Not verified**: a live browser, a real sent email, or production D1.
 
 ---
 
@@ -763,7 +767,7 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
 
 #### Security
 
-- [ ] **SEC11 — ⚠ CRITICAL: `POST /email/send` is an open mail relay for *every* authenticated role, `member`
+- [x] **SEC11 — FIXED 2026-08-19 (v1.191.0), P21-A.** Re-run after the fix: 403, no upstream call. Original finding: ⚠ CRITICAL: `POST /email/send` is an open mail relay for *every* authenticated role, `member`
   included.** **Verified** — a real `role='member'` cookie drove the real worker and the request reached
   `https://api.resend.com/emails` carrying `Authorization: Bearer <RESEND_API_KEY>`. The handler
   (`handleSchedEmailSend`, `src/api-scheduler.js`) reads `to`, `subject`, `text`, `html` and `attachments`
@@ -772,7 +776,7 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   tier CONN2's invite flow is meant to grow to the whole congregation — can send arbitrary mail that arrives
   as `Timothy Lutheran <noreply@timothystl.org>`. That is a phishing primitive against the congregation with
   the church's own domain reputation behind it.
-- [ ] **SEC12 — ⚠ CRITICAL: the Breeze API proxy is reachable by every authenticated role.** **Verified** the
+- [x] **SEC12 — FIXED 2026-08-19 (v1.191.0), P21-B.** Re-run after the fix: 403, no upstream call. Original finding: ⚠ CRITICAL: the Breeze API proxy is reachable by every authenticated role.** **Verified** the
   same way — `GET /api/people?limit=1` on a member cookie proxied to
   `https://timothystl.breezechms.com/api/people?limit=1` with `Api-key: <BREEZE_API_KEY>`.
   `handleSchedBreezeProxy` forwards **any method and any path** under `/api/*` or `/breeze/*`, so this is
@@ -788,7 +792,7 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   `/admin/api/scheduler/*` in v1.9.0 and these non-`/admin/api/` siblings were never revisited.** The fix
   shape is the one this repo already uses: a role check at that single gate (admin/staff for the write and
   proxy routes), not per handler.
-- [ ] **SEC13 — ⚠ HIGH: unauthenticated stored XSS, public sign-up form → admin browser.** **Verified by
+- [x] **SEC13 — FIXED 2026-08-19 (v1.191.0), P21-C/P21-F.** ⚠ Wider than reported — the helper itself was injectable, not just the one composed call. Original finding: ⚠ HIGH: unauthenticated stored XSS, public sign-up form → admin browser.** **Verified by
   execution.** `src/frontend/js-volunteers.js:122` builds the Signups row's "Link" button as
   `onclick="volOpenLinkPerson(… + volJsAttr(esc(s.name)) + …)"`. `volJsAttr` is correct on its own
   (`JSON.stringify` then entity-encode the wrapping quotes — a raw `"` gets JSON-escaped to `\"` first and
@@ -801,7 +805,7 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   This is a live recurrence of the class already fixed three times (VUXBUG2, SW11, REV1). The one-word fix is
   to drop the inner `esc()`; the durable fix is the `data-*` + delegated-listener pattern used two lines
   below it for the Email button.
-- [ ] **SEC14 — ⚠ HIGH: five more live instances of the same quote-context mismatch, in the person/household
+- [x] **SEC14 — FIXED 2026-08-19 (v1.191.0), P21-D.** Original finding: ⚠ HIGH: five more live instances of the same quote-context mismatch, in the person/household
   autocompletes.** **Verified by execution** — each decoded to a closed call followed by an executing
   statement. All are `esc(value)` placed directly between `&#39;` delimiters inside an `onclick`, where
   `esc`'s own `&#39;` decodes back to a real quote:
@@ -1009,7 +1013,7 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   council account with no `display_name` set shows **"Unknown"** in the topbar. And `api-chms.js`'s write
   refusal still reads *"editing requires staff, **office**, or finance access"* — a role name that no longer
   exists anywhere in the UI.
-- [ ] **DSN9 — `volJsAttr` is a `vol*`-namespaced helper defined in `js-volunteers.js` and called 29 times
+- [x] **DSN9 — FIXED 2026-08-19 (v1.191.0), P21-F**, as `jsAttr` in `js-core.js`. Original finding: `volJsAttr` is a `vol*`-namespaced helper defined in `js-volunteers.js` and called 29 times
   from `js-finance.js`.** Harmless in a concatenated bundle, and it is genuinely the right helper — but the
   name says Volunteers and the usage says shared, which is the sort of thing that makes a future module split
   (see LOAD2) fail at exactly the wrong moment. It belongs in `js-core.js` next to `esc()`, and the two

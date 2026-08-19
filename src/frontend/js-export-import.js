@@ -809,8 +809,8 @@ function svMigSearch(i) {
   api('/admin/api/people?q=' + encodeURIComponent(q)).then(function(d) {
     var rows = (d.people || []).slice(0, 8);
     resultsEl.innerHTML = rows.map(function(p) {
-      var name = esc(p.first_name + ' ' + p.last_name);
-      return '<div style="cursor:pointer;padding:3px 6px;font-size:.8rem;" onclick="svMigPickSearchResult(' + i + ',' + p.id + ',&#39;' + name.replace(/'/g, '&#39;') + '&#39;)">'
+      var name = (p.first_name || '') + ' ' + (p.last_name || '');
+      return '<div style="cursor:pointer;padding:3px 6px;font-size:.8rem;" onclick="svMigPickSearchResult(' + i + ',' + p.id + ',' + jsAttr(name) + ')">'
         + esc(p.last_name) + ', ' + esc(p.first_name) + (p.email ? ' — ' + esc(p.email) : '') + '</div>';
     }).join('');
   });
@@ -921,8 +921,8 @@ function bzlSearch(i) {
   api('/admin/api/people?q=' + encodeURIComponent(q)).then(function(d) {
     var rows = (d.people || []).slice(0, 8);
     resultsEl.innerHTML = rows.map(function(p) {
-      var name = (p.first_name + ' ' + p.last_name).replace(/'/g, '&#39;');
-      return '<div style="cursor:pointer;padding:3px 6px;font-size:.8rem;" onclick="bzlPickSearchResult(' + i + ',' + p.id + ',&#39;' + esc(name) + '&#39;)">'
+      var name = (p.first_name || '') + ' ' + (p.last_name || '');
+      return '<div style="cursor:pointer;padding:3px 6px;font-size:.8rem;" onclick="bzlPickSearchResult(' + i + ',' + p.id + ',' + jsAttr(name) + ')">'
         + esc(p.last_name) + ', ' + esc(p.first_name) + (p.email ? ' — ' + esc(p.email) : '') + '</div>';
     }).join('');
   });
