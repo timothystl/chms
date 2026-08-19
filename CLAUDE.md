@@ -1909,13 +1909,27 @@ deliberately did **not** change, because each is architectural and needs its own
   columns kept in sync by trigger, or a prefix-match fast path (`q%`, index-servable via
   `idx_people_name`) tried before falling back to the substring scan. Worth doing only if search still
   drags at the church's real row count; not worth the sync complexity blind. (noted 2026-08-03)
-- [ ] **CR7 — Minor, noted for completeness.** (a) The `X-Intake-Key` check in `api-intake.js` uses
-  `!==` rather than a constant-time compare; over a network, against a high-entropy key, this is not
-  realistically exploitable, but it is the one shared secret compared this way. (b) The blanket
-  `OPTIONS → SCHED_CORS` handler in the worker answers preflight for *every* path with
-  `Access-Control-Allow-Origin: *`; not exploitable today (only the scheduler routes echo CORS headers
-  on real responses, and `vol_auth` is `SameSite=Lax`), but it is broader than the scheduler routes it
-  exists for. (c) — Fixed 2026-08-19. `ADMIN_HTML` in `html-templates.js` was a 676-line dead
+- [x] **CR7 — Fixed (a) and (b); (c) already done.** (a) The `X-Intake-Key` check in
+  `api-intake.js` (and an identical second copy in `api-scheduler.js`'s Christmas Market summary
+  route) used `!==` rather than a constant-time compare. New `timingSafeEqual()` in `auth.js` —
+  hashes both sides with SHA-256 first (fixed-length digest either way, no Node-only
+  `crypto.timingSafeEqual`) then XOR-accumulates every byte with no early exit, removing both the
+  length signal and the position signal a plain `!==` leaks. Both call sites updated. (b) The
+  blanket `OPTIONS → SCHED_CORS` handler answered preflight for *every path in the app* with
+  `Access-Control-Allow-Origin: *` — narrowed to `isSchedCorsPath()`, an explicit allowlist matching
+  the exact set of paths whose real (non-OPTIONS) handlers actually emit `SCHED_CORS`
+  (`schedJson()`/`schedHtmlPage()` in `api-scheduler.js`). **A first pass over-matched**: `/api/*`
+  needs its own exclusion list, not just `/api/events` — `/api/ministry-roles`, the Christmas Market
+  summary route, and everything under `/api/intake/` are all matched ABOVE the generic breeze-proxy
+  catch-all and never reach it, so they never emit `SCHED_CORS` either. Caught by a verification
+  harness (`/api/intake/funds` wrongly included on the first pass) before shipping, not by reading.
+  `/scheduler*` is excluded outright — cookie-auth-only, never emits `SCHED_CORS` on any response.
+  `npm test` (1601/1601), `node --check` on all 4 touched files, a harness asserting every real
+  CORS-emitting route still matches and every non-CORS route (including the three easy-to-miss
+  `/api/*` exclusions) doesn't. Not verified against a live cross-origin caller. Done 2026-08-19
+  (v1.190.7). (`src/auth.js`, `src/api-intake.js`, `src/api-scheduler.js`,
+  `tlc-volunteer-worker.js`) (c) — Fixed 2026-08-19. `ADMIN_HTML` in `html-templates.js` was a
+  676-line dead
   export — an old standalone volunteer-admin page from before this app's redesign, imported into
   `tlc-volunteer-worker.js` but never used to build a `Response` anywhere; the RD3 note had already
   confirmed its one remaining reference (the retired `/scheduler` route's own link) was itself dead.

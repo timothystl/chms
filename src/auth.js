@@ -185,6 +185,27 @@ export async function refreshAuthCookie(response, authInfo, env) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+// ── SHARED-SECRET COMPARISON ────────────────────────────────────────
+// A plain `a !== b` on a shared API key leaks its length and lets a byte-by-byte
+// timing attack narrow it down one position at a time. Hashing both sides first
+// (SHA-256, fixed-length digest either way) and XOR-accumulating every byte with
+// no early exit removes both the length signal and the position signal — the
+// standard constant-time-compare pattern, using only Web Crypto (no Node-only
+// crypto.timingSafeEqual, which Workers doesn't guarantee). Used for the two
+// server-to-server shared secrets in this app (X-Intake-Key, ADMIN_PUSH_API_KEY)
+// — not for user passwords, which already go through PBKDF2 below.
+export async function timingSafeEqual(a, b) {
+  const enc = new TextEncoder();
+  const [digestA, digestB] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(a || '')),
+    crypto.subtle.digest('SHA-256', enc.encode(b || '')),
+  ]);
+  const bufA = new Uint8Array(digestA), bufB = new Uint8Array(digestB);
+  let diff = 0;
+  for (let i = 0; i < bufA.length; i++) diff |= bufA[i] ^ bufB[i];
+  return diff === 0;
+}
+
 // ── PASSWORD HASHING (PBKDF2-SHA256) ────────────────────────────────
 // Stored format: `pbkdf2:<saltHex>:<hashHex>`
 export async function hashPassword(password) {

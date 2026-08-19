@@ -1,5 +1,5 @@
 // ── Scheduler & Volunteer API handlers ────────────────────────────────────────
-import { json, SCHED_CORS, getAuthRole } from './auth.js';
+import { json, SCHED_CORS, getAuthRole, timingSafeEqual } from './auth.js';
 import { XMAS_MARKET_ROLES } from './db.js';
 
 // Centralized office reply-to so it can be overridden via env.
@@ -160,7 +160,7 @@ function noStoreJson(data, status = 200) {
 export async function handleChristmasMarketSummary(req, env) {
   const expectedKey = env.CHMS_INTAKE_API_KEY || '';
   if (!expectedKey) return noStoreJson({ error: 'Intake not configured' }, 503);
-  if ((req.headers.get('X-Intake-Key') || '') !== expectedKey) {
+  if (!(await timingSafeEqual(req.headers.get('X-Intake-Key') || '', expectedKey))) {
     return noStoreJson({ error: 'Unauthorized' }, 401);
   }
 

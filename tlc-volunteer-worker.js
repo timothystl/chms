@@ -200,6 +200,29 @@ async function checkUnfilledShifts(env) {
   return { open: openDates.size };
 }
 
+// The exact set of paths whose real (non-OPTIONS) handlers emit SCHED_CORS — see CR7(b)
+// above. `/scheduler*` is deliberately excluded: it's cookie-auth-only and never emits
+// SCHED_CORS on any of its responses (LCMS calendar JSON or the retired-page redirect).
+// ⚠ `/api/*` needs its own exclusion list, not just `/api/events` — several `/api/*`
+// sub-routes (ministry-roles, the Christmas Market summary, everything under
+// `/api/intake/`) are matched ABOVE the generic breeze-proxy catch-all below and never
+// reach it, so they never emit SCHED_CORS either (confirmed against a verification
+// harness that caught `/api/intake/funds` being wrongly included on the first pass).
+function isSchedCorsPath(path) {
+  if (path === '/rsvp' || path.startsWith('/rsvp/portal') || path === '/rsvp/store' || path === '/rsvp/sync') return true;
+  if (path === '/serve/pending' || path === '/serve/general-pending' || path === '/serve/event-pending') return true;
+  if (path === '/volunteer/pending' || path === '/volunteer/general-pending' || path === '/volunteer/event-pending') return true;
+  if (path === '/email/send' || path === '/esv/passage') return true;
+  if (path.startsWith('/breeze/')) return true;
+  if (path.startsWith('/api/')) {
+    if (path === '/api/events' || path === '/api/ministry-roles') return false;
+    if (path === '/api/signups/christmasmarket/summary') return false;
+    if (path.startsWith('/api/intake/')) return false;
+    return true;
+  }
+  return false;
+}
+
 async function _fetch(req, env) {
     try {
       await initDb(env.DB);
@@ -220,8 +243,17 @@ async function _fetch(req, env) {
     const isChmsHost = isConnectHost(url);
     const isLegacyChmsHost = host === 'chms.timothystl.org';
 
-    // CORS preflight for scheduler backend routes
-    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: SCHED_CORS });
+    // CORS preflight for scheduler backend routes only (CR7(b)) — this used to answer
+    // OPTIONS on every path in the app with Access-Control-Allow-Origin: '*', which is
+    // wider than any of those other routes ever needed: none of them echo SCHED_CORS on
+    // their real (non-OPTIONS) response, so a preflight succeeding for them was already
+    // useless — the actual request would arrive with no CORS headers and fail cross-origin
+    // regardless. Narrowed to the exact set of paths whose real handlers do emit SCHED_CORS
+    // (schedJson()/schedHtmlPage() in src/api-scheduler.js) — kept in sync with the route
+    // matches below by hand, since there's no single dispatch table to derive it from.
+    if (req.method === 'OPTIONS' && isSchedCorsPath(path)) {
+      return new Response(null, { status: 204, headers: SCHED_CORS });
+    }
 
     if (path === '/favicon.svg' && method === 'GET') {
       const fRes = await fetch('https://raw.githubusercontent.com/timothystl/chms/main/favicon.svg?v=' + DEPLOY_VERSION, { cf: { cacheEverything: true, cacheTtl: 86400 } });

@@ -4,7 +4,7 @@
 // user session. Covers: (1) form submissions forwarded from the public website's
 // /api/contact and /api/prayer handlers (POST), and (2) a read-only fund list for
 // admin.timothystl.org's Giving tab (GET /api/intake/funds).
-import { json } from './auth.js';
+import { json, timingSafeEqual } from './auth.js';
 
 function splitName(full) {
   const parts = (full || '').trim().split(/\s+/);
@@ -38,7 +38,7 @@ export async function handleIntakeApi(req, env, path) {
   const expectedKey = env.CHMS_INTAKE_API_KEY || '';
   if (!expectedKey) return json({ error: 'Intake not configured' }, 503);
   const key = req.headers.get('X-Intake-Key') || '';
-  if (key !== expectedKey) return json({ error: 'Unauthorized' }, 401);
+  if (!(await timingSafeEqual(key, expectedKey))) return json({ error: 'Unauthorized' }, 401);
 
   // Read-only fund list — lets the website admin (Giving tab) suggest real ChMS fund
   // names when setting up give.timothystl.org's fund selector, instead of staff retyping
