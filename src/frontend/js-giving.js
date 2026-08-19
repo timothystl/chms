@@ -1384,7 +1384,7 @@ function boardProjectionBasis(k, method) {
     + '<th style="text-align:left;' + th + '">Fund</th><th style="text-align:right;' + th + '">YTD</th><th style="text-align:right;' + th + '">Budget</th><th style="text-align:right;' + th + '">Variance</th><th style="text-align:right;' + th + '">' + d.prior_year + '</th>'
     + '</tr></thead><tbody>' + fundRows + totRow + '</tbody></table>';
 
-  var footnote = '<div style="margin-top:auto;padding-top:28px;font-size:10.5px;color:#A69A88;line-height:1.6;border-top:1px solid var(--linen);">'
+  var footnote = '<div style="margin-top:auto;padding-top:28px;font-size:10.5px;color:var(--warm-gray);line-height:1.6;border-top:1px solid var(--linen);">'
     + 'Figures are drawn from recorded contributions as of ' + asOf + ' and exclude tuition, daycare fees, and grant income. No individual donor is identified in this report; household-level detail is available to the finance committee on request.</div>';
 
   return '<div class="board-narrative">'

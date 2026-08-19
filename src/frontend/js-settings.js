@@ -146,7 +146,7 @@ function renderUsersList() {
     + _usersData.map(function(u) {
         var rc = roleColors[u.role] || '#666';
         var statusBadge = u.active
-          ? '<span style="font-size:.7rem;padding:2px 7px;border-radius:99px;background:#D1FAE5;color:#065F46;font-weight:700;">Active</span>'
+          ? '<span style="font-size:.7rem;padding:2px 7px;border-radius:99px;background:var(--chip-positive-bg);color:var(--sage-text);font-weight:700;">Active</span>'
           : '<span style="font-size:.7rem;padding:2px 7px;border-radius:99px;background:var(--linen);color:var(--warm-gray);font-weight:700;">Inactive</span>';
         return '<tr style="border-bottom:1px solid var(--linen);">'
           + '<td style="padding:8px 8px;font-weight:600;">'+esc(u.username)+'</td>'
