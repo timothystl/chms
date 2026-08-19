@@ -1878,7 +1878,7 @@ function givReceiptsRenderTable() {
 // until the church supplies its own wording (GIV-R4 follow-up).
 function givReceiptLetterHtml(r) {
   var church = (_churchConfig && _churchConfig.church_name) || 'Timothy Lutheran Church';
-  var givingUrl = (_churchConfig && _churchConfig.giving_url) || '';
+  var givingUrl = (_churchConfig && _churchConfig.online_giving_url) || '';
   var isFirst = r.reasons.indexOf('first_gift') >= 0;
   var body = '<p>Dear ' + esc(r.name) + ',</p>'
     + '<p>Thank you for your generous gift of <strong>' + fmtMoney(r.amount_cents) + '</strong> on '

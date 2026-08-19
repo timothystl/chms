@@ -113,19 +113,36 @@ const fullCtx = () => runBundles([
  * member's phone.
  */
 function bootCalls() {
-  const at = CHMS_APP_MEMBER_JS.indexOf(".finally(function() {");
-  expect(at, 'boot .finally() block not found — has js-core been restructured?').toBeGreaterThan(-1);
-  const block = CHMS_APP_MEMBER_JS.slice(at, CHMS_APP_MEMBER_JS.indexOf('\n  });', at));
+  // CR3 moved loadTags()/loadMemberTypes() out of the .finally() block to fire in parallel
+  // with /me (neither reads _userRole) — so the boot calls this test cares about now span two
+  // segments: the plain top-level statements right before the api('/admin/api/me') call, and
+  // the original .finally() block. Scanning only .finally() would silently stop covering the
+  // two calls that moved, which is exactly the kind of drift this test exists to catch.
+  const meAt = CHMS_APP_MEMBER_JS.indexOf("api('/admin/api/me')");
+  expect(meAt, 'boot /me call not found — has js-core been restructured?').toBeGreaterThan(-1);
+  const fetchRoleAt = CHMS_APP_MEMBER_JS.lastIndexOf('// Fetch role first', meAt);
+  expect(fetchRoleAt, 'pre-/me boot comment not found — has js-core been restructured?').toBeGreaterThan(-1);
+  const preBlock = CHMS_APP_MEMBER_JS.slice(fetchRoleAt, meAt);
+
+  const finallyAt = CHMS_APP_MEMBER_JS.indexOf('.finally(function() {');
+  expect(finallyAt, 'boot .finally() block not found — has js-core been restructured?').toBeGreaterThan(-1);
+  const finallyBlock = CHMS_APP_MEMBER_JS.slice(finallyAt, CHMS_APP_MEMBER_JS.indexOf('\n  });', finallyAt));
+
   const all = [], memberReached = [];
-  for (const m of block.matchAll(/^ {4}(if \(([^)]*)\) )?([a-zA-Z_$][\w$]*)\(/gm)) {
-    const [, , guard, name] = m;
-    if (name === 'if') continue;
-    all.push(name);
-    // loadFunds is deliberately skipped for a member (funds are giving data — a guaranteed
-    // 403), so it is not required to be in the member bundle. Honor that guard rather than
-    // demanding every boot call be present, which would block a legitimate future move.
-    if (!(guard && /_userRole\s*!==\s*'member'/.test(guard))) memberReached.push(name);
-  }
+  const scan = (block, indent) => {
+    const re = new RegExp('^ {' + indent + '}(if \\(([^)]*)\\) )?([a-zA-Z_$][\\w$]*)\\(', 'gm');
+    for (const m of block.matchAll(re)) {
+      const [, , guard, name] = m;
+      if (name === 'if') continue;
+      all.push(name);
+      // loadFunds is deliberately skipped for a member (funds are giving data — a guaranteed
+      // 403), so it is not required to be in the member bundle. Honor that guard rather than
+      // demanding every boot call be present, which would block a legitimate future move.
+      if (!(guard && /_userRole\s*!==\s*'member'/.test(guard))) memberReached.push(name);
+    }
+  };
+  scan(preBlock, 2);
+  scan(finallyBlock, 4);
   return { all: [...new Set(all)], memberReached: [...new Set(memberReached)] };
 }
 
