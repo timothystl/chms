@@ -24,6 +24,45 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.196.0 — Four dead credentials out of the login path (2026-08-19)
+
+P22-G, retiring **SEC22**. `handleAdminLogin` pulled `FINANCE_PASSWORD`, `STAFF_PASSWORD`,
+`MEMBER_PASSWORD` and `ADMIN_EMAIL` out of `env` and never referenced any of them again. Deleted.
+
+The deletion is a no-op by construction; what it fixes is what the names imply. **⚠ Three of
+them read as per-role shared passwords, and anyone finding them in a Cloudflare secret list
+would reasonably conclude the app has one login per role and that rotating them is a security
+control.** It never had one. Every real credential lives in `app_users`, plus `ADMIN_PASSWORD`
+for break-glass — and a shared role password is deliberately not a thing here: it is an
+authentication path with no account behind it, so nothing to deactivate, nothing to audit, and
+no way to tell afterwards whose login it was. The comment left in its place says exactly that,
+because the next person to want a quick per-role login will land on the same four lines.
+
+**A live documentation defect surfaced on the way, and it was worse than the dead code.**
+`SECRETS.md` listed **`ADMIN_EMAIL`** under Required Secrets as "the `From:` address on all
+Resend emails" — it is not, and never has been. The From address is **`EMAIL_FROM`**, which the
+file did not document at all. `sendResend()` refuses outright without it, so an operator
+following SECRETS.md would have set `ADMIN_EMAIL`, seen no error anywhere, and had a Worker that
+sent no email at all. Corrected, with the `RESEND_API_KEY` entry's cross-reference fixed too, and
+a new **"Variables the Worker does not read"** section naming all four so a secret list never has
+to be reverse-engineered from source again.
+
+- Tests: `test/admin-login-credentials.test.js` (11), driving the real `handleAdminLogin` against
+  a fake `env` with all three role passwords set. The behavior half proves they were never a
+  login — before or after — and that the credentials that ARE real still work: break-glass,
+  an active `app_users` account, a deactivated one refused, and a missing `ADMIN_PASSWORD`
+  refusing everyone rather than falling through to a role password.
+- **The source scan is the part that lasts**: a dead credential read is indistinguishable from a
+  live one at a glance, which is how these four survived. It asserts the login path reads exactly
+  one password from `env`, and no other credential-shaped name at all.
+- **Every test verified non-vacuous** by injecting the exact regression it guards — 5 injections,
+  5 correct failure sets, including a real working `FINANCE_PASSWORD` login path (fails 4) and
+  merely re-adding the dead const (fails 3).
+
+`npm test` 1713/1713 (was 1702). No frontend change; `DEPLOY_VERSION` bumped for the record.
+**Not verified**: a live browser or a real sign-in against production D1.
+(`src/api-admin.js`, `SECRETS.md`, `test/admin-login-credentials.test.js`)
+
 ### v1.195.0 — Cached directory data no longer outlives the session (2026-08-19)
 
 P22-D, retiring **SEC19**. Two independent problems in `SW_JS`, both about data cached by

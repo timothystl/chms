@@ -566,8 +566,19 @@ v1.191.0. **Not verified**: a live browser, a real sent email, or production D1.
   "Only proxy HTTPS URLs";
   (e) skip `refreshAuthCookie` on the versioned asset routes so `Set-Cookie` stops riding a
   `public, immutable` response.
-- [ ] **P22-G** (retires **SEC22**) — Delete `financePassword`, `staffPassword`, `memberPassword`,
-  `adminEmail` from `handleAdminLogin`; they are assigned and never read.
+- [x] **P22-G** — DONE 2026-08-19 (v1.196.0), retires **SEC22**. Deleted, with a comment in their
+  place saying why a role-password env var must not come back (an authentication path with no
+  account behind it — nothing to deactivate, nothing to audit, no way to tell whose login it was).
+  **⚠ The dead code was the smaller half.** `SECRETS.md` listed **`ADMIN_EMAIL`** under Required
+  Secrets as the `From:` address on all Resend email — it is not and never was; that is
+  **`EMAIL_FROM`**, which the file did not document at all. `sendResend()` refuses without it, so
+  an operator following SECRETS.md would have set the wrong variable, seen no error, and had a
+  Worker that sent no email. Fixed, plus a new "Variables the Worker does not read" section
+  naming all four. New `test/admin-login-credentials.test.js` (11) drives the real
+  `handleAdminLogin` with all three role passwords set: they were never a login, and the real
+  credentials still work. **The source scan is the part that lasts** — a dead credential read
+  looks exactly like a live one, which is how these survived. 5 injections, 5 correct failure
+  sets. `npm test` 1713/1713 (was 1702). Was:
 
 **Done when:** each item fixed or formally deferred with a reason, per this file's convention.
 
@@ -907,7 +918,7 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   (**verified** on all four routes) — `refreshAuthCookie` wraps every response indiscriminately. Browsers
   handle it, but it is a session cookie on a publicly-cacheable response, and Cloudflare declines to
   edge-cache a response with `Set-Cookie`, so the edge never serves these at all.
-- [ ] **SEC22 — Dead credentials in the login path.** `handleAdminLogin` assigns `financePassword`,
+- [x] **SEC22 — FIXED 2026-08-19 (v1.196.0), P22-G.** Also corrected `SECRETS.md`, which documented `ADMIN_EMAIL` as the mail From address; the real one is `EMAIL_FROM` and it was undocumented. Original finding: Dead credentials in the login path. `handleAdminLogin` assigns `financePassword`,
   `staffPassword`, `memberPassword` and `adminEmail` from env and **never reads any of them** — four
   role-password env vars that look live in the code and are not. Pass 5 of this project's own review standard.
 
