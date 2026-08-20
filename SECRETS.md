@@ -25,17 +25,18 @@ All secrets are stored as Cloudflare Worker secrets (`wrangler secret put <NAME>
 - **Rotation**: Only changes if the church switches Breeze accounts. `wrangler secret put BREEZE_SUBDOMAIN`.
 - **Risk if leaked**: Low on its own — just the subdomain, not the API key.
 
-### `ADMIN_EMAIL`
-- **Purpose**: The `From:` address on all Resend emails (birthday, anniversary).
+### `EMAIL_FROM`
+- **Purpose**: The `From:` address on every Resend email the Worker sends — birthday and anniversary greetings, scheduler assignments and reminders, Connect invites, password resets.
 - **Format**: RFC 5322 format, e.g. `Timothy Lutheran <noreply@timothystl.org>`. Domain must be verified in Resend.
-- **Rotation**: `wrangler secret put ADMIN_EMAIL`.
+- **Rotation**: `wrangler secret put EMAIL_FROM`.
 - **Risk if leaked**: Low — it's an email address, not a credential.
+- **⚠ This entry used to read `ADMIN_EMAIL`, which was wrong**: nothing has ever sent mail from `ADMIN_EMAIL`. `sendResend()` reads `EMAIL_FROM` and refuses outright without it, so following the old instruction produced a Worker that sent no email at all, with the one variable that mattered undocumented. See "Variables the Worker does not read" below.
 
 ### `RESEND_API_KEY`
 - **Purpose**: Authenticates calls to the Resend email API. Used for birthday and anniversary emails sent to members.
 - **Format**: `re_` prefixed key from resend.com → API Keys.
 - **Rotation**: Create a new key in Resend, `wrangler secret put RESEND_API_KEY`, delete old key in Resend dashboard.
-- **Risk if leaked**: Ability to send email from the configured `ADMIN_EMAIL` address via Resend.
+- **Risk if leaked**: Ability to send email from the configured `EMAIL_FROM` address via Resend.
 
 ### `CHMS_INTAKE_API_KEY`
 - **Purpose**: Shared secret for intake API endpoints (`/api/intake/connect-card`, `/api/intake/prayer`). The website Worker passes this key to authenticate form submissions without a user session.
@@ -143,6 +144,35 @@ These are not required for the app to function but unlock additional capabilitie
   - **Known limitation**: Payroll actual can't account for staff who left mid-window (no termination date tracked on the daycare side), so it may run slightly high for months after someone departs.
 - **Set**: `wrangler secret put DAYCARE_API_URL` (the full Supabase function URL above) then `wrangler secret put DAYCARE_API_KEY` (same value as the daycare app's `FINANCE_API_KEY`).
 - **Risk if leaked**: Read-only access to the daycare app's financial summary endpoint (as scoped by whatever the daycare app itself enforces on that key).
+
+---
+
+## Variables the Worker does not read
+
+Four names that look like live credentials in an older read of this file, or in a Cloudflare
+secret list, and are not. `handleAdminLogin` used to pull all four out of `env` and never
+reference them again; they were deleted in v1.196.0 (P22-G/SEC22).
+
+| Name | Reality |
+|---|---|
+| `FINANCE_PASSWORD` | **Never a login.** No env-var role password has ever existed. |
+| `STAFF_PASSWORD` | Same. |
+| `MEMBER_PASSWORD` | Same. |
+| `ADMIN_EMAIL` | Never the `From:` address, despite what this file said until v1.196.0 — that is `EMAIL_FROM`. |
+
+**⚠ The three `*_PASSWORD` names matter more than the dead code did.** Anyone reading them in a
+secret list would reasonably conclude the app has per-role shared passwords, and would treat
+rotating them as a security control. It is not one: every real credential lives in `app_users`,
+plus `ADMIN_PASSWORD` for break-glass. A shared role password is deliberately not a thing here —
+it would be an authentication path with no account behind it, so nothing to deactivate, nothing
+to audit, and no way to tell afterwards whose login it was.
+
+If any of these four are set on the live Worker, they can be deleted
+(`wrangler secret delete <NAME>`) — nothing reads them. Deleting them is optional; leaving them
+is only a documentation hazard, not an access one.
+
+`test/admin-login-credentials.test.js` fails if a role-password env read reappears in the
+login path.
 
 ---
 

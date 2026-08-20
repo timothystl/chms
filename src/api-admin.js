@@ -169,11 +169,14 @@ export async function handleAdminLogin(req, env) {
   // ── Credential check ────────────────────────────────────────────────
   let body; try { body = await req.text(); } catch { body = ''; }
   const params = new URLSearchParams(body);
-  const adminPassword   = env.ADMIN_PASSWORD   || '';
-  const financePassword = env.FINANCE_PASSWORD || '';
-  const staffPassword   = env.STAFF_PASSWORD   || '';
-  const memberPassword  = env.MEMBER_PASSWORD  || '';
-  const adminEmail      = (env.ADMIN_EMAIL || '').toLowerCase().trim();
+  // ADMIN_PASSWORD is the ONLY credential this function reads from env, and it is read for the
+  // break-glass path below and nothing else. FINANCE_PASSWORD, STAFF_PASSWORD, MEMBER_PASSWORD
+  // and ADMIN_EMAIL used to be pulled in here too and were never referenced again — four
+  // env vars that read like live per-role logins and were not (P22-G/SEC22). Every real
+  // credential lives in app_users. Do not reintroduce a role-password env var: it would be an
+  // authentication path with no account behind it, so no way to deactivate it, audit it, or
+  // tell whose it was. test/admin-login-credentials.test.js fails if one comes back.
+  const adminPassword = env.ADMIN_PASSWORD || '';
   if (!adminPassword) {
     return html(LOGIN_HTML.replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">Admin password is not configured. Set the <code>ADMIN_PASSWORD</code> secret in the Cloudflare Dashboard.</p>'));
   }
