@@ -4,7 +4,7 @@ Read this at the start of every session. Update NOTES.md (and this file if neede
 
 > ## ⚠ The work plan is in `PLAN.md`, not in this file
 >
-> **`PLAN.md` (repo root, ~30 KB) is the running order for everything still open** — Phases 21–28,
+> **`PLAN.md` (repo root) opens with a priority-ordered work queue** — everything still open,
 > one alphanumeric code per item (`P21-A` … `P28-O`), each naming the original code(s) it retires.
 > **Read it before starting any task.** Ask "what should I work on?" and the answer is there.
 >
@@ -494,7 +494,11 @@ measurements and reasoning behind each finding; `PLAN.md` holds the running orde
 decision. **When an item ships, update both** — check the box in `PLAN.md`, and mark the original
 code closed here.
 
-Current state: Phase 21 complete; Phase 22 has E and F open; Phases 23–28 open.
+**`PLAN.md` opens with a priority-ordered work queue (rebuilt 2026-08-20), not the phase order** —
+Phase 21 is complete and Phase 22 is 5 of 7 done, so phase number no longer equals work order.
+Take the next unchecked row. The codes themselves never change; only the order is re-decided.
+
+Current state: 39 items open. Next up is P22-E, then P22-F.
 
 ---
 
