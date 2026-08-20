@@ -17,18 +17,101 @@ Phases 21 and 22 are ordered by risk; 23 onward by dependency, not urgency.
 
 ---
 
-## Status at a glance (2026-08-20)
+## The work queue — priority order (rebuilt 2026-08-20)
 
-| Phase | State |
-|---|---|
-| **21** Authorization emergency | ✅ complete (v1.191.0) |
-| **22** Security hardening | A ✅ · B ✅ · C ✅ · D ✅ · G ✅ — **E and F open** |
-| **23** Authentication foundation | open — needs scoping before any code |
-| **24** Silent failures | open |
-| **25** Load speed | open |
-| **26** Design system consolidation | open |
-| **27** Repo and process hygiene | open |
-| **28** Carried forward | open (pre-existing backlog, not from CR10) |
+**Read this table, not the phase numbers.** The phases below were written 2026-08-19 when authorization
+was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase order no longer equals work
+order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
+shipped commit reference them. Only the ORDER below is re-decided.
+
+**39 items open.** Take the next unchecked row. Detail for every code is in its phase section further down.
+
+### Tier 1 — Finish the security work (small, bounded, do first)
+
+| # | Code | Size | What |
+|---|---|---|---|
+| 1 | **P22-E** | small | Login rate limiting, intake rate limiting and QuickBooks OAuth `state` all fail **open** with no `RSVP_STORE`. Make them refuse. |
+| 2 | **P22-F** | small ×5 | Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. **⚠ Re-read the code first — commit `c7c1c3a` already shipped two of the original seven.** |
+
+### Tier 2 — Things that are wrong on screen right now
+
+Highest payoff per line changed in the whole plan. Two of these are user-reported.
+
+| # | Code | Size | What |
+|---|---|---|---|
+| 3 | **P24-C** | ~2 lines | A `council` account with no display name shows **"Unknown"** in the topbar, and the write-refusal still says "office". COUNCIL1 leftovers. |
+| 4 | **P26-A** | small | Nine CSS custom properties undefined in the embedded Scheduler — 98 dead declarations on real buttons and alerts. **⚠ Filed under design consolidation and it is not cleanup, it is a visible bug.** |
+| 5 | **P24-A** + **P25-D** | **large — see note** | `api()` resolves instead of rejecting on a server error whenever `opts` is passed, so **54 write call sites report success on failure**. This is the mechanism behind the SAC1/SAC3 "Save failed with no reason" reports. |
+| 6 | **P24-B** | medium | Dashboard: ~11 serial D1 round-trips, and two staff opening it the same Monday both seed the weekly tasks and leave ten. |
+
+> **⚠ Why 5 merges two codes.** P24-A rewrites `api()`; P25-D routes seven `js-finance.js` uploads
+> through `api()` and replaces eight hardcoded `/chms` 401 redirects. Both sweep the same call sites.
+> Doing them separately means auditing 230 `api()` calls twice, and the second sweep lands on code the
+> first one just changed. **One PR.** And the sweep is not optional within it: flipping `api()` to reject
+> without adding a `.catch` to all 54 sites turns silent failures into unhandled rejections.
+
+### Tier 3 — Load speed, cheapest first
+
+The church network is slow; AU2 has been open since July for that reason.
+
+| # | Code | Size | What |
+|---|---|---|---|
+| 7 | **P25-A** | one-liner | The two scheduler-embed assets bypass `assetCacheControl()` — and the test's own `ASSETS` list encodes the gap. |
+| 8 | **P25-B** | one-liner | Hoist the pure asset routes above `await initDb(env.DB)`. None touch D1. |
+| 9 | **P25-C** | medium | Self-host the fonts. **⚠ AU2 is written as a login-page item and is not one** — the app shell blocks on three families at 17 weight/italic combinations with no `preconnect` at all. |
+| 10 | **P25-G** | medium | `serve.timothystl.org` is 204.5 KB with **no `Cache-Control` at all** and is identical for every visitor. The church's public front door, on the same slow network. |
+| 11 | **P25-E** | large | Split `app-ext.js` (1,273 KB) along the permission line. A `staff` account with `finance: none` downloads all 696 KB of Finance. **⚠ Keep CR9's two rules: fail SAFE, and pin "no global defined twice".** |
+| 12 | **P25-F** | large | The 194 KB `no-store` shell. Needs the boot sequence looked at, not another mechanical extraction. |
+
+### Tier 4 — Authentication foundation (scope before writing code)
+
+| # | Code | Size | What |
+|---|---|---|---|
+| 13 | **P23-A** | needs scoping | Session cookies are HMAC-signed with `ADMIN_PASSWORD`, a human-chosen password that any member can grind offline. Move to a `SESSION_SECRET`. **⚠ The migration is the hard part, not the change.** |
+| 14 | **P23-B** | needs scoping | MFA for `admin` and `finance`. **P23-A first** — MFA over a guessable session key buys less than it looks like. |
+
+> Placed below Tier 3 on **sequencing, not importance**. P23-A is the most valuable remaining security
+> item; it is also the one that can log the whole staff out mid-week if the rollout is wrong, so it wants
+> a session of its own rather than a slot in a queue.
+
+### Tier 5 — Hand-off and repo hygiene (all small)
+
+Raised from last position: a session already failed to find the plan once, and two of these are the
+same class of problem.
+
+| # | Code | Size | What |
+|---|---|---|---|
+| 15 | **P27-C** | minutes | `npm audit fix`. Back to 6 high; all dev-tooling, none reaching the Worker. Recurring chore. |
+| 16 | **P27-A** | small | **"See FIN58" currently resolves to three different features.** Suffix the later duplicates; do not renumber. |
+| 17 | **P27-B** | small | The American-English check returns 27, and the file says it should return nothing. **⚠ Four hits are the rule quoting its own examples — exclude those lines or it can never be green.** |
+| 18 | **P27-D** | small | Delete ~800 KB of dead tracked files. **⚠ Confirm nothing outside the repo serves them** — a root `CNAME` suggests Pages once did. |
+
+### Tier 6 — Design system consolidation
+
+P26-A is **not** here; it is item 4, because it is a bug.
+
+| # | Code | Size | What |
+|---|---|---|---|
+| 19 | **P26-B** | medium | Continue PAL7's exact-match hex pass. 423 literals, 171 distinct; the top two are `--color-teal` and `--color-gold` longhand. **⚠ Keep PAL7's two rules.** |
+| 20 | **P26-C** | medium | 1,168 legacy token references against 314 brand ones. `--ev-*` is down to 38 and can go first. |
+| 21 | **P26-E** | small | Reconcile the palettes. RD1 counted three; there are **five across four surfaces**. Scope from five. |
+| 22 | **P26-F** | large | The a11y pass MO5 deferred: 128 click handlers on non-interactive elements against 2 `tabindex` and 9 `role=`. |
+| 23 | **P26-D** | **with the redesign** | ~3,900 pure-layout inline `style=` attributes. A refactor, not a substitution — RD2's own decision was to let it ride. Keep it there unless the redesign slips. |
+
+### Tier 7 — Carried forward (P28-A … P28-O, not from CR10)
+
+Fifteen pre-existing backlog items, listed so nothing is orphaned. Not ordered against each other — but
+three are trivial and blocked only on somebody doing them:
+
+- **P28-L** — set `CHMS_INTAKE_API_KEY` on `tlc-newsletter-admin`. One command. Until then G23's endpoint 401s.
+- **P28-M** — point the `/volunteer` short-URL redirect at `serve.timothystl.org`. Website-repo D1 data, not code.
+- **P28-K** — confirm the live daycare endpoint renders. Needs two secrets and one button.
+
+And one is the gate on everything the member tier was built for:
+
+- **P28-N** / **TLY1** — **invite member accounts at scale.** CONN2 built the flow; nobody has been invited,
+  so the directory has an audience of one. Organizational, not technical. **This is what makes SEC11-SEC22
+  worth having fixed.**
 
 ---
 
