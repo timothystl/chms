@@ -237,7 +237,9 @@ export async function handleAdminApi(req, env, url, method) {
     const info = await getAuthInfo(req, env);
     const role = info ? info.role : null;
     const username = info ? info.username : '';
-    const roleLabels = { admin: 'Administrator', finance: 'Finance', staff: 'Staff', member: 'Member (read-only)' };
+    // council/volunteer were previously missing here (DSN8) — a council or volunteer account
+    // with no display_name set showed "Unknown" in the topbar. Fixed alongside adding volunteer.
+    const roleLabels = { admin: 'Administrator', finance: 'Finance', staff: 'Staff', council: 'Council', member: 'Member (read-only)', volunteer: 'Volunteer (read-only)' };
     // Try to get display_name from DB if we have a username
     let displayName = roleLabels[role] || 'Unknown';
     if (username && env.DB) {
@@ -295,6 +297,9 @@ export async function handleAdminApi(req, env, url, method) {
     // session (no DB row), which is exactly the account that must stay able to repair a
     // lockout — so every self-guard below is a no-op for it, by design.
     const reqUser = (reqInfo && reqInfo.username || '').toLowerCase();
+    // One shared list for both create and update — two copies is how these drift (see the
+    // FIN58-class duplicate-source-of-truth notes elsewhere in this codebase's history).
+    const VALID_APP_ROLES = ['admin', 'finance', 'staff', 'council', 'member', 'volunteer'];
 
     /** The app_users row a /users/:id call targets, or null. */
     const loadTarget = async (uid) => await env.DB.prepare(
@@ -323,8 +328,7 @@ export async function handleAdminApi(req, env, url, method) {
       const username = (b.username || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
       if (!username) return json({ error: 'Username is required' }, 400);
       if (!b.password || b.password.length < 8) return json({ error: 'Password must be at least 8 characters' }, 400);
-      const validRoles = ['admin', 'finance', 'staff', 'council', 'member'];
-      const role = validRoles.includes(b.role) ? b.role : 'staff';
+      const role = VALID_APP_ROLES.includes(b.role) ? b.role : 'staff';
       const email = (b.email || '').trim().toLowerCase();
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'Invalid email address' }, 400);
       const existing = await env.DB.prepare(`SELECT id FROM app_users WHERE LOWER(username)=?`).bind(username).first();
@@ -341,8 +345,7 @@ export async function handleAdminApi(req, env, url, method) {
     if (umatch && method === 'PUT') {
       const uid = parseInt(umatch[1]);
       let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-      const validRoles = ['admin', 'finance', 'staff', 'council', 'member'];
-      const role = validRoles.includes(b.role) ? b.role : undefined;
+      const role = VALID_APP_ROLES.includes(b.role) ? b.role : undefined;
 
       // ── Lockout guards ──────────────────────────────────────────────
       // Without these an admin could demote or deactivate their own account and instantly

@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.197.0';
+export const DEPLOY_VERSION = '1.198.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -344,6 +344,13 @@ function showTab(name, finSection) {
   if (_userRole === 'member' && !(name === 'people' || (name === 'reports' && _userPermissions.reports))) {
     name = 'people';
   }
+  // Volunteer tier: read-only access to the Volunteers screen only (Signups / Ministry Roles /
+  // Events / Templates) — everything else in this file (People, Giving, Reports, ...) has
+  // nothing for it server-side (see handleChmsApi's volunteer deny in api-chms.js), so redirect
+  // rather than land on a blank/403'd tab, same pattern as the member redirect above.
+  if (_userRole === 'volunteer' && name !== 'volunteers') {
+    name = 'volunteers';
+  }
   // Enforce role-based tab access — admin-configurable per role, see _userPermissions above.
   // This is a UX convenience (avoid landing on a blank/403'd tab); the real enforcement is
   // server-side in handleChmsApi's ACL block, which reads the same permissions.
@@ -355,7 +362,7 @@ function showTab(name, finSection) {
   if (name === 'reports'    && !_userPermissions.reports)  return;
   if (name === 'import'     && _userRole !== 'admin') return;
   if (name === 'settings'   && _userRole !== 'admin') return;
-  if (name === 'volunteers' && _userRole !== 'admin') return;
+  if (name === 'volunteers' && _userRole !== 'admin' && _userRole !== 'volunteer') return;
   if (name === 'scheduler'  && _userRole !== 'admin') return;
   var labels = {home:'Home',people:'People',households:'Households',organizations:'Organizations',giving:'Giving',tuitionaid:'Tuition Aid Planner',finance:'Financial Reports',reports:'Reports',attendance:'Attendance',register:'Register',import:'Import',settings:'Settings',volunteers:'Volunteers',scheduler:'Scheduler'};
   // Push browser history so back button works (skip when responding to popstate)
@@ -630,14 +637,13 @@ window.addEventListener('load', function() {
     applyRoleUI('member');
     showRoleLoadError();
   }).finally(function() {
-    // Funds are giving data — the member allowlist doesn't include them, so for a member this
-    // is a guaranteed 403. It fails silently, but it's still a wasted round trip on exactly the
-    // connection (a phone, on the church's network) where the member tier actually lives.
-    if (_userRole !== 'member') loadFunds();
+    // Funds are giving data — the member and volunteer allowlists don't include them, so for
+    // either this is a guaranteed 403. It fails silently, but it's still a wasted round trip.
+    if (_userRole !== 'member' && _userRole !== 'volunteer') loadFunds();
     initPeopleViewMode();
     // Restore tab from URL hash (back/forward or bookmarked link), otherwise default
     var hashTab = location.hash.replace('#', '');
-    var defaultTab = _userRole === 'member' ? 'people' : 'home';
+    var defaultTab = _userRole === 'member' ? 'people' : (_userRole === 'volunteer' ? 'volunteers' : 'home');
     // Replace initial state so back button from first tab exits the app cleanly
     history.replaceState({ tab: hashTab || defaultTab }, '', location.href);
     showTab(hashTab || defaultTab);
@@ -665,7 +671,7 @@ function applyRoleUI(role, displayName, permissions) {
   _userPermissions = _userRole === 'admin'
     ? { finance: true, staff: true, register: true, reports: true }
     : (permissions || { finance: false, staff: false, register: false, reports: false });
-  document.body.classList.remove('role-admin','role-finance','role-staff','role-council','role-member');
+  document.body.classList.remove('role-admin','role-finance','role-staff','role-council','role-member','role-volunteer');
   document.body.classList.add('role-' + _userRole);
   tellServiceWorkerRole(_userRole);
   applyPermissionUI(_userPermissions);
