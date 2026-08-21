@@ -22,6 +22,7 @@ import { handleIntakeApi } from './src/api-intake.js';
 import { handleMemberSetup } from './src/api-people.js';
 import { LOGIN_HTML, PUBLIC_HTML } from './src/html-templates.js';
 import { chmsHtmlForRole, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS, CHMS_APP_EXT_JS, CHMS_APP_CSS, CHMS_SCHEDULER_HTML, CHMS_SCHEDULER_JS } from './src/html-chms.js';
+import { MOBILE_ADMIN_HTML } from './src/mobile-admin-html.js';
 import { DEPLOY_VERSION } from './src/frontend/js-core.js';
 import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts, centralDayOfWeek } from './src/api-emails.js';
@@ -389,6 +390,19 @@ async function _fetch(req, env) {
         return new Response(null, { status: 302, headers: { 'Location': 'https://connect.timothystl.org/' } });
       }
       return html(chmsHtmlForRole(auth.role), 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+    }
+    // ── Mobile Admin — phone-optimized quick-access page (splash, dashboard,
+    // people directory, person detail). Not tied to isChmsHost: a staffer's phone can be on
+    // either hostname, and this page carries no per-host branching of its own.
+    if (path === '/admin/mobile' && method === 'GET') {
+      const auth = await getAuthInfo(req, env);
+      if (!auth) {
+        return html(LOGIN_HTML.replace('<!--NEXT-->', '<input type="hidden" name="next" value="/admin/mobile">'));
+      }
+      if (auth.role === 'member' || auth.role === 'volunteer') {
+        return new Response(null, { status: 302, headers: { Location: appRootPath(req) } });
+      }
+      return html(MOBILE_ADMIN_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
     }
     if (path === '/chms.webmanifest') {
       return new Response(CHMS_MANIFEST_JSON, {

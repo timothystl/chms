@@ -1,6 +1,7 @@
 // ── Admin API handlers ─────────────────────────────────────────────────────────
 import { html, json, isAuthed, authCookieHeader, getAuthRole, getAuthInfo, hashPassword, verifyPassword, appRootPath } from './auth.js';
 import { handleChmsApi } from './api-chms.js';
+import { handleMobileApi } from './api-mobile.js';
 import { LOGIN_HTML } from './html-templates.js';
 import { randHex, authCardPage, getRolePermissions, permissionsForRole, csvRow } from './api-utils.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './api-emails.js';
@@ -155,6 +156,18 @@ export async function handleSchedulerDataApi(req, env, url, method) {
 
 // ── ADMIN LOGIN ───────────────────────────────────────────────────────
 export async function handleAdminLogin(req, env) {
+  // ── Credential check ────────────────────────────────────────────────
+  let body; try { body = await req.text(); } catch { body = ''; }
+  const params = new URLSearchParams(body);
+  // Same fixed allowlist as the success path below — echoed back into the retry form on
+  // every error branch so a failed login attempt from /admin/mobile doesn't drop the
+  // "return to mobile" hint on the next try.
+  const nextRaw = params.get('next') || '';
+  const next = nextRaw === '/admin/mobile' ? nextRaw : '';
+  const loginRetryHtml = (msg) => LOGIN_HTML
+    .replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">' + msg + '</p>')
+    .replace('<!--NEXT-->', next ? '<input type="hidden" name="next" value="' + next + '">' : '');
+
   // ── Rate limiting: max 10 attempts per IP per 15-minute window ──────
   const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'unknown';
   const WINDOW_MS = 15 * 60 * 1000;
@@ -163,12 +176,9 @@ export async function handleAdminLogin(req, env) {
   if (env.RSVP_STORE) {
     const attempts = parseInt(await env.RSVP_STORE.get(rlKey) || '0', 10);
     if (attempts >= MAX_ATTEMPTS) {
-      return html(LOGIN_HTML.replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">Too many login attempts. Please wait 15 minutes and try again.</p>'), 429);
+      return html(loginRetryHtml('Too many login attempts. Please wait 15 minutes and try again.'), 429);
     }
   }
-  // ── Credential check ────────────────────────────────────────────────
-  let body; try { body = await req.text(); } catch { body = ''; }
-  const params = new URLSearchParams(body);
   // ADMIN_PASSWORD is the ONLY credential this function reads from env, and it is read for the
   // break-glass path below and nothing else. FINANCE_PASSWORD, STAFF_PASSWORD, MEMBER_PASSWORD
   // and ADMIN_EMAIL used to be pulled in here too and were never referenced again — four
@@ -178,12 +188,12 @@ export async function handleAdminLogin(req, env) {
   // tell whose it was. test/admin-login-credentials.test.js fails if one comes back.
   const adminPassword = env.ADMIN_PASSWORD || '';
   if (!adminPassword) {
-    return html(LOGIN_HTML.replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">Admin password is not configured. Set the <code>ADMIN_PASSWORD</code> secret in the Cloudflare Dashboard.</p>'));
+    return html(loginRetryHtml('Admin password is not configured. Set the <code>ADMIN_PASSWORD</code> secret in the Cloudflare Dashboard.'));
   }
   const submittedUser = (params.get('username') || '').trim().toLowerCase();
   const submittedPass = params.get('password') || '';
   if (!submittedUser) {
-    return html(LOGIN_HTML.replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">Username is required.</p>'));
+    return html(loginRetryHtml('Username is required.'));
   }
   let matchedRole = null;
   let matchedUsername = '';
@@ -215,8 +225,14 @@ export async function handleAdminLogin(req, env) {
     // here (the pre-CONN6 path) sent every successful Connect login to /chms even though
     // the app is served at the root there — so /chms, not the bare domain, is what ended up
     // in everyone's history and bookmarks. See appRootPath's note in auth.js.
+    //
+    // `next` (built above) is a fixed allowlist, not a general relative-path check — this
+    // exists solely so the mobile admin page's login round-trip works, and an allowlist of
+    // one exact value has no open-redirect surface at all (a bare startsWith('/') check would
+    // still let '/\evil.com' or a scheme-relative '//evil.com' through in some browsers).
+    const dest = next || appRootPath(req);
     return new Response('', { status: 302, headers: {
-      Location: appRootPath(req),
+      Location: dest,
       'Set-Cookie': await authCookieHeader(env, matchedRole, matchedUsername)
     }});
   }
@@ -225,7 +241,7 @@ export async function handleAdminLogin(req, env) {
     const cur = parseInt(await env.RSVP_STORE.get(rlKey) || '0', 10);
     await env.RSVP_STORE.put(rlKey, String(cur + 1), { expirationTtl: 20 * 60 }).catch(() => {});
   }
-  return html(LOGIN_HTML.replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">Incorrect password. Please try again.</p>'));
+  return html(loginRetryHtml('Incorrect password. Please try again.'));
 }
 
 // ── ADMIN API ─────────────────────────────────────────────────────────
@@ -740,6 +756,21 @@ export async function handleAdminApi(req, env, url, method) {
     const result = await broadcastWebPush({ title, body: bodyText, url: '/portal' }, env)
       .catch(e => ({ error: e.message }));
     return json(result);
+  }
+
+  // ── Mobile Admin API dispatch ──────────────────────────────────────
+  // Must be checked before the ChMS dispatch below — 'people' below would otherwise
+  // never match 'mobile/people' anyway, but keeping this first mirrors the scheduler
+  // dispatch pattern above and keeps mobile-specific routing self-contained.
+  if (seg.startsWith('mobile/')) {
+    try {
+      const role = await getAuthRole(req, env);
+      if (!role) return json({ error: 'Unauthorized' }, 401);
+      return await handleMobileApi(req, env, url, method, role);
+    } catch (e) {
+      console.error('Mobile API error [' + method + ' ' + seg + ']:', e?.message, e?.stack);
+      return json({ error: 'Internal server error. Please try again.' }, 500);
+    }
   }
 
   // ── ChMS API dispatch ─────────────────────────────────────────────

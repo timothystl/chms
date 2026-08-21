@@ -504,6 +504,56 @@ Current state: 39 items open. Next up is P22-E, then P22-F.
 
 ## Queued Items (add new ones here during sessions)
 
+### MOB-ADMIN1 — Mobile Admin: a dedicated phone-optimized quick-access page (2026-08-21, DONE — first pass)
+Built from a design handoff (`design_handoff_mobile_admin`: README + one `.dc.html` prototype) covering
+4 screens — splash, dashboard, people directory, person detail. User confirmed via `AskUserQuestion`: **a
+new dedicated route**, not a retrofit of the existing responsive tabs, and **all 4 screens now**, not a
+smaller first slice.
+
+- **`/admin/mobile`** (new route, `tlc-volunteer-worker.js`) — same cookie auth as the main app; a
+  `member`/`volunteer` session is bounced to `appRootPath()` (this is a staff quick-access tool, not the
+  Connect member directory). Unauthenticated hits the existing `LOGIN_HTML`, now with a `<!--NEXT-->`
+  placeholder (harmless empty comment everywhere else it's served) filled with a hidden `next` field so a
+  login from this page returns here — `handleAdminLogin` (`src/api-admin.js`) resolves `next` against a
+  **fixed one-value allowlist** (`/admin/mobile` exactly), not a general relative-path check, so there is no
+  open-redirect surface at all.
+- **`src/mobile-admin-html.js`** — one self-contained page (own CSS + `<script type="module">`), same
+  pattern as `LOGIN_HTML`/the standalone scheduler page, not a framework. Deliberately uses `data-action` +
+  one delegated click listener instead of inline `onclick="...(esc(x))..."` handlers — that quote-context
+  trap is exactly what shipped stored XSS three separate times in this app (SEC13/SEC14/REV1/SW11), so this
+  surface never has the bug class available to reintroduce.
+- **`src/api-mobile.js`** (`handleMobileApi`, dispatched from `api-admin.js` as `mobile/*`, ahead of the
+  ChMS dispatch block) — small, purpose-built endpoints instead of routing through `handleChmsApi`'s
+  per-item `ACCESS_GATE`: `GET dashboard` (this week's Sunday services + counts, live people total, a
+  follow-ups feed composed from `follow_up_items` + `prayer_requests`), `POST attendance` (upsert by
+  date+time — look up the existing row first, `UPDATE` if found else `INSERT`, so repeat saves from the
+  phone can never double-insert the way the desktop `bulk-sunday` endpoint would if called twice), `POST
+  followups/toggle` (kind-aware: `follow_up_items.completed` flips 0/1; a prayer request's toggle maps
+  open/praying → answered and back), `GET people` / `GET people/:id` (directory search + person detail with
+  a composed address and a Google Maps `search/?api=1&query=` link, matching the design's
+  universal-maps-link approach).
+- **Gated on the real per-role permission matrix**, not a blanket "any staff role" flag — `mobileAllowed()`
+  excludes `member`/`volunteer` outright; within that, attendance and follow-up sections check
+  `canView('attendance')`/`canEditItem('attendance')`/`canView('followups')` off `getRolePermissions()`, so
+  e.g. a `finance` role (attendance/followups both `none` by default) sees the dashboard but with those two
+  cards showing their real access state, not silently full access.
+- `npm test` (1750/1750, 19 new in `test/mobile-admin.test.js` — runs the real handler against real
+  in-memory SQLite); **every new test verified non-vacuous** by injecting the exact regression it guards (3
+  injections: role-gate bypass, the attendance upsert's dedup check removed, the prayer-toggle direction
+  flipped — all 3 caught). Plus `node --check` on all touched files, a div/button/span/a tag-balance scan of
+  the assembled page, and `new Function()` on the extracted `<script type="module">` body to catch the
+  SC3-BUG1-class backtick/backslash escaping bug at the source (none found — exactly 2 backticks in the
+  whole file, both the outer template literal's own delimiters).
+- **Not verified**: a live browser or a real phone — same standing caveat as all frontend work in this repo.
+  DEPLOY_VERSION bumped to 1.200.0.
+- **Deliberately scoped out of this pass, left for follow-up**: the sidebar's Attendance/Giving/Follow
+  Ups/Settings stub entries from the design were replaced with a single "Full App" link to `/` (the real,
+  already mobile-adapted desktop admin — MOB1-4/ATT7/REG-MOB1/2 — rather than four dead placeholders); the
+  `next`-redirect allowlist is intentionally a single fixed value rather than a general mechanism, since
+  nothing else needs one yet.
+  (`tlc-volunteer-worker.js`, `src/api-admin.js`, `src/api-mobile.js`, `src/mobile-admin-html.js`,
+  `src/html-templates.js`, `src/frontend/js-core.js`, `test/mobile-admin.test.js`)
+
 ### CR10 — Ground-up code review: security · load speed · design consistency (2026-08-19, REVIEW ONLY — no code changed)
 Asked for as a slow, careful, whole-codebase pass. **Nothing in this session changed a line of application
 code** — every item below is a note, not a fix. Read at **v1.190.6**, `npm test` **1601/1601 green** (88 files,
