@@ -6,6 +6,13 @@ export const PAGE_MARKET = `<div class="app-page sv-page" id="page-market" hidde
 <p class="sv-hero-body"><em>Selling instead of serving?</em> <a href="https://timothystl.org/christmasmarket/vendors">Apply for a vendor table &rarr;</a></p>
 </div></section>
 <div class="sv-wrap">
+<div class="sv-shell" id="mkt-hold" hidden>
+<div class="sv-section" style="text-align:center;">
+<p class="sv-eyebrow" style="color:var(--sv-honey);">Registrations are on hold</p>
+<h2 class="sv-h2">Sign-ups aren't open right now</h2>
+<p class="sv-sub">Check back soon, or contact the church office if you have questions.</p>
+</div>
+</div>
 <div class="sv-shell" id="sv-mkt-you">
 <div class="sv-section">
 <p class="sv-eyebrow" style="color:var(--sv-honey);">First &mdash; who are you?</p>

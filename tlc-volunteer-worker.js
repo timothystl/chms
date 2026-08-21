@@ -571,8 +571,12 @@ async function _fetch(req, env) {
     // Anything else that looks like a single bare path segment gets checked against
     // serve_events.slug before falling through to the (auth-gated) routes below —
     // this must stay a narrow allowlist-style match, not a general SPA catch-all.
+    // Deliberately not filtered on `hidden` — a hidden event's short link still
+    // resolves, to the same #event-<id> page, which renders a locked
+    // "registrations on hold" state instead of the signup form. Only a
+    // genuinely nonexistent/removed slug falls through to whatever's below.
     if (!isChmsHost && !isLegacyChmsHost && method === 'GET' && /^\/[a-z0-9-]{1,64}$/.test(path)) {
-      const evRow = await env.DB.prepare('SELECT id FROM serve_events WHERE slug=? AND hidden=0').bind(path.slice(1)).first();
+      const evRow = await env.DB.prepare('SELECT id FROM serve_events WHERE slug=?').bind(path.slice(1)).first();
       if (evRow) {
         return new Response(null, { status: 302, headers: { 'Location': '/#event-' + evRow.id, 'Cache-Control': 'no-store' } });
       }

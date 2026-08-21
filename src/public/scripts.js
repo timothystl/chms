@@ -499,8 +499,15 @@ function loadDynamicEvents() {
 }
 
 function renderEventList(container) {
+  // Hidden events still resolve at their own direct link (locked, "registrations
+  // on hold") — they just don't belong in the browsable grid itself.
+  var visible = _eventsData.filter(function(ev) { return !ev.hidden; });
+  if (!visible.length) {
+    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem;">No upcoming events posted yet — check back soon!</p>';
+    return;
+  }
   var html = '<div class="event-volunteer-list">';
-  _eventsData.forEach(function(ev) {
+  visible.forEach(function(ev) {
     var dateHtml = '';
     if (ev.event_date) { var p=ev.event_date.split('-'); var months=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; if(p.length>=2){dateHtml='<div class="ev-card-date"><span class="month">'+months[parseInt(p[1],10)]+'</span><span class="day">'+(p[2]?parseInt(p[2],10):'')+'</span></div>';} }
     // Every event — shift-based or simple — is its own directly-linkable page now
@@ -577,6 +584,15 @@ function formatFullDateLabel(dateStr) {
   return days[d.getDay()]+', '+months[parseInt(p[1],10)]+' '+parseInt(p[2],10);
 }
 
+// Shared "registrations are on hold" lock, shown in place of any signup form
+// for an event marked hidden — used here and by the Christmas Market page.
+function registrationsHoldHtml() {
+  return '<div style="margin:1rem 0;padding:1.5rem;background:var(--cream);border:1px solid var(--border);border-radius:12px;text-align:center;">'
+    + '<h4 style="font-family:Lora,serif;font-size:1.1rem;font-weight:600;color:var(--navy);margin-bottom:.5rem;">Registrations are on hold</h4>'
+    + '<p style="color:var(--text-muted);margin:0;">Sign-ups for this event aren\\u2019t open right now. Check back soon, or contact the church office if you have questions.</p>'
+    + '</div>';
+}
+
 // Renders either event type (shift-based or simple) into the shared event-detail
 // page container. Shift events reuse the existing day-toggle/shift-grid picker
 // (renderEventExpanded); simple events get a compact role checklist.
@@ -584,6 +600,11 @@ function renderEventDetailPage(ev) {
   document.getElementById('event-simple-eyebrow').textContent = formatFullDateLabel(ev.event_date) || 'Community Event';
   document.getElementById('event-simple-title').textContent = ev.name;
   document.getElementById('event-simple-desc').textContent = ev.description || '';
+
+  if (ev.hidden) {
+    document.getElementById('event-simple-body').innerHTML = registrationsHoldHtml();
+    return;
+  }
 
   var bodyHtml;
   if (isTimeSlotted(ev)) {
@@ -1343,6 +1364,18 @@ function svMktLoad() {
   svMktEnsureEvent().then(function(ev) {
     var body = document.getElementById('mkt-mode-body');
     if (!ev) { if (body) body.innerHTML = '<p style="font-family:var(--sv-sans);color:var(--sv-warm-gray);">Christmas Market sign-ups aren’t open yet — check back soon.</p>'; return; }
+    var hold = document.getElementById('mkt-hold');
+    var you = document.getElementById('sv-mkt-you');
+    var shifts = document.getElementById('sv-mkt-shifts');
+    if (ev.hidden) {
+      if (hold) hold.hidden = false;
+      if (you) you.hidden = true;
+      if (shifts) shifts.hidden = true;
+      return;
+    }
+    if (hold) hold.hidden = true;
+    if (you) you.hidden = false;
+    if (shifts) shifts.hidden = false;
     svMktRenderModeToggle();
     svMktRenderModeBody();
     svMktRenderSummary();
