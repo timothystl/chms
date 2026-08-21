@@ -1210,6 +1210,40 @@ async function seedIvanhoePropertyBaseMinimumReserve(db) {
   ]);
 }
 
+// The July 2026 AHRA report. total_expenses_cents = operating + non-operating combined
+// (same convention as every prior row — 973857 − 235308 = 738549, matches Net Income exactly).
+// loan_payment_cents/interest_expense_cents come straight off the GL entries for 7/27/2026
+// (a $3,783.03 LCEF loan payment, $942.03 of it interest) — unlike June's payment, this one
+// postdates the 2026-07-20 confirmed-balance anchor, so it's picked up automatically by the
+// existing mortgage rollforward (finComputeMortgageRemainingCents) with no separate note needed.
+// The reserve row's report_month is '2026-08': this report's own reserve section computes
+// AUGUST's contribution off July's activity, same one-month-ahead convention as June's row.
+async function seedIvanhoePropertyJuly2026(db) {
+  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_2026_07_seeded'").first();
+  if (marker) return;
+  const ops = [];
+  ops.push(db.prepare(
+    `INSERT INTO finance_property_monthly
+       (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,loan_payment_cents,interest_expense_cents,source_report)
+     VALUES ('ivanhoe','2026-07',1.0,973857,235308,738549,833252,658444,1146667,378303,94203,'2026-07 - 3277 Ivanhoe Property Management Report.pdf')
+     ON CONFLICT(property_key,period) DO UPDATE SET
+       occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
+       net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
+       available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
+       loan_payment_cents=excluded.loan_payment_cents, interest_expense_cents=excluded.interest_expense_cents,
+       source_report=excluded.source_report`
+  ));
+  ops.push(db.prepare(
+    `INSERT INTO finance_property_reserves (property_key,reserve_key,report_month,tax_year,target_estimate_cents,reserve_before_cents,contribution_cents,reserve_after_cents,note)
+     VALUES ('ivanhoe','property_tax','2026-08',2026,1140000,585833,110833,696667,?)
+     ON CONFLICT(property_key,reserve_key,report_month) DO NOTHING`
+  ).bind('From the July 2026 report (generated 8/20/2026); its own reserve section computes August’s contribution off July’s activity, same one-month-ahead convention as the June report. 5 months remain until the property tax is due.'));
+  ops.push(db.prepare(
+    `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_2026_07_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ));
+  await db.batch(ops);
+}
+
 // ── Schema fingerprint ───────────────────────────────────────────────────────
 // _doInitDb applies ~220 statements serially, each its own D1 round trip: every CREATE TABLE
 // / CREATE INDEX in DB_INIT, then ~84 ALTER TABLE migrations (each of which *throws*
@@ -1231,7 +1265,8 @@ function _schemaFingerprint() {
   const parts = [
     _doInitDb, seedChmsDefaults, seedEvents, seedIvanhoeProperty,
     seedIvanhoePropertyBaseMinimumReserve, seedIvanhoePropertyJune2026,
-    seedIvanhoePropertyJune2026Notes, seedIvanhoePropertyReservesV2,
+    seedIvanhoePropertyJune2026Notes, seedIvanhoePropertyJuly2026,
+    seedIvanhoePropertyReservesV2,
     seedIvanhoePropertyValuationV3, seedMinistryRolesFromStatic,
     seedStudentTuitionHistory, seedTuitionAid, seedTuitionYearRates,
     // Not a seed, but it runs from _doInitDb and its body decides what gets removed — so an
@@ -1800,6 +1835,7 @@ async function _doInitDb(db) {
   await seedIvanhoePropertyJune2026(db);
   await seedIvanhoePropertyJune2026Notes(db);
   await seedIvanhoePropertyBaseMinimumReserve(db);
+  await seedIvanhoePropertyJuly2026(db);
   await scrubServerManagedSchedulerSecrets(db);
 
   // Recorded LAST, and only on success. If anything above threw, initDb's own catch clears
