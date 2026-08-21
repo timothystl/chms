@@ -56,9 +56,15 @@ export function applyXmasMarketDefaults(evName, roles) {
 }
 
 // ── PUBLIC API: GET /api/events ───────────────────────────────────────
+// Deliberately includes hidden events (with their `hidden` flag intact) rather
+// than filtering them out — a hidden event's short link must still resolve to
+// a real page (locked, "registrations on hold") instead of a dead end. Callers
+// that build the browsable list are responsible for filtering out `hidden`
+// events themselves; a direct/deep link is the one path that should still find
+// one.
 export async function handleApiEvents(env) {
   const events = await env.DB.prepare(
-    'SELECT * FROM serve_events WHERE hidden=0 ORDER BY sort_order,event_date,id'
+    'SELECT * FROM serve_events ORDER BY sort_order,event_date,id'
   ).all();
   const result = [];
   for (const ev of (events.results || [])) {
@@ -279,6 +285,16 @@ export async function handleSignup(req, env) {
   const eventId = data.event_id || 0;
   const roleIds = Array.isArray(data.role_ids) ? data.role_ids : [];
   const requestedLabels = Array.isArray(data.roles) ? data.roles.map(String) : [];
+
+  // Server-side backstop for the "registrations on hold" lock — the public
+  // pages never render a submit control for a hidden event, but this closes
+  // the gap for a direct POST (a stale tab, a replayed request).
+  if (eventId) {
+    const evCheck = await env.DB.prepare('SELECT hidden FROM serve_events WHERE id=?').bind(eventId).first();
+    if (evCheck && evCheck.hidden) {
+      return json({ ok: false, error: 'Registrations for this event are currently on hold.' }, 409);
+    }
+  }
 
   // Someone coming back to pick up an additional shift, or to volunteer in
   // one more way, should see what they already have on file and have the

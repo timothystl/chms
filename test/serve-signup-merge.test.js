@@ -7,6 +7,15 @@ import { handleSignup } from '../src/api-scheduler.js';
 // real SQL, not a hand-rolled mock.
 function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
+  sqlite.exec(`CREATE TABLE serve_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    hidden INTEGER NOT NULL DEFAULT 0
+  )`);
+  // Every test in this file signs up against event_id=1 — seed it open (not hidden)
+  // so the hidden-event lock (see test/serve-event-hidden-lock.test.js) doesn't
+  // interfere with what this file is actually testing.
+  sqlite.exec(`INSERT INTO serve_events (id, name, hidden) VALUES (1, 'Test Event', 0)`);
   sqlite.exec(`CREATE TABLE serve_roles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id INTEGER NOT NULL,

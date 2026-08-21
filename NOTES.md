@@ -24,6 +24,36 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.197.0 — A hidden event's short link locks instead of dead-ending (2026-08-21)
+
+Reported: visiting a hidden event's short link (e.g. `/christmasmarket` while the event is
+hidden) showed a raw `{"error":"Unauthorized"}` JSON page. Root cause: the short-link route in
+`tlc-volunteer-worker.js` only redirected to `/#event-<id>` for a NON-hidden event (`AND
+hidden=0` on the slug lookup); for a hidden one the lookup came back empty, the request fell all
+the way through to the scheduler's auth-gated block further down (built for staff/admin routes,
+"authentication is not authorization" per SEC11/SEC12), and a public visitor with no cookie hit
+its blanket 401 — a dead end that looks like a real error, not an unpublished event.
+
+Asked for: instead of the error, lock entries and show "registrations are on hold." Fixed at
+three points, not just the redirect: (1) the short-link lookup no longer filters on `hidden`, so
+it always redirects to the event's real page; (2) `GET /api/events` now returns hidden events too
+(with their `hidden` flag intact) instead of omitting them — a direct/deep link needs to be able
+to find one, even though the browsable grid (`renderEventList`) filters them back out client-side
+so they stay unlisted; (3) the event detail page and the Christmas Market page both render a
+"Registrations are on hold" notice with no form controls at all when `ev.hidden` is set, instead
+of the normal signup UI. **Server-side backstop, not just a UI lock**: `handleSignup` now checks
+the target event's `hidden` flag itself and 409s with "Registrations for this event are currently
+on hold" — closes the gap for a stale tab or a replayed POST that bypasses the locked page
+entirely.
+
+`npm test` (1717/1717, 4 new in `test/serve-event-hidden-lock.test.js`); verified non-vacuous by
+confirming the pre-fix `/api/events` `WHERE hidden=0` filter and the missing `handleSignup` guard
+both fail the new tests. `node --check` on the extracted `PUBLIC_HTML` `<script>` block (this
+module is a non-`String.raw` template literal — new unicode-escape copy double-backslash-escaped
+to match the file's existing convention) and on `api-scheduler.js`/`tlc-volunteer-worker.js`. Not
+verified: a live browser. (`tlc-volunteer-worker.js`, `src/api-scheduler.js`,
+`src/public/scripts.js`, `src/public/market.js`, `test/serve-event-hidden-lock.test.js`)
+
 ### v1.196.0 — Four dead credentials out of the login path (2026-08-19)
 
 P22-G, retiring **SEC22**. `handleAdminLogin` pulled `FINANCE_PASSWORD`, `STAFF_PASSWORD`,
