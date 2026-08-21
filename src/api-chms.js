@@ -13,7 +13,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   const db = env.DB;
 
   // ── Role-based access control ────────────────────────────────────
-  // Roles: admin | finance | staff | council | member
+  // Roles: admin | finance | staff | council | member | volunteer
   //   admin   — always full access, not configurable (can never be locked out)
   //   finance | staff | council — every feature item below is admin-configurable per role
   //             (Settings → Role Permissions). See api-utils.js for the defaults.
@@ -21,6 +21,9 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   //             the Reports tab, and giving only at the 'anon' level — totals, never donors.
   //   member  — GET people filtered to member_type='member' only; a structurally different
   //             read-only view, not part of the configurable matrix
+  //   volunteer — read-only access to the public Volunteers admin screen only (Signups /
+  //             Ministry Roles / Events / Templates, all in api-admin.js); denied outright
+  //             everywhere in this file. Not part of the configurable matrix either.
   const isAdmin = role === 'admin';
   const perms = await getRolePermissions(db);
   const rolePerms = permissionsForRole(perms, role);
@@ -97,6 +100,16 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   }
   // Dev board — admin only
   if (seg === 'board' && !isAdmin) {
+    return json({ error: 'Access denied' }, 403);
+  }
+  // Volunteer role — a narrow, read-only tester/manager account for the public sign-up flow.
+  // Its entire real surface (Signups / Ministry Roles / Events / Templates) lives in
+  // api-admin.js, reachable before this function is ever called for it — those GET routes are
+  // already open to any authenticated role, and their writes already require admin/staff. This
+  // file (People/Households/Giving/Reports/etc.) has nothing for it, so it's denied outright
+  // rather than reusing the member tier's careful per-row redaction, which this role doesn't
+  // need and shouldn't inherit by accident.
+  if (role === 'volunteer') {
     return json({ error: 'Access denied' }, 403);
   }
   // Member role — GET the filtered people directory + tags + member-types, plus the general

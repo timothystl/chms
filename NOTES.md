@@ -24,6 +24,50 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.198.0 — New "volunteer" role: read-only access to the Volunteers screen only (2026-08-21)
+
+Requested to let someone test the Christmas Market public sign-up flow and then check, inside
+Connect, that their test registration actually landed — without handing them a full staff
+account. New role `volunteer`, structurally separate from the configurable
+finance/staff/council/member matrix (like member's directory view, not an item in it): it sees
+**only** the Volunteers sidebar item (Signups / Ministry Roles / Events / Templates), read-only.
+
+**Backend, three small changes, no schema/migration needed** (`app_users.role` has no CHECK
+constraint — any string is accepted): (1) `api-chms.js` denies the role outright at the top of
+`handleChmsApi` — People/Households/Giving/Reports/etc. have nothing for it, so it gets a clean
+403 rather than inheriting the member tier's redaction logic it doesn't need; (2) `api-admin.js`'s
+user create/update now accepts `role=volunteer` (`VALID_APP_ROLES`, deduped from two copies into
+one shared constant — the FIN58-class two-copies-drift bug this codebase's own history warns
+about); (3) the `/me` `roleLabels` map gained `volunteer` (plus the pre-existing `council` gap —
+DSN8 — fixed alongside it, since it's the same line). **Nothing else needed changing**: `GET
+/admin/api/{events,signups,ministry-roles,volunteer-templates}` were already open to any
+authenticated role (only their writes are admin/staff-gated), and the worker's scheduler-privileged
+gate (`/email/send`, the Breeze proxy, RSVP store, etc. — SEC11/SEC12) already excludes any role
+that isn't admin or staff, so `volunteer` is correctly denied there with zero changes.
+
+**Frontend**: sidebar CSS hides every `.s-item`/`.s-section-hdr` for `role-volunteer` by default
+(fail closed, so a sidebar item added later stays hidden until someone deliberately shows it) and
+shows back only the Volunteers item; `showTab()` redirects any other tab request to `volunteers`
+(same pattern as the existing member→people redirect) and the `volunteers` tab's own admin-only
+gate now also admits this role; default landing tab is `volunteers`; `loadFunds()` is skipped for
+it (guaranteed 403, same as member). Settings → Users gained `volunteer` in the role dropdown and
+color map.
+
+**⚠ Deliberately left as a known limitation, not fixed**: the Volunteers tab's write controls
+(status dropdown, Delete, Link to Person, Send Email, Add/Edit modals) are not hidden for this
+role — they'll render and then 403 on click, with the existing error handling. Scoped this way
+because hiding them would mean auditing and touching `js-volunteers.js`'s render functions
+throughout, disproportionate to "give someone a read-only test account" — worth doing as a
+follow-up if this becomes a standing role rather than a temporary one.
+
+`npm test` (1731/1731, 14 new in `test/volunteer-role.test.js`, driving the real
+`handleAdminApi`/`handleChmsApi` against real in-memory SQLite with a real HMAC-signed cookie);
+**every new test verified non-vacuous** by reverting the `api-chms.js` deny block and confirming
+the two tests that pin it fail correctly. `node --check` on all three assembled app-JS bundles
+(`app-member.js`/`app-staff.js`/`app-ext.js`) and a div-balance scan of the assembled shell. **Not
+verified**: a live browser. (`src/api-chms.js`, `src/api-admin.js`, `src/frontend/js-core.js`,
+`src/frontend/html-head.js`, `src/frontend/js-settings.js`, `test/volunteer-role.test.js`)
+
 ### v1.197.0 — A hidden event's short link locks instead of dead-ending (2026-08-21)
 
 Reported: visiting a hidden event's short link (e.g. `/christmasmarket` while the event is

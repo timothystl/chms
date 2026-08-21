@@ -1462,6 +1462,8 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 /* .require-edit     = visible for admin + finance + staff + council (not member) -- fixed, not configurable */
 /* .require-admin    = admin only -- fixed, not configurable */
 /* .no-member        = hidden for member role */
+/* role-volunteer    = a structurally separate tier, like member -- sees ONLY the Volunteers
+   sidebar item (see the .role-volunteer rules further down), read-only. */
 .role-member .require-finance{display:none!important;}
 .role-member .require-tuitionaid{display:none!important;}
 .role-member .require-financeov{display:none!important;}
@@ -1490,6 +1492,14 @@ body.perm-edit-register .require-edit-register{display:inline-block!important;}
    markup present at load; this rule covers anything rendered afterwards. */
 body.perm-giving-anon .require-giving-named{display:none!important;}
 .role-member  .require-admin{display:none!important;}
+/* Volunteer tier: read-only access to the Volunteers screen only, nothing else in the
+   sidebar — the opposite shape of member (which sees the directory and nothing else). Hide
+   every sidebar item and section header by default (fail closed, so a sidebar item added
+   later is hidden for this role until someone deliberately shows it), then show back exactly
+   the one item this role has a real, server-authorized surface for. */
+.role-volunteer .s-item{display:none!important;}
+.role-volunteer .s-section-hdr{display:none!important;}
+.role-volunteer .s-item[data-tab="volunteers"]{display:flex!important;}
 /* ── PRINT ── */
 @media print{
   .sidebar,.topbar,.toolbar,.modal-overlay,#offline-banner{display:none!important;}
