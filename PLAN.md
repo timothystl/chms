@@ -24,7 +24,8 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**38 items open** (P22-E closed 2026-08-22 — see below). Take the next unchecked row. Detail for every code is in its phase section further down.
+**36 items open** (P22-E, P24-C and P26-A all closed 2026-08-22 — see below). Take the next
+unchecked row. Detail for every code is in its phase section further down.
 
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
@@ -41,8 +42,8 @@ Highest payoff per line changed in the whole plan. Two of these are user-reporte
 
 | # | Code | Size | What |
 |---|---|---|---|
-| 3 | **P24-C** | ~2 lines | A `council` account with no display name shows **"Unknown"** in the topbar, and the write-refusal still says "office". COUNCIL1 leftovers. |
-| 4 | **P26-A** | small | Nine CSS custom properties undefined in the embedded Scheduler — 98 dead declarations on real buttons and alerts. **⚠ Filed under design consolidation and it is not cleanup, it is a visible bug.** |
+| 3 | ~~**P24-C**~~ | ~2 lines | DONE 2026-08-22. Council display-name label was already fixed by an earlier session; the write-refusal string in `api-chms.js` still said "office" — now says "council". |
+| 4 | ~~**P26-A**~~ | small | DONE 2026-08-22. Nine CSS custom properties are now declared, with a build-time assertion added so a future one can't go undefined the same way. |
 | 5 | **P24-A** + **P25-D** | **large — see note** | `api()` resolves instead of rejecting on a server error whenever `opts` is passed, so **54 write call sites report success on failure**. This is the mechanism behind the SAC1/SAC3 "Save failed with no reason" reports. |
 | 6 | **P24-B** | medium | Dashboard: ~11 serial D1 round-trips, and two staff opening it the same Monday both seed the weekly tasks and leave ten. |
 
@@ -284,9 +285,12 @@ user-visible payoff per line changed in the whole plan.
   `db.batch()`. **⚠ Add a unique constraint on `engagement_tasks(title, week_key)` or seed with
   `INSERT … WHERE NOT EXISTS`** — two staff opening the dashboard the same Monday morning currently both
   seed and leave ten tasks.
-- [ ] **P24-C** (retires **DSN8**) — Add `council` to `roleLabels` in `api-admin.js` (a council account with
-  no `display_name` currently reads "Unknown"), and fix the write-refusal string in `api-chms.js` that still
-  says "office". COUNCIL1 leftovers.
+- [x] **P24-C** — DONE 2026-08-22, retires **DSN8**. `council` was already added to `roleLabels` in
+  `api-admin.js` by an earlier session (found already fixed, with a comment naming DSN8). The other
+  half — `api-chms.js`'s write-refusal string still saying "editing requires staff, office, or finance
+  access" — was still there; changed to "council". `npm test` passing, 2 new tests in
+  `test/role-labels-council.test.js`, verified non-vacuous by reverting the fix. (`src/api-chms.js`,
+  `test/role-labels-council.test.js`)
 
 **Done when:** a forced 500 on a save shows the server's own message; the dashboard's D1 round-trip count is
 measured and recorded; a council user sees their role name.
@@ -336,13 +340,18 @@ the old ones in this file.
 **Goal:** what RD1/RD2/RD4 asked for in 2026-07, restated with measurements. **P26-A is a visible bug, not
 cleanup — do not let it wait for the redesign.**
 
-- [ ] **P26-A** (retires **DSN1**) — Nine CSS custom properties are undefined in the embedded Scheduler once
-  `_scopeCss()` strips its `:root`: `--on-pale-gold` 18x · `--soft-sage` 14x · `--honey` 14x ·
-  `--on-pale-sage` 12x · `--error-bg` 11x · `--on-error-bg` 10x · `--error-border` 10x · `--danger-btn` 8x ·
-  `--danger-hover` 1x — 98 declarations on `.btn-danger`, `.alert-danger`, `.tag-service`, `.tag-role`,
-  `td.svc-1045`, `.blackout-chip`, `.dot-err`. Define them in `html-head.js`, **and add a build-time
-  assertion that every `var()` the embed uses resolves**, or the next token added to the scheduler repeats it.
-  RD3 made the embed the only Scheduler, which is what turned this silent.
+- [x] **P26-A** — DONE 2026-08-22, retires **DSN1**. The nine tokens (`--honey`, `--soft-sage`,
+  `--on-pale-gold`, `--on-pale-sage`, `--error-bg`, `--on-error-bg`, `--error-border`,
+  `--danger-btn`, `--danger-hover`) are now declared in `html-head.js`'s main `:root`, with the
+  exact values `scheduler-html.js`'s own (now-stripped-on-embed) `:root` used — no visual change,
+  just the values now actually resolve. Also built the requested **build-time assertion**:
+  `test/scheduler-css-vars.test.js` extracts the real embedded Scheduler CSS (via
+  `getSchedulerInlineParts()`, the same transform the app serves), collects every no-fallback
+  `var(--x)` it uses, and asserts each one resolves against the app shell's declared tokens — so
+  the next token added to the Scheduler that isn't also declared in `html-head.js` fails CI
+  instead of going silent. `npm test` 1781/1781, 2 new tests; both verified non-vacuous by
+  reverting the token fix and confirming they fail. (`src/frontend/html-head.js`,
+  `test/scheduler-css-vars.test.js`)
 - [ ] **P26-B** (retires **PAL5**, **DSN3**, **RD4**) — Continue PAL7's exact-match hex substitution. 423 hex
   literals, 171 distinct; the two most common are `#2E7EA6` (36x) and `#C9973A` (33x), which are
   `--color-teal` and `--color-gold` written longhand. **⚠ Keep PAL7's two rules**: never substitute a hex

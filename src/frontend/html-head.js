@@ -75,6 +75,15 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
   --ice-blue:#C4DDE8;--blue-mist:#EAF4FA;--amber:#C9973A;--deep-amber:#A87B23;
   --pale-gold:#F5E0B0;--sage:#6B8F71;--pale-sage:#CDE0CF;--warm-white:#FAF9F6;
   --linen:#F1EFE9;--white:#FFFFFF;--border:#E8E0D0;--charcoal:#1A1A2A;--warm-gray:#8A8377;
+  /* P26-A / DSN1: nine tokens the embedded Scheduler's own :root declared but
+     _scopeCss() strips on embed (the comment there says "ChMS already declares
+     the same CSS custom properties" — true for 19 of the Scheduler's tokens,
+     false for these nine). Values copied verbatim from scheduler-html.js's own
+     :root so nothing visually changes; defined here so they resolve once the
+     Scheduler's own declaration is gone. See test/scheduler-css-vars.test.js. */
+  --honey:#E8C070;--soft-sage:#9AB89E;--on-pale-gold:#5a3a00;--on-pale-sage:#1a3d1f;
+  --on-error-bg:#7a1f1f;--error-bg:#FAEAEA;--error-border:#D4726A;
+  --danger-btn:#B85C3A;--danger-hover:#A04A2A;
   --font-display:'Cormorant Garamond',Georgia,serif;
   --font-head:'DM Sans','Source Sans 3',Arial,sans-serif;
   --font-body:'DM Sans','Source Sans 3',Arial,sans-serif;
