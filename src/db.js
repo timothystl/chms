@@ -1770,8 +1770,23 @@ async function _doInitDb(db) {
     "ALTER TABLE giving_entries ADD COLUMN reconcile_status TEXT NOT NULL DEFAULT 'recorded'",
     `CREATE INDEX IF NOT EXISTS idx_entries_deposit ON giving_entries(deposit_id)`,
   ];
+  // Every statement here is either an idempotent CREATE ... IF NOT EXISTS, or an ALTER TABLE
+  // ADD COLUMN — SQLite has no "ADD COLUMN IF NOT EXISTS", so a re-run always throws "duplicate
+  // column name" on a column already added by a prior deploy. That specific error is expected
+  // and swallowed on purpose. Anything else (a typo, a bad table/column reference, a genuine
+  // storage failure) is NOT a re-run artifact — it means a column or index this session depends
+  // on may be silently missing, and this runs on every request (see initDb), so it can't throw
+  // without taking the whole app down on a false positive. Instead it's logged so it's visible
+  // in Cloudflare's Worker logs rather than disappearing into an empty catch.
   for (const m of migrations) {
-    try { await db.prepare(m).run(); } catch(e) { /* column already exists */ }
+    try {
+      await db.prepare(m).run();
+    } catch (e) {
+      const msg = String((e && e.message) || e || '');
+      if (!/duplicate column name|already exists/i.test(msg)) {
+        console.error('[migration] unexpected error, statement may not have applied:', m, msg);
+      }
+    }
   }
   // Normalize member_type to lowercase so frontend comparisons are consistent
   await db.prepare("UPDATE people SET member_type=LOWER(member_type) WHERE member_type != LOWER(member_type)").run().catch(() => {});

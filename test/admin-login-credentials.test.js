@@ -123,4 +123,14 @@ describe('admin login — no new env credential creeps back in', () => {
       expect(source).not.toMatch(new RegExp('env\\.' + name));
     }
   });
+
+  // SEC21(a-ii) / P22-F. The break-glass compare used a plain `submittedPass === adminPassword`
+  // — the one credential in this function compared non-constant-time, while the DB path
+  // (verifyPassword) and the two shared-secret checks elsewhere in the app (timingSafeEqual)
+  // both compare constant-time. A `===` here leaks a byte-by-byte timing signal on the one
+  // credential whose compromise also forges every session cookie (it's the HMAC signing key).
+  it('compares the break-glass password with timingSafeEqual, not ===', () => {
+    expect(body).toMatch(/timingSafeEqual\(submittedPass,\s*adminPassword\)/);
+    expect(body).not.toMatch(/submittedPass\s*===\s*adminPassword/);
+  });
 });

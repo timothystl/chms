@@ -31,7 +31,7 @@ shipped commit reference them. Only the ORDER below is re-decided.
 | # | Code | Size | What |
 |---|---|---|---|
 | 1 | **P22-E** | small | Login rate limiting, intake rate limiting and QuickBooks OAuth `state` all fail **open** with no `RSVP_STORE`. Make them refuse. |
-| 2 | **P22-F** | small ×5 | Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. **⚠ Re-read the code first — commit `c7c1c3a` already shipped two of the original seven.** |
+| 2 | ~~**P22-F**~~ | small ×5 | DONE 2026-08-22. Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. |
 
 ### Tier 2 — Things that are wrong on screen right now
 
@@ -191,26 +191,34 @@ v1.191.0. **Not verified**: a live browser, a real sent email, or production D1.
 - [ ] **P22-E** (retires **SEC20**) — Fail closed, not open, when `RSVP_STORE` is absent: login rate limiting,
   intake rate limiting, and QuickBooks OAuth `state` validation. A missing binding should refuse, not wave
   through.
-- [ ] **P22-F** (retires **SEC21**; **CR7 is fully closed** — a parallel session shipped its (a) and (b),
-  and its own entry is already marked `[x]`) — **⚠ PARTLY DONE ALREADY, commit `c7c1c3a` (2026-08-19).
-  Re-read the code before starting or you will redo two of these.** What shipped there: the constant-time
-  compare for **`X-Intake-Key`** (new `timingSafeEqual()` in `auth.js` — SHA-256 both sides first, so
-  neither length nor position leaks — wired into `api-intake.js` and the Christmas Market summary route),
-  and the narrowed `OPTIONS` handler (`isSchedCorsPath()`, an explicit allowlist; their harness caught a
-  first pass wrongly including `/api/intake/funds`). **Still open, each verified against the code
-  2026-08-19:**
-  (a-ii) the **break-glass password** is still `submittedPass === adminPassword` (`api-admin.js:184`).
-  **⚠ A different credential from `X-Intake-Key`** — and the one whose compromise also forges every
-  session cookie, since it is the HMAC key (SEC15). `timingSafeEqual` already exists, so this is a
-  one-line call-site change;
-  (b) login rate limiting still uses a **fixed** window key (`Math.floor(Date.now()/WINDOW_MS)`), so 10
-  attempts at the end of one bucket plus 10 at the start of the next gives 20 back to back;
-  (c) validate the `X-Breeze-Subdomain` fallback against `/^[a-z0-9-]+$/` — inert while `BREEZE_SUBDOMAIN`
-  is set, but a latent SSRF that would carry the Breeze key to an attacker-chosen host;
-  (d) `/admin/photo-proxy` still checks the hostname and not the scheme, despite its own comment saying
-  "Only proxy HTTPS URLs";
-  (e) skip `refreshAuthCookie` on the versioned asset routes so `Set-Cookie` stops riding a
-  `public, immutable` response.
+- [x] **P22-F** — DONE 2026-08-22, retires **SEC21** (all five remaining sub-items; (a-i)/(b) of the
+  original seven had already shipped in commit `c7c1c3a`, per the note this replaces). Prompted by an
+  independent external code review landing the same findings. All five verified non-vacuous (each
+  test fails against the pre-fix code, confirmed by stashing the fix and re-running):
+  (a-ii) break-glass password compare switched from `submittedPass === adminPassword` to
+  `timingSafeEqual(submittedPass, adminPassword)` (`api-admin.js`) — `timingSafeEqual` already
+  existed for `X-Intake-Key`; this was the one credential in the login path still comparing
+  non-constant-time, and the one whose compromise also forges every session cookie (SEC15/P23-A);
+  (b) login rate limiting's KV key dropped its `:${Math.floor(Date.now()/WINDOW_MS)}` bucket suffix —
+  it's per-IP only now, and every failed attempt re-arms a fresh 20-minute TTL, so the window only
+  resets after 15+ minutes of no attempts at all rather than at a fixed wall-clock boundary an
+  attacker could straddle (10 attempts + 10 attempts, no wait, at the old bucket edge);
+  (c) the `X-Breeze-Subdomain` header fallback in `handleSchedBreezeProxy` (`api-scheduler.js`) is now
+  checked against `/^[a-z0-9-]+$/` before being interpolated into the upstream hostname — refuses with
+  400 rather than carrying `BREEZE_API_KEY` to an attacker-chosen host the moment `BREEZE_SUBDOMAIN`
+  is ever unset;
+  (d) `/admin/photo-proxy` (`tlc-volunteer-worker.js`) now checks `parsed.protocol === 'https:'`
+  before the existing Breeze-hostname allowlist, matching its own pre-existing comment;
+  (e) `refreshAuthCookie` (`src/auth.js`) now skips wrapping any response whose `Cache-Control`
+  contains both `public` and `immutable` — the four versioned asset routes stop carrying a
+  `Set-Cookie` at all, which also lets Cloudflare's edge actually cache them (a `Set-Cookie` response
+  is never edge-cached, silently defeating the `immutable` intent it rode alongside).
+  `npm test`: 1777/1777 (was 1771; 6 net new tests — `test/photo-proxy-https.test.js`,
+  `test/breeze-proxy-subdomain-validation.test.js`, `test/login-rate-limit-sliding.test.js`,
+  `test/versioned-asset-no-cookie.test.js`, plus one added to `test/admin-login-credentials.test.js`
+  and one unrelated migration-visibility test from the same pass — see below). `node --check` on every
+  touched file. **Not verified**: a live browser, a real Cloudflare edge cache, or a real attempted
+  SSRF/timing attack — same standing caveat as every backend change in this repo's history.
 - [x] **P22-G** — DONE 2026-08-19 (v1.196.0), retires **SEC22**. Deleted, with a comment in their
   place saying why a role-password env var must not come back (an authentication path with no
   account behind it — nothing to deactivate, nothing to audit, no way to tell whose login it was).
