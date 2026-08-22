@@ -179,6 +179,14 @@ export async function refreshAuthCookie(response, authInfo, env) {
   if (!authInfo || !response) return response;
   const existing = response.headers.get('Set-Cookie') || '';
   if (existing.includes('vol_auth=')) return response;
+  // Every versioned asset route (app-core.js/app-ext.js/app.css/scheduler-embed.*) answers
+  // `Cache-Control: public, max-age=31536000, immutable` so Cloudflare's edge can cache it —
+  // but a response carrying Set-Cookie is never edge-cached at all, silently defeating that,
+  // and it puts a session cookie on a response any intermediate cache is invited to store.
+  // A public/immutable response never needs the idle-timeout cookie refresh anyway (its own
+  // request already carried a fresh cookie in, if any) — skip the wrapper entirely for these.
+  const cacheControl = response.headers.get('Cache-Control') || '';
+  if (/\bpublic\b/.test(cacheControl) && /\bimmutable\b/.test(cacheControl)) return response;
   const newCookie = await authCookieHeader(env, authInfo.role, authInfo.username);
   const headers = new Headers(response.headers);
   headers.append('Set-Cookie', newCookie);

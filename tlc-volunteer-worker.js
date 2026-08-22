@@ -558,6 +558,9 @@ async function _fetch(req, env) {
       // Only proxy HTTPS URLs from known Breeze domains
       let parsed;
       try { parsed = new URL(photoUrl); } catch { return json({ error: 'Invalid URL' }, 400); }
+      if (parsed.protocol !== 'https:') {
+        return json({ error: 'Only HTTPS URLs may be proxied' }, 403);
+      }
       if (!parsed.hostname.endsWith('.breezechms.com') && parsed.hostname !== 'breezechms.com') {
         return json({ error: 'Only Breeze photo URLs may be proxied' }, 403);
       }
