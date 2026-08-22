@@ -23,7 +23,9 @@ async function findPersonByEmail(db, email) {
 // Per-IP rate limit for intake endpoints. Anti-spam guard since the only
 // authentication is a shared X-Intake-Key from the website worker.
 async function intakeRateLimitOk(env, req, path) {
-  if (!env.RSVP_STORE) return true; // KV not available; skip
+  // P22-E: fail CLOSED when the KV binding is missing — an unlimited, unauthenticated
+  // public-facing intake endpoint with no rate limit at all is worse than a 429.
+  if (!env.RSVP_STORE) return false;
   const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'unknown';
   const bucket = path.replace('/api/intake/', '');
   const key = `intake_rl:${bucket}:${ip}`;

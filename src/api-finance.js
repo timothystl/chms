@@ -2776,9 +2776,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/qb/connect' && method === 'GET') {
     if (!isAdmin) return json({ error: 'Access denied: connecting QuickBooks requires admin access' }, 403);
     if (!qboConfigured(env)) return json({ error: 'QuickBooks is not configured. An admin must add QB_CLIENT_ID and QB_CLIENT_SECRET (see SECRETS.md).' }, 503);
+    // P22-E: fail CLOSED, not open, when the KV binding backing CSRF-state validation is
+    // missing — a state param that's minted but never checked on the way back is no
+    // protection at all, so refuse to start the flow rather than silently skip the check.
+    if (!env.RSVP_STORE) return json({ error: 'QuickBooks connect is temporarily unavailable (state store not configured)' }, 503);
     const redirectUri = new URL(CALLBACK_PATH, url.origin).toString();
     const state = crypto.randomUUID();
-    if (env.RSVP_STORE) await env.RSVP_STORE.put(`qb_oauth_state:${state}`, '1', { expirationTtl: 600 });
+    await env.RSVP_STORE.put(`qb_oauth_state:${state}`, '1', { expirationTtl: 600 });
     return new Response(null, { status: 302, headers: { Location: await getAuthorizeUrl(env, redirectUri, state) } });
   }
 
@@ -2791,7 +2795,8 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const oauthError = url.searchParams.get('error');
     if (oauthError) return redirectToApp(url, 'qb_error', oauthError);
     if (!code || !realmId || !state) return redirectToApp(url, 'qb_error', 'missing_params');
-    if (env.RSVP_STORE) {
+    if (!env.RSVP_STORE) return redirectToApp(url, 'qb_error', 'state_store_unavailable');
+    {
       const stateOk = await env.RSVP_STORE.get(`qb_oauth_state:${state}`);
       if (!stateOk) return redirectToApp(url, 'qb_error', 'invalid_or_expired_state');
       await env.RSVP_STORE.delete(`qb_oauth_state:${state}`);
