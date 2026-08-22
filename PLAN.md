@@ -24,13 +24,15 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**39 items open.** Take the next unchecked row. Detail for every code is in its phase section further down.
+**38 items open** (P24-C closed 2026-08-22 — see below; P22-E closed the same day on a separate
+branch not yet merged here). Take the next unchecked row. Detail for every code is in its phase
+section further down.
 
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
 | # | Code | Size | What |
 |---|---|---|---|
-| 1 | **P22-E** | small | Login rate limiting, intake rate limiting and QuickBooks OAuth `state` all fail **open** with no `RSVP_STORE`. Make them refuse. |
+| 1 | ~~**P22-E**~~ | small | DONE 2026-08-22 on a separate branch (PR #765, not yet merged into this checkout). Login rate limiting, intake rate limiting and QuickBooks OAuth `state` now fail closed, not open, with no `RSVP_STORE`. |
 | 2 | ~~**P22-F**~~ | small ×5 | DONE 2026-08-22. Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. |
 
 ### Tier 2 — Things that are wrong on screen right now
@@ -39,7 +41,7 @@ Highest payoff per line changed in the whole plan. Two of these are user-reporte
 
 | # | Code | Size | What |
 |---|---|---|---|
-| 3 | **P24-C** | ~2 lines | A `council` account with no display name shows **"Unknown"** in the topbar, and the write-refusal still says "office". COUNCIL1 leftovers. |
+| 3 | ~~**P24-C**~~ | ~2 lines | DONE 2026-08-22. Council display-name label was already fixed by an earlier session; the write-refusal string in `api-chms.js` still said "office" — now says "council". |
 | 4 | **P26-A** | small | Nine CSS custom properties undefined in the embedded Scheduler — 98 dead declarations on real buttons and alerts. **⚠ Filed under design consolidation and it is not cleanup, it is a visible bug.** |
 | 5 | **P24-A** + **P25-D** | **large — see note** | `api()` resolves instead of rejecting on a server error whenever `opts` is passed, so **54 write call sites report success on failure**. This is the mechanism behind the SAC1/SAC3 "Save failed with no reason" reports. |
 | 6 | **P24-B** | medium | Dashboard: ~11 serial D1 round-trips, and two staff opening it the same Monday both seed the weekly tasks and leave ten. |
@@ -270,9 +272,16 @@ user-visible payoff per line changed in the whole plan.
   `db.batch()`. **⚠ Add a unique constraint on `engagement_tasks(title, week_key)` or seed with
   `INSERT … WHERE NOT EXISTS`** — two staff opening the dashboard the same Monday morning currently both
   seed and leave ten tasks.
-- [ ] **P24-C** (retires **DSN8**) — Add `council` to `roleLabels` in `api-admin.js` (a council account with
-  no `display_name` currently reads "Unknown"), and fix the write-refusal string in `api-chms.js` that still
-  says "office". COUNCIL1 leftovers.
+- [x] **P24-C** — DONE 2026-08-22, retires **DSN8**. `council` was already added to `roleLabels` in
+  `api-admin.js` by an earlier session (found already fixed, with a comment naming DSN8). The other
+  half — `api-chms.js`'s write-refusal string still saying "editing requires staff, office, or finance
+  access" — was still there; changed to "council". `npm test` 1779/1779, 2 new tests in
+  `test/role-labels-council.test.js`, verified non-vacuous by reverting the fix (fails as expected).
+  **Note**: the message only fires for a role string outside the six known ones (admin/finance/staff/
+  council/member/volunteer) — every real non-member/non-volunteer role already has `canEdit=true` — so
+  this is a defense-in-depth string, not a reachable one for a normal account; still worth being
+  correct since a stale rename here is exactly how it sat unnoticed the first time. (`src/api-chms.js`,
+  `test/role-labels-council.test.js`)
 
 **Done when:** a forced 500 on a save shows the server's own message; the dashboard's D1 round-trip count is
 measured and recorded; a council user sees their role name.

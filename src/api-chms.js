@@ -137,7 +137,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       (seg.startsWith('people') || seg.startsWith('households') || seg.startsWith('tags') ||
        seg.startsWith('attendance') || seg.startsWith('register') || seg.startsWith('funds') ||
        seg.startsWith('organizations'))) {
-    return json({ error: 'Access denied: editing requires staff, office, or finance access' }, 403);
+    return json({ error: 'Access denied: editing requires staff, council, or finance access' }, 403);
   }
 
   // ── Dashboard ────────────────────────────────────────────────────
