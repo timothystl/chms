@@ -504,6 +504,115 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### CR11 — Second independent whole-codebase review: speed, security, functional (2026-08-22, REVIEW ONLY — no code changed)
+**⚠ Two of this entry's findings were closed by a separate same-day session — see the "External code
+review, 2026-08-22" entry right below this one.** P22-F (item 2 in Tier 1 below) is now fully closed,
+and the migration-silent-error-swallowing item (listed below as "genuinely new") was fixed the same
+day — the catch now only swallows `duplicate column name|already exists` and logs everything else via
+`console.error`. Left this entry's original text unedited below for the record of what this review
+found independently; treat the other entry as the current state of those two items.
+
+An outside review pass (not run from this session — read and reconciled against the current tree at
+v1.201.0, `main` clean, matching `origin/main`). Two takeaways up front: **most of what it flags is
+already tracked** — either shipped (P21 security fixes, MOB4, BRAND6, COUNCIL1) or already sitting in
+`PLAN.md`'s open queue under a different name. Where that's true this entry just cross-references the
+existing code rather than re-describing it. A handful of findings are **genuinely new** and are called
+out as such below — those should get their own `P##-X` codes in `PLAN.md` when picked up. **Nothing
+here was verified by running the app or the test suite in this session** (no live browser, and `npm
+test` wasn't re-run) — this is a documentation reconciliation pass, same posture as CR10.
+
+**Highest-impact speed issues, in the order given — all of these duplicate an existing tracked item:**
+
+1. `initDb()` runs before routing, even for static assets (icons/CSS/JS) → **exactly LOAD7**, already
+   queued as **P25-B** ("hoist the pure asset routes above `await initDb(env.DB)` — none touch D1").
+2. `app-ext.js` (~1.27 MB, Finance ~696 KB of it) ships to every non-member role regardless of
+   permission → **exactly LOAD2**, queued (no `P##` code assigned yet in the visible plan excerpt —
+   confirm placement when this is picked up).
+3. The `no-store` shell is ~194 KB, mostly tab markup for tabs a given role may never open →
+   **exactly LOAD3 / CR9a**, already queued.
+4. `serve.timothystl.org` (`PUBLIC_HTML`) is ~204 KB, fully inline, no cache header → **exactly
+   LOAD6**, already queued.
+5. Render-blocking Google Fonts, three families, no `preconnect` on the authenticated shell →
+   **exactly LOAD5 / AU2**, already queued (AU2 also flags this was scoped to the login page only and
+   needed widening to the whole app — LOAD5 already did that widening).
+6. Icons/TinyMCE/some images proxied live from `raw.githubusercontent.com` at request time → **new,
+   not previously tracked as a speed item.** BRAND1/BRAND6 already documented and partly fixed the
+   *staleness* half of this (branch-deploy mismatch, cache-busting via `?v=`), but the *dependency*
+   itself — a GitHub outage or slow response adds a service, a DNS path and a cache-miss delay to
+   this app's own asset serving, and a stale Worker can serve icons off `main` that don't match its
+   own deployed code — was flagged as a known tradeoff, never as something to fix. Worth its own
+   `P##` code if bundling these assets into the Worker (or R2) is ever prioritized over the
+   convenience of editing them without a deploy.
+
+**Dashboard/query-level findings — all duplicate existing items:** serial dashboard queries →
+**LOAD8/CR5**; two staff opening the dashboard the same Monday both seeding weekly tasks →
+**exactly the race already named in LOAD8** ("no unique constraint on `(title, week_key)`"); D1's
+100-param limit and manual chunking → the pattern is intentional and documented (see `## Gotchas &
+Patterns` and the Daily Code Review Checklist's Cloudflare Worker Limits section) — inconsistent chunk
+sizing across call sites was not independently re-verified here and would need a real audit, not a
+read-through, before treating it as a finding. Finance's 500-statement import batches → **the same
+non-atomicity concern below**, not a separate performance issue.
+
+**Genuinely new findings, not previously in CLAUDE.md or PLAN.md:**
+
+- **Runtime migrations swallow every SQL error, not just "column already exists."**
+  `src/db.js` (~line 1773) wraps each migration statement in `try { await db.prepare(m).run(); }
+  catch(e) { /* column already exists */ }` — a real syntax error, a storage failure, a constraint
+  violation, or a timeout is caught by the same handler and silently discarded, and the schema
+  fingerprint still advances as if the migration succeeded. This is a correctness/data-integrity gap,
+  not a speed one — flagging here because it wasn't caught by CR10's security pass and isn't in
+  `PLAN.md` under any code. Worth a scoped fix: only swallow the specific "duplicate column" SQLite
+  error text, rethrow everything else.
+- **Multi-batch destructive imports are not atomic as a whole.** Several finance importers (monthly
+  church-finance, balance sheet, daycare bulk) delete all existing rows for a period, then insert
+  replacements across multiple `db.batch()` calls (500 statements each, per FIN59's own note). Each
+  individual `db.batch()` is atomic; the delete-then-multiple-insert-batches sequence is not — a
+  failure partway through an import can leave the affected period with no data instead of either the
+  old or the new dataset. Not previously flagged as a data-safety item under any Finance code (FIN59
+  documented the 500-statement chunking as a *size* control, not this failure mode).
+- **Admin hard-delete of a person is sequential, not transactional, and destroys giving/audit
+  history outright.** `api-people.js`'s hard-delete path (extended by BF1 to also clean up
+  `giving_entries`/`follow_up_items`/`audit_log`) runs as separate statements, not one `db.batch()` —
+  a failure partway through leaves a partially-deleted person, and by design it permanently deletes
+  giving history rather than anonymizing/preserving it. BF1 treated this as a cleanup-completeness fix
+  (closing orphaned rows); this review frames the deeper design question — should a hard delete ever
+  destroy donation records — which BF1 didn't address and no other code has weighed in on since. Not
+  urgent (hard-delete is already `isAdmin`-gated and rare), but worth a decision if it comes up again.
+- **PBKDF2 iteration count (100,000) is below OWASP's current PBKDF2-HMAC-SHA256 recommendation
+  (600,000).** `src/auth.js` — not previously flagged in this file. SEC15 (session-cookie signing key)
+  and SEC9 (MFA) are adjacent, already-tracked auth-hardening items; iteration count is a distinct,
+  smaller, mechanical bump (with a rehash-on-login migration path) that could ride along with either.
+- **The frontend's own review overlap**: `js-core.js`'s `api()` helper resolving instead of rejecting
+  on a server error whenever `opts` is passed (54 write call sites affected) is **already fully
+  tracked** as LOAD9 and is Tier 2 item #5 in `PLAN.md` (`P24-A` + `P25-D`, called out there as the
+  single highest-payoff fix in the whole plan) — repeating it here only to note this second review
+  reached the identical conclusion independently, which is a good cross-check that the fix is real
+  and worth prioritizing as `PLAN.md` already says.
+
+**Functional/UI findings — cross-referenced, nothing new:** council role label / stale "office"
+wording → **exactly P24-C** (Tier 2 #3); nine undefined scheduler CSS variables → **exactly DSN1 /
+P26-A** (Tier 2 #4); mobile accessibility (128 click handlers on non-interactive elements) →
+**exactly DSN7**; hardcoded `/chms` redirects → **exactly DSN6** (bundled into `P25-D` per the Tier 2
+note above); two scheduler-embed assets bypassing `assetCacheControl()` → **exactly LOAD4 / P25-A**
+(Tier 3 #7); member onboarding incomplete → **exactly TLY1**. The security-questionnaire-style items
+(break-glass non-constant-time compare, fixed-window rate limiting, `X-Breeze-Subdomain` SSRF
+surface, photo-proxy scheme check, `Set-Cookie` on immutable assets) are **all five already P22-F**
+(Tier 1 #2) — this review's list matches SEC21(a)-(e) item for item.
+
+**Not re-verified, flagged as "would need a real audit before acting on"**: the claim that D1
+parameter-chunking is "inconsistent" across call sites (no specific file/line given); the claim that
+correlated subqueries in reporting queries will degrade — plausible but no current row-count
+measurement backs it, unlike CR8's benchmarked 0.2–0.5 ms finding at this church's real scale; and the
+suggestion of an operational health page / backup-restore drill cadence, which is a good idea but a
+process change, not a code finding — worth its own conversation with the user rather than a queued
+code.
+
+**Recommended next step, if this is picked up**: don't open new codes for the duplicates above — just
+work `PLAN.md`'s existing queue in its current order (P22-E/P22-F, then P24-C, then P26-A, then the
+`P24-A`+`P25-D` `api()` fix, matching this review's own priority order almost exactly). Open new codes
+only for the four genuinely-new findings (migration error-swallowing, non-atomic destructive imports,
+hard-delete design question, PBKDF2 iteration count) and the GitHub-raw-asset runtime dependency.
+
 ### External code review, 2026-08-22 — P22-F closed; migration-error visibility fixed (DONE)
 An independent read-only code review of the whole codebase (no repo state changed) landed mostly on
 findings this project had already scoped — its "five highest-priority improvements" map onto
