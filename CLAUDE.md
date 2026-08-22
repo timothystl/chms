@@ -504,7 +504,61 @@ Current state: 39 items open. Next up is P22-E, then P22-F.
 
 ## Queued Items (add new ones here during sessions)
 
-### MOB-ADMIN1 — Mobile Admin: a dedicated phone-optimized quick-access page (2026-08-21, DONE — first pass)
+### MOB-ADMIN2 — Mobile Admin: auto-detected at the app's normal URL, member included (2026-08-22, DONE)
+Corrects MOB-ADMIN1 below, same day, after live feedback: a dedicated `/admin/mobile` route meant staff
+had to know a separate address existed, and nothing served it to a member session at all. **User's actual
+ask, confirmed via two rounds of live screenshots and `AskUserQuestion`: connect.timothystl.org itself
+should auto-detect a phone and just show this experience — no visible `/admin` or `/mobile` in the address
+bar — and a member session should get it too, not just staff.**
+
+- **No separate route.** The `/admin/mobile` GET handler is gone. `wantsMobileShell(req, url, role)`
+  (`tlc-volunteer-worker.js`) decides, per request, which shell the app's normal URL (`/` on
+  `connect.timothystl.org`, or `/chms` on any host) serves: `isPhoneUserAgent()` regex-tests the
+  `User-Agent` header (`iPhone|iPod|Android.*Mobile|Windows Phone` — iPad's UA no longer self-identifies
+  as a tablet, but it's wide enough that the desktop app staying the default there is fine) — same URL, no
+  redirect, decided server-side before either shell is ever built. The `?next=`/`<!--NEXT-->` login
+  round-trip MOB-ADMIN1 built for the old dedicated route was reverted along with it — there is no longer a
+  second address to return to after login.
+- **Escape hatch: `?desktop=1` plants a cookie, not a permanent switch.** The mobile page's "Full App"
+  sidebar link now goes to `/?desktop=1`. The worker sets a plain, **unsigned** `mob_pref=desktop` cookie
+  (30 days, `Path=/`) on that response — unsigned deliberately, since this is a UI preference, not an auth
+  credential, and doesn't belong anywhere near the HMAC-signed `vol_auth` cookie's threat model. Every
+  later visit checks that cookie before the User-Agent test, so choosing the full app doesn't bounce a
+  phone user right back to the mobile shell on their very next load.
+- **Member is now a first-class role on this page, not excluded — but every section still degrades to
+  what a member can actually see, not silently opened up.** `mobileAllowed()` (`src/api-mobile.js`) admits
+  `member`; `volunteer` still gets a flat 403 (a different tool — the read-only Volunteers admin screen —
+  not this one). Within that:
+  - **Attendance and Follow Ups cards disappear outright for a member**, rather than rendering disabled or
+    with a "no access" message — `MEMBER_ALLOWED_ITEMS` in `api-utils.js` hard-ceilings both to `'none'`
+    (not admin-configurable), so a member's dashboard is just the People search shortcut. New
+    `can_view_attendance` field on the dashboard response drives this (the pre-existing
+    `can_edit_attendance` alone wasn't enough — it only says whether the Save button should show, not
+    whether the card should exist at all).
+  - **`GET mobile/people` forces `member_type='member'` for a member session regardless of a requested
+    filter** (same reasoning as the main People API in `api-people.js`: a client-controlled query param
+    must never be trusted to browse outside a member's own visible slice), adds `public_directory=1`, and
+    redacts `phone`/`email` per each row's own `dir_hide_phone`/`dir_hide_email` — the exact SEC16/P22-A
+    "Include in directory" contract the main People API already keeps.
+  - **`GET mobile/people/:id` re-checks the same predicate against the specific target**, not just the
+    list query — a guessed id for someone outside a member's visible slice (opted out, a Visitor/Inactive
+    record) 404s rather than leaking through a direct fetch; visible-but-hidden fields redact the same way.
+  - `people_total` (the dashboard's directory-shortcut count) is computed with the member-scoped predicate
+    for a member session, so the number on the shortcut always matches what tapping it actually shows.
+- `npm test` (1765/1765; 8 more in `test/mobile-admin.test.js` covering the member-scoping predicates on
+  people/person-detail, and a new `test/mobile-auto-detect.test.js` — 7 tests driving the real
+  `worker.fetch()` end to end, same pattern as `scheduler-route-authz.test.js`, asserting on which shell's
+  `<title>` actually comes back for a phone vs. desktop User-Agent, `?desktop=1`, the cookie holding across
+  a later visit, and role differences). **Every new test verified non-vacuous** — an injection zeroing out
+  `wantsMobileShell()` correctly failed the 3 tests that exercise it. DEPLOY_VERSION bumped to 1.201.0.
+- **Not verified**: a live browser or a real phone — same standing caveat as all frontend work in this
+  repo; in particular, the `isPhoneUserAgent()` regex is a standard mobile-UA pattern but was never
+  exercised against a real device's actual header string.
+  (`tlc-volunteer-worker.js`, `src/api-admin.js`, `src/html-templates.js`, `src/api-mobile.js`,
+  `src/mobile-admin-html.js`, `src/frontend/js-core.js`, `test/mobile-admin.test.js`,
+  `test/mobile-auto-detect.test.js`)
+
+### MOB-ADMIN1 — Mobile Admin: a dedicated phone-optimized quick-access page (2026-08-21, DONE — first pass, corrected same-week by MOB-ADMIN2 above — the `/admin/mobile` route and the member/volunteer exclusion described below no longer exist as written)
 Built from a design handoff (`design_handoff_mobile_admin`: README + one `.dc.html` prototype) covering
 4 screens — splash, dashboard, people directory, person detail. User confirmed via `AskUserQuestion`: **a
 new dedicated route**, not a retrofit of the existing responsive tabs, and **all 4 screens now**, not a

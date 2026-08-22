@@ -34,6 +34,33 @@ import { notifyAdminPush } from './src/api-scheduler.js';
 // backups/), so the proxy must never take an arbitrary caller-supplied key.
 const R2_PHOTO_PREFIXES = ['people/', 'households/', 'branding/'];
 
+// ── Mobile Admin auto-detect ────────────────────────────────────────────────
+// A phone opening connect.timothystl.org (root or /chms) gets served the mobile
+// splash/dashboard/people experience INSTEAD of the desktop-oriented SPA — same URL,
+// no visible /admin or /mobile path, decided purely by request User-Agent. Tablet/
+// desktop user agents are unaffected (iPad's UA no longer self-identifies as a
+// tablet, but it's wide enough that the desktop app is the right default there).
+// A `?desktop=1` link (the mobile page's "Full App" sidebar item) plants a plain
+// (unsigned — a UI preference, not an auth credential) cookie so a deliberate escape
+// hatch doesn't immediately bounce the visitor right back on their next visit.
+function isPhoneUserAgent(req) {
+  const ua = req.headers.get('User-Agent') || '';
+  return /iPhone|iPod|Android.*Mobile|Windows Phone/i.test(ua);
+}
+function prefersDesktop(req) {
+  return /(?:^|;\s*)mob_pref=desktop(?:;|$)/.test(req.headers.get('cookie') || req.headers.get('Cookie') || '');
+}
+const DESKTOP_PREF_COOKIE = 'mob_pref=desktop; Path=/; Max-Age=2592000; SameSite=Lax';
+// Decides which shell to render for an authed request to the app's main URL.
+// volunteer keeps its own destination — the read-only Volunteers admin screen is a
+// different tool entirely, not this phone quick-access surface.
+function wantsMobileShell(req, url, role) {
+  if (role === 'volunteer') return false;
+  if (url.searchParams.get('desktop') === '1') return false;
+  if (prefersDesktop(req)) return false;
+  return isPhoneUserAgent(req);
+}
+
 // ── MAIN FETCH HANDLER ────────────────────────────────────────────────
 export default {
   async fetch(req, env) {
@@ -304,7 +331,10 @@ async function _fetch(req, env) {
       if (isChmsHost) {
         const auth = await getAuthInfo(req, env);
         if (!auth) return html(LOGIN_HTML);
-        return html(chmsHtmlForRole(auth.role), 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+        const extra = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
+        if (url.searchParams.get('desktop') === '1') extra['Set-Cookie'] = DESKTOP_PREF_COOKIE;
+        if (wantsMobileShell(req, url, auth.role)) return html(MOBILE_ADMIN_HTML, 200, extra);
+        return html(chmsHtmlForRole(auth.role), 200, extra);
       }
       return html(PUBLIC_HTML);
     }
@@ -389,20 +419,10 @@ async function _fetch(req, env) {
       if (auth.role === 'member') {
         return new Response(null, { status: 302, headers: { 'Location': 'https://connect.timothystl.org/' } });
       }
-      return html(chmsHtmlForRole(auth.role), 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
-    }
-    // ── Mobile Admin — phone-optimized quick-access page (splash, dashboard,
-    // people directory, person detail). Not tied to isChmsHost: a staffer's phone can be on
-    // either hostname, and this page carries no per-host branching of its own.
-    if (path === '/admin/mobile' && method === 'GET') {
-      const auth = await getAuthInfo(req, env);
-      if (!auth) {
-        return html(LOGIN_HTML.replace('<!--NEXT-->', '<input type="hidden" name="next" value="/admin/mobile">'));
-      }
-      if (auth.role === 'member' || auth.role === 'volunteer') {
-        return new Response(null, { status: 302, headers: { Location: appRootPath(req) } });
-      }
-      return html(MOBILE_ADMIN_HTML, 200, { 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+      const extra = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
+      if (url.searchParams.get('desktop') === '1') extra['Set-Cookie'] = DESKTOP_PREF_COOKIE;
+      if (wantsMobileShell(req, url, auth.role)) return html(MOBILE_ADMIN_HTML, 200, extra);
+      return html(chmsHtmlForRole(auth.role), 200, extra);
     }
     if (path === '/chms.webmanifest') {
       return new Response(CHMS_MANIFEST_JSON, {

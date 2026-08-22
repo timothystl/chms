@@ -1,19 +1,24 @@
 // ── Mobile Admin API ────────────────────────────────────────────────────────
-// Backs the phone-optimized admin experience at /admin/mobile (splash, dashboard,
-// people directory, person detail). Deliberately its own small handler rather than
-// routed through handleChmsApi's per-item ACCESS_GATE: this composes data across
-// attendance + follow_up_items + prayer_requests + people/households in a few
+// Backs the phone-optimized experience (see src/mobile-admin-html.js — served
+// automatically at the app's normal URL on a phone, no separate page route) — splash,
+// dashboard, people directory, person detail. Deliberately its own small handler
+// rather than routed through handleChmsApi's per-item ACCESS_GATE: this composes data
+// across attendance + follow_up_items + prayer_requests + people/households in a few
 // purpose-built endpoints shaped exactly for the phone screens, instead of asking the
 // mobile frontend to make (and reconcile) several general-purpose API calls.
 import { json } from './auth.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
 
-// Who this surface is for: the roles that would plausibly be on their phone doing a
-// quick attendance count or checking follow-ups. Same exclusion as everywhere else in
-// the app — member (filtered directory) and volunteer (read-only Volunteers screen)
-// have no reason to be here and get a flat 403, not a partially-empty page.
+// Who this surface is for. `member` is allowed — the phone experience IS the member's
+// only view of the directory now, not an add-on — but every attendance/follow-up/prayer
+// section below stays gated by the real per-role permission matrix (member's ceiling on
+// those items is hard-'none', see MEMBER_ALLOWED_ITEMS in api-utils.js), and the people
+// endpoints apply the same member_type/public_directory/dir_hide_* restriction the main
+// People API already enforces for a member session. `volunteer` (the read-only Volunteers
+// admin screen) is a different tool entirely and gets a flat 403, not a partially-empty
+// page.
 function mobileAllowed(role) {
-  return role === 'admin' || role === 'finance' || role === 'staff' || role === 'council';
+  return role === 'admin' || role === 'finance' || role === 'staff' || role === 'council' || role === 'member';
 }
 
 function timeAgo(dateStr) {
@@ -57,12 +62,16 @@ export async function handleMobileApi(req, env, url, method, role) {
   if (!mobileAllowed(role)) return json({ error: 'Access denied' }, 403);
 
   const isAdmin = role === 'admin';
+  const isMemberRole = role === 'member';
   const perms = await getRolePermissions(db);
   const rolePerms = permissionsForRole(perms, role);
   const canView = (item) => isAdmin || (rolePerms[item] || 'none') !== 'none';
   const canEditItem = (item) => isAdmin || (rolePerms[item] || 'none') === 'edit';
   // Follow-up items live behind `followups`; prayer requests reuse the People/Households
   // "canEdit" definition the prayer-requests endpoint itself gates on (api-reports.js).
+  // Both are already hard-'none' for member (MEMBER_ALLOWED_ITEMS in api-utils.js), so
+  // isMemberRole doesn't need to be threaded into these — canView/canEditBaseline already
+  // resolve correctly for them.
   const canEditBaseline = isAdmin || role === 'finance' || role === 'staff' || role === 'council';
 
   const seg = url.pathname.replace('/admin/api/mobile/', '').replace(/\/+$/, '');
@@ -91,9 +100,16 @@ export async function handleMobileApi(req, env, url, method, role) {
       });
     }
 
-    const peopleTotalRow = await db.prepare(
-      `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)!='organization'`
-    ).first();
+    // A member's own People screen is scoped to the visible directory (member_type='member'
+    // AND public_directory=1, same as GET mobile/people below) — the shortcut's count has to
+    // match what tapping it actually shows, not the whole congregation's roster.
+    const peopleTotalRow = isMemberRole
+      ? await db.prepare(
+          `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)='member' AND public_directory=1`
+        ).first()
+      : await db.prepare(
+          `SELECT COUNT(*) as n FROM people WHERE active=1 AND LOWER(member_type)!='organization'`
+        ).first();
     const peopleTotal = peopleTotalRow?.n || 0;
 
     const canViewFollowups = canView('followups');
@@ -139,6 +155,7 @@ export async function handleMobileApi(req, env, url, method, role) {
       sunday_date: sundayDate,
       sunday_label: sundayLabel,
       services,
+      can_view_attendance: canViewAttendance,
       can_edit_attendance: canEditItem('attendance'),
       people_total: peopleTotal,
       can_view_followups: canViewFollowups || canEditBaseline,
@@ -203,9 +220,12 @@ export async function handleMobileApi(req, env, url, method, role) {
   }
 
   // ── People directory ──────────────────────────────────────────────────────
+  // Member-role scoping is enforced on the QUERY, not just by redacting the rows that come
+  // back — same reasoning as the main People API (api-people.js): a client-controlled
+  // member_type param must not be trusted to browse outside a member's own visible slice.
   if (seg === 'people' && method === 'GET') {
     const q = (url.searchParams.get('q') || '').trim();
-    const memberType = url.searchParams.get('member_type') || '';
+    const memberType = isMemberRole ? 'member' : (url.searchParams.get('member_type') || '');
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '40', 10) || 40, 100);
     const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0);
     let where = `p.active=1 AND LOWER(p.member_type)!='organization'`;
@@ -216,8 +236,11 @@ export async function handleMobileApi(req, env, url, method, role) {
       binds.push(like, like, like);
     }
     if (memberType) { where += ` AND LOWER(p.member_type)=LOWER(?)`; binds.push(memberType); }
+    // Opted-out-of-the-directory people (SEC16/P22-A) never appear to a member viewer.
+    if (isMemberRole) where += ' AND p.public_directory=1';
     const rows = (await db.prepare(
       `SELECT p.id, p.first_name, p.last_name, p.preferred_name, p.member_type, p.phone, p.email,
+              p.dir_hide_phone, p.dir_hide_email,
               p.household_id, (SELECT COUNT(*) FROM people hp WHERE hp.household_id=p.household_id AND hp.active=1) as household_size
        FROM people p WHERE ${where}
        ORDER BY p.last_name ASC, p.first_name ASC LIMIT ? OFFSET ?`
@@ -226,7 +249,8 @@ export async function handleMobileApi(req, env, url, method, role) {
       id: r.id,
       name: [r.preferred_name || r.first_name, r.last_name].filter(Boolean).join(' '),
       member_type: r.member_type || '',
-      phone: r.phone || '', email: r.email || '',
+      phone: (isMemberRole && r.dir_hide_phone) ? '' : (r.phone || ''),
+      email: (isMemberRole && r.dir_hide_email) ? '' : (r.email || ''),
       household_size: r.household_id ? (r.household_size || 1) : 0,
     }));
     let total;
@@ -247,24 +271,37 @@ export async function handleMobileApi(req, env, url, method, role) {
       `SELECT * FROM people WHERE id=? AND active=1`
     ).bind(id).first();
     if (!p) return json({ error: 'Not found' }, 404);
-    const address = composeAddress(p);
+    // A member can only open a person who'd actually appear in their own directory list —
+    // same predicate as GET people above, checked again here so a guessed id can't reach
+    // someone outside that slice (an org record, a visitor, someone who's opted out).
+    if (isMemberRole && (String(p.member_type || '').toLowerCase() !== 'member' || !p.public_directory)) {
+      return json({ error: 'Not found' }, 404);
+    }
+    const hidePhone = isMemberRole && p.dir_hide_phone;
+    const hideEmail = isMemberRole && p.dir_hide_email;
+    const hideAddress = isMemberRole && p.dir_hide_address;
+    const address = hideAddress ? '' : composeAddress(p);
     let household = [];
     if (p.household_id) {
+      const hhWhere = isMemberRole
+        ? 'household_id=? AND id!=? AND active=1 AND public_directory=1'
+        : 'household_id=? AND id!=? AND active=1';
       const rows = (await db.prepare(
         `SELECT id, first_name, last_name, family_role FROM people
-         WHERE household_id=? AND id!=? AND active=1 ORDER BY family_role='head' DESC, first_name ASC`
+         WHERE ${hhWhere} ORDER BY family_role='head' DESC, first_name ASC`
       ).bind(p.household_id, id).all()).results || [];
       household = rows.map(r => ({
         id: r.id, name: [r.first_name, r.last_name].filter(Boolean).join(' '),
         rel: familyRoleLabel(r.family_role),
       }));
     }
+    const phone = hidePhone ? '' : (p.phone || '');
     return json({
       id: p.id,
       name: [p.preferred_name || p.first_name, p.last_name].filter(Boolean).join(' '),
       member_type: p.member_type || '',
-      phone: p.phone || '', phone_raw: (p.phone || '').replace(/[^\d]/g, ''),
-      email: p.email || '',
+      phone, phone_raw: phone.replace(/[^\d]/g, ''),
+      email: hideEmail ? '' : (p.email || ''),
       address,
       map_url: address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}` : '',
       household,

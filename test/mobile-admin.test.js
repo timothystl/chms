@@ -3,8 +3,9 @@ import { DatabaseSync } from 'node:sqlite';
 import { handleMobileApi } from '../src/api-mobile.js';
 import { MOBILE_ADMIN_HTML } from '../src/mobile-admin-html.js';
 
-// Cover for the /admin/mobile phone-optimized quick-access page (splash, dashboard,
-// people directory, person detail) and its backing /admin/api/mobile/* handlers.
+// Cover for the phone-optimized quick-access page (splash, dashboard, people directory,
+// person detail — auto-served at the app's normal URL, no separate route) and its
+// backing /admin/api/mobile/* handlers.
 
 function makeDb() {
   const raw = new DatabaseSync(':memory:');
@@ -26,7 +27,9 @@ function makeDb() {
     CREATE TABLE households(id INTEGER PRIMARY KEY, name TEXT);
     CREATE TABLE people(id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, preferred_name TEXT,
       email TEXT, phone TEXT, address1 TEXT, address2 TEXT, city TEXT, state TEXT, zip TEXT,
-      member_type TEXT, household_id INTEGER, family_role TEXT, active INTEGER DEFAULT 1);
+      member_type TEXT, household_id INTEGER, family_role TEXT, active INTEGER DEFAULT 1,
+      public_directory INTEGER DEFAULT 1, dir_hide_phone INTEGER DEFAULT 0, dir_hide_email INTEGER DEFAULT 0,
+      dir_hide_address INTEGER DEFAULT 0);
     CREATE TABLE worship_services(id INTEGER PRIMARY KEY, service_date TEXT, service_time TEXT,
       service_name TEXT, service_type TEXT, attendance INTEGER, communion INTEGER, notes TEXT);
     CREATE TABLE follow_up_items(id INTEGER PRIMARY KEY, person_id INTEGER, type TEXT, notes TEXT,
@@ -36,12 +39,14 @@ function makeDb() {
       submitted_at TEXT, resolved_at TEXT, created_at TEXT);
 
     INSERT INTO households VALUES (1,'Alder Household');
-    INSERT INTO people VALUES
-      (1,'Ann','Alder','','ann@example.org','(314) 555-0101','123 Main St','','St. Louis','MO','63101','Member',1,'head',1),
-      (2,'Al','Alder','','','','','','','','','Member',1,'spouse',1),
-      (3,'Vera','Visitor','','vera@example.org','','','','','','','Visitor',NULL,NULL,1),
-      (4,'Ida','Inactive','','','','','','','','','Inactive',NULL,NULL,1),
-      (5,'Org','Records','','','','','','','','','Organization',NULL,NULL,1);
+    INSERT INTO people (id,first_name,last_name,preferred_name,email,phone,address1,address2,city,state,zip,member_type,household_id,family_role,active,public_directory,dir_hide_phone,dir_hide_email,dir_hide_address) VALUES
+      (1,'Ann','Alder','','ann@example.org','(314) 555-0101','123 Main St','','St. Louis','MO','63101','Member',1,'head',1,1,0,0,0),
+      (2,'Al','Alder','','','','','','','','','Member',1,'spouse',1,1,0,0,0),
+      (3,'Vera','Visitor','','vera@example.org','','','','','','','Visitor',NULL,NULL,1,1,0,0,0),
+      (4,'Ida','Inactive','','','','','','','','','Inactive',NULL,NULL,1,1,0,0,0),
+      (5,'Org','Records','','','','','','','','','Organization',NULL,NULL,1,1,0,0,0),
+      (6,'Nan','Noshow','','nan@example.org','(314) 555-0106','','','','','','Member',NULL,NULL,1,0,0,0,0),
+      (7,'Percy','Private','','percy@example.org','(314) 555-0107','','','','','','Member',NULL,NULL,1,1,1,1,0);
   `);
   return db;
 }
@@ -54,17 +59,15 @@ function makeUrl(path) {
 }
 
 describe('handleMobileApi — role gating', () => {
-  it('denies member and volunteer outright', async () => {
+  it('denies volunteer outright (a different tool entirely)', async () => {
     const db = makeDb();
-    const r1 = await handleMobileApi(makeReq(), { DB: db }, makeUrl('dashboard'), 'GET', 'member');
-    const r2 = await handleMobileApi(makeReq(), { DB: db }, makeUrl('dashboard'), 'GET', 'volunteer');
-    expect(r1.status).toBe(403);
-    expect(r2.status).toBe(403);
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('dashboard'), 'GET', 'volunteer');
+    expect(r.status).toBe(403);
   });
 
-  it('allows staff/finance/council/admin through the gate', async () => {
+  it('allows member, staff/finance/council/admin through the gate', async () => {
     const db = makeDb();
-    for (const role of ['admin', 'finance', 'staff', 'council']) {
+    for (const role of ['admin', 'finance', 'staff', 'council', 'member']) {
       const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('dashboard'), 'GET', role);
       expect(r.status).toBe(200);
     }
@@ -109,12 +112,22 @@ describe('handleMobileApi — dashboard', () => {
     expect(d.followups[1].kind).toBe('followup');
   });
 
-  it('people_total excludes organizations and inactive people', async () => {
+  it('people_total (staff scope) excludes only organizations', async () => {
     const db = makeDb();
     const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('dashboard'), 'GET', 'admin');
     const d = await r.json();
-    // Alder x2, Visitor, Inactive = 4 (Org excluded); none are active=0 in this fixture.
-    expect(d.people_total).toBe(4);
+    // Alder x2, Visitor, Inactive, Nan (opted out), Percy = 6 (Org excluded).
+    expect(d.people_total).toBe(6);
+  });
+
+  it('people_total (member scope) is narrower: Member type + public_directory=1 only', async () => {
+    const db = makeDb();
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('dashboard'), 'GET', 'member');
+    const d = await r.json();
+    // Ann, Al, Percy — Nan is opted out (public_directory=0), Vera/Ida aren't member_type='Member'.
+    expect(d.people_total).toBe(3);
+    expect(d.can_view_attendance).toBe(false);
+    expect(d.can_view_followups).toBe(false);
   });
 });
 
@@ -211,12 +224,12 @@ describe('handleMobileApi — follow-up toggle', () => {
   });
 });
 
-describe('handleMobileApi — people directory', () => {
+describe('handleMobileApi — people directory (staff/admin scope)', () => {
   it('excludes organizations, filters by member_type, searches by name', async () => {
     const db = makeDb();
     const all = await (await handleMobileApi(makeReq(), { DB: db }, makeUrl('people'), 'GET', 'admin')).json();
     expect(all.people.map(p => p.name)).not.toContain('Org Records');
-    expect(all.total).toBe(4);
+    expect(all.total).toBe(6);
 
     const url = makeUrl('people'); url.searchParams.set('member_type', 'Visitor');
     const visitors = await (await handleMobileApi(makeReq(), { DB: db }, url, 'GET', 'admin')).json();
@@ -236,9 +249,41 @@ describe('handleMobileApi — people directory', () => {
     expect(ann.household_size).toBe(2);
     expect(vera.household_size).toBe(0);
   });
+
+  it('an admin sees phone/email even for someone who has dir_hide_phone/email set', async () => {
+    const db = makeDb();
+    const all = await (await handleMobileApi(makeReq(), { DB: db }, makeUrl('people'), 'GET', 'admin')).json();
+    const percy = all.people.find(p => p.name === 'Percy Private');
+    expect(percy.phone).toBe('(314) 555-0107');
+    expect(percy.email).toBe('percy@example.org');
+  });
 });
 
-describe('handleMobileApi — person detail', () => {
+describe('handleMobileApi — people directory (member scope)', () => {
+  it('is forced to member_type=Member regardless of a requested filter, and excludes opt-outs', async () => {
+    const db = makeDb();
+    const url = makeUrl('people'); url.searchParams.set('member_type', 'Visitor');
+    const r = await (await handleMobileApi(makeReq(), { DB: db }, url, 'GET', 'member')).json();
+    // The requested Visitor filter is ignored for a member session — every result is
+    // still member_type='Member', and Nan (public_directory=0) never appears.
+    expect(r.people.every(p => p.member_type === 'Member')).toBe(true);
+    expect(r.people.map(p => p.name)).not.toContain('Nan Noshow');
+    expect(r.people.map(p => p.name)).not.toContain('Vera Visitor');
+    expect(r.total).toBe(3);
+  });
+
+  it('redacts phone/email for a person with dir_hide_phone/dir_hide_email set', async () => {
+    const db = makeDb();
+    const r = await (await handleMobileApi(makeReq(), { DB: db }, makeUrl('people'), 'GET', 'member')).json();
+    const percy = r.people.find(p => p.name === 'Percy Private');
+    expect(percy.phone).toBe('');
+    expect(percy.email).toBe('');
+    const ann = r.people.find(p => p.name === 'Ann Alder');
+    expect(ann.phone).toBe('(314) 555-0101');
+  });
+});
+
+describe('handleMobileApi — person detail (staff/admin scope)', () => {
   it('returns composed address, map url, and household members excluding self', async () => {
     const db = makeDb();
     const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('people/1'), 'GET', 'admin');
@@ -255,6 +300,41 @@ describe('handleMobileApi — person detail', () => {
     const db = makeDb();
     const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('people/999'), 'GET', 'admin');
     expect(r.status).toBe(404);
+  });
+});
+
+describe('handleMobileApi — person detail (member scope)', () => {
+  it('404s on someone outside the member-visible slice (opted out), even by direct id', async () => {
+    const db = makeDb();
+    // Nan Noshow (id 6) has public_directory=0 — a guessed id must not reach them.
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('people/6'), 'GET', 'member');
+    expect(r.status).toBe(404);
+  });
+
+  it('404s on a non-Member type (Visitor), even by direct id', async () => {
+    const db = makeDb();
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('people/3'), 'GET', 'member');
+    expect(r.status).toBe(404);
+  });
+
+  it('redacts phone/email/address per that person\'s own dir_hide_* flags', async () => {
+    const db = makeDb();
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('people/7'), 'GET', 'member');
+    const p = await r.json();
+    expect(p.name).toBe('Percy Private');
+    expect(p.phone).toBe('');
+    expect(p.email).toBe('');
+    // dir_hide_address is 0 for Percy in the fixture, but there's no address on file either way.
+    expect(p.address).toBe('');
+  });
+
+  it('a visible member sees full detail, unredacted', async () => {
+    const db = makeDb();
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('people/1'), 'GET', 'member');
+    const p = await r.json();
+    expect(p.name).toBe('Ann Alder');
+    expect(p.phone).toBe('(314) 555-0101');
+    expect(p.address).toBe('123 Main St, St. Louis, MO 63101');
   });
 });
 
