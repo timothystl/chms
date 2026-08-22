@@ -1012,6 +1012,14 @@ export async function handleSchedBreezeProxy(req, env, url) {
   const breezeSubdomain = env.BREEZE_SUBDOMAIN || req.headers.get('X-Breeze-Subdomain') || '';
   const breezeApiKey    = env.BREEZE_API_KEY    || req.headers.get('X-Breeze-Api-Key')    || '';
   if (!breezeSubdomain || !breezeApiKey) return schedJson({ error: 'Breeze not configured' }, 500);
+  // The subdomain gets interpolated straight into the upstream hostname below. Inert while
+  // BREEZE_SUBDOMAIN is set (the normal case — env always wins over the header), but the
+  // caller-supplied X-Breeze-Subdomain fallback is a latent SSRF: an attacker-chosen value
+  // there would carry BREEZE_API_KEY to a host of their choosing. A real Breeze subdomain is
+  // always a plain lowercase/digit/hyphen label, so anything else is refused outright.
+  if (!/^[a-z0-9-]+$/.test(breezeSubdomain)) {
+    return schedJson({ error: 'Invalid Breeze subdomain' }, 400);
+  }
   const breezePath = url.pathname.replace(/^\/(breeze|api)/, '');
   const breezeUrl  = 'https://'+breezeSubdomain+'.breezechms.com/api'+breezePath+url.search;
   const res = await fetch(breezeUrl, {

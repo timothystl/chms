@@ -1,5 +1,5 @@
 // ── Admin API handlers ─────────────────────────────────────────────────────────
-import { html, json, isAuthed, authCookieHeader, getAuthRole, getAuthInfo, hashPassword, verifyPassword, appRootPath } from './auth.js';
+import { html, json, isAuthed, authCookieHeader, getAuthRole, getAuthInfo, hashPassword, verifyPassword, appRootPath, timingSafeEqual } from './auth.js';
 import { handleChmsApi } from './api-chms.js';
 import { handleMobileApi } from './api-mobile.js';
 import { LOGIN_HTML } from './html-templates.js';
@@ -162,11 +162,15 @@ export async function handleAdminLogin(req, env) {
   const loginRetryHtml = (msg) => LOGIN_HTML
     .replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">' + msg + '</p>');
 
-  // ── Rate limiting: max 10 attempts per IP per 15-minute window ──────
+  // ── Rate limiting: max 10 attempts per IP, sliding 15-minute window ──────
+  // Key has no time bucket — every failed attempt re-arms a fresh 15-minute TTL (below), so
+  // the window only actually resets once 15 minutes pass with NO attempts. A `:${bucket}`
+  // suffix here (the original shape) creates a hard boundary an attacker can straddle: 10
+  // attempts just before the bucket rolls over plus 10 just after is 20 back-to-back with
+  // no wait at all. This shape has no boundary to straddle.
   const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'unknown';
-  const WINDOW_MS = 15 * 60 * 1000;
   const MAX_ATTEMPTS = 10;
-  const rlKey = `rl_login:${ip}:${Math.floor(Date.now() / WINDOW_MS)}`;
+  const rlKey = `rl_login:${ip}`;
   if (env.RSVP_STORE) {
     const attempts = parseInt(await env.RSVP_STORE.get(rlKey) || '0', 10);
     if (attempts >= MAX_ATTEMPTS) {
@@ -209,7 +213,7 @@ export async function handleAdminLogin(req, env) {
   // This path bypasses the app_users table entirely. If a DB user named "admin" is
   // deactivated, this env-var credential still grants full admin access. It exists
   // only for initial setup and locked-out recovery — rotate it after first DB user is created.
-  if (!matchedRole && submittedUser === 'admin' && submittedPass === adminPassword) {
+  if (!matchedRole && submittedUser === 'admin' && await timingSafeEqual(submittedPass, adminPassword)) {
     matchedRole = 'admin';
   }
 

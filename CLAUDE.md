@@ -498,13 +498,20 @@ code closed here.
 Phase 21 is complete and Phase 22 is 5 of 7 done, so phase number no longer equals work order.
 Take the next unchecked row. The codes themselves never change; only the order is re-decided.
 
-Current state: 39 items open. Next up is P22-E, then P22-F.
+Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is P22-E.
 
 ---
 
 ## Queued Items (add new ones here during sessions)
 
 ### CR11 — Second independent whole-codebase review: speed, security, functional (2026-08-22, REVIEW ONLY — no code changed)
+**⚠ Two of this entry's findings were closed by a separate same-day session — see the "External code
+review, 2026-08-22" entry right below this one.** P22-F (item 2 in Tier 1 below) is now fully closed,
+and the migration-silent-error-swallowing item (listed below as "genuinely new") was fixed the same
+day — the catch now only swallows `duplicate column name|already exists` and logs everything else via
+`console.error`. Left this entry's original text unedited below for the record of what this review
+found independently; treat the other entry as the current state of those two items.
+
 An outside review pass (not run from this session — read and reconciled against the current tree at
 v1.201.0, `main` clean, matching `origin/main`). Two takeaways up front: **most of what it flags is
 already tracked** — either shipped (P21 security fixes, MOB4, BRAND6, COUNCIL1) or already sitting in
@@ -605,6 +612,54 @@ work `PLAN.md`'s existing queue in its current order (P22-E/P22-F, then P24-C, t
 `P24-A`+`P25-D` `api()` fix, matching this review's own priority order almost exactly). Open new codes
 only for the four genuinely-new findings (migration error-swallowing, non-atomic destructive imports,
 hard-delete design question, PBKDF2 iteration count) and the GitHub-raw-asset runtime dependency.
+
+### External code review, 2026-08-22 — P22-F closed; migration-error visibility fixed (DONE)
+An independent read-only code review of the whole codebase (no repo state changed) landed mostly on
+findings this project had already scoped — its "five highest-priority improvements" map onto
+**SEC15/P23-A** (session key on `ADMIN_PASSWORD`), **P22-F/SEC21** (the break-glass compare, the
+rate-limit window, the SSRF-shaped subdomain fallback, the photo-proxy scheme check, the
+`Set-Cookie`-on-immutable-assets leak), **P24-A/LOAD9** (the `api()` silent-write-failure contract),
+and its atomicity/destructive-import/hard-delete concerns are new-to-this-session findings not
+previously tracked (recorded below, not yet actioned). This session:
+
+- **Closed P22-F in full** — all five remaining sub-items ((a-ii) break-glass timing-safe compare,
+  (b) sliding-window login rate limiting, (c) `X-Breeze-Subdomain` SSRF validation, (d) photo-proxy
+  HTTPS-only, (e) no `Set-Cookie` on immutable asset responses). Full detail and verification is in
+  `PLAN.md` under P22-F — this is the evidence file, that's the running order, per the split
+  described above.
+- **Migration-error visibility** (a review finding not previously tracked under any code): the
+  runtime migration loop in `_doInitDb` (`src/db.js`) caught every SQL error as if it only ever meant
+  "column already exists" — `catch(e) { /* column already exists */ }`, nothing inspecting `e`. A
+  genuine failure (typo, bad column/table reference, a real storage error) was indistinguishable from
+  the expected, harmless re-run artifact. **Deliberately did NOT change the loop to throw** — this
+  runs on every request via `initDb`, so making it fail-closed risks taking the whole app down on a
+  false positive, and this session has no live D1/browser to validate that flip against. Instead: the
+  catch now inspects the error message and only stays silent for `/duplicate column name|already
+  exists/i`; anything else is logged via `console.error` (visible in Cloudflare's Worker logs)
+  naming the statement and the real error, instead of vanishing. `test/migration-error-visibility.test.js`
+  (3 tests, running the real `initDb` against real in-memory SQLite via `node:sqlite` — same harness
+  pattern as `test/db-init-fastpath.test.js`) verified non-vacuous by reverting the fix and confirming
+  the "logs an unexpected error" test fails.
+- **Reviewed but deliberately not actioned this session** (larger, need their own scoped pass — noted
+  here so they aren't silently dropped by the review's arrival):
+  - **Destructive-import atomicity** — several finance importers (`finance/church/monthly-import-commit`
+    and siblings) delete all existing rows for a period then re-insert in batches; a mid-batch failure
+    can leave the dataset partially replaced. `db.batch()` is atomic within one batch; a delete-batch
+    followed by several insert-batches is not atomic as a whole. Fixing this for real means importing
+    into a staging table and switching over atomically, which is a real design change per importer, not
+    a mechanical fix — flagged for its own session rather than attempted piecemeal.
+  - **Hard person-delete destroys giving history** (`api-people.js`'s hard-delete path) — deletes
+    `giving_entries`/`follow_up_items`/`audit_log` rows for the person along with the person row itself,
+    non-atomically. The review's suggestion (archive by default; preserve and anonymize donation
+    history; explicit dependency preview for an exceptional purge) is a real product/data-retention
+    decision for the church, not something to change unilaterally.
+  - **`SESSION_SECRET` / MFA / migration-ledger consolidation** — already tracked as **P23-A**/**P23-B**
+    and the CR10 review's own `SEC15`; PLAN.md already scopes P23-A as needing its own session ("the
+    migration is the hard part, not the change") because it can log out the whole staff mid-week if
+    rolled out wrong.
+  - **`api()` silent-write-failure contract** — already tracked as **P24-A** (merged with **P25-D** in
+    PLAN.md's queue, Tier 2 #5) precisely because flipping it needs a sweep of the affected call sites in
+    the same change, not a standalone one-line fix.
 
 ### MOB-ADMIN2 — Mobile Admin: auto-detected at the app's normal URL, member included (2026-08-22, DONE)
 Corrects MOB-ADMIN1 below, same day, after live feedback: a dedicated `/admin/mobile` route meant staff
