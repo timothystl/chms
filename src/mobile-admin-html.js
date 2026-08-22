@@ -1,13 +1,17 @@
 // ── Mobile Admin (phone-optimized quick-access page) ───────────────────────
-// Served at /admin/mobile. Self-contained HTML+CSS+JS, same pattern as LOGIN_HTML /
-// the standalone scheduler page — not a framework, plain DOM string templates +
-// delegated click listeners (data-action attributes, not inline onclick with
-// interpolated arguments — see SEC13/SEC14 in CLAUDE.md for why: esc()'d text inside
-// an onclick's quotes is exactly the escaping trap that shipped stored XSS three times
-// in this app already). This is a separate, deliberately small surface (splash,
-// dashboard attendance quick-entry + follow-ups, people directory, person detail) —
-// not a replacement for the full desktop-oriented admin SPA, which stays reachable
-// from the sidebar's "Full App" link.
+// Auto-served at the app's normal URL (connect.timothystl.org — no separate /admin or
+// /mobile path) whenever the request's User-Agent looks like a phone; see
+// wantsMobileShell() in tlc-volunteer-worker.js. Self-contained HTML+CSS+JS, same
+// pattern as LOGIN_HTML / the standalone scheduler page — not a framework, plain DOM
+// string templates + delegated click listeners (data-action attributes, not inline
+// onclick with interpolated arguments — see SEC13/SEC14 in CLAUDE.md for why: esc()'d
+// text inside an onclick's quotes is exactly the escaping trap that shipped stored XSS
+// three times in this app already). Serves every non-volunteer role, member included —
+// its dashboard/people/person-detail all degrade to that role's real access (see
+// api-mobile.js): a member sees just the directory shortcut, no attendance or
+// follow-ups cards, and the people/person-detail data is filtered exactly like the
+// main People API filters a member session. The desktop-oriented admin SPA stays
+// reachable from the sidebar's "Full App" link (?desktop=1, a 30-day cookie).
 import { DEPLOY_VERSION } from './frontend/js-core.js';
 
 export const MOBILE_ADMIN_HTML = `<!DOCTYPE html><html lang="en"><head>
@@ -176,7 +180,7 @@ const state = {
 
 async function api(path, opts) {
   const r = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts || {}));
-  if (r.status === 401) { window.location.href = '/admin/mobile'; throw new Error('unauthorized'); }
+  if (r.status === 401) { window.location.href = '/'; throw new Error('unauthorized'); }
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || 'Request failed');
   return d;
@@ -216,61 +220,71 @@ function renderHome() {
   setTopbarTitle('Dashboard');
   const d = state.dash;
   if (!d) { loadDashboard(); return; }
-  let svcHtml = '';
-  for (const svc of d.services) {
-    const expanded = !!state.svcExpanded[svc.time];
-    const btnText = svc.count != null ? (svc.count + ' entered') : 'Enter Attendance';
-    svcHtml += '<div class="svc-row">'
-      + '<div class="svc-row-top"><div class="svc-label">' + esc(svc.label) + '</div>'
-      + (d.can_edit_attendance
-          ? '<button class="svc-btn" data-action="toggle-svc" data-time="' + esc(svc.time) + '">' + esc(btnText) + '</button>'
-          : (svc.count != null ? '<div class="svc-label">' + esc(svc.count) + '</div>' : '')
-        )
-      + '</div>';
-    if (expanded) {
-      const draft = state.svcDraft[svc.time] != null ? state.svcDraft[svc.time] : (svc.count != null ? svc.count : '');
-      svcHtml += '<div class="svc-entry">'
-        + '<input type="number" inputmode="numeric" placeholder="0" value="' + esc(draft) + '" data-svc-input="' + esc(svc.time) + '">'
-        + '<button data-action="save-svc" data-time="' + esc(svc.time) + '">Save</button>'
+  // A member's role has no attendance/follow-ups access at all (a hard ceiling, not a
+  // toggle — see MEMBER_ALLOWED_ITEMS in api-utils.js), so those cards are omitted
+  // entirely rather than shown disabled or with a "no access" message — a member's
+  // dashboard is just the directory shortcut.
+  let attendanceCardHtml = '';
+  if (d.can_view_attendance) {
+    let svcHtml = '';
+    for (const svc of d.services) {
+      const expanded = !!state.svcExpanded[svc.time];
+      const btnText = svc.count != null ? (svc.count + ' entered') : 'Enter Attendance';
+      svcHtml += '<div class="svc-row">'
+        + '<div class="svc-row-top"><div class="svc-label">' + esc(svc.label) + '</div>'
+        + (d.can_edit_attendance
+            ? '<button class="svc-btn" data-action="toggle-svc" data-time="' + esc(svc.time) + '">' + esc(btnText) + '</button>'
+            : (svc.count != null ? '<div class="svc-label">' + esc(svc.count) + '</div>' : '')
+          )
         + '</div>';
+      if (expanded) {
+        const draft = state.svcDraft[svc.time] != null ? state.svcDraft[svc.time] : (svc.count != null ? svc.count : '');
+        svcHtml += '<div class="svc-entry">'
+          + '<input type="number" inputmode="numeric" placeholder="0" value="' + esc(draft) + '" data-svc-input="' + esc(svc.time) + '">'
+          + '<button data-action="save-svc" data-time="' + esc(svc.time) + '">Save</button>'
+          + '</div>';
+      }
+      svcHtml += '</div>';
     }
-    svcHtml += '</div>';
+    attendanceCardHtml = '<div class="mob-card">'
+      + '<div class="mob-card-head"><b>Sunday Attendance</b><div class="sub">' + esc(d.sunday_label) + '</div></div>'
+      + svcHtml
+      + '</div>';
   }
 
-  let notifHtml = '';
-  if (!d.can_view_followups) {
-    notifHtml = '<div class="empty-note">You don\\'t have access to follow-ups.</div>';
-  } else if (!d.followups.length) {
-    notifHtml = '<div class="empty-note">Nothing open right now.</div>';
-  } else {
-    for (const n of d.followups) {
-      const dotMap = {
-        prayer: { bg: 'var(--blue-mist)', fg: 'var(--navy)', icon: '✦' },
-        followup: { bg: 'var(--pale-gold)', fg: 'var(--gold-text)', icon: '✉' },
-      };
-      const dm = dotMap[n.kind] || dotMap.followup;
-      notifHtml += '<button class="notif-row" data-action="toggle-notif" data-kind="' + esc(n.kind) + '" data-id="' + esc(n.id) + '">'
-        + '<span class="notif-dot" style="background:' + dm.bg + ';color:' + dm.fg + ';">' + dm.icon + '</span>'
-        + '<div class="notif-body"><div class="notif-title' + (n.done ? ' done' : '') + '">' + esc(n.title) + '</div>'
-        + '<div class="notif-sub">' + esc(n.subtitle) + '</div></div>'
-        + '<div class="notif-time">' + esc(n.time_ago) + '</div>'
-        + '</button>';
+  let followupsCardHtml = '';
+  if (d.can_view_followups) {
+    let notifHtml = '';
+    if (!d.followups.length) {
+      notifHtml = '<div class="empty-note">Nothing open right now.</div>';
+    } else {
+      for (const n of d.followups) {
+        const dotMap = {
+          prayer: { bg: 'var(--blue-mist)', fg: 'var(--navy)', icon: '✦' },
+          followup: { bg: 'var(--pale-gold)', fg: 'var(--gold-text)', icon: '✉' },
+        };
+        const dm = dotMap[n.kind] || dotMap.followup;
+        notifHtml += '<button class="notif-row" data-action="toggle-notif" data-kind="' + esc(n.kind) + '" data-id="' + esc(n.id) + '">'
+          + '<span class="notif-dot" style="background:' + dm.bg + ';color:' + dm.fg + ';">' + dm.icon + '</span>'
+          + '<div class="notif-body"><div class="notif-title' + (n.done ? ' done' : '') + '">' + esc(n.title) + '</div>'
+          + '<div class="notif-sub">' + esc(n.subtitle) + '</div></div>'
+          + '<div class="notif-time">' + esc(n.time_ago) + '</div>'
+          + '</button>';
+      }
     }
+    followupsCardHtml = '<div class="mob-card">'
+      + '<div class="mob-card-head"><b>Follow Ups</b>' + (d.open_followup_count ? '<span class="notif-badge">' + esc(d.open_followup_count) + '</span>' : '') + '</div>'
+      + notifHtml
+      + '</div>';
   }
 
   document.getElementById('content').innerHTML = '<div class="mob-pad">'
-    + '<div class="mob-card">'
-    + '<div class="mob-card-head"><b>Sunday Attendance</b><div class="sub">' + esc(d.sunday_label) + '</div></div>'
-    + svcHtml
-    + '</div>'
+    + attendanceCardHtml
     + '<button class="ppl-shortcut" data-action="goto-people">'
     + '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#8A8377" stroke-width="2"/><path d="M21 21l-4-4" stroke="#8A8377" stroke-width="2" stroke-linecap="round"/></svg>'
     + '<span class="lbl">Search people…</span><span class="cnt">' + esc(d.people_total.toLocaleString()) + ' people</span>'
     + '</button>'
-    + '<div class="mob-card">'
-    + '<div class="mob-card-head"><b>Follow Ups</b>' + (d.open_followup_count ? '<span class="notif-badge">' + esc(d.open_followup_count) + '</span>' : '') + '</div>'
-    + notifHtml
-    + '</div>'
+    + followupsCardHtml
     + '</div>';
 }
 
@@ -429,7 +443,7 @@ document.getElementById('sb-overlay').addEventListener('click', () => { state.si
 document.querySelectorAll('.sb-item[data-nav]').forEach(el => {
   el.addEventListener('click', () => go(el.dataset.nav));
 });
-document.querySelector('.sb-item[data-fullapp]').addEventListener('click', () => { window.location.href = '/'; });
+document.querySelector('.sb-item[data-fullapp]').addEventListener('click', () => { window.location.href = '/?desktop=1'; });
 
 document.getElementById('content').addEventListener('click', (e) => {
   const t = e.target.closest('[data-action]');

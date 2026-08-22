@@ -159,14 +159,8 @@ export async function handleAdminLogin(req, env) {
   // ── Credential check ────────────────────────────────────────────────
   let body; try { body = await req.text(); } catch { body = ''; }
   const params = new URLSearchParams(body);
-  // Same fixed allowlist as the success path below — echoed back into the retry form on
-  // every error branch so a failed login attempt from /admin/mobile doesn't drop the
-  // "return to mobile" hint on the next try.
-  const nextRaw = params.get('next') || '';
-  const next = nextRaw === '/admin/mobile' ? nextRaw : '';
   const loginRetryHtml = (msg) => LOGIN_HTML
-    .replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">' + msg + '</p>')
-    .replace('<!--NEXT-->', next ? '<input type="hidden" name="next" value="' + next + '">' : '');
+    .replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">' + msg + '</p>');
 
   // ── Rate limiting: max 10 attempts per IP per 15-minute window ──────
   const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'unknown';
@@ -225,14 +219,8 @@ export async function handleAdminLogin(req, env) {
     // here (the pre-CONN6 path) sent every successful Connect login to /chms even though
     // the app is served at the root there — so /chms, not the bare domain, is what ended up
     // in everyone's history and bookmarks. See appRootPath's note in auth.js.
-    //
-    // `next` (built above) is a fixed allowlist, not a general relative-path check — this
-    // exists solely so the mobile admin page's login round-trip works, and an allowlist of
-    // one exact value has no open-redirect surface at all (a bare startsWith('/') check would
-    // still let '/\evil.com' or a scheme-relative '//evil.com' through in some browsers).
-    const dest = next || appRootPath(req);
     return new Response('', { status: 302, headers: {
-      Location: dest,
+      Location: appRootPath(req),
       'Set-Cookie': await authCookieHeader(env, matchedRole, matchedUsername)
     }});
   }
