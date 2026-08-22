@@ -24,14 +24,16 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**39 items open.** Take the next unchecked row. Detail for every code is in its phase section further down.
+**38 items open** (P22-E closed 2026-08-22 — see below). Take the next unchecked row. Detail for every code is in its phase section further down.
 
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
 | # | Code | Size | What |
 |---|---|---|---|
-| 1 | **P22-E** | small | Login rate limiting, intake rate limiting and QuickBooks OAuth `state` all fail **open** with no `RSVP_STORE`. Make them refuse. |
+| 1 | ~~**P22-E**~~ | small | DONE 2026-08-22. Login rate limiting, intake rate limiting and QuickBooks OAuth `state` now fail **closed**, not open, with no `RSVP_STORE`. |
 | 2 | ~~**P22-F**~~ | small ×5 | DONE 2026-08-22. Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. |
+
+**Tier 1 complete.** Next up: Tier 2, starting with P24-C.
 
 ### Tier 2 — Things that are wrong on screen right now
 
@@ -188,9 +190,21 @@ v1.191.0. **Not verified**: a live browser, a real sent email, or production D1.
   found on the way** — the fake `caches` returned the stored `Response` rather than a clone, so a
   second read saw a consumed body. 8 injections, 8 correct failure sets. `npm test` 1702/1702 (was
   1672). **Not verified**: a live browser, a real installed PWA, or a real offline relaunch. Was:
-- [ ] **P22-E** (retires **SEC20**) — Fail closed, not open, when `RSVP_STORE` is absent: login rate limiting,
-  intake rate limiting, and QuickBooks OAuth `state` validation. A missing binding should refuse, not wave
-  through.
+- [x] **P22-E** — DONE 2026-08-22, retires **SEC20**. All three sites now fail CLOSED instead of open
+  when `RSVP_STORE` is absent: (1) `handleAdminLogin` (`api-admin.js`) refuses with a 503 before any
+  credential check runs — brute-force protection that silently disables itself is worse than a login
+  page that says "temporarily unavailable"; (2) `intakeRateLimitOk` (`api-intake.js`) returns `false`
+  (429) instead of `true` — an unauthenticated public-facing intake endpoint should not go unlimited
+  just because KV is unbound; (3) the QuickBooks connect route (`api-finance.js`) refuses to start the
+  OAuth flow at all (503) rather than mint a `state` nobody will check, and the callback route refuses
+  (redirects with `qb_error=state_store_unavailable`) rather than trust an unverifiable `state` param.
+  `npm test` 1785/1785, 8 new tests in `test/kv-fail-closed.test.js`; **all 4 "missing store" cases
+  verified non-vacuous** by reverting the three fixes and confirming they fail against the pre-fix
+  code (the 4 "store present, still works normally" cases keep the fix from being a blanket refuse).
+  `test/admin-login-credentials.test.js`'s shared `envWith()` fixture updated to include a working
+  in-memory KV mock, since login can no longer succeed with none at all. **Not verified**: a live
+  browser or a real QuickBooks OAuth round-trip. (`src/api-admin.js`, `src/api-intake.js`,
+  `src/api-finance.js`, `test/kv-fail-closed.test.js`, `test/admin-login-credentials.test.js`)
 - [x] **P22-F** — DONE 2026-08-22, retires **SEC21** (all five remaining sub-items; (a-i)/(b) of the
   original seven had already shipped in commit `c7c1c3a`, per the note this replaces). Prompted by an
   independent external code review landing the same findings. All five verified non-vacuous (each

@@ -23,6 +23,16 @@ const loginReq = (username, password) =>
     body: new URLSearchParams({ username, password }).toString(),
   });
 
+/** A fresh in-memory KV store per call, so separate envWith() calls stay independent. */
+function makeKvStore() {
+  const store = new Map();
+  return {
+    async get(key) { return store.has(key) ? store.get(key) : null; },
+    async put(key, value) { store.set(key, value); },
+    async delete(key) { store.delete(key); },
+  };
+}
+
 /** env with every role-password variable set, to prove none of them is an authentication path. */
 function envWith(users = []) {
   return {
@@ -31,8 +41,9 @@ function envWith(users = []) {
     STAFF_PASSWORD: 'staff-pw',
     MEMBER_PASSWORD: 'member-pw',
     ADMIN_EMAIL: 'Timothy Lutheran <noreply@timothystl.org>',
-    // No RSVP_STORE: rate limiting is out of scope here (that is P22-E) and its absence
-    // keeps these runs independent of each other.
+    // P22-E: login now fails CLOSED with no RSVP_STORE, so a working store is required here
+    // just to reach the credential checks these tests are actually about.
+    RSVP_STORE: makeKvStore(),
     DB: {
       prepare: (sql) => ({
         bind: (...args) => ({

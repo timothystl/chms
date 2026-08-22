@@ -162,6 +162,13 @@ export async function handleAdminLogin(req, env) {
   const loginRetryHtml = (msg) => LOGIN_HTML
     .replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">' + msg + '</p>');
 
+  // P22-E: fail CLOSED, not open, when the KV binding backing rate limiting is missing —
+  // brute-force protection that silently disables itself on a misconfigured environment is
+  // worse than a login page that says so and refuses.
+  if (!env.RSVP_STORE) {
+    return html(loginRetryHtml('Login is temporarily unavailable. Please try again shortly.'), 503);
+  }
+
   // ── Rate limiting: max 10 attempts per IP, sliding 15-minute window ──────
   // Key has no time bucket — every failed attempt re-arms a fresh 15-minute TTL (below), so
   // the window only actually resets once 15 minutes pass with NO attempts. A `:${bucket}`
@@ -171,11 +178,9 @@ export async function handleAdminLogin(req, env) {
   const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'unknown';
   const MAX_ATTEMPTS = 10;
   const rlKey = `rl_login:${ip}`;
-  if (env.RSVP_STORE) {
-    const attempts = parseInt(await env.RSVP_STORE.get(rlKey) || '0', 10);
-    if (attempts >= MAX_ATTEMPTS) {
-      return html(loginRetryHtml('Too many login attempts. Please wait 15 minutes and try again.'), 429);
-    }
+  const attempts = parseInt(await env.RSVP_STORE.get(rlKey) || '0', 10);
+  if (attempts >= MAX_ATTEMPTS) {
+    return html(loginRetryHtml('Too many login attempts. Please wait 15 minutes and try again.'), 429);
   }
   // ADMIN_PASSWORD is the ONLY credential this function reads from env, and it is read for the
   // break-glass path below and nothing else. FINANCE_PASSWORD, STAFF_PASSWORD, MEMBER_PASSWORD
@@ -218,7 +223,7 @@ export async function handleAdminLogin(req, env) {
   }
 
   if (matchedRole) {
-    if (env.RSVP_STORE) await env.RSVP_STORE.delete(rlKey).catch(() => {});
+    await env.RSVP_STORE.delete(rlKey).catch(() => {});
     // Host-aware: `/` on connect.timothystl.org, `/chms` anywhere else. Hardcoding /chms
     // here (the pre-CONN6 path) sent every successful Connect login to /chms even though
     // the app is served at the root there — so /chms, not the bare domain, is what ended up
@@ -229,7 +234,7 @@ export async function handleAdminLogin(req, env) {
     }});
   }
   // Increment failed-attempt counter (expires after 20 minutes to clean up)
-  if (env.RSVP_STORE) {
+  {
     const cur = parseInt(await env.RSVP_STORE.get(rlKey) || '0', 10);
     await env.RSVP_STORE.put(rlKey, String(cur + 1), { expirationTtl: 20 * 60 }).catch(() => {});
   }
