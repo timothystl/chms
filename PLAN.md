@@ -24,9 +24,9 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**24 items open** (of 38 total: 23 rows in the table below + 15 Tier 7 carry-forwards). Closed:
+**23 items open** (of 38 total: 23 rows in the table below + 15 Tier 7 carry-forwards). Closed:
 P22-E, P22-F, P24-C and P26-A on 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B, P25-C, P25-G,
-P27-C, P27-B, P27-D and P27-A on 2026-08-23 — see below. **Tiers 1, 2 and 5 are now all
+P27-C, P27-B, P27-D, P27-A and P28-E on 2026-08-23 — see below. **Tiers 1, 2 and 5 are now all
 complete; Tier 3 has only its two "large" items left (P25-E, P25-F).** Take the next
 unchecked row. Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
@@ -564,8 +564,14 @@ nothing is orphaned. Not ordered.
   Giving Insights.
 - [ ] **P28-D** / **TAP3** — The eight remaining tuition config knobs still have no UI (two got one; see the
   item's own 2026-08-19 note).
-- [ ] **P28-E** / **TAP6** — Offset-0 is deliberately not pin-aware, so a pin made for "next year" is not
-  promoted when that year becomes current. Re-verified unchanged 2026-08-19.
+- [x] **P28-E** / **TAP6** — DONE 2026-08-23. A one-time promotion pass (`tapPromoteCurrentYearPins()`,
+  run on every bundle load) copies a pin matching the current year's label into the master row via
+  the existing PATCH path — the hot `tapSplitFor`/`tapOutsideAidFor`/`tapFamPctFor`/`tapLhsAwardFor`
+  read path stays completely untouched, and a student already touched or carrying a live override is
+  skipped so a real edit made after rollover can never be clobbered. `npm test` (1818/1818, 5 new in
+  `test/tuition-year-pin-promotion.test.js`, driving the real function out of the real built bundle);
+  verified non-vacuous by reverting the fix and confirming 2 of 5 fail. DEPLOY_VERSION bumped to
+  1.205.0. (`src/frontend/js-tuition-aid.js`, `test/tuition-year-pin-promotion.test.js`)
 - [ ] **P28-F** / **SC4** — Mobile self-service "My Schedule". **Blocked**: there is no per-volunteer login,
   so nothing can answer "which person is me". Needs a volunteer identity decision first.
 - [ ] **P28-G** / **SC6** — Native Scheduler rewrite, Phase 4: port the remaining surfaces (Focus Week,

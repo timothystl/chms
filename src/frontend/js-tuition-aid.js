@@ -24,6 +24,38 @@ function tapApplyBundle(d) {
   (d.yearRates || []).forEach(function(r) { _tapYearRates[r.school_year] = r.tuition_cents; });
   _tapStudentYears = d.studentYears || [];
   tapIndexPins();
+  tapPromoteCurrentYearPins();
+}
+// TAP6/P28-E: a pin made while a year was still "next year" (offset > 0) used to sit inert
+// forever once base_school_year advanced and that year became "current" (offset 0) —
+// tapSplitFor/tapOutsideAidFor/tapFamPctFor/tapLhsAwardFor deliberately never consult a pin at
+// offset 0, since a stale pin overriding a fresh live edit made after rollover would have no way
+// to reconcile against the edit (that hot, best-tested read path is intentionally left alone).
+// Instead, this runs once whenever the bundle loads: any pin matching the CURRENT year's label
+// is copied into the master row — the one place offset-0 ever reads from — via the same PATCH
+// path a live edit already uses. A student who has since been touched or given a live override
+// is skipped, so this can never clobber a real edit made after promotion; a student with nothing
+// to promote is a no-op either way. Idempotent by construction: promoting sets 'touched' and/or
+// 'timothyAwardOverride', and both are checked on the way in, so a student already promoted is
+// skipped on the next load without needing the pin itself cleared.
+function tapPromoteCurrentYearPins() {
+  var label = tapYearLabelForIdx(0);
+  _tapRoster.forEach(function(s) {
+    if (s.isPipeline || s.touched || s.timothyAwardOverride != null) return;
+    var pin = _tapPinsByKey[s.id + '|' + label];
+    if (!pin) return;
+    var fields = {};
+    if (pin.outside_aid_cents != null) { s.outsideAid = pin.outside_aid_cents / 100; fields.outside_aid_cents = pin.outside_aid_cents; }
+    if (pin.lhs_award_cents != null) { s.lhsAward = pin.lhs_award_cents / 100; fields.lhs_award_cents = pin.lhs_award_cents; }
+    if (pin.fam_pct != null) { s.famPct = pin.fam_pct; s.touched = true; fields.fam_pct = pin.fam_pct; fields.touched = 1; }
+    if (pin.timothy_award_cents != null || pin.family_owed_cents != null) {
+      s.timothyAwardOverride = (pin.timothy_award_cents != null ? pin.timothy_award_cents : 0) / 100;
+      s.familyOwedOverride = (pin.family_owed_cents != null ? pin.family_owed_cents : 0) / 100;
+      fields.timothy_award_override_cents = pin.timothy_award_cents;
+      fields.family_owed_override_cents = pin.family_owed_cents;
+    }
+    if (Object.keys(fields).length) tapDebouncedSave(s.id, fields);
+  });
 }
 function loadTuitionAid() {
   var loadingEl = document.getElementById('tap-loading');
