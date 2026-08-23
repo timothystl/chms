@@ -149,10 +149,15 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // 12 serial D1 round-trips. The dashboard is the app's landing screen, so this latency is
     // on the critical path for every login. Anything below that depends on a result here
     // (the anniversary partner lookup) still runs afterwards.
+    // P24-B: birthdaysRes/annRowsRes/baptismAnniversariesRes/annIssueCandidatesRes were
+    // originally four more serial awaits after this batch — none of the four depends on
+    // anything computed here (birthdays/annRows/baptismAnniversaries need only dashMonthStr,
+    // annIssueCandidates isn't month-scoped at all), so they run alongside the rest instead.
     const [
       mtCfgRowDash, typeCountsRes, totalHouseholdsRow, memberCountRow, memberHHCountRow,
       confirmedCountRow, baptizedCountRow, addedThisMonthRow, addedThisYearRow,
       gfYtdRow, gfLastYearYtdRow, gfLastYearTotalRow,
+      birthdaysRes, annRowsRes, baptismAnniversariesRes, annIssueCandidatesRes,
     ] = await Promise.all([
       // Membership counts by type — GROUP BY LOWER() to merge case variants (e.g. "member" vs "Member")
       db.prepare("SELECT value FROM chms_config WHERE key='member_types'").first(),
@@ -208,7 +213,55 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
          WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=cast(strftime('%Y','now')-1 as text)
            AND f.name LIKE '40085%'`
       ).first(),
+      db.prepare(
+        `SELECT id, first_name, last_name, dob FROM people
+         WHERE active=1 AND (status IS NULL OR status='active')
+           AND (deceased=0 OR deceased IS NULL)
+           AND dob != ''
+           AND LOWER(member_type) = 'member'
+           AND strftime('%m', dob) = ?
+         ORDER BY strftime('%d', dob)`
+      ).bind(dashMonthStr).all(),
+      // DB4: fetch anniversaries with role+household so couples can be paired
+      db.prepare(
+        `SELECT id, first_name, last_name, anniversary_date, family_role, household_id FROM people
+         WHERE active=1 AND (status IS NULL OR status='active')
+           AND (deceased=0 OR deceased IS NULL) AND anniversary_date != ''
+           AND LOWER(member_type) = 'member'
+           AND LOWER(marital_status) != 'widowed'
+           AND strftime('%m', anniversary_date) = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM people p2
+             WHERE p2.household_id=people.household_id AND p2.id!=people.id
+               AND (p2.deceased=1 OR p2.status='deceased') AND p2.family_role IN ('head','spouse')
+           )
+         ORDER BY strftime('%d', anniversary_date), household_id,
+           CASE family_role WHEN 'head' THEN 0 WHEN 'spouse' THEN 1 ELSE 2 END`
+      ).bind(dashMonthStr).all(),
+      // DB4: Baptism anniversaries for the month (members only, non-deceased, with a baptism_date)
+      db.prepare(
+        `SELECT id, first_name, last_name, baptism_date FROM people
+         WHERE active=1 AND (status IS NULL OR status='active')
+           AND (deceased=0 OR deceased IS NULL)
+           AND baptism_date != ''
+           AND LOWER(member_type) = 'member'
+           AND strftime('%m', baptism_date) = ?
+         ORDER BY strftime('%d', baptism_date)`
+      ).bind(dashMonthStr).all(),
+      // SW8: Anniversary data-quality/pastoral-care flags — year-round (not month-scoped) so
+      // staff can review and fix/reach out at any time, not just when the date rolls around.
+      db.prepare(
+        `SELECT id, first_name, last_name, anniversary_date, family_role, household_id FROM people
+         WHERE active=1 AND (status IS NULL OR status='active') AND (deceased=0 OR deceased IS NULL)
+           AND anniversary_date != '' AND household_id IS NOT NULL AND household_id != ''
+           AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')
+           AND LOWER(marital_status) != 'widowed'`
+      ).all(),
     ]);
+    const birthdays = birthdaysRes.results || [];
+    const annRows = annRowsRes.results || [];
+    const baptismAnniversaries = baptismAnniversariesRes.results || [];
+    const annIssueCandidates = annIssueCandidatesRes.results || [];
     const configuredTypesDash = mtCfgRowDash ? JSON.parse(mtCfgRowDash.value) : ['Member','Friend','Visitor','Inactive','Organization','Other'];
     const typeNameMapDash = {};
     for (const t of configuredTypesDash) typeNameMapDash[t.toLowerCase()] = t;
@@ -225,31 +278,6 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const gfYtd = gfYtdRow?.total || 0;
     const gfLastYearYtd = gfLastYearYtdRow?.total || 0;
     const gfLastYearTotal = gfLastYearTotalRow?.total || 0;
-    const birthdays = (await db.prepare(
-      `SELECT id, first_name, last_name, dob FROM people
-       WHERE active=1 AND (status IS NULL OR status='active')
-         AND (deceased=0 OR deceased IS NULL)
-         AND dob != ''
-         AND LOWER(member_type) = 'member'
-         AND strftime('%m', dob) = ?
-       ORDER BY strftime('%d', dob)`
-    ).bind(dashMonthStr).all()).results || [];
-    // DB4: fetch anniversaries with role+household so couples can be paired
-    const annRows = (await db.prepare(
-      `SELECT id, first_name, last_name, anniversary_date, family_role, household_id FROM people
-       WHERE active=1 AND (status IS NULL OR status='active')
-         AND (deceased=0 OR deceased IS NULL) AND anniversary_date != ''
-         AND LOWER(member_type) = 'member'
-         AND LOWER(marital_status) != 'widowed'
-         AND strftime('%m', anniversary_date) = ?
-         AND NOT EXISTS (
-           SELECT 1 FROM people p2
-           WHERE p2.household_id=people.household_id AND p2.id!=people.id
-             AND (p2.deceased=1 OR p2.status='deceased') AND p2.family_role IN ('head','spouse')
-         )
-       ORDER BY strftime('%d', anniversary_date), household_id,
-         CASE family_role WHEN 'head' THEN 0 WHEN 'spouse' THEN 1 ELSE 2 END`
-    ).bind(dashMonthStr).all()).results || [];
     // Group same-household + same-date pairs into one entry ("Bob & Alice Johnson")
     const _annRoleOrder = { head: 0, spouse: 1, child: 2, other: 3 };
     const annGroupMap = new Map();
@@ -299,28 +327,10 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
         };
       })
       .sort((a, b) => a.anniversary_date.slice(5) < b.anniversary_date.slice(5) ? -1 : 1);
-    // DB4: Baptism anniversaries for the month (members only, non-deceased, with a baptism_date)
-    const baptismAnniversaries = (await db.prepare(
-      `SELECT id, first_name, last_name, baptism_date FROM people
-       WHERE active=1 AND (status IS NULL OR status='active')
-         AND (deceased=0 OR deceased IS NULL)
-         AND baptism_date != ''
-         AND LOWER(member_type) = 'member'
-         AND strftime('%m', baptism_date) = ?
-       ORDER BY strftime('%d', baptism_date)`
-    ).bind(dashMonthStr).all()).results || [];
     // SW8: Anniversary data-quality/pastoral-care flags — people with an anniversary_date
     // who would be silently skipped by the automated anniversary email/SMS sends (and left
     // out of the DB4 anniversary card above) because no living, date-matched partner could
-    // be paired with them. Year-round (not month-scoped) so staff can review and fix/reach
-    // out at any time, not just when the date rolls around.
-    const annIssueCandidates = (await db.prepare(
-      `SELECT id, first_name, last_name, anniversary_date, family_role, household_id FROM people
-       WHERE active=1 AND (status IS NULL OR status='active') AND (deceased=0 OR deceased IS NULL)
-         AND anniversary_date != '' AND household_id IS NOT NULL AND household_id != ''
-         AND LOWER(member_type) NOT IN ('visitor','inactive','other','organization')
-         AND LOWER(marital_status) != 'widowed'`
-    ).all()).results || [];
+    // be paired with them.
     let anniversaryIssues = [], anniversaryIssueTotal = 0;
     if (annIssueCandidates.length) {
       const issueHHIds = [...new Set(annIssueCandidates.map(p => p.household_id))];
@@ -467,30 +477,38 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
           'Follow up with prayer requests',
           'Check in with members not seen recently',
         ];
-        for (let i = 0; i < defaults.length; i++) {
-          await db.prepare('INSERT INTO engagement_tasks(title,week_key,sort_order) VALUES(?,?,?)').bind(defaults[i], weeklyTasksWeek, i).run();
-        }
+        // P24-B: one batch, and INSERT OR IGNORE rather than plain INSERT — a unique index on
+        // (title, week_key) (migrations/0037) means two staff opening the dashboard the same
+        // Monday morning and both finding it empty no longer both seed all five rows. The
+        // loser's five inserts are silently ignored instead of duplicated.
+        await db.batch(defaults.map((title, i) =>
+          db.prepare('INSERT OR IGNORE INTO engagement_tasks(title,week_key,sort_order) VALUES(?,?,?)').bind(title, weeklyTasksWeek, i)
+        ));
         weeklyTasks = (await db.prepare(
           'SELECT * FROM engagement_tasks WHERE week_key=? ORDER BY sort_order, id'
         ).bind(weeklyTasksWeek).all()).results || [];
       }
     }
-    // Open prayer requests (FU1) — staff+ sees these
+    // Open prayer requests (FU1) — staff+ sees these. Two independent counts, run together.
     let prayerOpen = [], prayerOpenTotal = 0;
     if (canEdit) {
-      prayerOpen = (await db.prepare(
-        `SELECT pr.id, pr.person_id, pr.requester_name, pr.requester_email, pr.request_text,
-                pr.source, pr.status, pr.submitted_at,
-                p.first_name, p.last_name
-         FROM prayer_requests pr
-         LEFT JOIN people p ON p.id = pr.person_id
-         WHERE pr.status IN ('open','praying')
-         ORDER BY pr.submitted_at DESC, pr.id DESC
-         LIMIT 5`
-      ).all()).results || [];
-      prayerOpenTotal = (await db.prepare(
-        "SELECT COUNT(*) AS n FROM prayer_requests WHERE status IN ('open','praying')"
-      ).first())?.n || 0;
+      const [prayerOpenRes, prayerOpenTotalRow] = await Promise.all([
+        db.prepare(
+          `SELECT pr.id, pr.person_id, pr.requester_name, pr.requester_email, pr.request_text,
+                  pr.source, pr.status, pr.submitted_at,
+                  p.first_name, p.last_name
+           FROM prayer_requests pr
+           LEFT JOIN people p ON p.id = pr.person_id
+           WHERE pr.status IN ('open','praying')
+           ORDER BY pr.submitted_at DESC, pr.id DESC
+           LIMIT 5`
+        ).all(),
+        db.prepare(
+          "SELECT COUNT(*) AS n FROM prayer_requests WHERE status IN ('open','praying')"
+        ).first(),
+      ]);
+      prayerOpen = prayerOpenRes.results || [];
+      prayerOpenTotal = prayerOpenTotalRow?.n || 0;
     }
     return json({
       totalPeople, totalHouseholds, memberCount, memberHHCount, confirmedCount, baptizedCount,

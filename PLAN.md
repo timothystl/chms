@@ -24,8 +24,8 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**34 items open** (P22-E, P24-C and P26-A closed 2026-08-22; P24-A and P25-D closed 2026-08-23 —
-see below). Take the next
+**33 items open** (P22-E, P24-C and P26-A closed 2026-08-22; P24-A, P25-D and P24-B closed
+2026-08-23 — see below). Take the next
 unchecked row. Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
@@ -33,7 +33,8 @@ unchecked row. Detail for every code is in its phase section further down.
 |---|---|---|---|
 | 1 | ~~**P22-E**~~ | small | DONE 2026-08-22. Login rate limiting, intake rate limiting and QuickBooks OAuth `state` now fail **closed**, not open, with no `RSVP_STORE`. || 2 | ~~**P22-F**~~ | small ×5 | DONE 2026-08-22. Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. |
 
-**Tier 1 and Tier 2 both complete.** Next up: item 6, P24-B (dashboard query consolidation).
+**Tier 1 and Tier 2 both complete.** Next up: item 7, P25-A (route two scheduler assets through
+`assetCacheControl()`).
 
 ### Tier 2 — Things that are wrong on screen right now
 
@@ -44,7 +45,7 @@ Highest payoff per line changed in the whole plan. Two of these are user-reporte
 | 3 | ~~**P24-C**~~ | ~2 lines | DONE 2026-08-22. Council display-name label was already fixed by an earlier session; the write-refusal string in `api-chms.js` still said "office" — now says "council". |
 | 4 | ~~**P26-A**~~ | small | DONE 2026-08-22. Nine CSS custom properties are now declared, with a build-time assertion added so a future one can't go undefined the same way. |
 | 5 | ~~**P24-A** + **P25-D**~~ | **large — see note** | DONE 2026-08-23. `api()` now rejects on any non-2xx response regardless of `opts`; 88 write call sites got a `.catch` added (99 candidates found, 11 excluded as already-safe or as the wrong fix — see the entry below); the 8 hardcoded `/chms` redirects are gone; the 7 `js-finance.js` `FormData` uploads route through `api()`. |
-| 6 | **P24-B** | medium | Dashboard: ~11 serial D1 round-trips, and two staff opening it the same Monday both seed the weekly tasks and leave ten. |
+| 6 | ~~**P24-B**~~ | medium | DONE 2026-08-23. Four more dashboard queries folded into the existing `Promise.all`; the prayer-request pair now runs together; the weekly-task seed is one `db.batch()` with `INSERT OR IGNORE` against a new unique index. |
 
 > **⚠ Why 5 merges two codes.** P24-A rewrites `api()`; P25-D routes seven `js-finance.js` uploads
 > through `api()` and replaces eight hardcoded `/chms` 401 redirects. Both sweep the same call sites.
@@ -312,12 +313,26 @@ user-visible payoff per line changed in the whole plan.
     array literal or a `.push(...)` argument (confirms none of the second bug's shape survived).
     `npm test` 1795/1795 (was 1793 before this branch), `node --check` on all 13 touched files.
     **Not verified**: a live browser — the standing caveat on all frontend work in this repo.
-- [ ] **P24-B** (retires **LOAD8**, **CR5**) — Dashboard: fold `birthdays`, `annRows` and
-  `baptismAnniversaries` into the existing first `Promise.all` (they depend on nothing), run
-  `prayerOpen`/`prayerOpenTotal` together, and replace the five-`await` weekly-task seed loop with one
-  `db.batch()`. **⚠ Add a unique constraint on `engagement_tasks(title, week_key)` or seed with
-  `INSERT … WHERE NOT EXISTS`** — two staff opening the dashboard the same Monday morning currently both
-  seed and leave ten tasks.
+- [x] **P24-B** — DONE 2026-08-23, retires **LOAD8**, **CR5**. `birthdays`, `annRows`,
+  `baptismAnniversaries` and the year-round `annIssueCandidates` query (none of the four depends on
+  anything computed earlier — three need only `dashMonthStr`, the fourth isn't month-scoped at all)
+  moved into the dashboard handler's existing first `Promise.all`, alongside the 12 queries already
+  there. `prayerOpen`/`prayerOpenTotal` (two independent counts, previously two serial awaits) now
+  run together via `Promise.all`. The weekly-task seed's five serial `INSERT` awaits became one
+  `db.batch()` call using `INSERT OR IGNORE`, backed by a new `UNIQUE(title, week_key)` index
+  (`migrations/0037_engagement_tasks_unique_week.sql`, also added as a runtime migration in
+  `db.js` with a dedup `DELETE` run first — a database that already hit the pre-fix race has real
+  duplicate rows, and a bare `CREATE UNIQUE INDEX` would fail against them outright). This closes
+  the race: two staff opening the dashboard the same Monday morning and both finding the week's
+  task list empty now both attempt to seed, but the loser's five inserts are silently ignored by
+  the unique index instead of duplicating every row. `npm test` (1798/1798, 3 new in
+  `test/engagement-tasks-race.test.js` — running the real `initDb` against real in-memory SQLite,
+  same harness pattern as `test/db-init-fastpath.test.js`); verified non-vacuous by reverting
+  `src/db.js`'s migration and confirming 2 of the 3 new tests fail (10 rows instead of 5; the
+  dedup-on-reboot case not applied). `node --check` on both touched files. **Not verified**: a live
+  browser or real D1 — same standing caveat as all frontend/backend work in this repo without a
+  live environment. (`src/api-chms.js`, `src/db.js`, `migrations/0037_engagement_tasks_unique_week.sql`,
+  `test/engagement-tasks-race.test.js`)
 - [x] **P24-C** — DONE 2026-08-22, retires **DSN8**. `council` was already added to `roleLabels` in
   `api-admin.js` by an earlier session (found already fixed, with a comment naming DSN8). The other
   half — `api-chms.js`'s write-refusal string still saying "editing requires staff, office, or finance

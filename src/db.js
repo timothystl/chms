@@ -1769,6 +1769,14 @@ async function _doInitDb(db) {
     "ALTER TABLE giving_entries ADD COLUMN external_txn_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE giving_entries ADD COLUMN reconcile_status TEXT NOT NULL DEFAULT 'recorded'",
     `CREATE INDEX IF NOT EXISTS idx_entries_deposit ON giving_entries(deposit_id)`,
+    // P24-B (see migrations/0037_engagement_tasks_unique_week.sql): two staff opening the
+    // dashboard the same Monday morning both saw an empty weekly-task list and both seeded
+    // it, leaving ten rows instead of five. Dedup first — a database that already hit the
+    // race has real duplicate rows, and the unique index would fail outright against them.
+    `DELETE FROM engagement_tasks WHERE id NOT IN (
+       SELECT MIN(id) FROM engagement_tasks GROUP BY title, week_key
+     )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_engagement_tasks_title_week ON engagement_tasks(title, week_key)`,
   ];
   // Every statement here is either an idempotent CREATE ... IF NOT EXISTS, or an ALTER TABLE
   // ADD COLUMN — SQLite has no "ADD COLUMN IF NOT EXISTS", so a re-run always throws "duplicate
