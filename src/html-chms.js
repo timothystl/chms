@@ -56,6 +56,7 @@ function isVersionedAsset(url) {
   return url.pathname === '/admin/app-member.js'
       || url.pathname === '/admin/app-staff.js'
       || url.pathname === '/admin/app-ext.js'
+      || url.pathname === '/admin/app-finance.js'
       || url.pathname === '/admin/app.css';
 }
 
@@ -255,11 +256,33 @@ self.addEventListener('fetch', function(event) {
 // test/member-bundle.test.js, which also asserts the two halves still add up to app-core.
 const APP_MEMBER_JS_RAW = JS_CORE + JS_PEOPLE + JS_HOUSEHOLDS;
 const APP_STAFF_JS_RAW = JS_SETTINGS + JS_DASHBOARD + JS_REGISTER;
-const APP_EXT_JS_RAW = JS_GIVING + JS_REPORTS + JS_EXPORT_IMPORT + JS_ATTENDANCE + JS_TUITION_AID + JS_FINANCE + JS_VOLUNTEERS;
+const APP_EXT_JS_RAW = JS_GIVING + JS_REPORTS + JS_EXPORT_IMPORT + JS_ATTENDANCE + JS_TUITION_AID + JS_VOLUNTEERS;
 const stripScriptTags = (s) => s.replace(/^<script>\n/, '').replace(/<\/script>\n$/, '');
 export const CHMS_APP_MEMBER_JS = stripScriptTags(APP_MEMBER_JS_RAW);
 export const CHMS_APP_STAFF_JS = stripScriptTags(APP_STAFF_JS_RAW);
 export const CHMS_APP_EXT_JS = stripScriptTags(APP_EXT_JS_RAW);
+// ── P25-E: Finance split out of app-ext.js, along the permission line ─────────────────────────
+// js-finance.js is ~696KB of source — over half of the old app-ext.js — and was shipped to
+// every non-member role in the shell's eager script tags whether or not that account ever
+// opens the Finance tab (a `staff` or `council` account with `finance: none` downloaded and
+// parsed all of it on every page load). Unlike the member/staff split (CR9), this is not a
+// role-line cut — it's a per-TAB one: nobody's landing page is Finance, so app-finance.js is
+// never in the shell's script tags for ANY role, admin included. It is fetched exactly once,
+// lazily, the first time the Finance tab (or anything that needs its code — see below) is
+// actually opened, via ensureFinanceModuleLoaded() in js-core.js — the same pattern already
+// used for the Scheduler embed and for a member's lazy Reports tab.
+//
+// The one real cross-module coupling found before shipping this (grepped every `fin[A-Z]...`
+// name defined in js-finance.js against every other frontend module): js-giving.js's Reports
+// view calls finInitGivingReports() unconditionally when opened, because Giving's Board
+// Report/Analysis views reuse Finance's chart helpers. That call is gated on the SAME
+// ensureFinanceModuleLoaded() loader, so opening Giving → Reports without ever having opened
+// Finance still works. finShowSection() (js-core.js's own showTab) was already typeof-guarded
+// before this change. Nothing else outside js-finance.js calls into it — every other `fin*`
+// reference elsewhere in the frontend sits inside the Finance tab's own markup (html-tabs.js,
+// html-head.js), which cannot be interacted with before the Finance tab itself is open.
+const APP_FINANCE_JS_RAW = JS_FINANCE;
+export const CHMS_APP_FINANCE_JS = stripScriptTags(APP_FINANCE_JS_RAW);
 // Retained as the concatenation of the two halves. Nothing serves this — the worker serves the
 // halves — but the test suite evaluates core+ext in a vm to exercise the real shipped code, and
 // that harness wants one blob in load order.

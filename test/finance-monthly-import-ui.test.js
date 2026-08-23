@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
 
 // Regression cover for the Monthly P&L import UI after it went multi-year (v1.150.0).
 //
@@ -44,6 +44,7 @@ function makeCtx(previewResponse, { ok = true, status = 200 } = {}) {
   vm.createContext(ctx);
   vm.runInContext(CHMS_APP_CORE_JS, ctx, { filename: 'app-core.js' });
   vm.runInContext(CHMS_APP_EXT_JS, ctx, { filename: 'app-ext.js' });
+  vm.runInContext(CHMS_APP_FINANCE_JS, ctx, { filename: 'app-finance.js' });
   ctx.__store = store;
   return ctx;
 }
@@ -161,6 +162,7 @@ function makeStatusCtx(responses) {
   vm.createContext(ctx);
   vm.runInContext(CHMS_APP_CORE_JS, ctx, { filename: 'app-core.js' });
   vm.runInContext(CHMS_APP_EXT_JS, ctx, { filename: 'app-ext.js' });
+  vm.runInContext(CHMS_APP_FINANCE_JS, ctx, { filename: 'app-finance.js' });
   ctx.api = (u) => { calls.push(u); return Promise.resolve(responses.shift()); };
   ctx.__store = store; ctx.__calls = calls;
   return ctx;
@@ -220,7 +222,7 @@ function bodyOf(src, name) {
   throw new Error('unbalanced braces reading ' + name);
 }
 
-const BUNDLE = CHMS_APP_CORE_JS + '\n' + CHMS_APP_EXT_JS;
+const BUNDLE = CHMS_APP_CORE_JS + '\n' + CHMS_APP_EXT_JS + '\n' + CHMS_APP_FINANCE_JS;
 
 describe('import success handlers refresh the Data & Imports staleness card', () => {
   // One entry per importer whose route calls recordImport() and whose commit is driven by a

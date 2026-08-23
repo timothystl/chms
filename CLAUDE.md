@@ -991,7 +991,14 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   **252.7 KB** · `app-staff.js` **121.9 KB** · `app-ext.js` **1,273.3 KB** · scheduler embed **91.7 KB +
   303.3 KB** (lazy) · `PUBLIC_HTML` **204.5 KB**. **Staff first load ≈ 1,994 KB** uncompressed;
   **member first load ≈ 599 KB**, which is the CR9 win holding up.
-- [ ] **LOAD2 — `app-ext.js` is 1.27 MB and every non-member role gets all of it, whatever their
+- [x] **LOAD2 — FIXED 2026-08-23 (P25-E).** `js-finance.js` (679.6 KB served) is now its own bundle,
+  `CHMS_APP_FINANCE_JS` at `/admin/app-finance.js`, never in `chmsHtmlForRole()`'s eager script tags for
+  any role — fetched lazily via a new `ensureFinanceModuleLoaded()` (`js-core.js`) the first time it's
+  actually needed. `app-ext.js` drops 1,273 KB → 610.2 KB. Full detail, including the one real
+  cross-module coupling found and fixed (`js-giving.js`'s Reports view calling into a Finance chart
+  helper), is in `PLAN.md` under P25-E — this is the evidence file, that's the running order, per the
+  split described at the top of this section. Original finding follows, for the record. `app-ext.js` is
+  1.27 MB and every non-member role gets all of it, whatever their
   permissions.** It is `JS_GIVING + JS_REPORTS + JS_EXPORT_IMPORT + JS_ATTENDANCE + JS_TUITION_AID +
   JS_FINANCE + JS_VOLUNTEERS`, and `js-finance.js` alone is **696 KB of the source** — so a `staff` or
   `council` account with `finance: none` still downloads and parses the entire Finance workspace, Tuition Aid

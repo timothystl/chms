@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
 
 // Cover for part-time staff on the Compensation Planner: an FTE marker, and a "cash salary only"
 // flag for someone below Concordia's hours floor.
@@ -41,6 +41,7 @@ function makeCtx() {
   vm.createContext(ctx);
   vm.runInContext(CHMS_APP_CORE_JS, ctx, { filename: 'app-core.js' });
   vm.runInContext(CHMS_APP_EXT_JS, ctx, { filename: 'app-ext.js' });
+  vm.runInContext(CHMS_APP_FINANCE_JS, ctx, { filename: 'app-finance.js' });
   ctx.__store = store; ctx.__el = el;
   return ctx;
 }

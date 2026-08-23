@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
 
 // finComputeAvailableForDistribution() lives inside the served (String.raw) frontend script, not
 // as an exported module function. It used to be extractable on its own, but since FIN61 it also
@@ -12,7 +12,7 @@ function loadHelper() {
   ctx.window = ctx;
   ctx.globalThis = ctx;
   vm.createContext(ctx);
-  vm.runInContext(CHMS_APP_EXT_JS, ctx);
+  vm.runInContext(CHMS_APP_FINANCE_JS, ctx);
   if (typeof ctx.finComputeAvailableForDistribution !== 'function') throw new Error('finComputeAvailableForDistribution not found in built script');
   return ctx.finComputeAvailableForDistribution;
 }
@@ -54,7 +54,7 @@ describe('finComputeAvailableForDistribution', () => {
 });
 
 function loadDistributedHelper() {
-  const m = CHMS_APP_EXT_JS.match(/function finComputeDistributedThisYear\([^)]*\) \{[\s\S]*?\n\}/);
+  const m = CHMS_APP_FINANCE_JS.match(/function finComputeDistributedThisYear\([^)]*\) \{[\s\S]*?\n\}/);
   if (!m) throw new Error('finComputeDistributedThisYear not found in built script');
   // eslint-disable-next-line no-eval
   return eval(`(function() { ${m[0]} return finComputeDistributedThisYear; })()`);
@@ -84,7 +84,7 @@ describe('finComputeDistributedThisYear', () => {
 });
 
 function loadMortgageHelper() {
-  const m = CHMS_APP_EXT_JS.match(/function finComputeMortgageRemainingCents\([^)]*\) \{[\s\S]*?\n\}/);
+  const m = CHMS_APP_FINANCE_JS.match(/function finComputeMortgageRemainingCents\([^)]*\) \{[\s\S]*?\n\}/);
   if (!m) throw new Error('finComputeMortgageRemainingCents not found in built script');
   // eslint-disable-next-line no-eval
   return eval(`(function() { ${m[0]} return finComputeMortgageRemainingCents; })()`);
@@ -144,7 +144,7 @@ describe('finComputeMortgageRemainingCents', () => {
 function loadReservesOnHandHelpers() {
   const names = ['finPropertyLatestReserveMonth', 'finComputePropertyReservesOnHandCents', 'finPropertyReservesChip'];
   const srcs = names.map((n) => {
-    const m = CHMS_APP_EXT_JS.match(new RegExp(`function ${n}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
+    const m = CHMS_APP_FINANCE_JS.match(new RegExp(`function ${n}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
     if (!m) throw new Error(`${n} not found in built script`);
     return m[0];
   });
@@ -209,7 +209,7 @@ describe('finComputePropertyReservesOnHandCents', () => {
 });
 
 function loadLatestDistributionHelper() {
-  const m = CHMS_APP_EXT_JS.match(/function finComputeLatestDistributionAmount\([^)]*\) \{[\s\S]*?\n\}/);
+  const m = CHMS_APP_FINANCE_JS.match(/function finComputeLatestDistributionAmount\([^)]*\) \{[\s\S]*?\n\}/);
   if (!m) throw new Error('finComputeLatestDistributionAmount not found in built script');
   // eslint-disable-next-line no-eval
   return eval(`(function() { ${m[0]} return finComputeLatestDistributionAmount; })()`);
@@ -268,6 +268,7 @@ describe('finComputeDistributionsAfter', () => {
     vm.createContext(ctx);
     vm.runInContext(CHMS_APP_CORE_JS, ctx, { filename: 'app-core.js' });
     vm.runInContext(CHMS_APP_EXT_JS, ctx, { filename: 'app-ext.js' });
+    vm.runInContext(CHMS_APP_FINANCE_JS, ctx, { filename: 'app-finance.js' });
     return ctx;
   }
   const fin = loadBundle();

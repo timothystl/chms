@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
+// P25-E: finance-only functions moved out of the ext bundle into their own lazily-loaded
+// bundle (see html-chms.js). This file only extracts source by regex/string search, so the
+// two are simply concatenated back together for that purpose.
+const CHMS_APP_EXT_JS_ALL = CHMS_APP_EXT_JS + '\n' + CHMS_APP_FINANCE_JS;
 
 // Regression cover for the long-running "the Compensation boxes don't type correctly" reports
 // (FIN42 / FIN48 / FIN49 / FIN50 each fixed a real but different symptom and shipped without
@@ -20,7 +24,7 @@ function extract(name, kind = 'function') {
   const re = kind === 'function'
     ? new RegExp(`function ${name}\\([\\s\\S]*?\\n\\}`)
     : new RegExp(`var ${name} = [\\s\\S]*?;\\n`);
-  const m = CHMS_APP_EXT_JS.match(re);
+  const m = CHMS_APP_EXT_JS_ALL.match(re);
   if (!m) throw new Error(`${name} not found in built script`);
   return m[0];
 }
@@ -103,7 +107,7 @@ describe('Compensation money inputs: typing a decimal amount', () => {
 
 describe('Compensation inputs are all typing-safe by construction', () => {
   // Pull every <input> tag belonging to the Compensation card out of the built bundle.
-  const compensationInputs = CHMS_APP_EXT_JS
+  const compensationInputs = CHMS_APP_EXT_JS_ALL
     .split('<input')
     .slice(1)
     .map(chunk => '<input' + chunk.slice(0, chunk.indexOf('>') + 1))

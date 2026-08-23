@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
 import fs from 'node:fs';
 import {
-  CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS, CHMS_APP_EXT_JS, CHMS_APP_CORE_JS,
+  CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS, CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS, CHMS_APP_CORE_JS,
   CHMS_HTML, chmsHtmlForRole, SW_JS,
 } from '../src/html-chms.js';
 
@@ -253,15 +253,89 @@ describe('the split loses nothing', () => {
 
   it('keeps the full app a single global scope — no name is defined twice', () => {
     // Concatenated bundles share one scope, so a duplicated top-level name would silently
-    // shadow. This held before the split and has to keep holding after it.
+    // shadow. This held before the split and has to keep holding after it. P25-E adds a
+    // fourth bundle (finance), which loads on top of the other three at runtime (never
+    // standalone), so it has to be checked against all of them too.
     const seen = new Map();
     for (const [name, code] of [['member', CHMS_APP_MEMBER_JS], ['staff', CHMS_APP_STAFF_JS],
-                                ['ext', CHMS_APP_EXT_JS]]) {
+                                ['ext', CHMS_APP_EXT_JS], ['finance', CHMS_APP_FINANCE_JS]]) {
       for (const m of code.matchAll(/^(?:async )?function ([A-Za-z_$][\w$]*)/gm)) {
         expect(seen.has(m[1]) ? m[1] + ' also in ' + seen.get(m[1]) : '').toBe('');
         seen.set(m[1], name);
       }
     }
+  });
+});
+
+describe('P25-E: Finance split out of app-ext.js along the permission line', () => {
+  const financeCtx = () => runBundles([
+    ['app-member.js', CHMS_APP_MEMBER_JS],
+    ['app-staff.js', CHMS_APP_STAFF_JS],
+    ['app-ext.js', CHMS_APP_EXT_JS],
+  ]);
+
+  it('is never in the shell\'s eager script tags, for any role', () => {
+    // Unlike the member/staff split, this is not a role-line cut: nobody's landing tab is
+    // Finance, so app-finance.js is fetched lazily for every role, admin included.
+    for (const role of ['admin', 'finance', 'staff', 'council', 'member', null, undefined, 'future-role']) {
+      expect(chmsHtmlForRole(role), String(role)).not.toMatch(/app-finance\.js/);
+    }
+  });
+
+  it('does not carry finance code before it is loaded', () => {
+    const ctx = financeCtx();
+    expect(typeof ctx.loadFinance, 'loadFinance leaked into app-ext.js').toBe('undefined');
+    expect(typeof ctx.finShowSection, 'finShowSection leaked into app-ext.js').toBe('undefined');
+  });
+
+  it('fetches app-finance.js the first time the Finance tab is opened', async () => {
+    const ctx = financeCtx();
+    ctx.applyRoleUI('finance', '', { finance: true, staff: false, register: false, reports: true });
+    ctx.showTab('finance');
+    await new Promise((r) => setTimeout(r, 5));
+    expect(ctx.__injected.map((s) => s.split('?')[0])).toEqual(['/admin/app-finance.js']);
+  });
+
+  it('asks once, however many times the Finance tab is opened', async () => {
+    const ctx = financeCtx();
+    ctx.applyRoleUI('finance', '', { finance: true, staff: false, register: false, reports: true });
+    ctx.showTab('finance');
+    ctx.showTab('finance');
+    ctx.showTab('finance');
+    await new Promise((r) => setTimeout(r, 5));
+    expect(ctx.__injected.length).toBe(1);
+  });
+
+  it('loading Finance does not shadow or lose anything the rest of the app defines', () => {
+    // The one real bug class this kind of split can introduce (per CR9's own precedent):
+    // a global landing in the wrong half, or a name the finance bundle happens to reuse.
+    const ctx = financeCtx();
+    vm.runInContext(CHMS_APP_FINANCE_JS, ctx, { filename: 'app-finance.js' });
+    expect(typeof ctx.loadFinance).toBe('function');
+    expect(typeof ctx.finShowSection).toBe('function');
+    // esc() (core) and givSetView() (ext) must still resolve correctly after finance loads on
+    // top — i.e. finance did not redeclare either and silently shadow it.
+    expect(ctx.esc('<b>')).toBe('&lt;b&gt;');
+    expect(typeof ctx.givSetView).toBe('function');
+  });
+
+  it('Giving’s Reports view loads Finance on demand too, since it calls into Finance’s chart helpers', async () => {
+    // The one real cross-module coupling found before shipping this split: js-giving.js's
+    // 'reports' view calls finInitGivingReports() unconditionally. A giving-only account
+    // (giving:edit, finance:none) must not hit a ReferenceError opening it. Uses the admin
+    // role purely so permView('giving') short-circuits true — this harness's stub fetch
+    // never populates the granular _perm matrix the way a real /me response would. The three
+    // sibling calls in that same branch (loadBoardReport/givPopulateFundSelect/givAnalysisInit)
+    // need real fund/report data this minimal DOM harness doesn't provide — stubbed out here
+    // since they are unrelated to what this test is checking.
+    const ctx = financeCtx();
+    ctx.applyRoleUI('admin', '', null);
+    ctx.loadBoardReport = () => {};
+    ctx.givPopulateFundSelect = () => {};
+    ctx.givAnalysisInit = () => {};
+    expect(() => ctx.givSetView('reports')).not.toThrow();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(ctx.__injected.map((s) => s.split('?')[0])).toEqual(['/admin/app-finance.js']);
   });
 });
 

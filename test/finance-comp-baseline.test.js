@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
 
 // Reported from the Compensation strip: "No raise applied to all 7 workers" printed alongside
 // +$111,624 (+34.0%) against FY2026. No raise cannot cost a third more, and the reporter's own
@@ -46,6 +46,7 @@ function makeCtx() {
   vm.createContext(ctx);
   vm.runInContext(CHMS_APP_CORE_JS, ctx, { filename: 'app-core.js' });
   vm.runInContext(CHMS_APP_EXT_JS, ctx, { filename: 'app-ext.js' });
+  vm.runInContext(CHMS_APP_FINANCE_JS, ctx, { filename: 'app-finance.js' });
   return ctx;
 }
 

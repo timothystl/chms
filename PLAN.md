@@ -24,19 +24,19 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**23 items open** (of 38 total: 23 rows in the table below + 15 Tier 7 carry-forwards). Closed:
+**22 items open** (of 38 total: 22 rows in the table below + 15 Tier 7 carry-forwards). Closed:
 P22-E, P22-F, P24-C and P26-A on 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B, P25-C, P25-G,
-P27-C, P27-B, P27-D, P27-A and P28-E on 2026-08-23 — see below. **Tiers 1, 2 and 5 are now all
-complete; Tier 3 has only its two "large" items left (P25-E, P25-F).** Take the next
-unchecked row. Detail for every code is in its phase section further down.
+P27-C, P27-B, P27-D, P27-A, P28-E and P25-E on 2026-08-23 — see below. **Tiers 1, 2 and 5 are now
+all complete; Tier 3 has only P25-F left (the shell boot sequence).** Take the next unchecked row.
+Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
 | # | Code | Size | What |
 |---|---|---|---|
 | 1 | ~~**P22-E**~~ | small | DONE 2026-08-22. Login rate limiting, intake rate limiting and QuickBooks OAuth `state` now fail **closed**, not open, with no `RSVP_STORE`. || 2 | ~~**P22-F**~~ | small ×5 | DONE 2026-08-22. Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. |
 
-**Tier 1 and Tier 2 both complete.** Next up: item 11, P25-E (split `app-ext.js` along the
-permission line — the large one).
+**Tier 1 and Tier 2 both complete.** Next up: P25-F (the shell boot sequence — the one remaining
+large item).
 
 ### Tier 2 — Things that are wrong on screen right now
 
@@ -65,7 +65,7 @@ The church network is slow; AU2 has been open since July for that reason.
 | 8 | ~~**P25-B**~~ | one-liner | DONE 2026-08-23. The 8 pure asset routes now sit above `await initDb(env.DB)` in `_fetch`. |
 | 9 | ~~**P25-C**~~ | medium | DONE 2026-08-23. Both the app shell and the login page now preconnect and load fonts non-blockingly. |
 | 10 | ~~**P25-G**~~ | medium | DONE 2026-08-23. `PUBLIC_HTML`'s ~57 KB CSS + ~80 KB JS are now versioned immutable routes; the shell dropped to ~68 KB. |
-| 11 | **P25-E** | large | Split `app-ext.js` (1,273 KB) along the permission line. A `staff` account with `finance: none` downloads all 696 KB of Finance. **⚠ Keep CR9's two rules: fail SAFE, and pin "no global defined twice".** |
+| 11 | ~~**P25-E**~~ | large | DONE 2026-08-23. Finance (680 KB) is now its own lazily-loaded bundle, fetched on first Finance-tab open for every role — never in the shell's eager script tags at all, admin included. |
 | 12 | **P25-F** | large | The 194 KB `no-store` shell. **Defer + close-tags shipped 2026-08-23**; shrinking the markup itself still needs the boot sequence looked at, not another mechanical extraction. |
 
 ### Tier 4 — Authentication foundation (scope before writing code)
@@ -401,13 +401,43 @@ measured and recorded; a council user sees their role name.
   so a `FormData` body works unchanged; each call's own `.then(function(d) {...}).catch(...)`
   continuation was left as-is, since `api()`'s resolved/rejected shape matches what it already
   expected.
-- [ ] **P25-E** (retires **LOAD2**) — Split `app-ext.js` (1,273 KB) along the permission line the way CR9
-  split along the role line. `js-finance.js` alone is 696 KB of its source, and a `staff` or `council`
-  account with `finance: none` downloads and parses all of it. The shell is the only per-request surface and
-  already decides (`chmsHtmlForRole`); `ensureFullAppLoaded()` is already the lazy fallback for a permission
-  granted later. **⚠ Keep CR9's two rules: fail SAFE (an unrecognized role gets everything), and pin
-  "no global defined twice across bundles" with a test** — the member split's one real bug was a module
-  landing in the wrong half.
+- [x] **P25-E** (retires **LOAD2**) — DONE 2026-08-23. `js-finance.js` (679.6 KB served) is now its own
+  bundle, `CHMS_APP_FINANCE_JS`, served at `/admin/app-finance.js` — never in `chmsHtmlForRole()`'s script
+  tags for ANY role, admin included. Unlike the member/staff split (CR9), this is not a role-line cut:
+  nobody's landing tab is Finance, so it is always fetched lazily, the first time it's actually needed, via
+  a new `ensureFinanceModuleLoaded()` in `js-core.js` (same shape as `ensureSchedulerLoaded`/
+  `ensureFullAppLoaded`). `app-ext.js` drops from 1,273 KB to 610.2 KB — the eager download for a
+  `staff`/`council`/`finance`-none account falls from ~1,994 KB to ~1,002 KB uncompressed, before that
+  account ever opens Finance.
+  - **The one real cross-module coupling, found by grepping every `fin[A-Z]…` name defined in
+    `js-finance.js` against every other frontend module before touching anything**: `js-giving.js`'s
+    Reports view calls `finInitGivingReports()` unconditionally when opened — Giving's Board
+    Report/Analysis reuses a couple of Finance's chart helpers. That view is gated on `giving`
+    permission, not `finance`, so a `giving:edit, finance:none` role could reach it with financeJS never
+    loaded. Fixed with the same `ensureFinanceModuleLoaded()` wrapper, guarded with `typeof` for a
+    harness that loads `js-giving.js` standalone. `finShowSection()` (called from `js-core.js`'s
+    `showTab`) was already `typeof`-guarded before this change. Nothing else outside `js-finance.js`
+    calls into it — every other `fin*` reference elsewhere in the frontend sits inside the Finance tab's
+    own markup (`html-tabs.js`, `html-head.js` — confirmed by line range, all between `id="tab-finance"`
+    and EOF), which cannot be interacted with before the tab itself is open.
+  - **CR9's two rules held**: fail SAFE — `app-finance.js` is absent from every role's shell, recognized
+    or not, so under/over-serving isn't a question that applies here; "no global defined twice" is now
+    checked across all FOUR bundles (member/staff/ext/finance), not three, in `test/member-bundle.test.js`.
+  - **~12 test files built a vm harness assuming finance functions lived inside `CHMS_APP_EXT_JS`**
+    (`finance-comp-baseline`, `finance-compensation-planner`, `finance-health-tiers`,
+    `finance-qb-order`, `finance-giving-pace-cash`, `finance-monthly-import-ui`, `finance-part-time`,
+    `finance-property-{distribution,forecast,funds-itself,proforma,remittable}`,
+    `finance-balance-recon-ui`, `fund-code-grouping`, plus 9 regex-extraction-only files) — all updated
+    to also load/scan `CHMS_APP_FINANCE_JS`. `giving-consolidation-ui.test.js` loads `js-giving.js`
+    standalone and needed no change (its `finInitGivingReports` stub already covers the `typeof`-guard's
+    fallback branch). Asset-route lists extended in `asset-cache-policy`, `pure-asset-routes-skip-initdb`,
+    `service-worker`, `versioned-asset-no-cookie`.
+  - `npm test` (1824/1824, 6 new in `test/member-bundle.test.js`); **every new test verified non-vacuous**
+    by reverting the four source files and confirming 5 of the 6 new tests fail (the 6th asserts an
+    invariant — "app-finance.js is never eager" — that also trivially holds pre-change since the bundle
+    didn't exist yet, so it isn't discriminating, but it's a real regression guard going forward). Plus
+    `node --check` on every touched file. **Not verified**: a live browser, or a real measurement of
+    Finance-tab open latency on the church's slow network.
 - [ ] **P25-F** (retires **LOAD3**, **CR1b**, **CR9a**) — The 194 KB `no-store` shell, which is nearly all
   tab markup. CR1b's own caveat still stands: there is no natural lazy trigger, so this needs the boot
   sequence looked at, not another mechanical extraction.
