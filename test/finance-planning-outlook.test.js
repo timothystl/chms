@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
+// P25-E: finance-only functions moved out of the ext bundle into their own lazily-loaded
+// bundle (see html-chms.js). This file only extracts source by regex/string search, so the
+// two are simply concatenated back together for that purpose.
+const CHMS_APP_EXT_JS_ALL = CHMS_APP_EXT_JS + '\n' + CHMS_APP_FINANCE_JS;
 
 // finRenderPlanningOutlook() lives inside the served (String.raw) frontend script — extract and
 // eval standalone, same technique used elsewhere in this project (see CLAUDE.md SC3-BUG1 /
@@ -14,10 +18,10 @@ import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
 // line quietly answers away. These tests pin the new contract.
 function loadHelper() {
   const escStub = 'var _finPlanTargetYear = 2027;';
-  const fmtMoneyM = CHMS_APP_EXT_JS.match(/function finFmtMoney\([^)]*\) \{[\s\S]*?\n\}/);
-  const fmtSignedM = CHMS_APP_EXT_JS.match(/function finFmtSigned\([^)]*\) \{[\s\S]*?\n\}/);
-  const money0M = CHMS_APP_EXT_JS.match(/function finMoney0\([^)]*\) \{[\s\S]*?\n\}/);
-  const outlookM = CHMS_APP_EXT_JS.match(/function finRenderPlanningOutlook\([^)]*\) \{[\s\S]*?\n\}/);
+  const fmtMoneyM = CHMS_APP_EXT_JS_ALL.match(/function finFmtMoney\([^)]*\) \{[\s\S]*?\n\}/);
+  const fmtSignedM = CHMS_APP_EXT_JS_ALL.match(/function finFmtSigned\([^)]*\) \{[\s\S]*?\n\}/);
+  const money0M = CHMS_APP_EXT_JS_ALL.match(/function finMoney0\([^)]*\) \{[\s\S]*?\n\}/);
+  const outlookM = CHMS_APP_EXT_JS_ALL.match(/function finRenderPlanningOutlook\([^)]*\) \{[\s\S]*?\n\}/);
   if (!fmtMoneyM || !fmtSignedM || !money0M || !outlookM) throw new Error('helper(s) not found in built script');
   // eslint-disable-next-line no-eval
   return eval(`(function() { ${escStub} ${fmtMoneyM[0]} ${fmtSignedM[0]} ${money0M[0]} ${outlookM[0]} return finRenderPlanningOutlook; })()`);

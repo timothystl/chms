@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_EXT_JS, CHMS_APP_CORE_JS } from '../src/html-chms.js';
+import { CHMS_APP_EXT_JS, CHMS_APP_CORE_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
+// P25-E: finance-only functions moved out of the ext bundle into their own lazily-loaded
+// bundle (see html-chms.js). This file only extracts source by regex/string search, so the
+// two are simply concatenated back together for that purpose.
+const CHMS_APP_EXT_JS_ALL = CHMS_APP_EXT_JS + '\n' + CHMS_APP_FINANCE_JS;
 import { computeDesignatedFunds, designatedFundCode } from '../src/api-finance.js';
 
 // Designated funds (25xxx) and the donor card that used to contradict itself.
@@ -27,7 +31,7 @@ function loadFinance() {
   vm.createContext(sandbox);
   const grab = (name, kind) => {
     const re = new RegExp('\\n' + kind + ' ' + name + '\\([^)]*\\) \\{[\\s\\S]*?\\n\\}');
-    const m = CHMS_APP_EXT_JS.match(re) || CHMS_APP_CORE_JS.match(re);
+    const m = CHMS_APP_EXT_JS_ALL.match(re) || CHMS_APP_CORE_JS.match(re);
     if (!m) throw new Error('missing ' + name + ' in built script');
     return m[0];
   };

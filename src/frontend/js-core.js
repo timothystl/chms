@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.205.0';
+export const DEPLOY_VERSION = '1.206.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -406,9 +406,13 @@ function showTab(name, finSection) {
     // panel answers to, leaving the tab blank.
     if (finSection === 'overview') finSection = 'health';
     if (finSection) _finActiveNavId = finSection;
-    loadFinance();
-    finRenderSubnavMounts();
-    if (typeof finShowSection === 'function') finShowSection(_finActiveNavId);
+    // P25-E: loadFinance()/finShowSection() live in the lazily-loaded finance bundle now — see
+    // ensureFinanceModuleLoaded's own comment.
+    ensureFinanceModuleLoaded(function() {
+      loadFinance();
+      finRenderSubnavMounts();
+      if (typeof finShowSection === 'function') finShowSection(_finActiveNavId);
+    });
   }
   // ensureFullAppLoaded is a no-op for every role but member — see its definition. A member
   // granted Reports has the tab markup already (the shell ships all tabs) but not the code.
@@ -472,6 +476,34 @@ function ensureFullAppLoaded(cb) {
       console.error('App bundle load failed:', e);
       _fullAppLoadState = 0;
       _fullAppWaiting = [];
+      showErrorBanner('Could not load that section. Check your connection and try again.');
+    });
+}
+// ── Lazy-load the Finance module (P25-E) ────────────────────────────────────
+// js-finance.js is ~696KB of source and no longer ships in the shell's eager script tags for
+// ANY role — nobody's landing tab is Finance. Fetched once, the first time it's actually
+// needed: opening the Finance tab itself, or opening Giving → Reports, whose Board
+// Report/Analysis views call into a couple of Finance's own chart-rendering helpers
+// (finInitGivingReports — see html-chms.js's comment on the split for the full audit of what
+// else, if anything, crosses that boundary). typeof loadFinance is the readiness check since
+// that name is unique to this bundle and defined nowhere else.
+var _financeLoadState = 0; // 0 = not loaded, 1 = in flight, 2 = ready
+var _financeWaiting = [];
+function ensureFinanceModuleLoaded(cb) {
+  if (_financeLoadState === 2 || typeof loadFinance === 'function') { cb(); return; }
+  _financeWaiting.push(cb);
+  if (_financeLoadState === 1) return; // a load is already running; cb rides along
+  _financeLoadState = 1;
+  loadAppScript('/admin/app-finance.js?v=' + DEPLOY_VERSION)
+    .then(function() {
+      _financeLoadState = 2;
+      var queued = _financeWaiting; _financeWaiting = [];
+      queued.forEach(function(fn) { try { fn(); } catch (e) { console.error(e); } });
+    })
+    .catch(function(e) {
+      console.error('Finance bundle load failed:', e);
+      _financeLoadState = 0;
+      _financeWaiting = [];
       showErrorBanner('Could not load that section. Check your connection and try again.');
     });
 }

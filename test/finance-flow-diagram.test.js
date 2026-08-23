@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_EXT_JS, CHMS_APP_CORE_JS } from '../src/html-chms.js';
+import { CHMS_APP_EXT_JS, CHMS_APP_CORE_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
+// P25-E: finance-only functions moved out of the ext bundle into their own lazily-loaded
+// bundle (see html-chms.js). This file only extracts source by regex/string search, so the
+// two are simply concatenated back together for that purpose.
+const CHMS_APP_EXT_JS_ALL = CHMS_APP_EXT_JS + '\n' + CHMS_APP_FINANCE_JS;
 import { computeFlowDiagram, classifyFlowExpense, FLOW_EXPENSE_KEYS } from '../src/api-finance.js';
 
 // "How the money moves" — the four-column Sankey and its Share view (flow-diagram.md handoff).
@@ -18,18 +22,18 @@ function loadFlow() {
   vm.createContext(sandbox);
   // Take the flow block wholesale, from its first constant through the ribbon helper, rather than
   // extracting each declaration — the block is contiguous and this cannot silently miss one.
-  const start = CHMS_APP_EXT_JS.indexOf('var FIN_FLOW_COLORS');
-  const endMark = CHMS_APP_EXT_JS.indexOf('function finRenderSankey');
-  const sankeyEnd = CHMS_APP_EXT_JS.indexOf('\nfunction finRenderFlowDonut');
-  const donutEnd = CHMS_APP_EXT_JS.indexOf('\nvar _finFlowView');
+  const start = CHMS_APP_EXT_JS_ALL.indexOf('var FIN_FLOW_COLORS');
+  const endMark = CHMS_APP_EXT_JS_ALL.indexOf('function finRenderSankey');
+  const sankeyEnd = CHMS_APP_EXT_JS_ALL.indexOf('\nfunction finRenderFlowDonut');
+  const donutEnd = CHMS_APP_EXT_JS_ALL.indexOf('\nvar _finFlowView');
   if (start < 0 || endMark < 0 || sankeyEnd < 0 || donutEnd < 0) throw new Error('flow block not found in built script');
   const helpers = ['esc', 'finFmtMoney', 'finFmtSigned', 'finMoney0'].map((f) => {
-    const m = CHMS_APP_EXT_JS.match(new RegExp('\\nfunction ' + f + '\\([^)]*\\) \\{[\\s\\S]*?\\n\\}'))
+    const m = CHMS_APP_EXT_JS_ALL.match(new RegExp('\\nfunction ' + f + '\\([^)]*\\) \\{[\\s\\S]*?\\n\\}'))
       || CHMS_APP_CORE_JS.match(new RegExp('\\nfunction ' + f + '\\([^)]*\\) \\{[\\s\\S]*?\\n\\}'));
     if (!m) throw new Error('missing helper ' + f);
     return m[0];
   }).join('\n');
-  const src = helpers + '\n' + CHMS_APP_EXT_JS.slice(start, donutEnd);
+  const src = helpers + '\n' + CHMS_APP_EXT_JS_ALL.slice(start, donutEnd);
   vm.runInContext(src + '\nglobalThis.__flow = { finFlowLayout, finRenderSankey, finFlowScale, finFlowTruncate, finRenderFlowDonut, FIN_FLOW_COLS };', sandbox);
   return sandbox.__flow;
 }

@@ -53,7 +53,17 @@ function givSetView(view) {
     var bandsYr = document.getElementById('rpt-bands-year');
     if (bandsYr && !bandsYr.value) bandsYr.value = curYr;
     givAnalysisInit();
-    finInitGivingReports();
+    // P25-E: finInitGivingReports lives in the lazily-loaded finance bundle (js-finance.js) —
+    // Giving's Board Report/Analysis views reuse a couple of its chart helpers, but a giving-only
+    // account (giving:edit, finance:none) reaching 'reports' here has never triggered that load.
+    // ensureFinanceModuleLoaded is defined in js-core.js, concatenated ahead of this module in
+    // every real bundle that ships js-giving.js; the typeof guard only covers a harness that
+    // loads this file on its own (same convention as permGivingAnon above).
+    if (typeof ensureFinanceModuleLoaded === 'function') {
+      ensureFinanceModuleLoaded(function() { finInitGivingReports(); });
+    } else if (typeof finInitGivingReports === 'function') {
+      finInitGivingReports();
+    }
   }
   if (view === 'comms') givCommsSetPane(pane || _givCommsPane);
   if (view === 'settings') { loadGivingSettings(); givLoadFundCategories(); }

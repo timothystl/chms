@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
+// P25-E: finance-only functions moved out of the ext bundle into their own lazily-loaded
+// bundle (see html-chms.js). This file only extracts source by regex/string search, so the
+// two are simply concatenated back together for that purpose.
+const CHMS_APP_EXT_JS_ALL = CHMS_APP_EXT_JS + '\n' + CHMS_APP_FINANCE_JS;
 
 // finRenderChurchDetailBody() and its helpers live inside the served (String.raw) frontend
 // script, not as exported module functions — extract them and eval standalone. Same technique
@@ -10,7 +14,7 @@ function loadDetailBodyHelpers() {
   const escStub = 'function esc(s) { return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&#39;"); }';
   const names = ['finFmtMoney', 'finFmtSigned', 'finVarianceCell', 'finRenderTreeQbOrder', 'finTreeLabelCell', 'finChurchDetailLeafRow', 'finChurchDetailGroupHeaderRow', 'finRenderDetailTreeRows', 'finRenderChurchTotalRow', 'finRenderChurchDetailBody', 'finRenderNetIncomeBar', 'finChurchAsOfDate'];
   const fnSrcs = names.map(name => {
-    const m = CHMS_APP_EXT_JS.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
+    const m = CHMS_APP_EXT_JS_ALL.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
     if (!m) throw new Error(`${name} not found in built script`);
     return m[0];
   });

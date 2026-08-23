@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
 
 // The unit-level pro forma reaches across finComputePropertyValuation, finAmortizationSchedule
 // and finComputePropertyCapitalAllowanceCents, and its renderers touch the DOM, so this loads the
@@ -38,6 +38,7 @@ function loadBundle(els) {
   vm.createContext(ctx);
   vm.runInContext(CHMS_APP_CORE_JS, ctx, { filename: 'app-core.js' });
   vm.runInContext(CHMS_APP_EXT_JS, ctx, { filename: 'app-ext.js' });
+  vm.runInContext(CHMS_APP_FINANCE_JS, ctx, { filename: 'app-finance.js' });
   return ctx;
 }
 const fin = loadBundle();

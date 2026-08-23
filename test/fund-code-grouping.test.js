@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
 
 // Funds are named "<code> <label>" and this church deliberately keeps several names under one
 // code — "40085 General Fund", "40085 Lent", "40085 Retirement Distribution" are all the General
@@ -37,6 +37,7 @@ function makeCtx() {
   vm.createContext(ctx);
   vm.runInContext(CHMS_APP_CORE_JS, ctx, { filename: 'app-core.js' });
   vm.runInContext(CHMS_APP_EXT_JS, ctx, { filename: 'app-ext.js' });
+  vm.runInContext(CHMS_APP_FINANCE_JS, ctx, { filename: 'app-finance.js' });
   ctx.__store = store;
   return ctx;
 }

@@ -18,8 +18,8 @@ import { DEPLOY_VERSION } from '../src/frontend/js-core.js';
 // unconditionally, bypassing this exact stale-pinning defense — this list itself used to encode
 // that gap by omitting them. Now routed through the same assetCacheControl() as everything else.
 const ASSETS = [
-  '/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js', '/admin/app.css',
-  '/admin/scheduler-embed.html', '/admin/scheduler-embed.js',
+  '/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js', '/admin/app-finance.js',
+  '/admin/app.css', '/admin/scheduler-embed.html', '/admin/scheduler-embed.js',
 ];
 
 // initDb runs before routing; a stub DB is enough for these static routes.
@@ -84,7 +84,7 @@ describe('versioned assets cache only when the version matches', () => {
 
   it('keeps the right content types', async () => {
     expect((await get('/admin/app.css', DEPLOY_VERSION)).headers.get('Content-Type')).toMatch(/text\/css/);
-    for (const p of ['/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js']) {
+    for (const p of ['/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js', '/admin/app-finance.js']) {
       expect((await get(p, DEPLOY_VERSION)).headers.get('Content-Type'), p).toMatch(/javascript/);
     }
   });

@@ -21,7 +21,7 @@ import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPass
 import { handleIntakeApi } from './src/api-intake.js';
 import { handleMemberSetup } from './src/api-people.js';
 import { LOGIN_HTML, PUBLIC_HTML, PUBLIC_APP_CSS, PUBLIC_APP_JS } from './src/html-templates.js';
-import { chmsHtmlForRole, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS, CHMS_APP_EXT_JS, CHMS_APP_CSS, CHMS_SCHEDULER_HTML, CHMS_SCHEDULER_JS } from './src/html-chms.js';
+import { chmsHtmlForRole, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS, CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS, CHMS_APP_CSS, CHMS_SCHEDULER_HTML, CHMS_SCHEDULER_JS } from './src/html-chms.js';
 import { MOBILE_ADMIN_HTML } from './src/mobile-admin-html.js';
 import { DEPLOY_VERSION } from './src/frontend/js-core.js';
 import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
@@ -330,6 +330,13 @@ async function _fetch(req, env) {
     }
     if (path === '/admin/app-ext.js') {
       return new Response(CHMS_APP_EXT_JS, {
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
+      });
+    }
+    // P25-E: finance is never in the shell's script tags for any role — it's fetched here,
+    // lazily, the first time it's actually needed (see ensureFinanceModuleLoaded in js-core.js).
+    if (path === '/admin/app-finance.js') {
+      return new Response(CHMS_APP_FINANCE_JS, {
         headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
       });
     }
