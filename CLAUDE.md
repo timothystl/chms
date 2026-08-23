@@ -1100,7 +1100,15 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   CR7(a) and CR7(b) · PAL2/PAL5/PAL6 (see DSN2–DSN4) · RD1/RD2/RD4 (see DSN4/DSN5) · SEC9/SEC10 (MFA and
   CAPTCHA — SEC11/SEC12/SEC15 above raise the case for SEC9 considerably) · CR9a · TAP3 · TAP6 · PM1 · PL1b ·
   G3 · SC4 · SC6 Phase 4 · VUX-DEFER1/2 · FIN2/FIN3/FIN4 · BRND3 · G24 · TLY1/TLY2.
-- [ ] **DOC3 — ⚠ Twelve backlog IDs have been reused for unrelated work, and `FIN58` now means three
+- [x] **DOC3 — FIXED 2026-08-23, P27-A.** Every later duplicate header now carries a `b`/`c` suffix
+  (never renumbered) and every cross-reference elsewhere in this file was re-pointed at the correct
+  one, resolved by reading each reference's actual content against what each duplicate's body
+  introduces — not by line proximity. `FIN6` turned out not to be a real duplicate on inspection (only
+  one header exists; DOC3's original claim didn't hold against the current file). `G3`'s second
+  occurrence is now a cross-reference to the first, per this entry's own recommended fix. `BRND1` and
+  `CR8` were already closed as stale second copies in an earlier pass. Original finding follows,
+  unedited, for the record. **⚠ Twelve backlog IDs have been reused for unrelated work, and `FIN58`
+  now means three
   different things.** `FIN58` = the Sankey/Share view (line 2552), the revenue-mix classification fix
   (1336), *and* the dental/vision per-worker correction (2826). `FIN54` = the Compensation Planner redesign,
   the health-plan rates table, and `FIN54-OPEN`. Also doubled: `FIN6`, `FIN20`, `FIN33`, `FIN55`, `FIN56`,
@@ -1573,7 +1581,7 @@ salaries plus rising benefit rates cannot be a saving — as wrong as the +34%, 
 direction.
 - **Same defect class as FIN66, one level down: POPULATION, not cost categories.** FY{target}
   covers exactly the counted roster; FY{base} covers whoever the ledger paid — departed workers,
-  vacant posts, and anyone excluded as *paid from another budget* (FIN57's `externallyFunded`;
+  vacant posts, and anyone excluded as *paid from another budget* (FIN57b's `externallyFunded`;
   this church has an MDO worker in exactly that position). A bigger group on the base side makes a
   flat plan read cheap.
 - Base rows are now attributed by leading ACCOUNT CODE against each counted worker's
@@ -1625,7 +1633,7 @@ pulling the same way:
 ### FIN65 — Budget tree reads like QuickBooks; Unapplied Cash hidden (2026-08-14, DONE)
 Three reports off the Planning tab.
 - **Totals moved under their accounts.** QuickBooks prints a group's figures beneath its lines as
-  a computed "Total X"; this app printed them on a header above. FIN20 had moved only the
+  a computed "Total X"; this app printed them on a header above. FIN20b had moved only the
   TOP-LEVEL classification totals down, and only in the Church Report. One shared
   `finRenderTreeQbOrder()` now drives both tables — group header (label only) → accounts → total.
   **Shared, not written twice**: two hand-inlined copies of one reading order is how they drift
@@ -1638,7 +1646,7 @@ Three reports off the Planning tab.
   Income), where no one root covers it.
 - **Unapplied Cash Bill Payment Expense** (a QuickBooks cash-basis artifact) pruned from every
   tree — **only when it is empty**. A row carrying real money stays with a `title` explaining it:
-  hiding a dollar a total on the same screen still counts is the FIN58 defect, and FIN60 set this
+  hiding a dollar a total on the same screen still counts is the FIN58b defect, and FIN60 set this
   same zero-only rule for COGS.
 - **⚠ Altar Guild under Passive is a SAVED SETTING on live data, not a bug** — Data & Imports →
   Classification & policy pins "48 Other Income" to Passive, and a saved classification rightly
@@ -1885,7 +1893,7 @@ records. Any giving viewing must be anonymous — planning and reports, just no 
 
 ### FIN64 — Ivanhoe: capital input, combined basis, and the tab's figures reconciled (2026-08-08, DONE)
 Four items off a live Commercial Property screenshot.
-- **The capital box took one character at a time** — my own FIN63 bug, and a textbook repeat of
+- **The capital box took one character at a time** — my own FIN63b bug, and a textbook repeat of
   FIN52. The editor was rendered INSIDE `#fin-proforma-out`, which `finValRecompute()` rewrites on
   every keystroke, so the field was destroyed and recreated mid-word. Now a **sibling** in
   `#fin-capital-assumption`, with handlers split: number fields update derived text only; only the
@@ -1915,7 +1923,7 @@ Four items off a live Commercial Property screenshot.
   verified**: a live browser or a real phone. (`src/frontend/js-finance.js`,
   `test/finance-property-proforma.test.js`, `test/finance-property-distribution.test.js`)
 
-### FIN63 — Ivanhoe: capital allowance becomes an editable assumption (2026-08-07, DONE)
+### FIN63b — Ivanhoe: capital allowance becomes an editable assumption (2026-08-07, DONE)
 Reported: the capital allowance is derived from past spend, but those were one-time projects and
 shouldn't be projected forward ("we won't put HVAC in every year"). Confirmed by the ledger — a 2024
 apartment renovation, a 2025 HVAC replacement and a washer/dryer hookup, $24,060.75 across their own
@@ -2040,7 +2048,7 @@ present since the register shipped.
   SC3-BUG1/FIN15 class, caught by the harness, not by reading. **Not verified**: a real phone.
   (`src/frontend/html-head.js`, `src/frontend/js-register.js`, `test/register-mobile.test.js`)
 
-### FIN62 — Ivanhoe: worksheet back on the Property tab; four units walk down to cash (2026-08-07, DONE)
+### FIN62b — Ivanhoe: worksheet back on the Property tab; four units walk down to cash (2026-08-07, DONE)
 Reported: "we lost the valuation formulas and worksheets... now it is just a static number," plus a
 request for a section taking the four actual units and their rents up to annual revenue, then out
 through mortgage and management fees. **The worksheet was never lost — FIN57 moved it off the
@@ -2065,7 +2073,7 @@ derivation rather than four summary tiles.
   below NOI is deliberately identical to `finComputeRemittableForecast` so the two cannot drift.
 - **Property tax is NOT deducted twice** — already an itemized operating cost, and the reserve is a
   timing mechanism. Said on the page, and a test injects the double-deduction to prove the guard.
-- **Two readings, gap named**: FIN61 works from AHRA's reported net income down, this from the
+- **Two readings, gap named**: FIN61b works from AHRA's reported net income down, this from the
   leases up; both printed, the difference stated rather than averaged away. On the real data they
   agree — 2027 cash is negative either way. DSCR returns `null`, not `Infinity`, after payoff.
 - `npm test` (1036/1036, 25 new in `test/finance-property-proforma.test.js`, running the real built
@@ -2098,7 +2106,7 @@ the built bundle); every new test verified non-vacuous by injecting the exact re
 `src/frontend/js-finance.js`, `src/frontend/js-giving.js`, `src/frontend/js-reports.js`,
 `test/fund-code-grouping.test.js`, `test/giving-consolidation-ui.test.js`)
 
-### FIN58 — Revenue mix read 100% earned; four income streams; one shared classification (2026-08-07, DONE)
+### FIN58b — Revenue mix read 100% earned; four income streams; one shared classification (2026-08-07, DONE)
 Reported live: the Financial Health mix bar showed `EARNED $621,462 · 100%` with `$0` donor and
 `$0` passive, next to a banner naming exactly one unconfirmed group called "Income" — and a donor
 card reading `$0` beside `129 giving households`. **Root cause: `computeRevenueStreams()` took the
@@ -2294,7 +2302,7 @@ earliest year isn't falsely "no prior balance sheet". A year with no rows can't 
 equity — the check reads `classificationTotals` emptiness, not the zeroed figures.
 **Cost of Goods Sold is hidden when every year is zero, not deleted** (table + CSV): if a real
 figure ever appears the row returns, so visible rows always add to the Net Income beneath them —
-FIN58's lesson (never hide a dollar a total on the same screen still counts). `computeYearSummary()`
+FIN58b's lesson (never hide a dollar a total on the same screen still counts). `computeYearSummary()`
 untouched. `npm test` (892/892, 17 new in `test/finance-balance-pnl-recon.test.js` — pure function
 plus the real route against real in-memory SQLite — and `test/finance-balance-recon-ui.test.js`,
 driving the real render functions out of the real built bundle); **every new test verified
@@ -2305,7 +2313,7 @@ Church Report → Balance sheet and widen the trend range — the tie-out names 
 reconcile. (`src/api-finance.js`, `src/frontend/js-finance.js`,
 `test/finance-balance-pnl-recon.test.js`, `test/finance-balance-recon-ui.test.js`)
 
-### FIN61 — Ivanhoe forecast reports remittable cash, not net income (2026-08-07, DONE)
+### FIN61b — Ivanhoe forecast reports remittable cash, not net income (2026-08-07, DONE)
 Reported from the Planning tab: the "3277 Ivanhoe forecast" projected **$43,864 for 2027** as
 "what the property can be expected to remit", and that could not be right with nothing held back
 for taxes and reserves. Confirmed — and wrong for a bigger reason. **$43,003.75 is the trailing-12
@@ -2352,7 +2360,7 @@ never touches the P&L (AHRA's own paint/asphalt/concrete reserve exists but is f
   `test/finance-property-distribution.test.js`)
 
 ### FIN62 — Ivanhoe: base period, hidden expenses, capital default (2026-08-07, DONE)
-Follow-up to FIN61, from two live screenshots. All three reports were correct.
+Follow-up to FIN61b, from two live screenshots. All three reports were correct.
 - **"Does it fund itself?" printed lines that could not reach its own total** — revenue
   $60,633.28 − expenses $10,229.13 − reserves $5,858.33 = $44,545.82 above a printed
   **$27,977.22**. Cause is server-side: `computePropertyAnnualSummary` accumulated revenue,
@@ -2370,7 +2378,7 @@ Follow-up to FIN61, from two live screenshots. All three reports were correct.
   from **−$12,626 to +$19,312**. Now an explicit control on the card face showing all three
   options and each one's caveat. **The current-year option subtracts the not-yet-billed property
   tax** — H1 holds no tax expense, so doubling it would omit the bill entirely, the mirror image
-  of the double-count FIN61 exists to avoid. **Do not "simplify" that away.**
+  of the double-count FIN61b exists to avoid. **Do not "simplify" that away.**
 - **Capital now defaults to $0, not the ledger average.** Every entry is a finished one-off
   (renovation $18,161, HVAC $7,787, washer/dryer $8,000); there is no recurring capital, so a flat
   $15,196/yr billed completed work to every future year. History + AHRA's **unfunded**
@@ -3078,7 +3086,7 @@ Week / Month toggle: Sundays across, roles down, in the same three bands the Wee
 - **⚠ A special service is NOT a column, deliberately** — its times are not 8:00/10:45 and its
   roles are free text, so it has no row to land on. Named in a strip below the grid, with a way
   back into Week view, and excluded from the figures, which the strip says. Dropping it silently
-  from a view called "the whole month" is the FIN58 defect.
+  from a view called "the whole month" is the FIN58b defect.
 - **Figures come from the same walk that draws the columns**, so Filled + Open cannot disagree
   with Slots. Sticky is the role column (left), not the header (top) — this pane only scrolls
   horizontally.
@@ -3624,7 +3632,7 @@ Two asks off the Schedule tab, shipped together.
   layout — say if it needs to come back. (`src/frontend/js-finance.js`,
   `src/frontend/html-head.js`, `src/frontend/html-tabs.js`,
   `test/finance-compensation-planner.test.js`, `test/finance-input-typing.test.js`)
-- [x] **FIN58** — Dental and vision are **per covered worker**, corrected by the church against a
+- [x] **FIN58c** — Dental and vision are **per covered worker**, corrected by the church against a
   stated figure: a family-tier worker costs **$29,130.48** ($24,612.00 medical + the full $3,046.80
   dental + $1,471.68 vision). They were modelled as one group bill divided across whoever was
   enrolled, so a covered worker's dental/vision fell whenever a colleague joined, adding a covered
@@ -3637,13 +3645,13 @@ Two asks off the Schedule tab, shipped together.
   **Figures that moved**: family-tier worker $26,871.24 → $29,130.48; Renewal at 2 contracts
   $53,742.48 → $58,260.96; Dinger's church cost $147,661 → $149,921. Medical untouched and still
   reconciles to the packet's Total Monthly $4,102.00 / Total Annual $49,224.00. Five existing tests
-  encoded the old reading and were updated; FIN57's re-sharing test was replaced, since an excluded
+  encoded the old reading and were updated; FIN57b's re-sharing test was replaced, since an excluded
   worker's health now leaves cleanly and moves nobody else's. `npm test` (1013/1013), harness pricing
   three covered workers at $29,130.48 each and the group at $87,391.44, `node --check` on both
   bundles. Not verified in a live browser. Done 2026-08-07 (v1.159.0). (`src/frontend/js-finance.js`,
   `test/finance-salary-calculator.test.js`, `test/finance-health-tiers.test.js`,
   `test/finance-compensation-planner.test.js`)
-- [x] **FIN57** — Reported: Council summary employer FICA read $11,319 against the church's own
+- [x] **FIN57b** — Reported: Council summary employer FICA read $11,319 against the church's own
   $8,186.72 (Jinah $74,516 + Linda $13,000 + Kati $19,500 at 7.65%). Diagnosed by arithmetic, not
   guesswork — $11,319 / 7.65% = a $147,960.78 base, $40,944.78 more than those three, i.e. exactly
   one extra worker: Jacinda, MDO staff paid from another section. (Same method cross-checks the
@@ -3666,7 +3674,7 @@ Two asks off the Schedule tab, shipped together.
   from $11,319.00 to $8,186.72, matching to the cent. Not verified in a live browser. Done
   2026-08-07 (v1.158.0). (`src/frontend/js-finance.js`,
   `test/finance-compensation-planner.test.js`)
-- [x] **FIN56** — Council summary gained a "What makes up $X of benefits & taxes" section under the
+- [x] **FIN56b** — Council summary gained a "What makes up $X of benefits & taxes" section under the
   worker table. Asked for as "Pension Cost, Health Plan Cost"; built as all four components
   (pension, health plan, disability & survivor, employer FICA) because those are exactly what
   `finCompBenefits` sums, so the breakdown always reconciles to the Benefits & taxes tile directly
@@ -3680,12 +3688,12 @@ Two asks off the Schedule tab, shipped together.
   of the real Council view against a live-shaped roster with tag-balance asserted, and `node --check`
   on both bundles. Not verified in a live browser or a real print dialog. Done 2026-08-07
   (v1.157.0). (`src/frontend/js-finance.js`, `test/finance-compensation-planner.test.js`)
-- [x] **FIN55** — Embedded / non-embedded, from the plan's own definition supplied by the church.
+- [x] **FIN55b** — Embedded / non-embedded, from the plan's own definition supplied by the church.
   **The shipped lone-claimant maths was already correct** — verified against all five options
   (embedded resolves to the individual figures, non-embedded to the family figures, deductible and
-  OOP max both), so FIN54-OPEN is closed with no change. Added: an Embedded / Non-embedded badge per
+  OOP max both), so FIN54c is closed with no change. Added: an Embedded / Non-embedded badge per
   rates row, derived from the option's own flag rather than a hand-written string, plus a legend —
-  needed because FIN54's new "Deductible — single" column could otherwise read as a per-person cap
+  needed because FIN54b's new "Deductible — single" column could otherwise read as a per-person cap
   inside family coverage on the two non-embedded options, where no such cap exists. New
   `finComputeFamilyOOPCents(opt, rate, spend, members)` generalises the spread-cost model: each
   member's contribution toward the family deductible is capped at the individual figure and they
@@ -3697,14 +3705,14 @@ Two asks off the Schedule tab, shipped together.
   2-5 members, $1k-$30k of spend; a synthetic 3x-ratio option does differ at two members, which pins
   the generalisation as real. The family-size control is therefore shown **only when it can matter**
   (`finHealthFamilySizeMatters`, data-derived) — currently hidden, replaced by a line saying the
-  count makes no difference here and that the two rows bracket the range. Also fixed FIN54's
+  count makes no difference here and that the two rows bracket the range. Also fixed FIN54b's
   `finHealthPlanResolvedOption` dropping every non-numeric field, which rendered `selOpt.label` as
   "undefined". `npm test` (862/862, 6 new; three initially failed on a wrong premise of mine and
   were rewritten around the derived rule rather than forced), `node --check` on both bundles, render
   check of the callout and all five badges. Not verified in a live browser. Done 2026-08-07
   (v1.155.0). (`src/frontend/js-finance.js`, `src/frontend/html-head.js`,
   `test/finance-salary-calculator.test.js`)
-- [x] **FIN54** — Health plan rates table: deductible and out-of-pocket max each split into
+- [x] **FIN54b** — Health plan rates table: deductible and out-of-pocket max each split into
   **single** and **family** columns (was family-only). The single figures already existed in
   `HEALTH_PLAN_QUOTE_2027` and already drove the lone-claimant maths — they had just never been
   editable, so a new quote couldn't correct them. Single OOP max was exposed alongside the
@@ -3720,7 +3728,7 @@ Two asks off the Schedule tab, shipped together.
   retargeted at the plan that is not already OOP-saturated at that spend), `node --check` on both
   built bundles. Not verified in a live browser. Done 2026-08-06 (v1.151.0).
   (`src/frontend/js-finance.js`, `test/finance-salary-calculator.test.js`)
-- [x] **FIN54-OPEN** — CLOSED 2026-08-07 by FIN55: the church supplied the plan's own definition and it
+- [x] **FIN54c** — CLOSED 2026-08-07 by FIN55b: the church supplied the plan's own definition and it
   confirms the standard rule the code already implements. Verified against all five options; no change
   made. Original note follows. ~~Unresolved modelling question, raised with the user, deliberately NOT changed~~
   on a guess: the request said an individual deductible must be met separately "in the non-embedded
@@ -3900,7 +3908,7 @@ Two asks off the Schedule tab, shipped together.
 - [x] **FIN34** — Follow-up on FIN33 (below), same day: the user asked how next month stays correct without repeating this, and how to trust the rest of the currently-stored property data. Answer led to a real design improvement, not just an explanation — `finance_property_monthly.reserve_balance_cents` (already imported verbatim from each report's "Total Property Reserve" line, via the CSV/xlsx importers or the "+ Add Month" modal) was sitting unused by the "Reserves On-Hand" KPI, which instead reconstructed a total from the reserve-schedule ledger + the new base-minimum figure — a second, manually-maintained path that could silently drift from the report's own number if a future month's reserve ledger row is forgotten. `finComputePropertyReservesOnHandCents(d)` now prefers the latest month's `reserve_balance_cents` whenever one is recorded (so simply keeping Monthly Financials current each month is now sufficient — no separate reserve-ledger bookkeeping step required to keep this KPI right), falling back to the ledger+base-minimum reconstruction only for a period with no recorded monthly total yet. Output for the already-seeded June/July data is unchanged ($10,358.33 either way — the two paths agree, since they're built from the same source numbers), confirmed by rerunning the existing reconciliation test unchanged plus two new tests proving the monthly-row figure wins even over a deliberately-stale ledger, and that the fallback still fires when no monthly row is entered yet. `npm test` (362/362), `node --check` on both built app-JS bundles. Not verified in a live browser. Done 2026-07-28 (v1.109.0). (`src/frontend/js-finance.js`, `test/finance-property-distribution.test.js`)
 - [x] **FIN33** — Reported the app's "Reserves On-Hand" KPI ($5,858.33) didn't match the real July 2026 AHRA report's "Total Property Reserve" ($10,358.33) or its "Distribution amount (cash minus reserves)" ($9,321.77). Investigated with the actual report PDF: its "Property Reserve and Distribution Report" page (Month of July 2026) shows the math explicitly — **Final Reserve Amount Calculations**: Total Prior Months Accumulated Reserve ($4,750.00) + Current Month Reserve ($1,108.33) + **Base Minimum Reserve ($4,500.00)** = Total Property Reserve ($10,358.33). The first two terms are exactly the Property Tax Reserve's own `reserve_after_cents` ($5,858.33, already correctly tracked in `finance_property_reserves` — confirmed accurate, not a bug) — the missing piece is AHRA's flat **$4,500 "Base Minimum Reserve"**, a constant operating-cash cushion it always holds back before computing a distribution, which isn't an accumulating bucket like the tax reserve and had no home anywhere in the schema. (The $9,321.77 distribution figure was already correctly stored — `available_for_distribution_cents` on the June monthly row, from the CSV's `distribution_amount` column — just not the number being compared against; the app's own "Available for Distribution" navy-bar estimate is a deliberately different, already-labeled annual estimate, not this report's literal monthly cash calc, so left untouched.) Fixed: new `meta.reserves.base_minimum_cents` (PATCH `/finance/property/ivanhoe/meta` allowlist extended to accept a `reserves` section, reusing the existing generic section-merge pattern), seeded to $450000 (the real July figure) via a new marker-gated `seedIvanhoePropertyBaseMinimumReserve(db)`. New shared pure `finComputePropertyReservesOnHandCents(d)` (sum of every reserve bucket's latest `reserve_after_cents`, plus the base minimum) now backs both places that computed this inline and had drifted into duplicated logic (`finRenderBalancesRow` on the Overview tab, `finComputePropertyKpis` on the Property tab) — confirmed reconciles to the report's own $10,358.33 exactly. New "Base Minimum Reserve" card (admin-editable) added to the Property tab, right above Property Tax Reserve, so the figure is visible and adjustable instead of a silent constant; "Reserves On-Hand" chip relabeled "tax + capital + base minimum". `npm test` (282/282, 5 new tests including an exact reproduction of the report's own reconciliation), `node --check` on both built app-JS bundles. Not verified in a live browser. Done 2026-07-28 (v1.89.0). (`src/api-finance.js`, `src/db.js`, `src/frontend/js-finance.js`, `test/finance-property.test.js`, `test/finance-property-distribution.test.js`)
 - [x] **FIN32** — Reported "this is the budget i have, but the upload won't take it. i can't upload new month data that i have here also" with a real `budget_detail20260126_2.xlsx` file attached. **Real bug found and fixed**: `finXlsxListSheetNames()`/`finXlsxFindSheetPath()` (the generic zip/xlsx reader every Finance import uses) assumed every `<sheet>` tag in `workbook.xml` is self-closing (`<sheet .../>`) — but this real AHRA "Budget Detail" export instead writes an explicit open/close tag (`<sheet ...></sheet>`), which the old `[^>]*\/>` regex never matched, silently returning zero sheet names and making `findPropertyBudgetDetailSheet()` always fail with "Could not find a Budget Detail sheet" — for this file specifically, and for any future xlsx from any source using this equally-valid tag style. Fixed both functions to match just the opening `<sheet ...>` tag (self-closed or not) and read its `name`/`r:id` attributes independently of order or closing style. Verified against the real uploaded file end-to-end (extracted its zip/XML by hand to confirm the exact tag shape, then ran the actual `parseXlsxAllSheets`/`findPropertyBudgetDetailSheet`/`parsePropertyBudgetDetailGrid` pipeline against it in Node) — correctly reads all 12 months' Total Budgeted Operating Income/Expense rows once fixed. New regression tests build a minimal in-memory ZIP (both a self-closing and an explicit-close `<sheet>` variant) so this exact bug class can't silently regress. **Also added, for "can't upload new month data"**: a CSV bulk-import path for `finance_property_monthly` (new `parsePropertyMonthlyCsv()` + `POST /admin/api/finance/property/ivanhoe/monthly-import-csv`, admin-only), reading the exact CSV row shape AHRA's own reports already ship with (`period,occupancy_pct,total_revenue,operating_expenses,net_operating_income,non_operating_expenses,net_income,...`) — verified against the real June 2026 `monthly_financials_row.csv` reconciling exactly to the already-seeded row (FIN29). This lets a new report's month be pasted in directly instead of retyped field-by-field into the "+ Add Month" modal; a new "Import CSV" toggle button next to "+ Add Month" reveals a paste-and-import panel. `loan_payment_cents`/`interest_expense_cents` (FIN31) aren't in this CSV shape and are left untouched on an upsert rather than wiped. `npm test` (251/251, 10 new tests), `node --check` on both built app-JS bundles. Not verified in a live browser. Done 2026-07-27 (v1.69.0). (`src/api-finance.js`, `src/frontend/js-finance.js`, `test/finance-property.test.js`)
-- [x] **FIN33** — Church Budget Planning: added an auto-computed "FY{base} Projected" column (base-year year-end projection) between `FY{base} Actual` and the untouched `FY{target} Plan` column. Scoped with the user first (they chose auto-compute a fresh year-end projection over re-keying the existing Plan data to the base year). Each leaf account's actual-to-date is annualized by `12/throughMonth` — the identical proration `generate-all` uses server-side, so the Projected column shows the exact base amount the Plan column was grown from; `throughMonth` = current month for the in-progress current year, else 12; group rows roll up as the sum of their leaves so subtotals/Net reconcile. Display-only, nothing stored, no data moved (`finRenderPlanning` only). `npm test` (288/288), `node --check` on both built app-JS bundles, vm harness render check. Not verified in a live browser. Done 2026-07-27 (v1.90.0). (`src/frontend/js-finance.js`)
+- [x] **FIN33b** — Church Budget Planning: added an auto-computed "FY{base} Projected" column (base-year year-end projection) between `FY{base} Actual` and the untouched `FY{target} Plan` column. Scoped with the user first (they chose auto-compute a fresh year-end projection over re-keying the existing Plan data to the base year). Each leaf account's actual-to-date is annualized by `12/throughMonth` — the identical proration `generate-all` uses server-side, so the Projected column shows the exact base amount the Plan column was grown from; `throughMonth` = current month for the in-progress current year, else 12; group rows roll up as the sum of their leaves so subtotals/Net reconcile. Display-only, nothing stored, no data moved (`finRenderPlanning` only). `npm test` (288/288), `node --check` on both built app-JS bundles, vm harness render check. Not verified in a live browser. Done 2026-07-27 (v1.90.0). (`src/frontend/js-finance.js`)
 
 ### Security Hardening (2026-07-16)
 Raised while answering QuickBooks' Developer app security questionnaire (FIN1/FIN2). Discussed and deliberately deferred rather than rushed in to check a form box — see reasoning below each item.
@@ -4171,7 +4179,7 @@ context the pattern exists to cover. **Rule: skip any hex literal that already s
 ### Giving / Finance
 - [x] **G1** — Fund import: pre-fetches `/api/funds` from Breeze to resolve real names; retroactively renames any "Breeze Fund XXXXX" placeholders on next sync. Done 2026-04-17.
 - [x] **G2** — Edit individual gifts from person profile: click batch number → opens that batch; click a gift row → modal to edit that individual gift (amount, fund, date, method, check #, note). Done 2026-04-17 (v27).
-- [ ] **G3** — Overall gift entry workflow improvements (user has more detail — revisit in dedicated session). (noted 2026-04-17)
+- [ ] **G3** — see Phase 6 (Development Phases, above) — gift entry workflow improvements, not yet scoped. (noted 2026-04-17)
 - [x] **G9** — Late-entry contributions: 45-day grace window added to sync — Dec contributions logged in Jan are now imported with their actual Dec contribution date. seenIds guard prevents double-import. Audit log limit raised to 10000. Done 2026-04-19 (v71).
 - [x] **G4** — Reopen batch button is broken/dead — fixed 2026-04-17 (v37).
 - [x] **G5** — Export data: persons, giving (year-by-year), and register data. Done 2026-04-17 (v38).
@@ -4191,7 +4199,7 @@ context the pattern exists to cover. **Rule: skip any hex literal that already s
 - [x] **G16** — Verified 2026-04-24. Kathy Carr TUB Bees fund confirmed correct.
 - [x] **G21** — Duplicate fund finder + merge tool. Prompted by the Giving by Fund report showing multiple rows with the identical name (e.g. two "40085 General Fund" rows) — confirmed these are real duplicate `funds` rows (no unique constraint on `name`), typically from a Breeze fund being re-created or no longer existing in Breeze at all. New admin-only `GET /admin/api/funds/duplicates` groups all funds by exact-match name and returns any group with 2+ rows (gift count + total per row); `POST /admin/api/funds/merge` (`{keep_id, remove_ids}`) reassigns `giving_entries.fund_id` to the kept fund and deletes the others, writing a `merge_funds` audit_log row. New Settings → Import/Export card "Find Duplicate Funds" lists each duplicate-name group with a radio picker (defaults to the row with the highest total) and a Merge button — manual review before merging, no auto-merge. Deliberately scoped to exact-name duplicates only (not fuzzy matching) to keep the first pass low-risk. Done 2026-07-17 (v1.29.0). (`src/api-households.js`, `src/frontend/js-export-import.js`, `src/frontend/html-tabs.js`) **G21-BUG1** — Reported "Internal server error" clicking Find Duplicate Funds immediately after ship. Root cause: `giving_entries` has no `amount_cents` column — the real column is `amount` (see the Data Integrity checklist: giving amounts are stored as integer cents in a column named `amount`, not `amount_cents`). The duplicates-finder query referenced the wrong column name, causing a SQL error → 500. Fixed by querying `SUM(amount)`. Done 2026-07-17 (v1.29.3). **G21-BUG2** — Reported the duplicate-group header showed the fund name lowercased (e.g. "25004 building fund" instead of "25004 Building Fund"). Root cause: the group's display `name` was built from the normalized dedup key (`(f.name||'').trim().toLowerCase()`, used only for matching) instead of an actual fund row's real-cased name. Fixed by taking the name from the highest-total fund in the group after sorting. Done 2026-07-17 (v1.29.4).
 - [x] **G22** — Reported 2026-07-21: the Giving by Fund report was showing junk placeholder/zero-activity funds (`Breeze Fund 1771128`/`1771129`/`1773223`/`1843175`/`1843177`, `Playground`, `11030 – Cash on Deposit`, etc. — all 0 gifts/$0.00) mixed in at the top of the list. `reports/giving-summary` now sorts $0-in-period funds to the bottom (existing `sort_order, name` ordering preserved within each group). Also flagged: a "49094" numeric-code fund group (like the existing "25010 Concordia Children's..." near-duplicate group found the same day) where the bookkeeper wants the sub-funds kept **separate** in the data — not merged — but wants them visually collapsed together in the report. Added a real expand/collapse toggle to every numeric-prefix fund group in the report (`rptToggleFundGroup()`) — collapsed by default (header + subtotal only), click the header to expand and see the individual fund lines. This is presentation-only, no data change, so it's safe for any prefix group including 49094. Separately, **real duplicate "General Fund" rows** (the accidental kind, not an intentional bookkeeping split like 49094) should be merged for real via the existing Settings → Import/Export → "Find Duplicate Funds" tool (G21) — not done from this session (needs an admin to click Merge in the live app; no live DB/browser access here). Done 2026-07-21 (v1.47.5). Two follow-ups from the same conversation: (1) the collapsed group header showed only the bare numeric code (e.g. "25010") — now labeled with the highest-total member's real fund name (e.g. "25010 Concordia Children's Services") so it reads like a fund, not a code. (2) New "Manage Funds" card in Settings → Import/Export (admin-only) — lists every fund with an Active checkbox and its gift history, reusing the existing (previously frontend-unused) `PUT /admin/api/funds/:id` endpoint; unchecking Active hides a fund from the Giving by Fund report and every other fund picker without deleting it or touching any recorded gifts, for the placeholder/zero-activity funds (Breeze Fund placeholders, Playground, etc.) the user wants gone from view entirely rather than just sorted to the bottom. `GET /admin/api/funds` now also returns `entry_count`/`total_cents` per fund; the funds POST/PUT endpoints gained an `isAdmin` guard (previously ungated). Done 2026-07-21 (v1.50.1). (`src/api-households.js`, `src/frontend/js-reports.js`, `src/frontend/js-export-import.js`, `src/frontend/html-tabs.js`)
-- [x] **FIN20** — Church Report's "Full account detail" table (This Year view): renamed the "Actual" column to "YTD Actual" and added a "YTD actuals as of `<date>`" caption (the most recent sync/import timestamp among the year's entries, via new `finChurchAsOfDate()`) both above the table and in its collapsed summary line, so the figures are legible without opening the details. Also moved each section's "Total X" row from a header ABOVE its account lines to a subtotal AFTER them (new `finRenderChurchDetailBody()`/`finRenderChurchTotalRow()`, replacing the old top-of-section bold row), and added one grand-total "Net Income" row at the very bottom of the whole table, computed from the same `d.netIncome` figure the summary card above already shows — so the two can never disagree. `npm test` (173/173, 4 new tests in `test/finance-church-detail-body.test.js`). Not verified in a live browser. Done 2026-07-21 (v1.50.1). (`src/frontend/js-finance.js`, `test/finance-church-detail-body.test.js`)
+- [x] **FIN20b** — Church Report's "Full account detail" table (This Year view): renamed the "Actual" column to "YTD Actual" and added a "YTD actuals as of `<date>`" caption (the most recent sync/import timestamp among the year's entries, via new `finChurchAsOfDate()`) both above the table and in its collapsed summary line, so the figures are legible without opening the details. Also moved each section's "Total X" row from a header ABOVE its account lines to a subtotal AFTER them (new `finRenderChurchDetailBody()`/`finRenderChurchTotalRow()`, replacing the old top-of-section bold row), and added one grand-total "Net Income" row at the very bottom of the whole table, computed from the same `d.netIncome` figure the summary card above already shows — so the two can never disagree. `npm test` (173/173, 4 new tests in `test/finance-church-detail-body.test.js`). Not verified in a live browser. Done 2026-07-21 (v1.50.1). (`src/frontend/js-finance.js`, `test/finance-church-detail-body.test.js`)
 - [x] **G23** — New read-only `GET /api/intake/funds` endpoint (`src/api-intake.js`), added so the website repo's admin.timothystl.org Giving tab (Funds card) can pull real ChMS fund names as a reference when setting up give.timothystl.org's fund selector, instead of staff retyping names by hand from memory and risking a mismatch. Same auth as the existing `/api/intake/connect-card`/`/api/intake/prayer` routes (`X-Intake-Key` header matching `env.CHMS_INTAKE_API_KEY` — not a user session), reusing the established cross-Worker call pattern rather than inventing a new one; not rate-limited like the POST intake routes since no public form can trigger it. Returns `{funds: [{id, name}]}` for active funds only, `sort_order, name` order. Deliberately does **not** expose or add a Tithe.ly fund ID on this side — ChMS's `funds` table still has no Tithe.ly linkage at all (only `breeze_id`, for Breeze giving-sync), confirmed again while building this; a real cross-app "sync the fund ID too" would need each fund's Tithe.ly ID entered somewhere by hand regardless, so this endpoint only solves getting the fund *name* right, not full fund automation. Verified with a `node:sqlite` harness (correct active-only filter, correct sort). `npm test` (187/187, unchanged — no new test file, the query is a 2-line passthrough already covered by the harness check above). Not verified against a live deploy (no way to invoke the real Worker route from this session). Done 2026-07-27. (`src/api-intake.js`)
 - [x] **G25** — "Giving Plateaus & Nudges" report. Requested: find the per-gift amounts givers
   plateau at (e.g. $43/wk) and nudge each to the next clean number ($50), then use those as suggested
