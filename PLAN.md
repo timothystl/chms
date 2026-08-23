@@ -24,8 +24,9 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**29 items open** (P22-E, P24-C and P26-A closed 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B,
-P25-C and P25-G closed 2026-08-23 — see below). Take the next
+**27 items open** (of 38 total: 23 rows in the table below + 15 Tier 7 carry-forwards). Closed:
+P22-E, P22-F, P24-C and P26-A on 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B, P25-C, P25-G and
+P27-C on 2026-08-23 — see below. Take the next
 unchecked row. Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
@@ -84,7 +85,7 @@ same class of problem.
 
 | # | Code | Size | What |
 |---|---|---|---|
-| 15 | **P27-C** | minutes | `npm audit fix`. Back to 6 high; all dev-tooling, none reaching the Worker. Recurring chore. |
+| 15 | ~~**P27-C**~~ | minutes | DONE 2026-08-23. `npm audit fix` — 0 vulnerabilities. Recurring chore, will drift back up. |
 | 16 | **P27-A** | small | **"See FIN58" currently resolves to three different features.** Suffix the later duplicates; do not renumber. |
 | 17 | **P27-B** | small | The American-English check returns 27, and the file says it should return nothing. **⚠ Four hits are the rule quoting its own examples — exclude those lines or it can never be green.** |
 | 18 | **P27-D** | small | Delete ~800 KB of dead tracked files. **⚠ Confirm nothing outside the repo serves them** — a root `CNAME` suggests Pages once did. |
@@ -493,9 +494,11 @@ cleanup — do not let it wait for the redesign.**
   CLAUDE.md 12 (4 of which are the rule quoting its own example words and are unavoidable — exclude those
   four lines in the command, or the check can never be green) · `src/frontend/js-finance.js:7968` ·
   `test/finance-comp-baseline.test.js:504`. The last two are live code.
-- [ ] **P27-C** (retires **DOC5**) — `npm audit fix`. Back to 6 high after REV8 recorded 0 on 2026-07-11; all
-  dev-tooling (`wrangler → miniflare → sharp`/`undici`, `vitest → vite → postcss`/`nanoid`), none reaching
-  the deployed Worker, which has no runtime dependencies. Treat as a recurring chore, not a one-time fix.
+- [x] **P27-C** — DONE 2026-08-23, retires **DOC5**. `npm audit fix` — 6 high (dev-tooling only:
+  `nanoid`, `postcss`, `sharp` via `wrangler → miniflare`, `undici`) down to **0 vulnerabilities**.
+  `package-lock.json` only, no source change. `npm test` (1813/1813, unaffected — a pure
+  dependency bump). This is a recurring chore, not a one-time fix — expect it to drift back up as
+  `wrangler`'s own dependency tree moves; re-run periodically. (`package-lock.json`)
 - [ ] **P27-D** (retires **DOC6**) — Delete the ~800 KB of dead tracked files: `index.html` (157 KB),
   `mockup.html` (158 KB), `chms-admin.html` (108 KB), `legacyindex.html` (106 KB), `volunteer-admin.html`
   (71 KB), `slide-builder.html` (64 KB), `volunteer-legacy.html` (43 KB), `breeze-proxy-worker.js` (27 KB —
