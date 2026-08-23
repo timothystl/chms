@@ -1,12 +1,12 @@
 // ── HTML templates: Login, Public signup page, Admin scheduler page ────────────
 import { DEPLOY_VERSION } from './frontend/js-core.js';
-import { PUBLIC_HEAD } from './public/head.js';
+import { PUBLIC_HEAD, PUBLIC_APP_CSS } from './public/head.js';
 import { PUBLIC_LANDING } from './public/landing.js';
 import { PAGE_MARKET } from './public/market.js';
 import { PAGE_MINISTRIES } from './public/ministries.js';
 import { PAGE_FINDFIT } from './public/findfit.js';
 import { PUBLIC_FOOTER } from './public/footer.js';
-import { PUBLIC_SCRIPTS } from './public/scripts.js';
+import { PUBLIC_SCRIPTS, PUBLIC_APP_JS } from './public/scripts.js';
 import { PAGE_WORSHIP } from './public/ministries/worship.js';
 import { PAGE_EVENTS } from './public/ministries/events.js';
 import { PAGE_EDUCATION } from './public/ministries/education.js';
@@ -39,4 +39,11 @@ export const PUBLIC_HTML =
   PAGE_CFNA +
   PUBLIC_FOOTER +
   PUBLIC_SCRIPTS;
+
+// P25-G (LOAD6): the public site's ~57 KB of CSS and ~80 KB of JS were inlined into
+// PUBLIC_HTML itself, which is served with no Cache-Control at all — re-downloaded in
+// full on every single page view, on the church's public front door. Both are pulled
+// out here and served as their own ?v=DEPLOY_VERSION immutable routes (same pattern as
+// /admin/app.css and /admin/app-*.js), re-exported for the worker to route.
+export { PUBLIC_APP_CSS, PUBLIC_APP_JS };
 

@@ -1,4 +1,10 @@
-export const PUBLIC_SCRIPTS = `<script>
+import { DEPLOY_VERSION } from '../frontend/js-core.js';
+export const PUBLIC_SCRIPTS = `<script src="/serve-app.js?v=${DEPLOY_VERSION}"></script>
+</body>
+</html>`;
+
+
+export const PUBLIC_APP_JS = `
 // ── Page navigation ───────────────────────────────────────────────────
 var _dynRolesLoaded = {};
 function loadDynamicMinistryRoles(ministry) {
@@ -1449,6 +1455,4 @@ document.addEventListener('click', function(e) {
     return;
   }
 });
-</script>
-</body>
-</html>`;
+`;

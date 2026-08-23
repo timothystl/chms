@@ -20,7 +20,7 @@ import {
 import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
 import { handleIntakeApi } from './src/api-intake.js';
 import { handleMemberSetup } from './src/api-people.js';
-import { LOGIN_HTML, PUBLIC_HTML } from './src/html-templates.js';
+import { LOGIN_HTML, PUBLIC_HTML, PUBLIC_APP_CSS, PUBLIC_APP_JS } from './src/html-templates.js';
 import { chmsHtmlForRole, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS, CHMS_APP_EXT_JS, CHMS_APP_CSS, CHMS_SCHEDULER_HTML, CHMS_SCHEDULER_JS } from './src/html-chms.js';
 import { MOBILE_ADMIN_HTML } from './src/mobile-admin-html.js';
 import { DEPLOY_VERSION } from './src/frontend/js-core.js';
@@ -339,6 +339,22 @@ async function _fetch(req, env) {
     if (path === '/admin/app.css') {
       return new Response(CHMS_APP_CSS, {
         headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': assetCacheControl() }
+      });
+    }
+    // ── Public site CSS/JS (P25-G / LOAD6) — same treatment as the admin app JS/CSS
+    // above: pulled out of PUBLIC_HTML (which is served with no Cache-Control at all,
+    // and re-downloaded whole on every page view of the church's public front door)
+    // into their own immutable, versioned routes. PUBLIC_HTML itself stays as-is —
+    // small enough on its own that it doesn't need the same treatment its two big
+    // inlined blocks did.
+    if (path === '/serve-app.css') {
+      return new Response(PUBLIC_APP_CSS, {
+        headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': assetCacheControl() }
+      });
+    }
+    if (path === '/serve-app.js') {
+      return new Response(PUBLIC_APP_JS, {
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
       });
     }
 

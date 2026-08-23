@@ -24,8 +24,8 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**30 items open** (P22-E, P24-C and P26-A closed 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B and
-P25-C closed 2026-08-23 — see below). Take the next
+**29 items open** (P22-E, P24-C and P26-A closed 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B,
+P25-C and P25-G closed 2026-08-23 — see below). Take the next
 unchecked row. Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
@@ -33,8 +33,8 @@ unchecked row. Detail for every code is in its phase section further down.
 |---|---|---|---|
 | 1 | ~~**P22-E**~~ | small | DONE 2026-08-22. Login rate limiting, intake rate limiting and QuickBooks OAuth `state` now fail **closed**, not open, with no `RSVP_STORE`. || 2 | ~~**P22-F**~~ | small ×5 | DONE 2026-08-22. Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. |
 
-**Tier 1 and Tier 2 both complete.** Next up: item 10, P25-G (`serve.timothystl.org` has no
-`Cache-Control` header at all).
+**Tier 1 and Tier 2 both complete.** Next up: item 11, P25-E (split `app-ext.js` along the
+permission line — the large one).
 
 ### Tier 2 — Things that are wrong on screen right now
 
@@ -62,7 +62,7 @@ The church network is slow; AU2 has been open since July for that reason.
 | 7 | ~~**P25-A**~~ | one-liner | DONE 2026-08-23. Both scheduler-embed assets now route through `assetCacheControl()`; the test's `ASSETS` list covers all six. |
 | 8 | ~~**P25-B**~~ | one-liner | DONE 2026-08-23. The 8 pure asset routes now sit above `await initDb(env.DB)` in `_fetch`. |
 | 9 | ~~**P25-C**~~ | medium | DONE 2026-08-23. Both the app shell and the login page now preconnect and load fonts non-blockingly. |
-| 10 | **P25-G** | medium | `serve.timothystl.org` is 204.5 KB with **no `Cache-Control` at all** and is identical for every visitor. The church's public front door, on the same slow network. |
+| 10 | ~~**P25-G**~~ | medium | DONE 2026-08-23. `PUBLIC_HTML`'s ~57 KB CSS + ~80 KB JS are now versioned immutable routes; the shell dropped to ~68 KB. |
 | 11 | **P25-E** | large | Split `app-ext.js` (1,273 KB) along the permission line. A `staff` account with `finance: none` downloads all 696 KB of Finance. **⚠ Keep CR9's two rules: fail SAFE, and pin "no global defined twice".** |
 | 12 | **P25-F** | large | The 194 KB `no-store` shell. Needs the boot sequence looked at, not another mechanical extraction. |
 
@@ -410,10 +410,27 @@ measured and recorded; a council user sees their role name.
   tab markup. CR1b's own caveat still stands: there is no natural lazy trigger, so this needs the boot
   sequence looked at, not another mechanical extraction. While in there: the served document never closes
   `<body>` or `<html>`, and the script tags carry no `defer`.
-- [ ] **P25-G** (retires **LOAD6**) — Give `serve.timothystl.org` the CR1 treatment: `PUBLIC_HTML` is a
-  204.5 KB document with 57.4 KB of CSS and 80.2 KB of JS inlined and **no `Cache-Control` at all**. It is
-  entirely static and identical for every visitor — a better candidate for immutable versioned assets than
-  the admin shell ever was, on the same slow network.
+- [x] **P25-G** — DONE 2026-08-23, retires **LOAD6**. `PUBLIC_HTML`'s inlined `<style>` (~57 KB) and
+  `<script>` (~80 KB) blocks are now their own exported constants (`PUBLIC_APP_CSS` in
+  `src/public/head.js`, `PUBLIC_APP_JS` in `src/public/scripts.js`), re-exported from
+  `html-templates.js` and served at `/serve-app.css`/`/serve-app.js` — same `?v=DEPLOY_VERSION`
+  immutable-when-current, `no-store` otherwise pattern as `/admin/app.css`/`/admin/app-*.js` (CR1),
+  hoisted above `initDb()` alongside the other pure asset routes (P25-B). `PUBLIC_HTML` itself drops
+  from ~204.5 KB to ~68.4 KB and now references the two external routes via `<link rel="stylesheet">`
+  and `<script src>`; it keeps no `Cache-Control` of its own — small enough on its own, and it's still
+  the one piece that would need per-visitor logic if that's ever added, unlike the two blocks that were
+  pulled out. Two existing tests needed updating for real reasons, not new fixture drift:
+  `test/serve-redesign.test.js` extracted its `SCRIPT` fixture from `PUBLIC_HTML`'s inline `<script>`
+  (now external — switched to importing `PUBLIC_APP_JS` directly) and had a `sv-role-grid` id assertion
+  that was passing only by coincidence (the id string only "existed" because it was inside the inline
+  script's own source text, not real markup — it's created at runtime via `innerHTML` before use, which
+  the split now correctly exposes). `npm test` (1810/1810, 5 new in
+  `test/public-app-assets-cache.test.js`); verified non-vacuous by reverting all four touched source
+  files and confirming 4 of 7 tests in that file fail (routes fall through to the `/admin/api/*`
+  catch-all → 401, `PUBLIC_HTML` still ~204 KB). `node --check` on all four touched files. **Not
+  verified**: a live browser, or a real measurement of the public site's own load time.
+  (`src/public/head.js`, `src/public/scripts.js`, `src/html-templates.js`, `tlc-volunteer-worker.js`,
+  `test/serve-redesign.test.js`, `test/public-app-assets-cache.test.js`)
 
 **Done when:** each shipped or deferred; measure the same numbers CR10 recorded and put the new ones next to
 the old ones in this file.
