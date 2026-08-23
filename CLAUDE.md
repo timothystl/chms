@@ -504,6 +504,35 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### MOB5 — Sidebar drawer cut off on a phone below "Volunteers"; Scheduler/Settings unreachable (2026-08-23, DONE)
+Reported live with a screenshot: on a phone (`connect.timothystl.org`, real device, address bar
+visible), the off-canvas sidebar drawer stopped scrolling right after Volunteers — Scheduler,
+Settings and the Sign Out control below it were never reachable, no matter how the user tried to
+scroll the drawer.
+- **Cause: `.sidebar` is `position:fixed; height:100vh`, and mobile Safari measures `100vh`
+  against the LARGE viewport** (address bar fully collapsed) — taller than what's actually on
+  screen whenever the address bar is showing, which is the normal state. A `position:fixed`
+  element sized to that oversized box extends below the real visible screen; nothing scrolls
+  because the box's own content isn't overflowing the box, the box itself is just positioned past
+  the edge of what's currently visible. `.app-shell` (the outer flex container) had the identical
+  `height:100vh` and the identical exposure, just less visibly since it's normal document flow,
+  not `position:fixed`.
+- **Fix**: layered a `height:100dvh` declaration after `height:100vh` on both rules — `dvh`
+  (dynamic viewport height) tracks whatever is actually visible right now, including a shown or
+  hidden browser toolbar; declared second so it overrides `100vh` only in browsers that understand
+  the unit, leaving `100vh` as the fallback everywhere else. No JS change, no markup change — this
+  is the standard, minimal fix for exactly this recurring mobile-Safari bug class.
+- `npm test` (1813/1813, 3 new in `test/mobile-sidebar-dvh.test.js`); verified non-vacuous by
+  reverting the CSS and confirming 2 of 3 new tests fail. `node --check` on the touched file.
+  DEPLOY_VERSION bumped to 1.204.0 (`.sidebar`/`.app-shell` live inside `HTML_HEAD`'s `<style>`
+  block, which is literally sliced out as `CHMS_APP_CSS` — the cached `/admin/app.css` bundle — so
+  this is a real cached-asset content change, not just shell markup). **Not verified**: a real
+  phone or a live browser — the standing caveat on all frontend work in this repo; if the drawer
+  still cuts off after this ships, the next thing to check is whether the specific device/browser
+  actually supports `dvh` (broadly supported on modern iOS/Android since 2022, but worth
+  confirming against whatever browser reported this). (`src/frontend/html-head.js`,
+  `src/frontend/js-core.js`, `test/mobile-sidebar-dvh.test.js`)
+
 ### CR11 — Second independent whole-codebase review: speed, security, functional (2026-08-22, REVIEW ONLY — no code changed)
 **⚠ Two of this entry's findings were closed by a separate same-day session — see the "External code
 review, 2026-08-22" entry right below this one.** P22-F (item 2 in Tier 1 below) is now fully closed,

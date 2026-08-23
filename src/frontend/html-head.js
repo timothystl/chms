@@ -143,14 +143,22 @@ a{color:var(--sky-steel);}
 #tab-scheduler .sched-root{flex:1;min-height:0;overflow-y:auto;}
 /* ── APP SHELL ── */
 #offline-banner{position:relative;z-index:200;}
-.app-shell{display:flex;height:100vh;}
+.app-shell{display:flex;height:100vh;height:100dvh;}
 /* ── SIDEBAR ──
    Off-canvas drawer at all screen sizes — opened via the hamburger button in the
    topbar, closed by picking a tab or tapping the backdrop. Replaces the old
    always-present icon rail that hover-expanded to 200px (it ate a fixed slice of
    every screen's width and didn't match any of the design mockups, which all
    assume a full-width working area). ── */
-.sidebar{position:fixed;left:-200px;top:0;height:100vh;width:200px;background:var(--navy);display:flex;flex-direction:column;align-items:stretch;padding:12px 0;gap:4px;overflow-y:auto;transition:left .2s ease;z-index:200;}
+/* ⚠ 100vh on mobile Safari is measured against the LARGE viewport (address bar
+   collapsed), which is taller than what's actually visible whenever the address
+   bar is showing — a position:fixed element sized to it extends below the real
+   screen, with no way to scroll the excess into view (reported: "I can't get
+   down to the scheduler," with Volunteers as the last reachable item and
+   Scheduler/Settings/Sign Out cut off below the fold). 100dvh tracks the
+   viewport that's actually visible right now; declared second so it overrides
+   100vh only in browsers that understand it, leaving 100vh as the fallback. */
+.sidebar{position:fixed;left:-200px;top:0;height:100vh;height:100dvh;width:200px;background:var(--navy);display:flex;flex-direction:column;align-items:stretch;padding:12px 0;gap:4px;overflow-y:auto;transition:left .2s ease;z-index:200;}
 .sidebar.open{left:0;}
 a.s-item{text-decoration:none;color:inherit;}
 /* No tile behind the mark: the sidebar is already --color-navy, so a navy tile
