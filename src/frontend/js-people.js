@@ -406,7 +406,7 @@ function applyBulkMemberType() {
   var ids = Array.from(_selectedPeople);
   api('/admin/api/people/bulk-member-type', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids:ids, member_type:mt})}).then(function() {
     clearSelection(); loadPeople();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function renderBulkTagsPanel() {
   var c = document.getElementById('p-bulk-tags-list');
@@ -462,7 +462,7 @@ function applyBulkSacrament() {
     alert(msg.join('\n'));
     clearSelection();
     loadPeople();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function openBulkCommPanel() {
   if (!_selectedPeople.size) { alert('No people selected.'); return; }
@@ -500,7 +500,7 @@ function applyBulkComm() {
     alert(msg.join('\n'));
     clearSelection();
     loadPeople();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function applyBulkTags() {
   if (!_selectedPeople.size) { alert('No people selected.'); return; }
@@ -522,7 +522,7 @@ function applyBulkTags() {
   }).then(function() {
     document.getElementById('p-bulk-tags-panel').style.display = 'none';
     clearSelection(); loadPeople();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function renderPeopleMobile(people) {
   var c = document.getElementById('p-contact-list');
@@ -1386,7 +1386,7 @@ function syncPersonAddrToHousehold(hhId) {
         // called the removed pvRenderContact(), which would have thrown.)
         if (r && r.ok) { pvfToast(); }
         else alert('Failed to update household address: ' + ((r && r.error) || 'unknown error'));
-      });
+      }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
   });
 }
 
@@ -1474,7 +1474,7 @@ function savePvTags() {
       display.innerHTML = tagHtml || '<span style="color:var(--warm-gray);font-size:.82rem;font-style:italic;">No tags</span>';
     }
     document.getElementById('pv-tags-editor').style.display = 'none';
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function triggerPhotoUpload() {
   var inp = document.getElementById('pv-photo-input');
@@ -1615,7 +1615,7 @@ function togglePVSms() {
         badge.title = 'Click to opt in to SMS';
       }
     }
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function openPVPhotoPicker() {
   var p = _currentPvPerson;
@@ -1676,7 +1676,7 @@ function usePVPhotoFrom(idx) {
         photoEl.appendChild(imgEl);
       }
       _pvPhotoState.hasPhoto = true;
-    });
+    }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function recropPersonPhoto() {
   var p = _currentPvPerson;
@@ -1921,7 +1921,7 @@ function applyAddressToHousehold(personId, householdId) {
     var n = r.updated || 0;
     if (n > 0) alert('Address pushed to ' + n + ' member' + (n !== 1 ? 's' : '') + ' who had no address on file.');
     else alert('All household members already have an address — nothing was changed.');
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 // Add-to-household: search for existing person and link them
 var _addToHhId = null, _addToHhPeople = {}, _addToHhTimer = null, _addToHhHousehold = null;
@@ -1995,7 +1995,7 @@ function confirmAddToHh(personId) {
       closeModal('add-to-hh-modal');
       if (_currentPvPerson && _currentPvPerson.household_id === _addToHhId) loadPvFamily(_addToHhId, _currentPvPerson.id);
     } else alert('Error: '+(r.error||'unknown'));
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function toggleAddHhNew(btn) {
   var panel = document.getElementById('add-hh-new');
@@ -2589,28 +2589,28 @@ function sendConnectInvite(id) {
   api('/admin/api/people/' + id + '/invite', {method:'POST'}).then(function(r) {
     if (r && r.ok) alert('Invite sent to ' + (r.email || 'their email address') + '. The link expires in 7 days.');
     else alert('Error: ' + ((r && r.error) || 'Could not send invite. Check that this person has an email address.'));
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function archivePerson(id) {
   if (!confirm('Archive this person? They will be hidden from the active list but their records and giving history are preserved.')) return;
   api('/admin/api/people/' + id + '/archive', {method:'POST'}).then(function(r) {
     if (r.ok) { openPersonDetail(id); loadPeople(); }
     else alert('Error: ' + (r.error || 'unknown'));
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function unarchivePerson(id) {
   if (!confirm('Reactivate this person and return them to the active people list?')) return;
   api('/admin/api/people/' + id + '/unarchive', {method:'POST'}).then(function(r) {
     if (r.ok) { openPersonDetail(id); loadPeople(); }
     else alert('Error: ' + (r.error || 'unknown'));
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function markPersonDeceased(id) {
   if (!confirm('Mark this person as deceased? Today will be set as their death date. They will be archived, removed from anniversary cards, and their giving history is preserved.')) return;
   api('/admin/api/people/' + id + '/deceased', {method:'POST'}).then(function(r) {
     if (r.ok) { openPersonDetail(id); loadPeople(); }
     else alert('Error: ' + (r.error || 'unknown'));
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── PHONE FORMATTING ──────────────────────────────────────────────────────
@@ -2733,9 +2733,9 @@ function createHouseholdForPerson(personId, lastName) {
         if (r2.ok) {
           api('/admin/api/people/' + personId).then(function(p2) { if (p2 && p2.id) showProfile(p2); });
         } else alert('Error linking to household: ' + (r2.error || 'unknown'));
-      });
+      }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
     });
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── MAP EMBED (Google Static Maps, proxied server-side so GOOGLE_ADDRESS_API_KEY never reaches the browser) ──

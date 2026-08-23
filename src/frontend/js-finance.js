@@ -1829,7 +1829,7 @@ function finSaveBudgetChoice() {
     if (d && d.error) { finToast('Could not save: ' + d.error); return; }
     finToast('Budget selection saved. Syncing…');
     finSync();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 function finFmtTs(iso) {
   try { return new Date(iso).toLocaleString('en-US', {dateStyle: 'medium', timeStyle: 'short'}); }
@@ -1850,7 +1850,7 @@ function finSync(btn) {
 }
 function finDisconnect() {
   if (!confirm('Disconnect QuickBooks? You can reconnect later, but cached report data will be cleared.')) return;
-  api('/admin/api/finance/qb/disconnect', { method: 'POST' }).then(function() { loadFinance(); });
+  api('/admin/api/finance/qb/disconnect', { method: 'POST' }).then(function() { loadFinance(); }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 
 // Clears only finance_church_entries + finance_qb_snapshot (the church budget/actuals and their
@@ -1880,7 +1880,7 @@ function finConfirmClearData() {
     document.getElementById('fin-clear-data-panel').innerHTML = '<p style="font-size:.8rem;color:var(--sage);">Cleared. Sync QuickBooks or import a report to repopulate.</p>';
     finToast('Church budget/actuals data cleared.');
     loadFinance();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 
 // ── Budget vs Actual — generic renderer for QuickBooks' Columns/Rows report shape ──
@@ -2085,7 +2085,7 @@ function finDeleteDaycare(id) {
   api('/admin/api/finance/daycare/' + id, { method: 'DELETE' }).then(function() {
     _finDaycare = _finDaycare.filter(function(e) { return e.id !== id; });
     finRenderDaycare();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 
 // ── Import Daycare (MDO) data from an already-imported Church Budget year ──
@@ -3782,14 +3782,7 @@ function finChurchBalanceImportFileSelected(inputEl) {
   _finChurchBalanceImportPreview = null;
   var fd = new FormData();
   fd.append('file', file);
-  fetch('/admin/api/finance/church/balances/import-preview', { method: 'POST', body: fd, credentials: 'include' })
-    .then(function(r) {
-      return r.json().then(function(d) {
-        if (r.status === 401) { location.href = '/chms'; throw new Error('Unauthorized'); }
-        if (!r.ok) throw new Error(d.error || 'Could not read this file.');
-        return d;
-      });
-    })
+  api('/admin/api/finance/church/balances/import-preview', { method: 'POST', body: fd })
     .then(function(d) {
       _finChurchBalanceImportPreview = d;
       _finChurchBalanceImportChecked = d.rows.map(function() { return true; });
@@ -3933,14 +3926,7 @@ function finChurchImportFileSelected(inputEl) {
     statusEl.textContent = 'Reading file ' + (idx + 1) + ' of ' + files.length + ' (' + esc(file.name) + ')…';
     var fd = new FormData();
     fd.append('file', file);
-    fetch('/admin/api/finance/church/import-preview', { method: 'POST', body: fd, credentials: 'include' })
-      .then(function(r) {
-        return r.json().then(function(d) {
-          if (r.status === 401) { location.href = '/chms'; throw new Error('Unauthorized'); }
-          if (!r.ok) throw new Error(d.error || 'Could not read this file.');
-          return d;
-        });
-      })
+    api('/admin/api/finance/church/import-preview', { method: 'POST', body: fd })
       .then(function(d) {
         results.push({ fileName: file.name, fiscalYear: d.fiscalYear, sheetName: d.sheetName, rows: d.rows, skipped: d.skipped, checked: d.rows.map(function() { return true; }), error: null });
         next(idx + 1);
@@ -4051,14 +4037,7 @@ function finChurchMonthlyImportFileSelected(inputEl) {
   _finChurchMonthlyImportPreview = null;
   var fd = new FormData();
   fd.append('file', file);
-  fetch('/admin/api/finance/church/monthly-import-preview', { method: 'POST', body: fd, credentials: 'include' })
-    .then(function(r) {
-      return r.json().then(function(d) {
-        if (r.status === 401) { location.href = '/chms'; throw new Error('Unauthorized'); }
-        if (!r.ok) throw new Error(d.error || 'Could not read this file.');
-        return d;
-      });
-    })
+  api('/admin/api/finance/church/monthly-import-preview', { method: 'POST', body: fd })
     .then(function(d) {
       _finChurchMonthlyImportPreview = d;
       // Reads the multi-year shape ({years, monthsByYear}); the single fiscalYear/months pair this
@@ -4237,14 +4216,7 @@ function finChurchActivityImportFileSelected(inputEl) {
   _finChurchActivityImportPreview = null;
   var fd = new FormData();
   fd.append('file', file);
-  fetch('/admin/api/finance/church/activity-import-preview', { method: 'POST', body: fd, credentials: 'include' })
-    .then(function(r) {
-      return r.json().then(function(d) {
-        if (r.status === 401) { location.href = '/chms'; throw new Error('Unauthorized'); }
-        if (!r.ok) throw new Error(d.error || 'Could not read this file.');
-        return d;
-      });
-    })
+  api('/admin/api/finance/church/activity-import-preview', { method: 'POST', body: fd })
     .then(function(d) {
       _finChurchActivityImportPreview = d;
       statusEl.textContent = 'Parsed "' + d.sheetName + '" — ' + d.years.length + ' year(s) (' + d.years.join(', ') + '), ' + d.rows.length + ' account/year row(s).'
@@ -4336,14 +4308,7 @@ function finChurchBudgetMultiYearImportFileSelected(inputEl) {
   _finChurchBudgetMultiYearImportPreview = null;
   var fd = new FormData();
   fd.append('file', file);
-  fetch('/admin/api/finance/church/budget-multi-year-import-preview', { method: 'POST', body: fd, credentials: 'include' })
-    .then(function(r) {
-      return r.json().then(function(d) {
-        if (r.status === 401) { location.href = '/chms'; throw new Error('Unauthorized'); }
-        if (!r.ok) throw new Error(d.error || 'Could not read this file.');
-        return d;
-      });
-    })
+  api('/admin/api/finance/church/budget-multi-year-import-preview', { method: 'POST', body: fd })
     .then(function(d) {
       _finChurchBudgetMultiYearImportPreview = d;
       statusEl.textContent = 'Parsed "' + d.sheetName + '" — ' + d.years.length + ' year(s) (' + d.years.join(', ') + '), ' + d.rows.length + ' account/year row(s).'
@@ -4432,14 +4397,7 @@ function finChurchBalanceMultiImportFileSelected(inputEl) {
   _finChurchBalanceMultiImportPreview = null;
   var fd = new FormData();
   fd.append('file', file);
-  fetch('/admin/api/finance/church/balances/multi-year-import-preview', { method: 'POST', body: fd, credentials: 'include' })
-    .then(function(r) {
-      return r.json().then(function(d) {
-        if (r.status === 401) { location.href = '/chms'; throw new Error('Unauthorized'); }
-        if (!r.ok) throw new Error(d.error || 'Could not read this file.');
-        return d;
-      });
-    })
+  api('/admin/api/finance/church/balances/multi-year-import-preview', { method: 'POST', body: fd })
     .then(function(d) {
       _finChurchBalanceMultiImportPreview = d;
       statusEl.textContent = 'Parsed "' + d.sheetName + '" — ' + d.years.length + ' year(s) (' + d.years.join(', ') + '), ' + d.rows.length + ' account/year row(s).'
@@ -5655,14 +5613,7 @@ function finPropertyBudgetImportFileSelected(inputEl) {
   if (statusEl) statusEl.textContent = 'Importing…';
   var fd = new FormData();
   fd.append('file', file);
-  fetch('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/budget-import', { method: 'POST', body: fd, credentials: 'include' })
-    .then(function(r) {
-      return r.json().then(function(d) {
-        if (r.status === 401) { location.href = '/chms'; throw new Error('Unauthorized'); }
-        if (!r.ok) throw new Error(d.error || 'Could not import this file.');
-        return d;
-      });
-    })
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/budget-import', { method: 'POST', body: fd })
     .then(function(d) {
       if (statusEl) statusEl.textContent = 'Imported ' + d.imported + ' month(s): ' + d.months.map(function(m) { return m.period; }).join(', ') + '.';
       inputEl.value = '';
@@ -6127,15 +6078,15 @@ function finPropertyAddReserveMonth() {
   api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/reserves/property_tax/monthly', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
     if (d && d.error) { finToast(d.error); return; }
     finLoadProperty();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 function finPropertyDeleteReserveMonth(reserveKey, month) {
   if (!confirm('Delete the ' + month + ' reserve entry? This cannot be undone.')) return;
-  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/reserves/' + reserveKey + '/monthly/' + encodeURIComponent(month), { method: 'DELETE' }).then(function() { finLoadProperty(); });
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/reserves/' + reserveKey + '/monthly/' + encodeURIComponent(month), { method: 'DELETE' }).then(function() { finLoadProperty(); }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 function finPropertyDeleteReserveDisbursement(reserveKey, periodKey) {
   if (!confirm('Delete the recorded payment for ' + periodKey + '?')) return;
-  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/reserves/' + reserveKey + '/disbursements/' + encodeURIComponent(periodKey), { method: 'DELETE' }).then(function() { finLoadProperty(); });
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/reserves/' + reserveKey + '/disbursements/' + encodeURIComponent(periodKey), { method: 'DELETE' }).then(function() { finLoadProperty(); }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 
 // ── Capital Improvements ─────────────────────────────────────────────────────────────────────
@@ -6197,11 +6148,11 @@ function finPropertyAddCapitalLedger() {
   api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/capital-ledger', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
     if (d && d.error) { finToast(d.error); return; }
     finLoadProperty();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 function finPropertyDeleteCapitalLedger(id) {
   if (!confirm('Delete this capital improvement entry? This cannot be undone.')) return;
-  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/capital-ledger/' + id, { method: 'DELETE' }).then(function() { finLoadProperty(); });
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/capital-ledger/' + id, { method: 'DELETE' }).then(function() { finLoadProperty(); }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 
 // ── Repairs & Maintenance ────────────────────────────────────────────────────────────────────
@@ -6242,11 +6193,11 @@ function finPropertyAddRepair() {
   api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/repairs', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }).then(function(d) {
     if (d && d.error) { finToast(d.error); return; }
     finLoadProperty();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 function finPropertyDeleteRepair(id) {
   if (!confirm('Delete this repair entry? This cannot be undone.')) return;
-  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/repairs/' + id, { method: 'DELETE' }).then(function() { finLoadProperty(); });
+  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/repairs/' + id, { method: 'DELETE' }).then(function() { finLoadProperty(); }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 
 // ── Insurance Allocation (read-only reference — GuideOne church-wide policy, allocated by
@@ -6308,7 +6259,7 @@ function finPropertyDeleteMonth(period) {
   if (!confirm('Delete the ' + period + ' entry? This cannot be undone.')) return;
   api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/monthly/' + encodeURIComponent(period), { method: 'DELETE' }).then(function() {
     finLoadProperty();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 function finPropertyAddDistribution() {
   var period = document.getElementById('fin-prop-dist-period').value.trim();
@@ -6317,13 +6268,13 @@ function finPropertyAddDistribution() {
   api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/distributions', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ period: period, amount: amount }) }).then(function(d) {
     if (d && d.error) { finToast(d.error); return; }
     finLoadProperty();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 function finPropertyDeleteDistribution(period) {
   if (!confirm('Delete the distribution recorded for ' + period + '?')) return;
   api('/admin/api/finance/property/' + FIN_PROPERTY_KEY + '/distributions/' + encodeURIComponent(period), { method: 'DELETE' }).then(function() {
     finLoadProperty();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 
 // ── Church Budget Planning ────────────────────────────────────────────────────────────────
@@ -6993,6 +6944,10 @@ function finPlanAutoSaveNow() {
   if (!pending.rows.length && !pending.baseProjRows.length) return;
   var msgEl = document.getElementById('fin-plan-msg');
   if (msgEl) msgEl.textContent = 'Saving…';
+  // Not a per-call .catch on either promise below (this is finPlanAutoSaveNow) — this
+  // Promise.all already has its own .catch, and a per-call catch that swallows its own
+  // rejection would let the aggregate resolve as though both saves succeeded even when one
+  // genuinely failed (the "reports success on failure" bug this whole pass exists to close).
   Promise.all([
     pending.rows.length ? api('/admin/api/finance/planning/church/override-bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ rows: pending.rows }) }) : Promise.resolve({ saved: 0 }),
     pending.baseProjRows.length ? api('/admin/api/finance/planning/base-projection', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ year: _finPlanBaseYear, rows: pending.baseProjRows }) }) : Promise.resolve({ saved: 0 }),
@@ -7029,6 +6984,7 @@ function finPlanSaveAll() {
   var pending = finPlanCollectPendingEdits();
   if (!pending.rows.length && !pending.baseProjRows.length) { msgEl.textContent = 'No changes to save.'; return; }
   msgEl.textContent = 'Saving…';
+  // Not a per-call .catch — see the identical note in finPlanAutoSaveNow above.
   Promise.all([
     pending.rows.length ? api('/admin/api/finance/planning/church/override-bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ rows: pending.rows }) }) : Promise.resolve({ saved: 0 }),
     pending.baseProjRows.length ? api('/admin/api/finance/planning/base-projection', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ year: _finPlanBaseYear, rows: pending.baseProjRows }) }) : Promise.resolve({ saved: 0 }),

@@ -31,7 +31,7 @@ function saveMemberTypes() {
   api('/admin/api/config/member-types', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({types:_memberTypes})}).then(function() {
     refreshMemberTypeSelect();
     renderMemberTypesList();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── ROLE PERMISSIONS ─────────────────────────────────────────────────
@@ -200,7 +200,7 @@ function saveUser() {
     .then(function(r) {
       if (r.ok) { closeModal('user-modal'); loadUsers(); }
       else alert('Error: '+(r.error||'unknown'));
-    });
+    }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function deleteUser(uid) {
   var u = (_usersData||[]).find(function(x){return x.id===uid;});
@@ -208,7 +208,7 @@ function deleteUser(uid) {
   if (!confirm('Delete user "'+username+'"? This cannot be undone.')) return;
   api('/admin/api/users/'+uid, {method:'DELETE'}).then(function(r){
     if (r.ok) loadUsers(); else alert('Error: '+(r.error||'unknown'));
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── SETTINGS ──────────────────────────────────────────────────────────
@@ -265,7 +265,7 @@ function saveSettings() {
   api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(d) {
     if (d.ok) { _churchConfig = data; setStatus('giv-settings-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('giv-settings-status','');}, 2500); }
     else setStatus('giv-settings-status', 'Error: ' + (d.error||'unknown'), 'err');
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 // Populates the Giving tab's Settings sub-view (Church Info + both letter templates) — moved
 // out of the main Settings tab so giving-related config lives right where it's used, no more
@@ -303,7 +303,7 @@ function saveVolunteerSettings() {
   api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(d) {
     if (d.ok) { setStatus('st-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('st-status','');}, 2500); }
     else setStatus('st-status', 'Error: ' + (d.error||'unknown'), 'err');
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function renderLetterheadLogoState(ext) {
   var img = document.getElementById('st-logo-preview');
@@ -356,7 +356,7 @@ function removeLetterheadLogo() {
   api('/admin/api/config/letterhead-logo', { method: 'DELETE' }).then(function(d) {
     if (d && d.ok) renderLetterheadLogoState('');
     else alert('Error: ' + ((d && d.error) || 'unknown'));
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function resetLetterTemplate() {
   setLetterEditorContent('st-letter-tpl', DEFAULT_LETTER_TEMPLATE);
@@ -581,7 +581,7 @@ function saveTagEdit(id) {
   }).then(function(r) {
     if (r.ok) { loadSettings(); loadTags(); }
     else alert('Error: ' + (r.error||'unknown'));
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function createTagSettings() {
   var name = (document.getElementById('st-new-tag-name') || {}).value || '';
@@ -592,11 +592,11 @@ function createTagSettings() {
     document.getElementById('st-new-tag-name').value = '';
     loadSettings();
     loadTags();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function deleteTagSettings(id) {
   if (!confirm('Delete this tag? It will be removed from all people.')) return;
-  api('/admin/api/tags/' + id, {method:'DELETE'}).then(function() { loadSettings(); loadTags(); });
+  api('/admin/api/tags/' + id, {method:'DELETE'}).then(function() { loadSettings(); loadTags(); }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function renderSettingsMemberTypesList() {
   var c = document.getElementById('settings-member-types-list');

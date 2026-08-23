@@ -196,11 +196,13 @@ function attSaveEntry() {
   } else {
     saves.push(api('/admin/api/attendance/bulk-sunday', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ service_date: date, service_name: (row && row.name) || '', att_8: a8, att_1045: a1045 }) }));
   }
-  Promise.all(saves).then(function(results) {
-    var err = results.filter(Boolean).find(function(r) { return r && r.error; });
-    if (err) { alert('Error: ' + err.error); return; }
+  // Not a per-call .catch: these promises are aggregated by Promise.all below, and a
+  // per-call catch that swallows its own rejection would make Promise.all resolve as if
+  // every save succeeded even when one genuinely failed (the exact "reports success on
+  // failure" bug this whole pass exists to close). One catch on the aggregate instead.
+  Promise.all(saves).then(function() {
     loadAttendance().then(function() { attEntryLoad(attNextToRecordDate()); });
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── Pulse card ───────────────────────────────────────────────────────
@@ -582,7 +584,8 @@ function saveInlineAttEdit(dk, id8, id1045) {
   var saves = [];
   if (id8) saves.push(api('/admin/api/attendance/' + id8, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attendance: att8, notes: notes }) }));
   if (id1045) saves.push(api('/admin/api/attendance/' + id1045, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attendance: att1045, notes: notes }) }));
-  Promise.all(saves).then(function() { loadAttendance(); });
+  // One catch on the aggregate, not per-call — see attSaveEntry's comment above.
+  Promise.all(saves).then(function() { loadAttendance(); }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function saveInlineSingle(ids, dk) {
   var saves = ids.map(function(id) {
@@ -603,7 +606,7 @@ function seedYearSundays() {
   if (isNaN(year)) return;
   api('/admin/api/attendance/seed-year', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year: year }) }).then(function(d) {
     if (d.ok) { alert('Added ' + (d.inserted / 2) + ' Sundays for ' + d.year + ' (' + (d.skipped / 2) + ' already existed).'); loadAttendance(); }
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── Add special / midweek service (entry card secondary action) ────────
@@ -645,7 +648,7 @@ function saveSpecialService() {
     if (d.error) { alert('Error: ' + d.error); return; }
     document.getElementById('att-add-form').style.display = 'none';
     loadAttendance();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── Reports tab ──────────────────────────────────────────────────────

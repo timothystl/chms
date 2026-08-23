@@ -65,7 +65,7 @@ function volSetSignupStatus(id, status) {
       if (s) s.status = status;
       volRenderStatusPills();
       volRenderSignupsList();
-    });
+    }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 function volRenderSignupsList() {
@@ -127,7 +127,7 @@ function volRenderSignupsList() {
 function volDeleteSignup(id) {
   if (!confirm('Remove this volunteer sign-up?')) return;
   api('/admin/api/signups/' + id, { method: 'DELETE' })
-    .then(function() { volLoadSignups(); });
+    .then(function() { volLoadSignups(); }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 function volDupGroupWhere(g) {
@@ -327,7 +327,7 @@ function volDoLinkPerson(personId) {
     if (!d.ok) { alert(d.error || 'Link failed'); return; }
     closeModal('vol-link-person-modal');
     volLoadSignups();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 function volDoCreatePerson() {
@@ -339,7 +339,7 @@ function volDoCreatePerson() {
     if (!d.ok) { alert(d.error || 'Create failed'); return; }
     closeModal('vol-link-person-modal');
     volLoadSignups();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 function volDoUnlinkPerson() {
@@ -351,7 +351,7 @@ function volDoUnlinkPerson() {
     if (!d.ok) { alert(d.error || 'Unlink failed'); return; }
     closeModal('vol-link-person-modal');
     volLoadSignups();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── SEND EMAIL MODAL ──────────────────────────────────────────────────
@@ -535,13 +535,13 @@ function volSaveTemplate() {
     if (!d.ok && !d.id) { alert(d.error || 'Save failed'); return; }
     volCancelEditTemplate();
     volLoadTemplates();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 function volDeleteTemplate(id) {
   if (!confirm('Delete this template?')) return;
   api('/admin/api/volunteer-templates/' + id, { method: 'DELETE' })
-    .then(function() { volLoadTemplates(); });
+    .then(function() { volLoadTemplates(); }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── EVENTS (master-detail shell + day-grouped shift modal) ────────────
@@ -783,7 +783,7 @@ function volDeleteShift() {
   if (!s || !s.roleId) return;
   if (!confirm('Delete this shift?')) return;
   api('/admin/api/events/' + s.eventId + '/roles/' + s.roleId, { method: 'DELETE' })
-    .then(function() { closeModal('vol-shift-modal'); volLoadEvents(s.eventId); });
+    .then(function() { closeModal('vol-shift-modal'); volLoadEvents(s.eventId); }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 function volToTimeInput(str) {
@@ -854,7 +854,7 @@ function volToggleEventVisibility(evId, hidden) {
 function volDeleteEvent(evId) {
   if (!confirm('Delete this event and all its roles? This cannot be undone.')) return;
   api('/admin/api/events/' + evId, {method:'DELETE'})
-    .then(function(){volLoadEvents();});
+    .then(function(){volLoadEvents();}).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 function volShowAddEventForm() {
@@ -878,7 +878,7 @@ function volSaveNewEvent() {
     if (tsEl) tsEl.checked = true;
     document.getElementById('vol-add-event-form').style.display = 'none';
     volLoadEvents(d.id);
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 function volSaveRole(evId, roleId) {
@@ -900,7 +900,7 @@ function volSaveRole(evId, roleId) {
 function volDeleteRole(evId, roleId) {
   if (!confirm('Delete this role?')) return;
   api('/admin/api/events/' + evId + '/roles/' + roleId, {method:'DELETE'})
-    .then(function(){volLoadEvents(evId);});
+    .then(function(){volLoadEvents(evId);}).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 function volAddRole(evId) {
@@ -1056,7 +1056,7 @@ function volSaveMinistryRole() {
 function volDeleteMinistryRole(id) {
   if (!confirm('Delete this role? Existing sign-ups will not be affected.')) return;
   api('/admin/api/ministry-roles/' + id, { method: 'DELETE' })
-    .then(function() { _volActiveMRoleId = null; volLoadMinistryRoles(); });
+    .then(function() { _volActiveMRoleId = null; volLoadMinistryRoles(); }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 </script>
 `;
