@@ -24,9 +24,10 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**25 items open** (of 38 total: 23 rows in the table below + 15 Tier 7 carry-forwards). Closed:
+**24 items open** (of 38 total: 23 rows in the table below + 15 Tier 7 carry-forwards). Closed:
 P22-E, P22-F, P24-C and P26-A on 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B, P25-C, P25-G,
-P27-C, P27-B and P27-D on 2026-08-23 — see below. Take the next
+P27-C, P27-B, P27-D and P27-A on 2026-08-23 — see below. **Tiers 1, 2 and 5 are now all
+complete; Tier 3 has only its two "large" items left (P25-E, P25-F).** Take the next
 unchecked row. Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
@@ -86,7 +87,7 @@ same class of problem.
 | # | Code | Size | What |
 |---|---|---|---|
 | 15 | ~~**P27-C**~~ | minutes | DONE 2026-08-23. `npm audit fix` — 0 vulnerabilities. Recurring chore, will drift back up. |
-| 16 | **P27-A** | small | **"See FIN58" currently resolves to three different features.** Suffix the later duplicates; do not renumber. |
+| 16 | ~~**P27-A**~~ | small | DONE 2026-08-23. All duplicate headers suffixed, cross-references re-pointed, `G3`'s second copy now a pointer. |
 | 17 | ~~**P27-B**~~ | small | DONE 2026-08-23. American-English check is back to zero, real hits fixed, 8 self-referential ones excluded in the command itself. |
 | 18 | ~~**P27-D**~~ | small | DONE 2026-08-23. ~800 KB of dead files (+ `CNAME`) deleted, confirmed with the user first. |
 
@@ -485,11 +486,28 @@ cleanup — do not let it wait for the redesign.**
 ## Phase 27 — Repo and process hygiene
 **Goal:** keep the tools that catch problems from going quietly red. All small.
 
-- [ ] **P27-A** (retires **DOC3**) — Suffix the later duplicate backlog IDs (`FIN58b`, `FIN58c`, `FIN54b`,
-  `FIN54c`, `FIN55b`, `FIN56b`, `FIN57b`, `FIN61b`, `FIN62b`, `FIN63b`, `FIN20b`, `FIN33b`, `FIN6b`) rather
-  than renumbering. **This matters because this file is the hand-off between sessions**: "see FIN58" currently
-  resolves to three different features. `G3` also appears twice as the same item — make the second a
-  cross-reference.
+- [x] **P27-A** — DONE 2026-08-23, retires **DOC3**. All later duplicate headers suffixed
+  (`FIN20b`, `FIN33b`, `FIN54b`, `FIN54c` [was `FIN54-OPEN`], `FIN55b`, `FIN56b`, `FIN57b`,
+  `FIN58b`, `FIN58c`, `FIN61b`, `FIN62b`, `FIN63b`) — never renumbered, and every cross-reference
+  elsewhere in `CLAUDE.md` re-pointed at the correct one, resolved by reading each reference's
+  actual content against what each duplicate's body introduces (not by line proximity — e.g.
+  "FIN57's `externallyFunded`" only makes sense against the later duplicate, since that's the one
+  that introduces the field). **`FIN6b` was not created** — on inspection only one `FIN6` header
+  exists in the current file; DOC3's original claim didn't hold against the live file (either
+  already fixed in an earlier pass, or DOC3 was wrong about this one from the start). `G3`'s
+  second occurrence (in the old flat "### Giving / Finance" list) is now a one-line pointer to the
+  first (in the Development Phases list), rather than a restated duplicate. Two cross-references
+  were read carefully and left alone as correctly ambiguous rather than force-resolved: `FIN36`'s
+  header lists `FIN33` among a string of related-but-not-specific prior codes (a loose list, not a
+  pointer to one occurrence), and `FIN66`'s "FIN63's lesson" was traced by content match to the
+  **bare** `FIN63` entry (its "the card names what it searched for" framing), not `FIN63b`. `DOC3`
+  itself marked resolved with a note explaining what changed, original text kept below for the
+  record. Research for this item (finding every occurrence, determining chronological order via
+  dates/version numbers/test counts, and mapping every cross-reference) was delegated to a
+  background research agent given the ~600 KB file size — the actual edits and verification were
+  done directly against the live file. `npm test` (1813/1813, unaffected — prose-only changes in
+  `CLAUDE.md`). Re-ran the American-English check (P27-B) afterward to confirm the new prose didn't
+  reintroduce a hit. (`CLAUDE.md`)
 - [x] **P27-B** — DONE 2026-08-23, retires **DOC4**. Was 27 hits; now zero, and the check as
   documented (with 6 new exclusions added to its own command) actually returns clean. Fixed 19 real
   violations: 8 in `CLAUDE.md` (color/center/gray/initializes, in the BRAND1/BRAND2/BRAND5/TINY2
