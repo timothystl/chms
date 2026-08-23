@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { handleFinanceApi } from '../src/api-finance.js';
 import { resolveGeneralFundIds } from '../src/api-utils.js';
-import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_CORE_JS, CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
 
 // The Financial Health page's giving-pace chart counted EVERY fund, so pass-through giving —
 // Concordia Children's Services and the like, money that arrives and leaves — was reported as
@@ -313,6 +313,7 @@ function makeCtx() {
   vm.createContext(ctx);
   vm.runInContext(CHMS_APP_CORE_JS, ctx, { filename: 'app-core.js' });
   vm.runInContext(CHMS_APP_EXT_JS, ctx, { filename: 'app-ext.js' });
+  vm.runInContext(CHMS_APP_FINANCE_JS, ctx, { filename: 'app-finance.js' });
   return ctx;
 }
 const paceData = (over) => Object.assign({

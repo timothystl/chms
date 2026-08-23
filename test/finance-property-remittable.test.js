@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
 
 // The property cash model (FIN61) is a set of mutually-referencing functions, so unlike the
 // single-function regex extraction used by the sibling property tests, this loads the whole
@@ -12,6 +12,7 @@ function loadBundle() {
   ctx.globalThis = ctx;
   vm.createContext(ctx);
   vm.runInContext(CHMS_APP_EXT_JS, ctx);
+  vm.runInContext(CHMS_APP_FINANCE_JS, ctx);
   return ctx;
 }
 const fin = loadBundle();

@@ -1,15 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
+// P25-E: finance-only functions moved out of the ext bundle into their own lazily-loaded
+// bundle (see html-chms.js). This file only extracts source by regex/string search, so the
+// two are simply concatenated back together for that purpose.
+const CHMS_APP_EXT_JS_ALL = CHMS_APP_EXT_JS + '\n' + CHMS_APP_FINANCE_JS;
 
 // finAggregateDaycareByYear() lives inside the served (String.raw) frontend script — extract and
 // eval standalone, same technique used elsewhere in this project (see CLAUDE.md SC3-BUG1 /
 // TAP11 / FIN10 / finance-church-detail-body).
 function loadHelper() {
-  const orderM = CHMS_APP_EXT_JS.match(/var FIN_KNOWN_CATEGORY_ORDER = [\s\S]*?;\n/);
-  const isIncomeM = CHMS_APP_EXT_JS.match(/function finIsIncomeCategory\([^)]*\) \{[\s\S]*?\n\}/);
-  const countedM = CHMS_APP_EXT_JS.match(/var FIN_DAYCARE_COUNTED_SOURCES = [\s\S]*?;\n/);
-  const otherTotalsM = CHMS_APP_EXT_JS.match(/function finDaycareOtherSourceTotals\([^)]*\) \{[\s\S]*?\n\}/);
-  const aggM = CHMS_APP_EXT_JS.match(/function finAggregateDaycareByYear\([^)]*\) \{[\s\S]*?\n\}/);
+  const orderM = CHMS_APP_EXT_JS_ALL.match(/var FIN_KNOWN_CATEGORY_ORDER = [\s\S]*?;\n/);
+  const isIncomeM = CHMS_APP_EXT_JS_ALL.match(/function finIsIncomeCategory\([^)]*\) \{[\s\S]*?\n\}/);
+  const countedM = CHMS_APP_EXT_JS_ALL.match(/var FIN_DAYCARE_COUNTED_SOURCES = [\s\S]*?;\n/);
+  const otherTotalsM = CHMS_APP_EXT_JS_ALL.match(/function finDaycareOtherSourceTotals\([^)]*\) \{[\s\S]*?\n\}/);
+  const aggM = CHMS_APP_EXT_JS_ALL.match(/function finAggregateDaycareByYear\([^)]*\) \{[\s\S]*?\n\}/);
   if (!orderM || !isIncomeM || !countedM || !otherTotalsM || !aggM) throw new Error('helper(s) not found in built script');
   // eslint-disable-next-line no-eval
   return eval(`(function() { ${orderM[0]} ${isIncomeM[0]} ${countedM[0]} ${otherTotalsM[0]} ${aggM[0]} return { finAggregateDaycareByYear, finDaycareOtherSourceTotals }; })()`);

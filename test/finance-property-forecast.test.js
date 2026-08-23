@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
+// P25-E: finance-only functions moved out of the ext bundle into their own lazily-loaded
+// bundle (see html-chms.js). This file only extracts source by regex/string search, so the
+// two are simply concatenated back together for that purpose.
+const CHMS_APP_EXT_JS_ALL = CHMS_APP_EXT_JS + '\n' + CHMS_APP_FINANCE_JS;
 
 // finComputeMortgageAmortization() lives inside the served (String.raw) frontend script, not as
 // an exported module function. It used to be extractable on its own, but since FIN61 it delegates
@@ -12,7 +16,7 @@ function loadFinComputeMortgageAmortization() {
   ctx.window = ctx;
   ctx.globalThis = ctx;
   vm.createContext(ctx);
-  vm.runInContext(CHMS_APP_EXT_JS, ctx);
+  vm.runInContext(CHMS_APP_EXT_JS_ALL, ctx);
   if (typeof ctx.finComputeMortgageAmortization !== 'function') throw new Error('finComputeMortgageAmortization not found in built script');
   return ctx.finComputeMortgageAmortization;
 }
@@ -20,8 +24,8 @@ function loadFinComputeMortgageAmortization() {
 // finComputePropertyValuation() references the sibling FIN_VAL_OP_COST_FIELDS var — extract
 // both together so the itemized-cost lookup works standalone.
 function loadFinComputePropertyValuation() {
-  const varMatch = CHMS_APP_EXT_JS.match(/var FIN_VAL_OP_COST_FIELDS = \[[\s\S]*?\];/);
-  const fnMatch = CHMS_APP_EXT_JS.match(/function finComputePropertyValuation\(inputs\) \{[\s\S]*?\n\}/);
+  const varMatch = CHMS_APP_EXT_JS_ALL.match(/var FIN_VAL_OP_COST_FIELDS = \[[\s\S]*?\];/);
+  const fnMatch = CHMS_APP_EXT_JS_ALL.match(/function finComputePropertyValuation\(inputs\) \{[\s\S]*?\n\}/);
   if (!varMatch || !fnMatch) throw new Error('finComputePropertyValuation (or its FIN_VAL_OP_COST_FIELDS dependency) not found in built script');
   // eslint-disable-next-line no-eval
   return eval(`(function() { ${varMatch[0]} return ${fnMatch[0]}; })()`);

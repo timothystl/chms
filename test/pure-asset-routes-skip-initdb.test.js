@@ -38,6 +38,7 @@ const PURE_ASSET_PATHS = [
   '/admin/app-member.js',
   '/admin/app-staff.js',
   '/admin/app-ext.js',
+  '/admin/app-finance.js',
   '/admin/app.css',
 ];
 

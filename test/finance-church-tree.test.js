@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
+// P25-E: finance-only functions moved out of the ext bundle into their own lazily-loaded
+// bundle (see html-chms.js). This file only extracts source by regex/string search, so the
+// two are simply concatenated back together for that purpose.
+const CHMS_APP_EXT_JS_ALL = CHMS_APP_EXT_JS + '\n' + CHMS_APP_FINANCE_JS;
 
 // finReorganizeChurchTree() and its helpers live inside the served (String.raw) frontend script,
 // not as exported module functions — extract them (none touch the DOM) and eval standalone.
@@ -7,19 +11,19 @@ import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
 function loadChurchTreeHelpers() {
   const names = ['finSetNodeDepth', 'finExtractNodesByLabel', 'finMakeGroupNode', 'finRecomputeTreeTotals', 'finPruneEmptyUnappliedCash', 'finReorganizeChurchTree'];
   const fnSrcs = names.map(name => {
-    const m = CHMS_APP_EXT_JS.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
+    const m = CHMS_APP_EXT_JS_ALL.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
     if (!m) throw new Error(`${name} not found in built script`);
     return m[0];
   });
   const varNames = ['FIN_CHURCH_CLASS_ORDER', 'FIN_STREAM_GROUP_LABELS'];
   const varSrcs = varNames.map(name => {
-    const m = CHMS_APP_EXT_JS.match(new RegExp(`var ${name} = \\{[\\s\\S]*?\\};`));
+    const m = CHMS_APP_EXT_JS_ALL.match(new RegExp(`var ${name} = \\{[\\s\\S]*?\\};`));
     if (!m) throw new Error(`${name} not found in built script`);
     return m[0];
   });
   // Single-line consts (a regex, a string) rather than object literals — matched to end of line.
   for (const name of ['FIN_UNAPPLIED_CASH_RE', 'FIN_UNAPPLIED_CASH_HINT']) {
-    const m = CHMS_APP_EXT_JS.match(new RegExp(`var ${name} = .*;`));
+    const m = CHMS_APP_EXT_JS_ALL.match(new RegExp(`var ${name} = .*;`));
     if (!m) throw new Error(`${name} not found in built script`);
     varSrcs.push(m[0]);
   }

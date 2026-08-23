@@ -143,7 +143,7 @@ describe('service worker — app shell', () => {
 });
 
 describe('service worker — immutable versioned assets', () => {
-  const ASSETS = ['/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js', '/admin/app.css'];
+  const ASSETS = ['/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js', '/admin/app-finance.js', '/admin/app.css'];
 
   it('caches each on first fetch and serves from cache thereafter', async () => {
     for (const path of ASSETS) {

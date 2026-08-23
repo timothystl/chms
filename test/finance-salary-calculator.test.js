@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
+import { CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
+// P25-E: finance-only functions moved out of the ext bundle into their own lazily-loaded
+// bundle (see html-chms.js). This file only extracts source by regex/string search, so the
+// two are simply concatenated back together for that purpose.
+const CHMS_APP_EXT_JS_ALL = CHMS_APP_EXT_JS + '\n' + CHMS_APP_FINANCE_JS;
 
 // The LCMS salary calculator's data tables and pure compute functions live inside the served
 // (String.raw) frontend script, not as exported module functions — extract them (none touch the
@@ -10,7 +14,7 @@ import { CHMS_APP_EXT_JS } from '../src/html-chms.js';
 function loadSalaryCalculator() {
   const varNames = ['LCMS_MO_BASE_SALARY_BY_YEAR', 'LCMS_PASTOR_MULTIPLIERS', 'LCMS_COMMISSIONED_TRACKS', 'LCMS_OTHER_WORKER_TRACKS'];
   const varSrcs = varNames.map(name => {
-    const m = CHMS_APP_EXT_JS.match(new RegExp(`var ${name} = [\\s\\S]*?;\\n`));
+    const m = CHMS_APP_EXT_JS_ALL.match(new RegExp(`var ${name} = [\\s\\S]*?;\\n`));
     if (!m) throw new Error(`${name} not found in built script`);
     return m[0];
   });
@@ -18,30 +22,30 @@ function loadSalaryCalculator() {
   // plan breakeven finder) declare an inner nested function, whose own closing brace would
   // prematurely satisfy a naive `[\s\S]*?\n\}` match and truncate the outer function.
   function extractFunction(name) {
-    const startMatch = CHMS_APP_EXT_JS.match(new RegExp(`function ${name}\\([^)]*\\) \\{`));
+    const startMatch = CHMS_APP_EXT_JS_ALL.match(new RegExp(`function ${name}\\([^)]*\\) \\{`));
     if (!startMatch) throw new Error(`${name} not found in built script`);
     const start = startMatch.index;
     let depth = 0, i = start;
-    for (; i < CHMS_APP_EXT_JS.length; i++) {
-      const ch = CHMS_APP_EXT_JS[i];
+    for (; i < CHMS_APP_EXT_JS_ALL.length; i++) {
+      const ch = CHMS_APP_EXT_JS_ALL[i];
       if (ch === '{') depth++;
       else if (ch === '}') { depth--; if (depth === 0) { i++; break; } }
     }
-    return CHMS_APP_EXT_JS.slice(start, i);
+    return CHMS_APP_EXT_JS_ALL.slice(start, i);
   }
   const fnNames = ['finLcmsBaseSalaryCents', 'finLcmsMultiplierFor', 'finComputeLcmsSalary', 'finLcmsHistoricalAvgGrowthPct', 'finDefaultSelfEmployedFica', 'finComputeEmployerFicaCents', 'finComputePensionCents', 'finConcordiaPensionRateFor', 'finConcordiaDisabilityRateFor', 'finHealthTierMonthlyCents', 'finHealthAncillaryPerContractCents', 'finComputeHealthPlanTotalCents', 'finComputePlanOOPCents', 'finCompPlanQuoteField', 'finHealthPlanResolvedOption', 'finComputeFamilyOOPCents', 'finHealthFamilySizeMatters', 'finHealthPlanEffectiveLoneClaimantTermsCents', 'finComputeHealthPlanSingleClaimantDeltaCents', 'finComputeHealthPlanFamilyBreakevenCents'];
   const fnSrcs = fnNames.map(extractFunction);
-  const ficaRateM = CHMS_APP_EXT_JS.match(/var LCMS_EMPLOYER_FICA_RATE = [^\n]*\n/);
+  const ficaRateM = CHMS_APP_EXT_JS_ALL.match(/var LCMS_EMPLOYER_FICA_RATE = [^\n]*\n/);
   if (!ficaRateM) throw new Error('LCMS_EMPLOYER_FICA_RATE not found in built script');
-  const ssaColaM = CHMS_APP_EXT_JS.match(/var SSA_COLA_REFERENCE_PCT = [^\n]*\n/);
+  const ssaColaM = CHMS_APP_EXT_JS_ALL.match(/var SSA_COLA_REFERENCE_PCT = [^\n]*\n/);
   if (!ssaColaM) throw new Error('SSA_COLA_REFERENCE_PCT not found in built script');
-  const pensionRateM = CHMS_APP_EXT_JS.match(/var CONCORDIA_PENSION_RATE_BY_YEAR = [^\n]*\n/);
+  const pensionRateM = CHMS_APP_EXT_JS_ALL.match(/var CONCORDIA_PENSION_RATE_BY_YEAR = [^\n]*\n/);
   if (!pensionRateM) throw new Error('CONCORDIA_PENSION_RATE_BY_YEAR not found in built script');
-  const disabilityRateM = CHMS_APP_EXT_JS.match(/var CONCORDIA_DISABILITY_RATE_BY_YEAR = [\s\S]*?\n};\n/);
+  const disabilityRateM = CHMS_APP_EXT_JS_ALL.match(/var CONCORDIA_DISABILITY_RATE_BY_YEAR = [\s\S]*?\n};\n/);
   if (!disabilityRateM) throw new Error('CONCORDIA_DISABILITY_RATE_BY_YEAR not found in built script');
-  const healthPlanM = CHMS_APP_EXT_JS.match(/var HEALTH_PLAN_QUOTE_2027 = [\s\S]*?\n};\n/);
+  const healthPlanM = CHMS_APP_EXT_JS_ALL.match(/var HEALTH_PLAN_QUOTE_2027 = [\s\S]*?\n};\n/);
   if (!healthPlanM) throw new Error('HEALTH_PLAN_QUOTE_2027 not found in built script');
-  const tiersM = CHMS_APP_EXT_JS.match(/var FIN_HEALTH_TIERS = [\s\S]*?\n\];\n/);
+  const tiersM = CHMS_APP_EXT_JS_ALL.match(/var FIN_HEALTH_TIERS = [\s\S]*?\n\];\n/);
   if (!tiersM) throw new Error('FIN_HEALTH_TIERS not found in built script');
   // eslint-disable-next-line no-eval
   return eval(`(function() { var _finHealthPlanPremiumOverrides = {}; var _finHealthFamilySize = 2; ${varSrcs.join('\n')} ${ficaRateM[0]} ${ssaColaM[0]} ${pensionRateM[0]} ${disabilityRateM[0]} ${tiersM[0]} ${healthPlanM[0]} ${fnSrcs.join('\n')} return { finLcmsBaseSalaryCents, finLcmsMultiplierFor, finComputeLcmsSalary, finLcmsHistoricalAvgGrowthPct, finDefaultSelfEmployedFica, finComputeEmployerFicaCents, finComputePensionCents, finConcordiaPensionRateFor, finConcordiaDisabilityRateFor, LCMS_EMPLOYER_FICA_RATE, SSA_COLA_REFERENCE_PCT, finComputeHealthPlanTotalCents, finComputePlanOOPCents, finComputeHealthPlanSingleClaimantDeltaCents, finComputeHealthPlanFamilyBreakevenCents, finHealthPlanEffectiveLoneClaimantTermsCents, finComputeFamilyOOPCents, finHealthFamilySizeMatters, finHealthPlanResolvedOption, HEALTH_PLAN_QUOTE_2027, setFamilySize: function(n) { _finHealthFamilySize = n; }, setQuoteOverride: function(k, f, cents) { if (!_finHealthPlanPremiumOverrides[k]) _finHealthPlanPremiumOverrides[k] = {}; _finHealthPlanPremiumOverrides[k][f] = cents; }, clearQuoteOverrides: function() { _finHealthPlanPremiumOverrides = {}; } }; })()`);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_EXT_JS, CHMS_APP_CORE_JS } from '../src/html-chms.js';
+import { CHMS_APP_EXT_JS, CHMS_APP_CORE_JS, CHMS_APP_FINANCE_JS } from '../src/html-chms.js';
 import { computePropertyAnnualSummary } from '../src/api-finance.js';
 
 // Drives the real "Does it fund itself?" renderer out of the built bundle. The reported defect
@@ -28,6 +28,7 @@ function loadBundle() {
   vm.createContext(ctx);
   vm.runInContext(CHMS_APP_CORE_JS, ctx);
   vm.runInContext(CHMS_APP_EXT_JS, ctx);
+  vm.runInContext(CHMS_APP_FINANCE_JS, ctx);
   return ctx;
 }
 const fin = loadBundle();

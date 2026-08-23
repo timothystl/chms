@@ -11,7 +11,7 @@ import { DEPLOY_VERSION } from '../src/frontend/js-core.js';
 //
 // Fixed: refreshAuthCookie now skips wrapping a public+immutable response outright.
 
-const ASSETS = ['/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js', '/admin/app.css'];
+const ASSETS = ['/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js', '/admin/app-finance.js', '/admin/app.css'];
 
 function envForRole(role) {
   const row = { active: 1, role };
