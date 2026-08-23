@@ -24,9 +24,9 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**26 items open** (of 38 total: 23 rows in the table below + 15 Tier 7 carry-forwards). Closed:
+**25 items open** (of 38 total: 23 rows in the table below + 15 Tier 7 carry-forwards). Closed:
 P22-E, P22-F, P24-C and P26-A on 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B, P25-C, P25-G,
-P27-C and P27-B on 2026-08-23 — see below. Take the next
+P27-C, P27-B and P27-D on 2026-08-23 — see below. Take the next
 unchecked row. Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
@@ -88,7 +88,7 @@ same class of problem.
 | 15 | ~~**P27-C**~~ | minutes | DONE 2026-08-23. `npm audit fix` — 0 vulnerabilities. Recurring chore, will drift back up. |
 | 16 | **P27-A** | small | **"See FIN58" currently resolves to three different features.** Suffix the later duplicates; do not renumber. |
 | 17 | ~~**P27-B**~~ | small | DONE 2026-08-23. American-English check is back to zero, real hits fixed, 8 self-referential ones excluded in the command itself. |
-| 18 | **P27-D** | small | Delete ~800 KB of dead tracked files. **⚠ Confirm nothing outside the repo serves them** — a root `CNAME` suggests Pages once did. |
+| 18 | ~~**P27-D**~~ | small | DONE 2026-08-23. ~800 KB of dead files (+ `CNAME`) deleted, confirmed with the user first. |
 
 ### Tier 6 — Design system consolidation
 
@@ -511,14 +511,22 @@ cleanup — do not let it wait for the redesign.**
   `package-lock.json` only, no source change. `npm test` (1813/1813, unaffected — a pure
   dependency bump). This is a recurring chore, not a one-time fix — expect it to drift back up as
   `wrangler`'s own dependency tree moves; re-run periodically. (`package-lock.json`)
-- [ ] **P27-D** (retires **DOC6**) — Delete the ~800 KB of dead tracked files: `index.html` (157 KB),
-  `mockup.html` (158 KB), `chms-admin.html` (108 KB), `legacyindex.html` (106 KB), `volunteer-admin.html`
-  (71 KB), `slide-builder.html` (64 KB), `volunteer-legacy.html` (43 KB), `breeze-proxy-worker.js` (27 KB —
-  the entry point of the Worker IN1 deleted in April), and the three unimported `src/` modules
-  (`api-member.js`, `portal-html.js`, `portal-sw-js.js`), whose stated purpose was fulfilled when CONN2 built
-  the invite flow from scratch in `api-people.js`. **⚠ Confirm nothing outside this repo serves them first**
-  — a `CNAME` file at the root suggests GitHub Pages once did. They are inside the spelling-check and
-  `git ls-files | xargs grep` surface, which is the actual cost.
+- [x] **P27-D** — DONE 2026-08-23, retires **DOC6**. Deleted all 10 dead files
+  (`index.html`, `mockup.html`, `chms-admin.html`, `legacyindex.html`, `volunteer-admin.html`,
+  `slide-builder.html`, `volunteer-legacy.html`, `breeze-proxy-worker.js`, `src/api-member.js`,
+  `src/portal-html.js`, `src/portal-sw-js.js`) plus the root `CNAME` file. Verified each by grep
+  across the whole repo (not just `src/`) before deleting — zero references anywhere; the worker's
+  `path === '/index.html'` checks are URL-path matches against dynamic content, not a reference to
+  the deleted static file (Workers have no filesystem at runtime). **Asked the user first about
+  `CNAME`/`index.html` specifically** — the CNAME points at `volunteer.timothystl.org`, a hostname
+  that no longer resolves at all per the App Family Rename, and no GitHub Pages deploy workflow
+  exists in `.github/workflows/` — confirmed to delete both. Updated a stale comment in
+  `tlc-volunteer-worker.js` that referenced the three deleted `src/` modules as "kept for future
+  reuse" (they were never reused — CONN2 built the real invite flow from scratch instead). `npm
+  test` (1813/1813, no test referenced any of the deleted files). `node --check` on the one touched
+  source file. **Not verified**: whether GitHub Pages was in fact configured in repo Settings — no
+  tool available to this session checks that directly; the CNAME/no-workflow/dead-domain evidence
+  was judged sufficient. (`tlc-volunteer-worker.js`, and 11 file deletions)
 
 **Done when:** the spelling check and `npm audit` both return clean, and a search for any backlog code lands
 on exactly one entry.

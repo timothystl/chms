@@ -446,9 +446,9 @@ async function _fetch(req, env) {
     // Note: the standalone /portal member system (separate tlc-member cookie, its own
     // SPA) was retired 2026-07-20 in favor of the tiered role='member' login on
     // connect.timothystl.org above — see CLAUDE.md's Connect Phase 1 entry. Its source
-    // (src/api-member.js, portal-html.js, portal-sw-js.js) is kept unimported/unrouted
-    // rather than deleted, since its invite-token/email-verification logic is meant to
-    // be adapted for the real member-tier invite flow in Phase 2.
+    // (src/api-member.js, portal-html.js, portal-sw-js.js) was deleted 2026-08-23
+    // (P27-D) — the real member-tier invite flow (CONN2) was built from scratch in
+    // api-people.js instead of reusing this code.
     // Public intake endpoints (gated by X-Intake-Key header, NOT user session).
     // Called server-to-server from the timothystl.org admin worker.
     // Read-only Christmas Market signup summary for the website repo's admin
