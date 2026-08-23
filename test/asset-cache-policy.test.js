@@ -14,7 +14,13 @@ import { DEPLOY_VERSION } from '../src/frontend/js-core.js';
 //
 // Fix: cache only when the requested version IS this worker's version.
 
-const ASSETS = ['/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js', '/admin/app.css'];
+// P25-A: the two scheduler-embed assets used to hardcode `public, max-age=31536000, immutable`
+// unconditionally, bypassing this exact stale-pinning defense — this list itself used to encode
+// that gap by omitting them. Now routed through the same assetCacheControl() as everything else.
+const ASSETS = [
+  '/admin/app-member.js', '/admin/app-staff.js', '/admin/app-ext.js', '/admin/app.css',
+  '/admin/scheduler-embed.html', '/admin/scheduler-embed.js',
+];
 
 // initDb runs before routing; a stub DB is enough for these static routes.
 const ENV = {
