@@ -1008,7 +1008,11 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   `ensureFullAppLoaded()` already in place as the lazy fallback for a permission granted later. Same
   fail-safe-not-small rule applies.
 - [ ] **LOAD3 — The `no-store` shell is 194 KB and it is nearly all tab markup** — CR1b restated with the
-  measurement. Two structural notes found while measuring it: the served document **never closes `<body>` or
+  measurement. **The two structural notes below are FIXED, 2026-08-23 (P25-F)** — the served document now
+  closes `</body></html>` and every app-bundle `<script>` tag carries `defer`. The measurement itself (194 KB
+  of nearly all tab markup) is still open — see P25-F in `PLAN.md` for why shrinking it needs the boot
+  sequence looked at, not another mechanical extraction. Original notes follow, for the record. Two
+  structural notes found while measuring it: the served document **never closes `<body>` or
   `<html>`** (`<body>` opens at `html-head.js:1837`; `html-tabs.js` ends mid-markup and the script tags are
   appended after) — browsers auto-close, and the div-balance checks the tests run would not catch it, but
   `PUBLIC_HTML` does close both, so this is an inconsistency, not a house style. And the three `<script>`

@@ -330,7 +330,13 @@ const CHMS_SHELL = HTML_HEAD_LINKED
   + HTML_TABS_1
   + '<div id="tab-scheduler" class="tab-panel"></div>\n'
   + HTML_TABS_2;
-const scriptTag = (name) => `<script src="/admin/${name}.js?v=${DEPLOY_VERSION}"></script>\n`;
+// P25-F: `defer` is safe here — none of these bundles' top-level statements need to run before
+// the DOM finishes parsing (they're listener registrations; js-core's actual boot work waits for
+// the `load` event, which fires after every deferred script has already executed), and the tags
+// already sit at the very end of the document. It lets the browser keep parsing/painting while
+// the bundle downloads instead of blocking on it, and keeps execution order (member, staff, ext)
+// exactly as today — deferred scripts run in source order, same as plain ones would have.
+const scriptTag = (name) => `<script src="/admin/${name}.js?v=${DEPLOY_VERSION}" defer></script>\n`;
 export function chmsHtmlForRole(role) {
   // A member gets the directory bundle only. If an admin has granted them the Reports tab,
   // js-core lazy-loads the other two on first open (ensureFullAppLoaded).
@@ -338,8 +344,13 @@ export function chmsHtmlForRole(role) {
   // Fail SAFE, not small: any role this doesn't recognize — including a null/undefined role
   // from a future caller — gets the full set. Under-serving scripts to a staff account would
   // break their app; over-serving them to a member only costs bytes.
-  if (role === 'member') return CHMS_SHELL + scriptTag('app-member');
-  return CHMS_SHELL + scriptTag('app-member') + scriptTag('app-staff') + scriptTag('app-ext');
+  //
+  // P25-F: the document itself never closed </body></html> — harmless (browsers recover), but
+  // not to spec, and it's what the served bytes should actually say.
+  const scripts = role === 'member'
+    ? scriptTag('app-member')
+    : scriptTag('app-member') + scriptTag('app-staff') + scriptTag('app-ext');
+  return CHMS_SHELL + scripts + '</body>\n</html>\n';
 }
 // Full-access shell. Kept as an export because the test suite and the div-balance scans read it
 // directly; the worker calls chmsHtmlForRole() instead.
