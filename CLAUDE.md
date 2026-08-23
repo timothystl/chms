@@ -1126,7 +1126,17 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   `→ undici` (5 advisories), `vitest → vite → postcss`/`nanoid`. **Nothing reaches the deployed Worker** — it
   has no runtime dependencies — and `npm audit fix` resolves all six, exactly as REV8 did. Worth treating as
   a recurring chore rather than a one-time fix.
-- [ ] **DOC6 — ~800 KB of dead files still tracked, and they are inside the spelling-check surface.** Seven
+- [x] **DOC6 — FIXED 2026-08-23, P27-D.** All ten files named below were deleted, plus `CNAME` (a
+  root file pointing at `volunteer.timothystl.org` — the old hostname that no longer resolves at
+  all per the App Family Rename entry — with no GitHub Pages deploy workflow anywhere in
+  `.github/workflows/` to have ever served from it; confirmed with the user before deleting since
+  it's the one file in this group that could plausibly have been externally visible). Verified
+  each of the ten by grep across the whole repo (not just `src/`) before deleting; the worker's own
+  `path === '/index.html'` route checks are a URL-path match against dynamic content, not a
+  reference to the deleted static file — Cloudflare Workers have no filesystem at runtime, so a
+  root `index.html` was never servable by this app regardless. Original finding follows,
+  unedited. **~800 KB of dead files still tracked, and they are inside the spelling-check
+  surface.** Seven
   root-level files with **zero references** from `src/`, the worker, `wrangler.toml` or `.github`:
   `index.html` (157 KB), `mockup.html` (158 KB), `chms-admin.html` (108 KB), `legacyindex.html` (106 KB),
   `volunteer-admin.html` (71 KB), `slide-builder.html` (64 KB), `volunteer-legacy.html` (43 KB), plus
