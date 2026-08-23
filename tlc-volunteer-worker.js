@@ -252,37 +252,15 @@ function isSchedCorsPath(path) {
 }
 
 async function _fetch(req, env) {
-    try {
-      await initDb(env.DB);
-    } catch (e) {
-      return new Response('DB init error: ' + e.message, { status: 500 });
-    }
-
     const url = new URL(req.url);
     const path = url.pathname.replace(/\/$/, '') || '/';
     const method = req.method.toUpperCase();
-    const host = url.hostname;
-    // Connect (2026-07-22) — connect.timothystl.org replaced chms.timothystl.org as the
-    // single hostname for the whole app (staff and members alike); role='member' accounts
-    // are limited to a filtered read-only view by the existing role-based tab-hiding in the
-    // frontend, not by a separate hostname (an earlier two-host design, Phase 1, was tried
-    // and dropped in favor of this simpler single-host approach — see CLAUDE.md). The old
-    // chms.timothystl.org hostname is kept alive below purely to 301-redirect bookmarks.
-    const isChmsHost = isConnectHost(url);
-    const isLegacyChmsHost = host === 'chms.timothystl.org';
 
-    // CORS preflight for scheduler backend routes only (CR7(b)) — this used to answer
-    // OPTIONS on every path in the app with Access-Control-Allow-Origin: '*', which is
-    // wider than any of those other routes ever needed: none of them echo SCHED_CORS on
-    // their real (non-OPTIONS) response, so a preflight succeeding for them was already
-    // useless — the actual request would arrive with no CORS headers and fail cross-origin
-    // regardless. Narrowed to the exact set of paths whose real handlers do emit SCHED_CORS
-    // (schedJson()/schedHtmlPage() in src/api-scheduler.js) — kept in sync with the route
-    // matches below by hand, since there's no single dispatch table to derive it from.
-    if (req.method === 'OPTIONS' && isSchedCorsPath(path)) {
-      return new Response(null, { status: 204, headers: SCHED_CORS });
-    }
-
+    // ── Pure static/proxy asset routes (P25-B / LOAD7) ──────────────────────────────
+    // None of these touch D1 — they're either proxied straight from the repo or served
+    // from an in-memory string constant. initDb() used to run before ANY route, including
+    // these, so a cold isolate paid one D1 round trip to serve e.g. a favicon. Serving
+    // them here, before initDb(), means the pure-asset routes never wait on it at all.
     if (path === '/favicon.svg' && method === 'GET') {
       const fRes = await fetch('https://raw.githubusercontent.com/timothystl/chms/main/favicon.svg?v=' + DEPLOY_VERSION, { cf: { cacheEverything: true, cacheTtl: 86400 } });
       return new Response(fRes.ok ? fRes.body : '', { status: fRes.ok ? 200 : 404, headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' } });
@@ -316,6 +294,82 @@ async function _fetch(req, env) {
       const fRes = await fetch('https://raw.githubusercontent.com/timothystl/chms/main/header-logo.png', { cf: { cacheEverything: true, cacheTtl: 86400 } });
       return new Response(fRes.ok ? fRes.body : '', { status: fRes.ok ? 200 : 404, headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' } });
     }
+    // ── Versioned-asset cache policy ────────────────────────────────────────────────
+    // These assets are cached for a year as `immutable`, keyed by ?v=DEPLOY_VERSION. That is
+    // correct once a deploy has fully rolled out — but Cloudflare rolls out per-colo, so during
+    // the window there are edges still running the PREVIOUS worker. If one of them answers a
+    // request for the NEW ?v= value, its stale body gets pinned under the new URL as immutable,
+    // and every later request for that version gets last version's asset. For a year.
+    //
+    // That is not hypothetical: it happened on the v1.126.0 and v1.127.0 deploys (see NOTES.md),
+    // where app.css?v=<new> served the previous stylesheet while a throwaway probe URL returned
+    // the correct one. Any user who loads the page mid-rollout can do the same to their own edge.
+    //
+    // Fix: only allow caching when the version being asked for is the version this worker
+    // actually IS. A mismatch in either direction means the body cannot be correct for that URL,
+    // so it must not be stored. Once the rollout completes, every request matches and normal
+    // long-lived caching resumes with no other change.
+    const assetCacheControl = () =>
+      url.searchParams.get('v') === DEPLOY_VERSION
+        ? 'public, max-age=31536000, immutable'
+        : 'no-store';
+
+    // app-member.js is what a member session gets on its own; every other role gets it plus
+    // app-staff.js and app-ext.js. Together the first two are the old app-core.js, which no
+    // longer has a route — nothing has ever linked to it but this worker, and the shell that
+    // referenced it is served no-store, so there is no stale page that could still ask for it.
+    if (path === '/admin/app-member.js') {
+      return new Response(CHMS_APP_MEMBER_JS, {
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
+      });
+    }
+    if (path === '/admin/app-staff.js') {
+      return new Response(CHMS_APP_STAFF_JS, {
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
+      });
+    }
+    if (path === '/admin/app-ext.js') {
+      return new Response(CHMS_APP_EXT_JS, {
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
+      });
+    }
+    // ── ChMS app CSS — same rationale and same caching model as the two app JS routes
+    // above: static client-side UI with no secrets or data, pulled out of the no-store
+    // shell so the browser can keep it across page loads.
+    if (path === '/admin/app.css') {
+      return new Response(CHMS_APP_CSS, {
+        headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': assetCacheControl() }
+      });
+    }
+
+    try {
+      await initDb(env.DB);
+    } catch (e) {
+      return new Response('DB init error: ' + e.message, { status: 500 });
+    }
+
+    const host = url.hostname;
+    // Connect (2026-07-22) — connect.timothystl.org replaced chms.timothystl.org as the
+    // single hostname for the whole app (staff and members alike); role='member' accounts
+    // are limited to a filtered read-only view by the existing role-based tab-hiding in the
+    // frontend, not by a separate hostname (an earlier two-host design, Phase 1, was tried
+    // and dropped in favor of this simpler single-host approach — see CLAUDE.md). The old
+    // chms.timothystl.org hostname is kept alive below purely to 301-redirect bookmarks.
+    const isChmsHost = isConnectHost(url);
+    const isLegacyChmsHost = host === 'chms.timothystl.org';
+
+    // CORS preflight for scheduler backend routes only (CR7(b)) — this used to answer
+    // OPTIONS on every path in the app with Access-Control-Allow-Origin: '*', which is
+    // wider than any of those other routes ever needed: none of them echo SCHED_CORS on
+    // their real (non-OPTIONS) response, so a preflight succeeding for them was already
+    // useless — the actual request would arrive with no CORS headers and fail cross-origin
+    // regardless. Narrowed to the exact set of paths whose real handlers do emit SCHED_CORS
+    // (schedJson()/schedHtmlPage() in src/api-scheduler.js) — kept in sync with the route
+    // matches below by hand, since there's no single dispatch table to derive it from.
+    if (req.method === 'OPTIONS' && isSchedCorsPath(path)) {
+      return new Response(null, { status: 204, headers: SCHED_CORS });
+    }
+
     // Public privacy policy / terms of use — no auth required. Referenced from third-party
     // integration setup (e.g. QuickBooks Online's app registration form requires these URLs).
     if (path === '/privacy' && method === 'GET') return html(PRIVACY_HTML);
@@ -429,60 +483,9 @@ async function _fetch(req, env) {
         headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=86400' }
       });
     }
-    // ── ChMS app JS — split out of CHMS_HTML so the browser can cache it across page loads
-    // instead of re-downloading ~968KB on every single visit (CHMS_HTML itself stays
-    // no-store, since it's the auth-gated per-user shell). No auth check needed: this is
-    // client-side UI code only, no secrets or data — same security model as the manifest and
-    // service worker above. The ?v= query param is DEPLOY_VERSION, so a version bump busts this
-    // cache automatically; `immutable` tells the browser to skip revalidation entirely for the
-    // life of that version.
-    // ── Versioned-asset cache policy ────────────────────────────────────────────────
-    // These assets are cached for a year as `immutable`, keyed by ?v=DEPLOY_VERSION. That is
-    // correct once a deploy has fully rolled out — but Cloudflare rolls out per-colo, so during
-    // the window there are edges still running the PREVIOUS worker. If one of them answers a
-    // request for the NEW ?v= value, its stale body gets pinned under the new URL as immutable,
-    // and every later request for that version gets last version's asset. For a year.
-    //
-    // That is not hypothetical: it happened on the v1.126.0 and v1.127.0 deploys (see NOTES.md),
-    // where app.css?v=<new> served the previous stylesheet while a throwaway probe URL returned
-    // the correct one. Any user who loads the page mid-rollout can do the same to their own edge.
-    //
-    // Fix: only allow caching when the version being asked for is the version this worker
-    // actually IS. A mismatch in either direction means the body cannot be correct for that URL,
-    // so it must not be stored. Once the rollout completes, every request matches and normal
-    // long-lived caching resumes with no other change.
-    const assetCacheControl = () =>
-      url.searchParams.get('v') === DEPLOY_VERSION
-        ? 'public, max-age=31536000, immutable'
-        : 'no-store';
-
-    // app-member.js is what a member session gets on its own; every other role gets it plus
-    // app-staff.js and app-ext.js. Together the first two are the old app-core.js, which no
-    // longer has a route — nothing has ever linked to it but this worker, and the shell that
-    // referenced it is served no-store, so there is no stale page that could still ask for it.
-    if (path === '/admin/app-member.js') {
-      return new Response(CHMS_APP_MEMBER_JS, {
-        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
-      });
-    }
-    if (path === '/admin/app-staff.js') {
-      return new Response(CHMS_APP_STAFF_JS, {
-        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
-      });
-    }
-    if (path === '/admin/app-ext.js') {
-      return new Response(CHMS_APP_EXT_JS, {
-        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
-      });
-    }
-    // ── ChMS app CSS + lazy-loaded Scheduler embed — same rationale and same caching model
-    // as the two app JS routes above: static client-side UI with no secrets or data, pulled
-    // out of the no-store shell so the browser can keep it across page loads.
-    if (path === '/admin/app.css') {
-      return new Response(CHMS_APP_CSS, {
-        headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': assetCacheControl() }
-      });
-    }
+    // ── Lazy-loaded Scheduler embed — same caching model as the app JS/CSS routes served
+    // above (before initDb()), reusing the same assetCacheControl() defined up there; it's
+    // still in scope here since both are inside the same _fetch() call.
     if (path === '/admin/scheduler-embed.html') {
       // Fetched by js-core.js and injected into #tab-scheduler. nosniff + DENY are set
       // explicitly here (the raw asset routes bypass the html()/json() helpers that would

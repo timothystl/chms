@@ -24,8 +24,8 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**32 items open** (P22-E, P24-C and P26-A closed 2026-08-22; P24-A, P25-D, P24-B and P25-A closed
-2026-08-23 — see below). Take the next
+**31 items open** (P22-E, P24-C and P26-A closed 2026-08-22; P24-A, P25-D, P24-B, P25-A and P25-B
+closed 2026-08-23 — see below). Take the next
 unchecked row. Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
@@ -33,8 +33,8 @@ unchecked row. Detail for every code is in its phase section further down.
 |---|---|---|---|
 | 1 | ~~**P22-E**~~ | small | DONE 2026-08-22. Login rate limiting, intake rate limiting and QuickBooks OAuth `state` now fail **closed**, not open, with no `RSVP_STORE`. || 2 | ~~**P22-F**~~ | small ×5 | DONE 2026-08-22. Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. |
 
-**Tier 1 and Tier 2 both complete.** Next up: item 8, P25-B (hoist the pure asset routes above
-`await initDb(env.DB)`).
+**Tier 1 and Tier 2 both complete.** Next up: item 9, P25-C (self-host the fonts, or make the
+`<link>` non-blocking with a `preconnect`).
 
 ### Tier 2 — Things that are wrong on screen right now
 
@@ -60,7 +60,7 @@ The church network is slow; AU2 has been open since July for that reason.
 | # | Code | Size | What |
 |---|---|---|---|
 | 7 | ~~**P25-A**~~ | one-liner | DONE 2026-08-23. Both scheduler-embed assets now route through `assetCacheControl()`; the test's `ASSETS` list covers all six. |
-| 8 | **P25-B** | one-liner | Hoist the pure asset routes above `await initDb(env.DB)`. None touch D1. |
+| 8 | ~~**P25-B**~~ | one-liner | DONE 2026-08-23. The 8 pure asset routes now sit above `await initDb(env.DB)` in `_fetch`. |
 | 9 | **P25-C** | medium | Self-host the fonts. **⚠ AU2 is written as a login-page item and is not one** — the app shell blocks on three families at 17 weight/italic combinations with no `preconnect` at all. |
 | 10 | **P25-G** | medium | `serve.timothystl.org` is 204.5 KB with **no `Cache-Control` at all** and is identical for every visitor. The church's public front door, on the same slow network. |
 | 11 | **P25-E** | large | Split `app-ext.js` (1,273 KB) along the permission line. A `staff` account with `finance: none` downloads all 696 KB of Finance. **⚠ Keep CR9's two rules: fail SAFE, and pin "no global defined twice".** |
@@ -358,9 +358,21 @@ measured and recorded; a council user sees their role name.
   tests in that file correctly fail. `node --check` on `tlc-volunteer-worker.js`. **Not verified**:
   a live browser or a real multi-colo rollout. (`tlc-volunteer-worker.js`,
   `test/asset-cache-policy.test.js`)
-- [ ] **P25-B** (retires **LOAD7**) — Hoist the pure asset routes (`/icons/*`, `/favicon.svg`,
-  `/header-logo.png`, `/admin/app-*.js`, `/admin/app.css`, the TinyMCE proxy) above `await initDb(env.DB)`
-  in `_fetch`. None of them touch D1.
+- [x] **P25-B** — DONE 2026-08-23, retires **LOAD7**. `/favicon.svg`, `/icons/*`, the TinyMCE
+  vendor proxy, `/header-logo.png`, `/admin/app-member.js`, `/admin/app-staff.js`,
+  `/admin/app-ext.js` and `/admin/app.css` (plus the `assetCacheControl()` helper the last four
+  need) now sit at the top of `_fetch`, before `await initDb(env.DB)` — none of them read or
+  write D1, so a cold isolate serving a favicon no longer pays a D1 round trip for it. The old
+  copies further down (which had become unreachable dead code) were deleted rather than left in
+  place; `/admin/scheduler-embed.html`/`.js` stayed where they are and still reference the same
+  `assetCacheControl()`, now defined earlier in the same function scope. `npm test` (1800/1800, 2
+  new in `test/pure-asset-routes-skip-initdb.test.js` — a DB stub that throws on any
+  `prepare`/`batch` call proves these 8 routes serve successfully without touching it, plus a
+  sanity check that a DB-dependent route does fail against the same stub, ruling out a vacuous
+  pass). Verified non-vacuous by reverting the worker change and confirming the first test fails
+  with `500`/"DB init error" on `/favicon.svg`. `node --check` on `tlc-volunteer-worker.js`. **Not
+  verified**: a live browser or a real cold-isolate timing measurement. (`tlc-volunteer-worker.js`,
+  `test/pure-asset-routes-skip-initdb.test.js`)
 - [ ] **P25-C** (retires **LOAD5**, **CR2**, **AU2**) — Self-host the fonts, or make the `<link>`
   non-blocking with a `preconnect`. **⚠ AU2 is written as a login-page item and is not one** — the app shell
   (`html-head.js:15`) blocks on the same host for three families at 17 weight/italic combinations, and has no
