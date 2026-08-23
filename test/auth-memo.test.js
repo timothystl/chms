@@ -4,7 +4,7 @@ import { getAuthInfo, getAuthRole, isAuthed, authCookieHeader } from '../src/aut
 // Minimal D1 stand-in that counts how many times app_users is queried.
 function mockEnv(userRow, counter) {
   return {
-    ADMIN_PASSWORD: 'test-signing-secret',
+    SESSION_SECRET: 'test-signing-secret',
     DB: {
       prepare() {
         return {
@@ -77,7 +77,7 @@ describe('getAuthInfo per-request memoization', () => {
     const cookie = (await authCookieHeader(signingEnv, 'admin', 'jdoe')).split(';')[0];
 
     const otherEnv = mockEnv({ active: 1, role: 'admin' }, counter);
-    otherEnv.ADMIN_PASSWORD = 'a-different-secret';
+    otherEnv.SESSION_SECRET = 'a-different-secret';
 
     expect(await getAuthInfo(reqWithCookie(cookie), otherEnv)).toBe(null);
   });

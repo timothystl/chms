@@ -69,7 +69,7 @@ function adminReq(method, body, cookie) {
   return { method, headers, json: async () => body };
 }
 
-const ENV_BASE = { ADMIN_PASSWORD: 'test-admin-password' };
+const ENV_BASE = { ADMIN_PASSWORD: 'test-admin-password', SESSION_SECRET: 'test-session-secret' };
 
 async function adminCookie(env, role = 'admin') {
   const set = await authCookieHeader(env, role);
@@ -97,11 +97,11 @@ describe('a shift carries a job lead through the coordinator write path', () => 
   const row = (id) => db._raw.prepare('SELECT * FROM serve_roles WHERE id=?').get(id);
 
   it('refuses the write outright without a valid admin session', async () => {
-    // ⚠ Signed with a DIFFERENT key than the one the route verifies against, so
-    // this really is an unverifiable cookie. Re-pointing env.ADMIN_PASSWORD alone
-    // would move BOTH sides and the cookie would still verify -- which is exactly
-    // how a guard test passes while pinning nothing.
-    const forged = await adminCookie({ ADMIN_PASSWORD: 'a-different-signing-key' });
+    // ⚠ Signed with a DIFFERENT key than the one the route verifies against (SESSION_SECRET,
+    // per P23-A -- this used to be ADMIN_PASSWORD), so this really is an unverifiable cookie.
+    // Re-pointing env.SESSION_SECRET alone would move BOTH sides and the cookie would still
+    // verify -- which is exactly how a guard test passes while pinning nothing.
+    const forged = await adminCookie({ SESSION_SECRET: 'a-different-signing-key' });
     const res = await handleAdminApi(
       adminReq('POST', { name: 'Kitchen', slots: 3, lead: 'Rick Vogel' }, forged), env,
       new URL('https://connect.timothystl.org/admin/api/events/1/roles'), 'POST');

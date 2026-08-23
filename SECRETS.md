@@ -8,10 +8,18 @@ All secrets are stored as Cloudflare Worker secrets (`wrangler secret put <NAME>
 ## Required Secrets
 
 ### `ADMIN_PASSWORD`
-- **Purpose**: Two roles — (1) break-glass admin login when no `app_users` row exists, (2) HMAC-SHA256 signing key for all session cookies.
+- **Purpose**: Break-glass admin login (username `admin`) when no `app_users` row exists, or as locked-out recovery. **As of P23-A (2026-08-23) this is its only purpose** — it no longer signs session cookies (see `SESSION_SECRET` below).
 - **Format**: Any strong random string (≥32 chars recommended).
-- **Rotation**: `wrangler secret put ADMIN_PASSWORD` → all active sessions immediately invalidate (users must re-login). Update any scripts/tools that use the break-glass password.
-- **Risk if leaked**: Full admin access to the app + ability to forge session cookies.
+- **Rotation**: `wrangler secret put ADMIN_PASSWORD`. No longer force-logs-out anyone — only the break-glass login credential changes. Update any scripts/tools that use the break-glass password.
+- **Risk if leaked**: Full admin access to the app via the break-glass login (still real — rotate it if it's ever exposed), but no longer the ability to forge a session cookie for any other role. That risk moved to `SESSION_SECRET`.
+
+### `SESSION_SECRET`
+- **Purpose**: HMAC-SHA256 signing key for every `vol_auth` session cookie (all roles, `admin` down to `member`). Added by P23-A/SEC15 to separate this from `ADMIN_PASSWORD` — a human-chosen, occasionally-shared login password was also the key that, if recovered, let anyone forge a cookie for any role, including admin.
+- **Format**: A high-entropy random string, unrelated to any login credential. Generate one with `openssl rand -hex 32` (or equivalent) — do not reuse a password, and do not reuse `ADMIN_PASSWORD`.
+- **⚠ Required — the app fails CLOSED without it.** With no `SESSION_SECRET` set, every login attempt shows "Session signing key is not configured" and every existing cookie stops verifying — this is deliberate (see `src/auth.js`'s comment on `sessionSigningKey()`): it never falls back to signing with an empty-string key, which would be a well-known, trivially-forgeable key.
+- **Rotation**: `wrangler secret put SESSION_SECRET` → every active session (every role, admin included) immediately invalidates and must re-login. This is now the ONLY rotation that does that — rotating `ADMIN_PASSWORD` no longer has this side effect. Use this to force a full-app logout (e.g. after a suspected cookie compromise) without also having to change the break-glass admin password.
+- **Risk if leaked**: Ability to forge a session cookie for any role, including admin — same severity `ADMIN_PASSWORD` used to carry for this purpose, now isolated to one secret instead of two unrelated concerns sharing one value.
+- **⚠ Migration note, 2026-08-23**: this secret is new. Until it is set in Cloudflare, the live app cannot authenticate anyone — a deliberate one-time, whole-app outage rather than a silent security downgrade, shipped on a day nobody was expected to be logged in. Run `wrangler secret put SESSION_SECRET` immediately after this deploy lands.
 
 ### `BREEZE_API_KEY`
 - **Purpose**: Authenticates calls to the Breeze ChMS REST API (`https://<subdomain>.breezechms.com/api/`). Used for people sync, giving sync, fund import, tag sync.

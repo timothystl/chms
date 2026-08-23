@@ -20,6 +20,7 @@ import { authCookieHeader } from '../src/auth.js';
 
 const SECRETS = {
   ADMIN_PASSWORD: 'test-signing-secret',
+  SESSION_SECRET: 'test-signing-secret',
   WORKER_SECRET:  'test-worker-secret',
   BREEZE_SUBDOMAIN: 'timothystl',
   BREEZE_API_KEY: 'SECRET-BREEZE-KEY',

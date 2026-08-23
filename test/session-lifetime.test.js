@@ -14,7 +14,7 @@ import {
 
 function mockEnv(userRow) {
   return {
-    ADMIN_PASSWORD: 'test-signing-secret',
+    SESSION_SECRET: 'test-signing-secret',
     DB: {
       prepare: () => ({ bind: () => ({ first: async () => userRow }) }),
     },

@@ -7,7 +7,7 @@ import { authCookieHeader } from '../src/auth.js';
 // breezechms.com-shaped hostname was proxied anyway. Fixed by checking parsed.protocol
 // before the hostname allowlist.
 
-const SECRETS = { ADMIN_PASSWORD: 'test-signing-secret' };
+const SECRETS = { ADMIN_PASSWORD: 'test-signing-secret', SESSION_SECRET: 'test-signing-secret' };
 
 function envFor(role) {
   const row = { active: 1, role };

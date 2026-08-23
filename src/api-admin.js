@@ -224,13 +224,23 @@ export async function handleAdminLogin(req, env) {
 
   if (matchedRole) {
     await env.RSVP_STORE.delete(rlKey).catch(() => {});
+    // authCookieHeader (auth.js) signs with a separate secret from adminPassword above
+    // (P23-A/SEC15) and throws if that secret isn't configured — caught here rather than
+    // read directly, so this function still reads exactly one credential from env, per
+    // test/admin-login-credentials.test.js's own scan.
+    let cookie;
+    try {
+      cookie = await authCookieHeader(env, matchedRole, matchedUsername);
+    } catch {
+      return html(loginRetryHtml('Session signing key is not configured. Set the session secret in the Cloudflare Dashboard.'));
+    }
     // Host-aware: `/` on connect.timothystl.org, `/chms` anywhere else. Hardcoding /chms
     // here (the pre-CONN6 path) sent every successful Connect login to /chms even though
     // the app is served at the root there — so /chms, not the bare domain, is what ended up
     // in everyone's history and bookmarks. See appRootPath's note in auth.js.
     return new Response('', { status: 302, headers: {
       Location: appRootPath(req),
-      'Set-Cookie': await authCookieHeader(env, matchedRole, matchedUsername)
+      'Set-Cookie': cookie
     }});
   }
   // Increment failed-attempt counter (expires after 20 minutes to clean up)
