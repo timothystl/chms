@@ -26,15 +26,13 @@ shipped commit reference them. Only the ORDER below is re-decided.
 
 **36 items open** (P22-E, P24-C and P26-A all closed 2026-08-22 — see below). Take the next
 unchecked row. Detail for every code is in its phase section further down.
-
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
 | # | Code | Size | What |
 |---|---|---|---|
-| 1 | ~~**P22-E**~~ | small | DONE 2026-08-22. Login rate limiting, intake rate limiting and QuickBooks OAuth `state` now fail **closed**, not open, with no `RSVP_STORE`. |
-| 2 | ~~**P22-F**~~ | small ×5 | DONE 2026-08-22. Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. |
+| 1 | ~~**P22-E**~~ | small | DONE 2026-08-22. Login rate limiting, intake rate limiting and QuickBooks OAuth `state` now fail **closed**, not open, with no `RSVP_STORE`. || 2 | ~~**P22-F**~~ | small ×5 | DONE 2026-08-22. Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. |
 
-**Tier 1 complete.** Next up: Tier 2, starting with P24-C.
+**Tier 1 complete. Tier 2 items 3-4 (P24-C, P26-A) also done.** Next up: item 5, `api()` + P25-D.
 
 ### Tier 2 — Things that are wrong on screen right now
 
@@ -43,8 +41,7 @@ Highest payoff per line changed in the whole plan. Two of these are user-reporte
 | # | Code | Size | What |
 |---|---|---|---|
 | 3 | ~~**P24-C**~~ | ~2 lines | DONE 2026-08-22. Council display-name label was already fixed by an earlier session; the write-refusal string in `api-chms.js` still said "office" — now says "council". |
-| 4 | ~~**P26-A**~~ | small | DONE 2026-08-22. Nine CSS custom properties are now declared, with a build-time assertion added so a future one can't go undefined the same way. |
-| 5 | **P24-A** + **P25-D** | **large — see note** | `api()` resolves instead of rejecting on a server error whenever `opts` is passed, so **54 write call sites report success on failure**. This is the mechanism behind the SAC1/SAC3 "Save failed with no reason" reports. |
+| 4 | ~~**P26-A**~~ | small | DONE 2026-08-22. Nine CSS custom properties are now declared, with a build-time assertion added so a future one can't go undefined the same way. || 5 | **P24-A** + **P25-D** | **large — see note** | `api()` resolves instead of rejecting on a server error whenever `opts` is passed, so **54 write call sites report success on failure**. This is the mechanism behind the SAC1/SAC3 "Save failed with no reason" reports. |
 | 6 | **P24-B** | medium | Dashboard: ~11 serial D1 round-trips, and two staff opening it the same Monday both seed the weekly tasks and leave ten. |
 
 > **⚠ Why 5 merges two codes.** P24-A rewrites `api()`; P25-D routes seven `js-finance.js` uploads
@@ -289,8 +286,7 @@ user-visible payoff per line changed in the whole plan.
   `api-admin.js` by an earlier session (found already fixed, with a comment naming DSN8). The other
   half — `api-chms.js`'s write-refusal string still saying "editing requires staff, office, or finance
   access" — was still there; changed to "council". `npm test` passing, 2 new tests in
-  `test/role-labels-council.test.js`, verified non-vacuous by reverting the fix. (`src/api-chms.js`,
-  `test/role-labels-council.test.js`)
+  `test/role-labels-council.test.js`, verified non-vacuous by reverting the fix. (`src/api-chms.js`,  `test/role-labels-council.test.js`)
 
 **Done when:** a forced 500 on a save shows the server's own message; the dashboard's D1 round-trip count is
 measured and recorded; a council user sees their role name.
