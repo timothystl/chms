@@ -834,14 +834,14 @@ function addEntry(batchId) {
       givOffRefresh(batchId);
       document.getElementById('e-person-search').focus();
     } else alert('Error: ' + (r.error||'unknown'));
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function deleteEntry(id) {
   if (!confirm('Remove this entry?')) return;
   api('/admin/api/giving/entries/' + id, {method:'DELETE'}).then(function(r) {
     if (r.ok) { givOffRefresh(currentBatchId); }
     else alert(r.error || 'Cannot delete.');
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function closeBatch(id) {
   if (!confirm('Close this batch? Entries cannot be added or removed after closing.')) return;
@@ -876,7 +876,7 @@ function createBatch() {
   api('/admin/api/giving/batches', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({batch_date:date, description:desc})}).then(function(r) {
     if (r.ok) { closeModal('batch-modal'); givOffRefresh(r.id); }
     else alert('Error: ' + (r.error||'unknown'));
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── Board Report (giving redesign 1A dashboard / 1B narrative) ──────────

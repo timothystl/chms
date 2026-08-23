@@ -165,7 +165,7 @@ function saveHousehold() {
       loadHouseholds();
       if (_currentHousehold && String(_currentHousehold.id) === String(id)) openHouseholdDetail(id);
     } else alert('Error: ' + (r.error||'unknown'));
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function deleteHousehold() {
   var id = document.getElementById('hm-id').value;
@@ -176,7 +176,7 @@ function deleteHousehold() {
       if (_currentHousehold && String(_currentHousehold.id) === String(id)) closeHouseholdView();
       loadHouseholds();
     } else alert(r.error || 'Cannot delete.');
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function hhPushAddress() {
   var id = document.getElementById('hm-id').value;
@@ -198,7 +198,7 @@ function hhPushAddress() {
     var n = r.updated || 0;
     if (n > 0) alert('Address pushed to ' + n + ' member' + (n !== 1 ? 's' : '') + ' who had no address on file.');
     else alert('All household members already have an address — nothing was changed.');
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 var _hhEditMembers = [];
 function openHHPhotoPicker() {
@@ -243,7 +243,7 @@ function useMemberPhoto(memberId) {
     if (prevEl) { prevEl.src = photoSrc(r.photo_url) + '?t=' + Date.now(); prevEl.style.display = 'block'; }
     document.getElementById('hm-photo-recrop-btn').style.display = 'inline-flex';
     document.getElementById('hm-photo-remove-btn').style.display = 'inline-flex';
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function applyHHPhotoToMembers() {
   var id = document.getElementById('hm-id').value;
@@ -261,7 +261,7 @@ function applyHHPhotoToMembers() {
       alert('Photo applied to ' + n + ' family member' + (n !== 1 ? 's' : '') + ' who had no photo.');
       loadHouseholds();
     } else alert('All family members already have a photo — nothing was changed.');
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── ORGANIZATIONS ─────────────────────────────────────────────────────
@@ -377,7 +377,7 @@ function saveOrg() {
   api(url, { method: method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(function(r) {
     if (r.ok) { closeModal('org-modal'); loadOrganizations(); }
     else alert(r.error || 'Save failed.');
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function deleteOrg() {
   var id = document.getElementById('om-id').value;
@@ -387,7 +387,7 @@ function deleteOrg() {
   api('/admin/api/organizations/' + id, { method: 'DELETE' }).then(function(r) {
     if (r.ok) { closeModal('org-modal'); loadOrganizations(); }
     else alert(r.error || 'Delete failed.');
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ══ HOUSEHOLD / ORGANIZATION VIEW REDESIGN ════════════════════════════
@@ -832,7 +832,7 @@ function createHouseholdFromPerson() {
     } else {
       alert('Failed to create household: ' + (d && d.error ? d.error : 'unknown error'));
     }
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── PERSON AUTOCOMPLETE (for reports/giving) ──────────────────────────

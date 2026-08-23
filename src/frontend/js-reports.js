@@ -704,7 +704,7 @@ function forceRemoveGivingOrphans() {
     }
     alert('Removed ' + (r.removed || 0) + ' entries (' + fmtMoney(r.removed_cents || 0) + ').');
     runGivingSummary();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function exportGivingDiagnoseCsv() {
   var d = _lastGivingDiagnose;
@@ -740,7 +740,7 @@ function reconcileGivingOrphans(from, to) {
     alert(msg);
     if (d.orphansRemoved > 0) runGivingSummary();
     else if (btn) { btn.disabled = false; btn.textContent = 'Reconcile Orphans'; }
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function initReportTrendYears() {
   var el = document.getElementById('rpt-trend-years');

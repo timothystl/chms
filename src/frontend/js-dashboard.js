@@ -55,7 +55,7 @@ function reviewMark(personId) {
     var row = document.getElementById('rq-row-' + personId);
     if (row) row.remove();
     setTimeout(loadDashboard, 400);
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 function reviewMarkAll() {
@@ -64,7 +64,7 @@ function reviewMarkAll() {
   api('/admin/api/engagement/mark-all-reviewed', { method: 'POST' }).then(function(d) {
     if (d.error) { alert(d.error); if (btn) { btn.disabled = false; btn.textContent = 'Mark All Reviewed'; } return; }
     loadDashboard();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function reviewArchive(personId, name) {
   if (!confirm('Archive ' + (name || 'this person') + '? They will be hidden from the active list. You can restore later from their profile.')) return;
@@ -73,7 +73,7 @@ function reviewArchive(personId, name) {
     var row = document.getElementById('rq-row-' + personId);
     if (row) row.remove();
     setTimeout(loadDashboard, 400);
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── This Week's Tasks (engagement checklist) ────────────────────────
@@ -99,14 +99,14 @@ function taskToggle(id, completed) {
         if (lbl) lbl.style.textDecoration = 'line-through';
       }
     }
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function taskDelete(id) {
   api('/admin/api/engagement/tasks/' + id, { method: 'DELETE' }).then(function(d) {
     if (d.error) { alert(d.error); return; }
     var row = document.getElementById('wt-row-' + id);
     if (row) row.remove();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function taskAddSubmit() {
   var inp = document.getElementById('wt-add-input');
@@ -123,14 +123,14 @@ function taskAddSubmit() {
     inp.value = '';
     if (urlInp) urlInp.value = '';
     loadDashboard();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function dismissFirstGift(personId) {
   api('/admin/api/people/' + personId + '/dismiss-first-gift', { method: 'POST' }).then(function(d) {
     if (d.error) { alert(d.error); return; }
     var row = document.getElementById('fg-row-' + personId);
     if (row) row.remove();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── Prayer Requests (FU1) ──────────────────────────────────────────────
@@ -150,7 +150,7 @@ function prayerSetStatus(id, status) {
   }).then(function(d) {
     if (d.error) { alert(d.error); return; }
     loadDashboard();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function downloadPrayerCsv() {
   var status = prompt('Export which requests?\n\nType: all, open, praying, active (open+praying), answered, closed', 'all');
@@ -218,7 +218,7 @@ function savePrayerRequest() {
     if (d.error) { alert(d.error); return; }
     closeModal('prayer-modal');
     loadDashboard();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── New Contacts follow-up actions (FU2) ──────────────────────────────
@@ -232,7 +232,7 @@ function followupMarkDone(personId) {
     var row = document.getElementById('fu-row-' + personId);
     if (row) row.remove();
     setTimeout(loadDashboard, 400);
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 function followupEditNotes(personId) {
@@ -247,7 +247,7 @@ function followupEditNotes(personId) {
   }).then(function(d) {
     if (d.error) { alert(d.error); return; }
     setTimeout(loadDashboard, 400);
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function _dashBulletinDate(dateStr, mnShort) {
   var parts = (dateStr||'').split('-');
@@ -756,14 +756,14 @@ function completeFollowUp(id) {
     .then(function() {
       var el = document.getElementById('fu-'+id);
       if (el) { el.style.opacity='0.4'; el.style.textDecoration='line-through'; setTimeout(function(){el.remove();},600); }
-    });
+    }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function addFollowUpForPerson(pid, name, type) {
   api('/admin/api/followup', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({person_id:pid, type:type, notes:''}) })
     .then(function() {
       showErrorBanner('\u2713 Follow-up added for '+esc(name)+'.'); // reuse banner in success mode
       loadDashboard();
-    });
+    }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function openAddFollowUp(pid, name, type) {
   var modal = document.getElementById('followup-modal');
@@ -786,7 +786,7 @@ function markSeenToday(personId) {
       if (el) el.textContent = today;
       if (_currentPvPerson) _currentPvPerson.last_seen_date = today;
     }
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function saveFollowUpModal() {
   var btn = document.querySelector('#followup-modal .btn-primary');

@@ -315,7 +315,7 @@ function clearGivingByYear() {
       status.textContent = 'Error: ' + (d.error||'unknown');
       status.className = 'import-status err';
     }
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function clearAllGiving() {
   if (!confirm('This will PERMANENTLY DELETE all giving entries and batches. This cannot be undone.\\n\\nAre you absolutely sure?')) return;

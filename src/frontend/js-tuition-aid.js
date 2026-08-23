@@ -1325,7 +1325,7 @@ function tapAddPipeline() {
 }
 function tapRemoveStudent(id) {
   if (!confirm('Remove this student from the planner?')) return;
-  api('/admin/api/tuition-aid/students/' + id, { method: 'DELETE' }).then(function() { loadTuitionAid(); });
+  api('/admin/api/tuition-aid/students/' + id, { method: 'DELETE' }).then(function() { loadTuitionAid(); }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 // ── Add student modal ──────────────────────────────────────────────

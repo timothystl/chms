@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.202.0';
+export const DEPLOY_VERSION = '1.203.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -84,12 +84,22 @@ var DEFAULT_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>Thank you for your genero
 var DEFAULT_MIDYEAR_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>As we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.</p><p>Below is a summary of your recorded giving for {{year}} so far:</p>{{gift_table}}<p>Total Giving to Date: {{total}}</p><p>Please take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.</p><p>If you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:</p><ul><li>{{#if_giving_url}}Online recurring giving: <a href="{{giving_url}}">{{giving_url}}</a>{{/if_giving_url}}</li><li>Automatic bank draft or bill pay through your bank</li><li>Contact the church office and we would be glad to help you set it up</li></ul><p>Thank you again for your generosity and your partnership in ministry.</p><p>With gratitude,</p><p>Timothy Lutheran Church</p><p>Date: {{date}}</p>';
 
 // ── HELPERS ──────────────────────────────────────────────────────────
+// P25-D: the frontend mirror of auth.js's appRootPath() — that file's own comment explains why
+// this knowledge (which host is the Connect host, which path a 401 redirect should land on)
+// must live in exactly one place rather than eight hardcoded '/chms' copies.
+function frontendAppRootPath() {
+  return location.hostname === 'connect.timothystl.org' ? '/' : '/chms';
+}
+// P24-A / LOAD9: this used to resolve instead of reject on a server error whenever 'opts' was
+// passed (i.e. on every write), so a failed save's {error:...} body flowed straight into the
+// caller's success handler — the mechanism behind the SAC1/SAC3 "Save failed with no reason"
+// reports. Now rejects on any non-2xx response regardless of whether opts was passed.
 function api(path, opts) {
   return fetch(path, opts || {}).then(function(r) {
-    if (r.status === 401) { location.href = '/chms'; return Promise.reject(new Error('Unauthorized')); }
+    if (r.status === 401) { location.href = frontendAppRootPath(); return Promise.reject(new Error('Unauthorized')); }
     return r.json().then(function(data) {
-      if (!r.ok && data && data.error && !opts) {
-        return Promise.reject(new Error(data.error));
+      if (!r.ok) {
+        return Promise.reject(new Error((data && data.error) || ('Request failed (' + r.status + ')')));
       }
       return data;
     });
@@ -1003,11 +1013,11 @@ function createTag() {
   api('/admin/api/tags', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,color:color})}).then(function() {
     document.getElementById('new-tag-name').value = '';
     openTagsManager();
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') showErrorBanner('Save failed: ' + err.message); });
 }
 function deleteTag(id) {
   if (!confirm('Delete this tag? It will be removed from all people.')) return;
-  api('/admin/api/tags/' + id, {method:'DELETE'}).then(function() { openTagsManager(); });
+  api('/admin/api/tags/' + id, {method:'DELETE'}).then(function() { openTagsManager(); }).catch(function(err) { if (err.message !== 'Unauthorized') showErrorBanner('Save failed: ' + err.message); });
 }
 
 `;

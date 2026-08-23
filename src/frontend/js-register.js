@@ -232,7 +232,7 @@ function saveRegisterEntry() {
       closeRegFormMobile();
       loadRegister();
     } else alert('Error: ' + (r.error||'unknown'));
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function openRegisterEdit(id) {
   var entry = _regEntries.find(function(e){ return e.id === id; });
@@ -277,7 +277,7 @@ function deleteRegisterEntry(id) {
   api('/admin/api/register/' + id, {method:'DELETE'}).then(function(r) {
     if (r.ok) loadRegister();
     else alert(r.error || 'Cannot delete.');
-  });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function printRegister() {
   var lbl = _regLabels[_regType];

@@ -24,7 +24,8 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**36 items open** (P22-E, P24-C and P26-A all closed 2026-08-22 — see below). Take the next
+**34 items open** (P22-E, P24-C and P26-A closed 2026-08-22; P24-A and P25-D closed 2026-08-23 —
+see below). Take the next
 unchecked row. Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
@@ -32,7 +33,7 @@ unchecked row. Detail for every code is in its phase section further down.
 |---|---|---|---|
 | 1 | ~~**P22-E**~~ | small | DONE 2026-08-22. Login rate limiting, intake rate limiting and QuickBooks OAuth `state` now fail **closed**, not open, with no `RSVP_STORE`. || 2 | ~~**P22-F**~~ | small ×5 | DONE 2026-08-22. Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. |
 
-**Tier 1 complete. Tier 2 items 3-4 (P24-C, P26-A) also done.** Next up: item 5, `api()` + P25-D.
+**Tier 1 and Tier 2 both complete.** Next up: item 6, P24-B (dashboard query consolidation).
 
 ### Tier 2 — Things that are wrong on screen right now
 
@@ -41,7 +42,8 @@ Highest payoff per line changed in the whole plan. Two of these are user-reporte
 | # | Code | Size | What |
 |---|---|---|---|
 | 3 | ~~**P24-C**~~ | ~2 lines | DONE 2026-08-22. Council display-name label was already fixed by an earlier session; the write-refusal string in `api-chms.js` still said "office" — now says "council". |
-| 4 | ~~**P26-A**~~ | small | DONE 2026-08-22. Nine CSS custom properties are now declared, with a build-time assertion added so a future one can't go undefined the same way. || 5 | **P24-A** + **P25-D** | **large — see note** | `api()` resolves instead of rejecting on a server error whenever `opts` is passed, so **54 write call sites report success on failure**. This is the mechanism behind the SAC1/SAC3 "Save failed with no reason" reports. |
+| 4 | ~~**P26-A**~~ | small | DONE 2026-08-22. Nine CSS custom properties are now declared, with a build-time assertion added so a future one can't go undefined the same way. |
+| 5 | ~~**P24-A** + **P25-D**~~ | **large — see note** | DONE 2026-08-23. `api()` now rejects on any non-2xx response regardless of `opts`; 88 write call sites got a `.catch` added (99 candidates found, 11 excluded as already-safe or as the wrong fix — see the entry below); the 8 hardcoded `/chms` redirects are gone; the 7 `js-finance.js` `FormData` uploads route through `api()`. |
 | 6 | **P24-B** | medium | Dashboard: ~11 serial D1 round-trips, and two staff opening it the same Monday both seed the weekly tasks and leave ten. |
 
 > **⚠ Why 5 merges two codes.** P24-A rewrites `api()`; P25-D routes seven `js-finance.js` uploads
@@ -269,13 +271,47 @@ v1.191.0. **Not verified**: a live browser, a real sent email, or production D1.
 **Goal:** the correctness items where the app already knows something went wrong and says nothing. Highest
 user-visible payoff per line changed in the whole plan.
 
-- [ ] **P24-A** (retires **LOAD9**) — `api()` must reject on `!r.ok` regardless of whether `opts` was passed.
-  **⚠ This surfaces 54 currently-silent failures at once** (230 write-style calls, 176 already check
-  `d.error`, 54 do not) — every one of those call sites needs a `.catch` before this lands, or a working
-  save starts showing an unhandled rejection. Do the call-site sweep in the same PR, file by file:
-  `js-tuition-aid` 10 · `js-giving` 8 · `js-volunteers` 7 · `js-attendance` 5 · `js-finance` 5 ·
-  `js-settings` 4 · `js-dashboard` 4 · `js-export-import` 3 · `js-core` 2 · `js-households` 2 · `js-people` 2
-  · `js-register` 1 · `js-reports` 1. This is the mechanism behind the SAC1/SAC3 reports.
+- [x] **P24-A** — DONE 2026-08-23, retires **LOAD9**. `api()` (`js-core.js`) now rejects on any
+  non-2xx response regardless of whether `opts` was passed — previously it only rejected on
+  `!opts` (a GET), so every write (POST/PUT/PATCH/DELETE) resolved a failed save's `{error:...}`
+  body straight into the caller's success handler. This is the mechanism behind the SAC1/SAC3
+  "Save failed with no reason" reports. `test/api-helper-reject.test.js` (6 tests, extracting and
+  running the real `api()`/`frontendAppRootPath()` source in a vm with a stubbed `fetch`) verified
+  non-vacuous by reverting the core logic change and confirming the two write-rejection tests fail
+  against the pre-fix code.
+  - **The call-site sweep this needed, done in the same change**: a from-scratch scan (not the
+    54-count above, which undercounted — the real number of write-style `api()` calls with no
+    `.catch` at all was **99**) found every one via a small paren/comment-aware scanner (not a
+    plain regex — a naive one is wrong here in two ways that mattered: it must skip `//`/`/* */`
+    comments when matching quotes/parens, since an apostrophe inside a prose comment like
+    "person's" otherwise corrupts the scan for everything after it in that expression; and it must
+    not flag `return api(...)`, since that call's rejection propagates into whatever chain the
+    enclosing function's own return value belongs to). 88 of the 99 got a `.catch` added, in each
+    file's own existing idiom (`alert(...)` where the file already used it, `finToast(...)` in
+    `js-finance.js`, `showErrorBanner(...)` in `js-core.js`).
+  - **⚠ The other 11 were not "already fine" — they were the wrong fix, caught by hand-auditing
+    every `Promise.all`/ternary site, not by the scanner.** Two real bugs found this way, both now
+    fixed differently than a bare per-call `.catch` would fix them: (1) `js-finance.js`'s daycare
+    save built `var req = editingId ? api(...) : api(...)`, later read via `req.then(...).catch(...)`
+    — adding a `.catch` to each ternary branch would have swallowed the rejection *before* it
+    reached the real, already-existing outer catch, silently continuing the save-succeeded UI path
+    on a failed save. Removed both; the pre-existing outer `.catch` was already correct. (2) Two
+    near-identical `js-finance.js` planning-save functions and two `js-attendance.js` functions
+    build an array of `api(...)` calls fed to `Promise.all([...])`/`Promise.all(saves)` — a
+    per-call `.catch` there makes `Promise.all` resolve as though every save succeeded even when
+    one genuinely failed, since a caught-and-swallowed rejection resolves to `undefined` rather
+    than propagating. Fixed by moving to one `.catch` on the aggregate instead of one per call,
+    which is what the two planning functions already had and the two attendance functions needed
+    added. **This is the same "reports success on failure" bug the whole item exists to close,
+    reintroduced by a naive fix — worth remembering if this pattern (aggregate several `api()`
+    calls, catch each individually) shows up again anywhere else.**
+  - Every one of the 88 insertions was verified structurally, not just by `node --check`: none is
+    immediately followed by a further `.then(`/`.catch(` (confirms nothing landed mid-chain, the
+    exact shape of the first bug found), every one is immediately preceded by `)` (confirms it was
+    appended after a real call, never mid-expression), and none sits inside a `Promise.all([...])`
+    array literal or a `.push(...)` argument (confirms none of the second bug's shape survived).
+    `npm test` 1795/1795 (was 1793 before this branch), `node --check` on all 13 touched files.
+    **Not verified**: a live browser — the standing caveat on all frontend work in this repo.
 - [ ] **P24-B** (retires **LOAD8**, **CR5**) — Dashboard: fold `birthdays`, `annRows` and
   `baptismAnniversaries` into the existing first `Promise.all` (they depend on nothing), run
   `prayerOpen`/`prayerOpenTotal` together, and replace the five-`await` weekly-task seed loop with one
@@ -307,10 +343,16 @@ measured and recorded; a council user sees their role name.
   (`html-head.js:15`) blocks on the same host for three families at 17 weight/italic combinations, and has no
   `preconnect` at all while `PUBLIC_HTML` already has two. Self-hosting also lets the CSP drop both
   `fonts.*` allowances.
-- [ ] **P25-D** (retires **CR6**, **DSN6**) — Route the seven `FormData` uploads in `js-finance.js` through
-  `api()` (it passes `opts` straight through, so `FormData` works), and replace all eight hardcoded
-  `location.href = '/chms'` 401 redirects with a shared host-aware helper — the frontend mirror of
-  `appRootPath()`, whose own comment explains why this knowledge must live in one place.
+- [x] **P25-D** — DONE 2026-08-23, retires **CR6**, **DSN6**, done in the same change as P24-A per
+  the note above (both sweep the same call sites). New `frontendAppRootPath()` in `js-core.js`
+  mirrors `auth.js`'s `appRootPath()` (`connect.timothystl.org` → `/`, else `/chms`); `api()`'s own
+  401 handler and all 7 `js-finance.js` upload functions use it — the 8 hardcoded
+  `location.href = '/chms'` copies are gone. The 7 `FormData` uploads (`fetch(...).then(function(r)
+  {...})` hand-rolled boilerplate re-parsing the response and re-checking `r.status`/`r.ok`) now
+  read `api(url, { method: 'POST', body: fd })` — `api()` already passes `opts` straight to `fetch`,
+  so a `FormData` body works unchanged; each call's own `.then(function(d) {...}).catch(...)`
+  continuation was left as-is, since `api()`'s resolved/rejected shape matches what it already
+  expected.
 - [ ] **P25-E** (retires **LOAD2**) — Split `app-ext.js` (1,273 KB) along the permission line the way CR9
   split along the role line. `js-finance.js` alone is 696 KB of its source, and a `staff` or `council`
   account with `finance: none` downloads and parses all of it. The shell is the only per-request surface and
