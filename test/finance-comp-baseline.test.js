@@ -501,7 +501,7 @@ describe('the base year computed from the roster', () => {
     ctx._finSalaryRoster[1].healthOptOutOverrideCents = 999900; // a FY2027 planning figure
     ctx._finSalaryReferenceByYear = { 2026: { healthOptOutCents: 492856 } };
     expect(ctx.finCompWorkerHealthCents(ctx._finSalaryRoster[1], 'current', 2026)).toBe(492856);
-    // The target year still honours the per-worker override.
+    // The target year still honors the per-worker override.
     expect(ctx.finCompWorkerHealthCents(ctx._finSalaryRoster[1], 'renewal', 2027)).toBe(999900);
   });
 

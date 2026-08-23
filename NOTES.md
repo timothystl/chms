@@ -767,7 +767,7 @@ upscale. That is the sharpness fix the last four BRAND entries could not deliver
 **The first re-make was a JPEG and had to be rejected.** JPEG carries no alpha, so its
 "transparent" background was solid `#000000` — 77% of the file, and a black rectangle on the white
 login card. It is also lossy: each quadrant held 3,200-4,500 distinct values with the dominant
-colour covering only 10-22% of its own area (the visible confetti around "TIMOTHY LUTHERAN CHURCH"
+color covering only 10-22% of its own area (the visible confetti around "TIMOTHY LUTHERAN CHURCH"
 and the yellow-green fringe under the mark). **Salvage was attempted and shown to be impossible**,
 rather than assumed: keying the black out recovers the bright quadrants, but the wordmark, church
 and cross are dark navy *on black* and are mathematically indistinguishable from the ground at any
@@ -778,11 +778,11 @@ a genuine anti-aliased edge, not a keyed matte — and 835-987 distinct values p
 
 Three corrections applied on our side, each one a thing the supplied file gets wrong every time:
 
-1. **Colours drift on every re-make** (`#64A53A` / `#246CD1` / `#2CA9BB` / `#F39F22` here). Each
+1. **Colors drift on every re-make** (`#64A53A` / `#246CD1` / `#2CA9BB` / `#F39F22` here). Each
    quadrant is snapped by scaling its channels `target/dominant`, which preserves the shading and
    the anti-aliased edge where a flat replace would leave jaggies. Bounded to the cropped mark
    square — unbounded, the quadrant test also catches the blue church-name text (the BRAND5 bug).
-2. **The supplied centre disc is transparent; ours has to be white.** The sidebar is
+2. **The supplied center disc is transparent; ours has to be white.** The sidebar is
    `var(--navy)`, so a navy church on a transparent disc over navy simply disappears. A white
    circle is composited *under* the art so the ring's inner edge blends into it; `r=168` of 627,
    because anything larger leaks out through the mark's own axis gaps.
@@ -957,7 +957,7 @@ picture. Its own metadata says `<ContainsAiGeneratedContent>Yes</ContainsAiGener
 a C2PA manifest, and each "flat" quadrant holds 150-275 distinct values. **This artwork has never
 existed as editable shapes, so no re-export will produce vector** — that needs a redraw.
 
-**Recolored by POSITION, which is the one thing Canva cannot do**: which side of the mark's centre
+**Recolored by POSITION, which is the one thing Canva cannot do**: which side of the mark's center
 a pixel falls on, rather than what color it is. Targets are timothystl.org's own value accents,
 read off the live site: WELCOME `#6FA84E` / RECEIVE `#3E7BD1` / GROW `#45AFB8` / GO `#E8A93C`.
 
@@ -965,7 +965,7 @@ read off the live site: WELCOME `#6FA84E` / RECEIVE `#3E7BD1` / GROW `#45AFB8` /
 solving for coverage and recompositing with the new color keeps every soft edge. A flat replace
 would have left jaggies at every boundary.
 
-**⚠ The first run recolored the wordmark too.** "Which side of the centre" is meaningless once you
+**⚠ The first run recolored the wordmark too.** "Which side of the center" is meaningless once you
 leave the mark, so the blue "TIMOTHY LUTHERAN CHURCH" text and the rule under CONNECT — both
 down-and-right of the mark — came out teal. Caught by rendering the login page, not by reading the
 code. Fixed with an `R_OUTER = 125` bound; the pixel count fell from 61,677 to 16,259.
@@ -1128,8 +1128,8 @@ Sans 600 at .13em, and carries the rule, church name and tagline.
   — mark, wordmark, rule, church name, tagline, exactly as drawn. Five recreated CSS rules and the
   separate mark `<img>` collapse into one image. Alt text carries the full wording.
 - **⚠ The crop needed its background snapped to pure white.** The sheet is a WebP, so its "white"
-  is compression noise around #f8–#fe, which reads as a faint grey panel against the login card's
-  #fff. Everything ≥242 is now #fff (safely above the tagline's mid-grey, so no text washed out) —
+  is compression noise around #f8–#fe, which reads as a faint gray panel against the login card's
+  #fff. Everything ≥242 is now #fff (safely above the tagline's mid-gray, so no text washed out) —
   which also cut the file from 71 KB to 48 KB.
 - **Sized deliberately at 480px, not the 636px native crop.** The login page is where AU2 already
   flags slow first paint on the church's network; 480 still gives ~1.6x density at its 300px
@@ -1333,9 +1333,9 @@ I concluded no file existed to work from. That was wrong twice over: the drawing
 image blocks in the session transcript (`~/.claude/projects/<project>/<session>.jsonl`), decodable
 with `json` + `base64`. **Check there before ever concluding a supplied file is unavailable.**
 
-**The real mark is nothing like the redraw.** It is a **compass/crosshair**: a white centre disc
+**The real mark is nothing like the redraw.** It is a **compass/crosshair**: a white center disc
 ringed by four quadrant arcs, with four radial arms on the axes — and each arm is **split down its
-axis**, half belonging to each neighbouring quadrant, so the four colored pieces each read as
+axis**, half belonging to each neighboring quadrant, so the four colored pieces each read as
 half-arm → arc → half-arm. The v1.176.0 drawing was a square bracket frame. Not close.
 
 **⚠ The v1.176.0 pinwheel/swastika concern does not apply to the real artwork and was an artifact of
@@ -1344,7 +1344,7 @@ my own construction.** The genuine mark's silhouette is a symmetric ring-and-cro
 **What ships now is their pixels.** The hero mark was located in the sheet by scanning for saturated
 color (x 300–539, y 59–297, a 240×240 crop), the white background removed by flood fill from the
 border, and — because the axis gaps let that flood leak into the middle — **the mark's own white
-centre disc restored** by measuring the ring's inner radius (61px, from 360 radial rays taking the
+center disc restored** by measuring the ring's inner radius (61px, from 360 radial rays taking the
 first strongly-saturated hit; 241 of them agree). Icons are composited in a browser over the navy
 tile and downsampled by the same pure-Python PNG codec as v1.176.0.
 

@@ -7916,7 +7916,7 @@ function finCompBaselineDetail() {
     canRosterOnly: canRosterOnly, rosterOnly: rosterOnly, prorated: prorated, weeks: weeks,
     // Whether anything was ACTUALLY annualized, as opposed to the base year merely being in
     // progress. An account with its own full-year budget is used as-is, so a ledger with budgets
-    // throughout annualizes nothing and must not be labelled as though it had.
+    // throughout annualizes nothing and must not be labeled as though it had.
     anyAnnualized: counted.some(function(r) { return r.basis === 'annualized'; }),
     salaryCents: counted.reduce(function(t, r) { return t + (r.kind === 'salary' ? r.cents : 0); }, 0),
     benefitCents: counted.reduce(function(t, r) { return t + (r.kind === 'benefit' ? r.cents : 0); }, 0)
