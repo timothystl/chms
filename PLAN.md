@@ -24,7 +24,7 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**33 items open** (P22-E, P24-C and P26-A closed 2026-08-22; P24-A, P25-D and P24-B closed
+**32 items open** (P22-E, P24-C and P26-A closed 2026-08-22; P24-A, P25-D, P24-B and P25-A closed
 2026-08-23 — see below). Take the next
 unchecked row. Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
@@ -33,8 +33,8 @@ unchecked row. Detail for every code is in its phase section further down.
 |---|---|---|---|
 | 1 | ~~**P22-E**~~ | small | DONE 2026-08-22. Login rate limiting, intake rate limiting and QuickBooks OAuth `state` now fail **closed**, not open, with no `RSVP_STORE`. || 2 | ~~**P22-F**~~ | small ×5 | DONE 2026-08-22. Break-glass `===` compare · fixed rate-limit window · `X-Breeze-Subdomain` validation · photo-proxy scheme check · `Set-Cookie` off immutable assets. |
 
-**Tier 1 and Tier 2 both complete.** Next up: item 7, P25-A (route two scheduler assets through
-`assetCacheControl()`).
+**Tier 1 and Tier 2 both complete.** Next up: item 8, P25-B (hoist the pure asset routes above
+`await initDb(env.DB)`).
 
 ### Tier 2 — Things that are wrong on screen right now
 
@@ -59,7 +59,7 @@ The church network is slow; AU2 has been open since July for that reason.
 
 | # | Code | Size | What |
 |---|---|---|---|
-| 7 | **P25-A** | one-liner | The two scheduler-embed assets bypass `assetCacheControl()` — and the test's own `ASSETS` list encodes the gap. |
+| 7 | ~~**P25-A**~~ | one-liner | DONE 2026-08-23. Both scheduler-embed assets now route through `assetCacheControl()`; the test's `ASSETS` list covers all six. |
 | 8 | **P25-B** | one-liner | Hoist the pure asset routes above `await initDb(env.DB)`. None touch D1. |
 | 9 | **P25-C** | medium | Self-host the fonts. **⚠ AU2 is written as a login-page item and is not one** — the app shell blocks on three families at 17 weight/italic combinations with no `preconnect` at all. |
 | 10 | **P25-G** | medium | `serve.timothystl.org` is 204.5 KB with **no `Cache-Control` at all** and is identical for every visitor. The church's public front door, on the same slow network. |
@@ -347,9 +347,17 @@ measured and recorded; a council user sees their role name.
 ## Phase 25 — Load speed
 **Goal:** ordered cheapest-first. P25-A and P25-B are one-liners; P25-E is the big one.
 
-- [ ] **P25-A** (retires **LOAD4**) — Route `/admin/scheduler-embed.html` and `.js` through
-  `assetCacheControl()` and add both to `ASSETS` in `test/asset-cache-policy.test.js`. Two of six versioned
-  assets are currently outside the mid-rollout stale-pinning defense, and the test's own list encodes the gap.
+- [x] **P25-A** — DONE 2026-08-23, retires **LOAD4**. Both `/admin/scheduler-embed.html` and
+  `/admin/scheduler-embed.js` now use the same `assetCacheControl()` as the other four versioned
+  assets, instead of a hardcoded `public, max-age=31536000, immutable` — closing the mid-rollout
+  stale-pinning gap those two were sitting outside of. `js-core.js` already requests both with
+  `?v=DEPLOY_VERSION`, so no frontend change was needed. Added both to `ASSETS` in
+  `test/asset-cache-policy.test.js` (the list itself was the second half of the gap — it only ever
+  covered four of the six). `npm test` (1798/1798, no new test file — extended the existing
+  parameterized suite); verified non-vacuous by reverting the worker change and confirming 3 of 7
+  tests in that file correctly fail. `node --check` on `tlc-volunteer-worker.js`. **Not verified**:
+  a live browser or a real multi-colo rollout. (`tlc-volunteer-worker.js`,
+  `test/asset-cache-policy.test.js`)
 - [ ] **P25-B** (retires **LOAD7**) — Hoist the pure asset routes (`/icons/*`, `/favicon.svg`,
   `/header-logo.png`, `/admin/app-*.js`, `/admin/app.css`, the TinyMCE proxy) above `await initDb(env.DB)`
   in `_fetch`. None of them touch D1.

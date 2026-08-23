@@ -491,7 +491,7 @@ async function _fetch(req, env) {
       return new Response(CHMS_SCHEDULER_HTML, {
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'public, max-age=31536000, immutable',
+          'Cache-Control': assetCacheControl(),
           'X-Content-Type-Options': 'nosniff',
           'X-Frame-Options': 'DENY',
         }
@@ -499,7 +499,7 @@ async function _fetch(req, env) {
     }
     if (path === '/admin/scheduler-embed.js') {
       return new Response(CHMS_SCHEDULER_JS, {
-        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=31536000, immutable' }
+        headers: { 'Content-Type': 'application/javascript', 'Cache-Control': assetCacheControl() }
       });
     }
     if (path === '/admin/backlog' && method === 'GET') {
