@@ -66,7 +66,7 @@ The church network is slow; AU2 has been open since July for that reason.
 | 9 | ~~**P25-C**~~ | medium | DONE 2026-08-23. Both the app shell and the login page now preconnect and load fonts non-blockingly. |
 | 10 | ~~**P25-G**~~ | medium | DONE 2026-08-23. `PUBLIC_HTML`'s ~57 KB CSS + ~80 KB JS are now versioned immutable routes; the shell dropped to ~68 KB. |
 | 11 | **P25-E** | large | Split `app-ext.js` (1,273 KB) along the permission line. A `staff` account with `finance: none` downloads all 696 KB of Finance. **⚠ Keep CR9's two rules: fail SAFE, and pin "no global defined twice".** |
-| 12 | **P25-F** | large | The 194 KB `no-store` shell. Needs the boot sequence looked at, not another mechanical extraction. |
+| 12 | **P25-F** | large | The 194 KB `no-store` shell. **Defer + close-tags shipped 2026-08-23**; shrinking the markup itself still needs the boot sequence looked at, not another mechanical extraction. |
 
 ### Tier 4 — Authentication foundation (scope before writing code)
 
@@ -410,8 +410,26 @@ measured and recorded; a council user sees their role name.
   landing in the wrong half.
 - [ ] **P25-F** (retires **LOAD3**, **CR1b**, **CR9a**) — The 194 KB `no-store` shell, which is nearly all
   tab markup. CR1b's own caveat still stands: there is no natural lazy trigger, so this needs the boot
-  sequence looked at, not another mechanical extraction. While in there: the served document never closes
-  `<body>` or `<html>`, and the script tags carry no `defer`.
+  sequence looked at, not another mechanical extraction.
+  - [x] **Two of the three sub-items, DONE 2026-08-23.** The served document now closes `</body></html>`
+    (it never did — harmless, browsers auto-close, but not what the served bytes should say), and every
+    app-bundle `<script>` tag now carries `defer` (parsing/painting no longer blocks on the fetch, even
+    though the tags already sit at the very end of the document — safe because none of these bundles'
+    top-level statements need to run before the DOM finishes parsing, and js-core's actual boot work
+    waits for the `load` event regardless). `npm test` (1821/1821, 3 new in
+    `test/shell-defer-and-close-tags.test.js`); verified non-vacuous by reverting `src/html-chms.js` and
+    confirming all 3 fail. `node --check` on both touched files. **Not verified**: a live browser.
+  - **The actual "needs the boot sequence looked at" question — shrinking the 194 KB of tab markup
+    itself — is still open, deliberately not attempted here.** The natural extension of P25-E's pattern
+    is to fetch each ext-tier tab's markup lazily (mirroring how the Scheduler embed already injects its
+    own markup before its script runs), splitting `HTML_TABS_1`/`HTML_TABS_2` into a small always-inlined
+    core (dashboard/people/households/register/settings) and a per-tab-group fetched remainder
+    (finance/giving/tuitionaid/reports/attendance/export-import/volunteers). That is a real restructuring
+    of `showTab()`'s DOM-manipulation logic, which today assumes every `.tab-panel` element already
+    exists at boot — a much larger and riskier surface than P25-E's JS-only split (hundreds of
+    `getElementById`/`querySelector` calls across a dozen modules would need auditing for whether they
+    tolerate a not-yet-loaded panel), and needs its own dedicated session rather than a partial attempt
+    here.
 - [x] **P25-G** — DONE 2026-08-23, retires **LOAD6**. `PUBLIC_HTML`'s inlined `<style>` (~57 KB) and
   `<script>` (~80 KB) blocks are now their own exported constants (`PUBLIC_APP_CSS` in
   `src/public/head.js`, `PUBLIC_APP_JS` in `src/public/scripts.js`), re-exported from

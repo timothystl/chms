@@ -288,7 +288,7 @@ describe('the shell decides, because the cached assets cannot', () => {
   });
 
   it('markup is identical whichever role asked — only the script tags differ', () => {
-    const strip = (h) => h.replace(/<script src="\/admin\/app-[a-z]+\.js\?v=[^"]*"><\/script>\n/g, '');
+    const strip = (h) => h.replace(/<script src="\/admin\/app-[a-z]+\.js\?v=[^"]*" defer><\/script>\n/g, '');
     expect(strip(chmsHtmlForRole('member'))).toBe(strip(CHMS_HTML));
   });
 
