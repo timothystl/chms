@@ -12,7 +12,16 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500;1,600&family=DM+Sans:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet">
+<!-- P25-C (LOAD5/CR2/AU2): this used to be a plain blocking <link rel="stylesheet"> to
+     Google Fonts with no preconnect at all, for 3 families at 17 weight/italic combinations —
+     on a filtered network (the reason AU2 was originally opened) this stalls first paint of
+     the whole admin app the same way it did the login page. preconnect starts the DNS/TLS
+     handshake immediately; media="print" + onload swaps the stylesheet in once it loads
+     without blocking the initial render, with a <noscript> fallback for the no-JS case. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500;1,600&family=DM+Sans:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500;1,600&family=DM+Sans:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet"></noscript>
 <style>
 /* ── PAL1: Canonical Palette A token reference ──────────────────────────
    Single source of truth for color tokens across all three surfaces
