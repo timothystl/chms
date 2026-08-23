@@ -7,11 +7,12 @@
 // Chromium (see scripts/verify-serve-redesign.mjs and -2.mjs; not run in CI because
 // this repo has no browser install step).
 import { describe, it, expect } from 'vitest';
-import { PUBLIC_HTML } from '../src/html-templates.js';
+import { PUBLIC_HTML, PUBLIC_APP_JS } from '../src/html-templates.js';
 
-const scriptStart = PUBLIC_HTML.indexOf('<script>') + '<script>'.length;
-const scriptEnd = PUBLIC_HTML.lastIndexOf('</script>');
-const SCRIPT = PUBLIC_HTML.slice(scriptStart, scriptEnd);
+// P25-G pulled the inline <script> out of PUBLIC_HTML into its own PUBLIC_APP_JS
+// constant, served as an external ?v=DEPLOY_VERSION route rather than inlined — the
+// same code, just no longer embedded in the page markup itself.
+const SCRIPT = PUBLIC_APP_JS;
 
 function idsOf(html) {
   const ids = new Set();
@@ -36,7 +37,16 @@ describe('Serve redesign — assembled page is well-formed', () => {
   it('every getElementById call the script makes (besides the retired drawer) targets a real id', () => {
     const ids = idsOf(PUBLIC_HTML);
     const referenced = [...SCRIPT.matchAll(/getElementById\('([^']+)'\)/g)].map(m => m[1]);
-    const knownDead = new Set(['drawer-backdrop', 'menu-drawer']); // hamburger removed by this redesign; openDrawer/closeDrawer null-check
+    const knownDead = new Set([
+      'drawer-backdrop', 'menu-drawer', // hamburger removed by this redesign; openDrawer/closeDrawer null-check
+      // sv-role-grid: created at runtime via innerHTML (svRenderRoleGroup, scripts.js) before
+      // the getElementById call that reads it back — never present in the STATIC markup this
+      // check scans, so it's a real false positive here, not a dangling reference. It only
+      // ever looked "found" before P25-G because the inline <script> text (which literally
+      // contains the string id="sv-role-grid") was itself part of PUBLIC_HTML; once the
+      // script moved to its own external PUBLIC_APP_JS file that coincidence went away.
+      'sv-role-grid',
+    ]);
     const missing = referenced.filter(id => !ids.has(id) && !knownDead.has(id));
     expect(missing, 'missing ids: ' + missing.join(', ')).toEqual([]);
   });
