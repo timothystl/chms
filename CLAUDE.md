@@ -47,10 +47,24 @@ Also leave alone the words that only look similar and are already American: `ana
 **How to check.** A case-sensitive, word-boundary grep over the tracked files. It should return
 nothing; worth running before opening a PR that adds a screen or a report.
 
+**⚠ Six exclusions beyond `labelledby` are load-bearing, not sloppiness.** Four are this very
+section quoting its own examples of what NOT to write, and of the look-alike words that only
+appear non-American — rewriting those quotes would mean this section could no longer show the
+reader what it's talking about. Two more are in `NOTES.md`'s v1.172.1 entry, which names the
+*exact pre-fix wording* of three real strings the release below corrected — the same reasoning as
+the `migrations/*.sql` exclusion above: a record of what actually existed once, not live text to
+correct twice.
+
 ```
 git ls-files | grep -vE '^(vendor|migrations)/|package-lock\.json$' \
   | xargs grep -nE '\b(colour|neighbour|centre|centred|behaviour|organis[ei]|recognis|initialis|sanitis|normalis|serialis|summaris|optimis[ei]|licence|labelled|labelling|honour|grey|greyed|analyse|analysed|favour|enrolment|categoris|utilisation|judgement|defence|authoris|realise|realised|customis|minimis|whilst)' \
-  | grep -v labelledby
+  | grep -v labelledby \
+  | grep -v 'xargs grep -nE' \
+  | grep -v '"colour" or "behaviour"' \
+  | grep -v 'not "whilst"' \
+  | grep -v 'analyst.*optimistic.*realistic' \
+  | grep -v 'categorises them' \
+  | grep -v 'MDO import blurb'
 ```
 
 ---
@@ -1397,7 +1411,7 @@ arrives at 627x627, so every icon is now a DOWNSAMPLE rather than an upscale.
 - **⚠ The first re-make was a JPEG, and JPEG cannot hold a logo.** No alpha, so the "transparent"
   background was solid `#000000` (77% of the file) and would have been a black rectangle on the
   white login card; lossy, so each quadrant carried 3,200-4,500 distinct values with the dominant
-  colour holding only 10-22% of its own area. **Un-keying it is not possible and this was proven,
+  color holding only 10-22% of its own area. **Un-keying it is not possible and this was proven,
   not asserted**: the wordmark, church and cross are dark navy *on black*, so at any coverage they
   are mathematically indistinguishable from the ground — keyed out, they came back as ghosts.
   Ask for **PNG-32, transparent**, every time.
@@ -1407,7 +1421,7 @@ arrives at 627x627, so every icon is now a DOWNSAMPLE rather than an upscale.
   they are snapped per quadrant by scaling each channel `target/dominant` — preserves shading and
   the anti-aliased edge, unlike a flat replace. Bounded to the cropped mark square, because the
   quadrant test would otherwise also catch the blue "TIMOTHY LUTHERAN CHURCH" text (BRAND5).
-- **⚠ The supplied art has a TRANSPARENT centre disc; ours must be WHITE.** The sidebar is
+- **⚠ The supplied art has a TRANSPARENT center disc; ours must be WHITE.** The sidebar is
   `var(--navy)`, so a navy church on a transparent disc over navy is invisible. A white circle is
   composited UNDER the art (not painted over the gaps) so the ring's inner edge blends; `r=168`
   of 627 — larger and it leaks through the mark's own axis gaps.
@@ -1442,7 +1456,7 @@ arrives at 627x627, so every icon is now a DOWNSAMPLE rather than an upscale.
 - **⚠ `Connect.svg` (Drive) is a raster in an SVG wrapper** — `<defs/>` + one `<image>`, zero
   paths, same 1248x832, mean difference 2.30/255 vs the original sheet. Its metadata declares
   `ContainsAiGeneratedContent`. **No re-export will yield vector; only a redraw will.**
-- **Recolor selects by POSITION** (side of the mark's centre), which is exactly what Canva cannot
+- **Recolor selects by POSITION** (side of the mark's center), which is exactly what Canva cannot
   do. Targets are timothystl.org's live value accents, not the sheet's legend.
 - **Edges preserved by un-mixing** `a*C_src + (1-a)*white` and recompositing, never a flat replace.
 - **⚠ Bound the recolor to the mark (`R_OUTER`)** — unbounded, the quadrant test also caught the
@@ -1459,8 +1473,8 @@ arrives at 627x627, so every icon is now a DOWNSAMPLE rather than an upscale.
   sheet) instead of a CSS recreation. Rendering the two side by side is what showed the gap: the
   designer's wordmark is much heavier and tighter than DM Sans 600 at .13em.
 - **⚠ A crop from this sheet needs its background snapped to pure white** — the WebP's "white" is
-  noise around #f8–#fe and reads as a grey panel on a #fff card. Threshold 242 is safe (well above
-  the tagline grey) and halved the file size.
+  noise around #f8–#fe and reads as a gray panel on a #fff card. Threshold 242 is safe (well above
+  the tagline gray) and halved the file size.
 - **Topbar/sidebar wordmarks stay CSS** (crisp at 15px, adaptable) but now match the artwork's
   weight 700 and tighter tracking.
 
@@ -1502,12 +1516,12 @@ you recreated is not the same." They were right, and the premise was wrong too:
 - **⚠ Conversation image attachments ARE on disk** — Claude Code stores them as base64 image blocks
   in `~/.claude/projects/<project>/<session>.jsonl`. Decode with `json` + `base64`. **Never conclude
   a user-supplied file is unavailable without checking there first.**
-- **The real mark is a compass/crosshair**, not the bracket frame BRAND1 drew: a white centre disc,
+- **The real mark is a compass/crosshair**, not the bracket frame BRAND1 drew: a white center disc,
   four quadrant arcs, and four radial axis arms **split down the axis** so each half belongs to a
   different quadrant color. **The pinwheel/swastika concern recorded in BRAND1 was an artifact of my
   own construction and does not apply to the real artwork.**
 - Extraction: locate by color saturation, flood-fill the white background from the border, then
-  **restore the mark's own white centre disc** (the axis gaps let the flood leak inward) using the
+  **restore the mark's own white center disc** (the axis gaps let the flood leak inward) using the
   ring's measured inner radius.
 - **⚠ The artwork contradicts its own legend**: both right quadrants are `#1860A8`, so GROW's teal
   `#3BA9B2` appears nowhere. Shipped verbatim, not silently recolored — fix belongs in the source.
@@ -2390,7 +2404,7 @@ text, not a metering endpoint. **Don't re-investigate this app when the next ema
   can reach `cdn.tiny.cloud`. Two tests hold the line: `admin/tinymce-assets.test.mjs` fails on
   the hostname appearing in live code, and `test/tinymce-selfhost.test.mjs` boots the real library
   and asserts **no request leaves the origin at all**.
-- [x] **TINY2 — DONE, 2026-08-06 (PR #416, live at 02:49 UTC).** Nothing initialises at page load
+- [x] **TINY2 — DONE, 2026-08-06 (PR #416, live at 02:49 UTC).** Nothing initializes at page load
   anywhere; an editor is created only when somebody puts the caret in a field, and an unopened
   screen does not even fetch the library. Shipped *after* TINY1, so it never reduced cloud loads —
   but it still matters: without it the page editor rebuilt fourteen editors on `/ministries` every

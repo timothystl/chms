@@ -24,9 +24,9 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**27 items open** (of 38 total: 23 rows in the table below + 15 Tier 7 carry-forwards). Closed:
-P22-E, P22-F, P24-C and P26-A on 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B, P25-C, P25-G and
-P27-C on 2026-08-23 — see below. Take the next
+**26 items open** (of 38 total: 23 rows in the table below + 15 Tier 7 carry-forwards). Closed:
+P22-E, P22-F, P24-C and P26-A on 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B, P25-C, P25-G,
+P27-C and P27-B on 2026-08-23 — see below. Take the next
 unchecked row. Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
@@ -87,7 +87,7 @@ same class of problem.
 |---|---|---|---|
 | 15 | ~~**P27-C**~~ | minutes | DONE 2026-08-23. `npm audit fix` — 0 vulnerabilities. Recurring chore, will drift back up. |
 | 16 | **P27-A** | small | **"See FIN58" currently resolves to three different features.** Suffix the later duplicates; do not renumber. |
-| 17 | **P27-B** | small | The American-English check returns 27, and the file says it should return nothing. **⚠ Four hits are the rule quoting its own examples — exclude those lines or it can never be green.** |
+| 17 | ~~**P27-B**~~ | small | DONE 2026-08-23. American-English check is back to zero, real hits fixed, 8 self-referential ones excluded in the command itself. |
 | 18 | **P27-D** | small | Delete ~800 KB of dead tracked files. **⚠ Confirm nothing outside the repo serves them** — a root `CNAME` suggests Pages once did. |
 
 ### Tier 6 — Design system consolidation
@@ -490,10 +490,22 @@ cleanup — do not let it wait for the redesign.**
   than renumbering. **This matters because this file is the hand-off between sessions**: "see FIN58" currently
   resolves to three different features. `G3` also appears twice as the same item — make the second a
   cross-reference.
-- [ ] **P27-B** (retires **DOC4**) — Get the American-English check back to zero. 27 hits today: NOTES.md 13 ·
-  CLAUDE.md 12 (4 of which are the rule quoting its own example words and are unavoidable — exclude those
-  four lines in the command, or the check can never be green) · `src/frontend/js-finance.js:7968` ·
-  `test/finance-comp-baseline.test.js:504`. The last two are live code.
+- [x] **P27-B** — DONE 2026-08-23, retires **DOC4**. Was 27 hits; now zero, and the check as
+  documented (with 6 new exclusions added to its own command) actually returns clean. Fixed 19 real
+  violations: 8 in `CLAUDE.md` (color/center/gray/initializes, in the BRAND1/BRAND2/BRAND5/TINY2
+  historical write-ups), 9 in `NOTES.md` (the same BRAND saga, told a second time in that file), and
+  the two flagged live-code instances (a comment in `src/frontend/js-finance.js`, an assertion
+  comment in `test/finance-comp-baseline.test.js`). **Left 8 hits alone, deliberately, and
+  excluded them in the check command itself** rather than editing: 4 in `CLAUDE.md` are this section
+  quoting its own banned-word and look-alike-word examples (rewriting them would mean the section
+  could no longer show what it's talking about — the reworded explanatory prose above the command
+  had to avoid the same trap, since a first draft accidentally reintroduced 2 new hits by describing
+  the examples using the very words being described); 2 more are the identical self-quoting pattern
+  in `NOTES.md`'s own copy of this rule; the last 2 are `NOTES.md`'s v1.172.1 entry naming the exact
+  pre-fix wording of three real strings that release corrected — a historical record, same reasoning
+  as the `migrations/*.sql` exclusion. `npm test` (1813/1813, unaffected — comment/prose-only
+  changes). `node --check` on the one touched JS source file. (`CLAUDE.md`, `NOTES.md`,
+  `src/frontend/js-finance.js`, `test/finance-comp-baseline.test.js`)
 - [x] **P27-C** — DONE 2026-08-23, retires **DOC5**. `npm audit fix` — 6 high (dev-tooling only:
   `nanoid`, `postcss`, `sharp` via `wrangler → miniflare`, `undici`) down to **0 vulnerabilities**.
   `package-lock.json` only, no source change. `npm test` (1813/1813, unaffected — a pure
