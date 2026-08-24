@@ -24,11 +24,11 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**20 items open** (of 38 total: 21 rows in the table below + 14 Tier 7 carry-forwards). Closed:
+**19 items open** (of 38 total: 21 rows in the table below + 13 Tier 7 carry-forwards). Closed:
 P22-E, P22-F, P24-C and P26-A on 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B, P25-C, P25-G,
-P27-C, P27-B, P27-D, P27-A, P28-E, P25-E and P23-A on 2026-08-23; P28-D on 2026-08-24 — see below.
-**Tiers 1, 2 and 5 are now all complete; Tier 3 has only P25-F left (the shell boot sequence).**
-Take the next unchecked row.
+P27-C, P27-B, P27-D, P27-A, P28-E, P25-E and P23-A on 2026-08-23; P28-D and P28-C on 2026-08-24 —
+see below. **Tiers 1, 2 and 5 are now all complete; Tier 3 has only P25-F left (the shell boot
+sequence).** Take the next unchecked row.
 Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
@@ -645,8 +645,21 @@ nothing is orphaned. Not ordered.
 - [ ] **P28-B** / **PM1** — Person merge: move giving, tags and household membership to a canonical record,
   then delete the duplicate. Needs a confirmation UI with a diff view. **The SITE2 sign-up merge tools are a
   working precedent** — same shape, same confirm-count safety pattern.
-- [ ] **P28-C** / **PL1b** — Pledge tracking: a `pledges` table, pledge vs. actual on the profile and in
-  Giving Insights.
+- [x] **P28-C** / **PL1b** — DONE 2026-08-24. New `pledges` table (`person_id`, `fiscal_year`,
+  `amount_cents`, `note`, unique on person+year — migration `0038`). `GET/POST
+  /admin/api/people/:id/pledges` (list, with each row's actual giving for that fiscal year computed
+  alongside it) and `DELETE .../pledges/:year`, all gated on `isFinance` — a pledge is giving-related
+  data, the same reasoning that already keeps `giving_12mo` off a council-role profile view. Person
+  profile's existing Giving tab gets a new Pledges card (year / pledged / given / %) above the gift
+  table, with an inline add-or-update form; deleting a year removes just that pledge. **Deliberately
+  scoped down from the item's own "and in Giving Insights" line** — the profile card is the concrete,
+  immediately useful half; a congregation-wide pledge-vs-actual view in Giving Insights is a separate
+  aggregation question (which year, which population) better scoped with the user directly rather than
+  guessed. `npm test` (1853/1853, 14 new across `test/pledges.test.js` — real in-memory SQLite driving
+  the real route — and `test/pledges-frontend.test.js` — the vm-harness pattern against the real built
+  bundle); every new test verified non-vacuous by reverting the implementation and confirming the
+  matching tests fail (6 of 8 backend, all 6 frontend). `node --check` on every touched file. **Not
+  verified**: a live browser.
 - [x] **P28-D** / **TAP3** — DONE 2026-08-24. New "Planner Settings" card on the Tuition Aid tab covers
   all eight remaining knobs (`tuition_base_cents`, `tuition_growth_pct`, `lhs_standard_rate_cents`,
   `lhs_max_award_cents`, `timothy_min_award_cents`, `family_share_cap_pct`, `default_pipeline_fam_pct`,

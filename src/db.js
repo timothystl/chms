@@ -1777,6 +1777,19 @@ async function _doInitDb(db) {
        SELECT MIN(id) FROM engagement_tasks GROUP BY title, week_key
      )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_engagement_tasks_title_week ON engagement_tasks(title, week_key)`,
+    // P28-C / PL1b (see migrations/0038_pledges.sql): pledge tracking, one row per person per
+    // fiscal year. No fund column deliberately -- a pledge names an annual total, not a
+    // designation.
+    `CREATE TABLE IF NOT EXISTS pledges (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       person_id INTEGER NOT NULL REFERENCES people(id),
+       fiscal_year INTEGER NOT NULL,
+       amount_cents INTEGER NOT NULL DEFAULT 0,
+       note TEXT NOT NULL DEFAULT '',
+       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+     )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_pledges_person_year ON pledges(person_id, fiscal_year)`,
   ];
   // Every statement here is either an idempotent CREATE ... IF NOT EXISTS, or an ALTER TABLE
   // ADD COLUMN — SQLite has no "ADD COLUMN IF NOT EXISTS", so a re-run always throws "duplicate
