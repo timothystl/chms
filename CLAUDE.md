@@ -518,6 +518,42 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### MOB-ADMIN3 — Mobile Admin shell retired; the app has one mobile UI again (2026-08-24, DONE)
+The app had two divergent mobile experiences: the dedicated Mobile Admin shell (MOB-ADMIN1/
+MOB-ADMIN2 — auto-detected by User-Agent, its own splash/dashboard/people-directory HTML+JS,
+its own `mobile/*` API surface) and the regular desktop admin SPA's own mobile-responsive CSS
+(MOB1-4/ATT7/REG-MOB1-2/VOL-MOB1/the Tuition Aid and Register mobile fixes, etc. — a totally
+separate, much larger effort making the *same* app usable down to phone width). Asked to bring
+them back together; the user's call was **one mobile UI, retire the other** — keep the desktop
+SPA (it already covers every tab, not just dashboard/people/light-attendance) and drop the
+auto-detected alternate shell entirely, rather than trying to reconcile two designs or keep
+Mobile Admin as a permanent subset.
+
+- **`wantsMobileShell()`/`isPhoneUserAgent()`/`prefersDesktop()`/`DESKTOP_PREF_COOKIE`
+  deleted** (`tlc-volunteer-worker.js`) — the root `/` and `/chms` GET handlers no longer branch
+  on User-Agent or the `mob_pref` cookie at all; every authenticated request now gets
+  `chmsHtmlForRole(auth.role)` unconditionally, the same call the desktop path always used. The
+  `?desktop=1` escape-hatch query param and its cookie-setting code are gone with it — there is
+  no second shell left to escape from.
+- **`src/mobile-admin-html.js` and `src/api-mobile.js` deleted outright**, along with their
+  import/dispatch in `src/api-admin.js` (`handleMobileApi`, the `seg.startsWith('mobile/')`
+  block that ran ahead of the general ChMS dispatch) and `tlc-volunteer-worker.js`'s import of
+  `MOBILE_ADMIN_HTML`. `mobileAllowed()`/the mobile-specific member-scoping queries lived only in
+  `api-mobile.js` and went with it — `MEMBER_ALLOWED_ITEMS` in `api-utils.js` is a separate,
+  general-purpose permission-matrix constant and was untouched.
+- **Nothing needed to change in the desktop shell itself.** MOB1-4's breakpoints (767/900/1100,
+  `src/frontend/html-head.js`) already make every tab usable at phone width — that responsive CSS
+  becomes the sole mobile experience by inheritance, not by new work.
+- `test/mobile-admin.test.js` and `test/mobile-auto-detect.test.js` deleted (their entire subject
+  no longer exists). `npm test` (1793/1793, 113 files — down from the prior mobile-admin-specific
+  coverage, with no other test referencing the deleted symbols). `node --check` on both touched
+  backend files. DEPLOY_VERSION bumped to 1.207.0. **Not verified**: a live browser or a real
+  phone — same standing caveat as all frontend work in this repo; worth confirming on a real
+  device that the desktop SPA's phone-width layout (chart resize handles, register/attendance
+  mobile fixes, etc.) still reads well now that it's the only path a phone visitor ever sees.
+  (`tlc-volunteer-worker.js`, `src/api-admin.js`, `src/mobile-admin-html.js` — deleted,
+  `src/api-mobile.js` — deleted, `src/frontend/js-core.js`)
+
 ### TAP6 — A pin made for "next year" is now promoted automatically once that year becomes current (2026-08-23, DONE, P28-E)
 Closes the known, deliberately-deferred limitation this file already documented under TAP6: a
 per-year pin (outside aid, family %, Timothy Award, LHS Award) entered while a school year was
