@@ -42,8 +42,9 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
                green used for the Acceptance ministry identity + "open
                slots" indicators — legitimately distinct from --sage, not
                a duplicate to merge) · --danger #B85C3A (all error/delete
-               affordances; --ev-danger now aliases this — was a genuine
-               duplicate red, #c0392b, reconciled here)
+               affordances; was a genuine duplicate red, #c0392b, reconciled
+               here — --ev-danger used to alias this and is now retired,
+               see P26-C below)
    See CLAUDE.md "Pre-Redesign Palette Consolidation" for the full sweep
    plan (PAL2 admin usages, PAL3 public site, PAL4 scheduler, PAL5 inline
    hex cleanup). ── */
@@ -106,15 +107,16 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
   --warm-surface-header:#FBF3E1;--warm-surface-card-page:#F4EFE2;
   --status-member:#6B8F71;--status-visitor:#4D6BA0;--status-associate:#2E7EA6;
   --status-friend:#8A7A5C;--status-inactive:#C9973A;--status-organization:#5C4B2E;
-  /* ── Volunteer/Events design-handoff palette. --ev-navy/--ev-teal/--ev-ink
-     turned out to be exact hex matches for --color-navy/--color-teal/--charcoal
-     (confirmed during the RDS5 redesign pass) and now alias them — same
-     dedup already done for --ev-danger. --ev-muted/--ev-cream/--ev-moss have
-     no matching token (--ev-moss is a second, deliberately distinct green
-     from --sage) and stay as their own literal values. ── */
-  --ev-navy:var(--color-navy);--ev-teal:var(--color-teal);--ev-muted:#8A8898;--ev-ink:var(--charcoal);
+  /* ── Volunteer/Events design-handoff palette (P26-C). --ev-navy/--ev-teal/--ev-ink/--ev-danger
+     turned out to be exact hex matches for --color-navy/--color-teal/--charcoal/--danger
+     (confirmed during the RDS5 redesign pass) — every var(--ev-navy|teal|ink|danger) usage was
+     replaced with the brand token directly, so those four alias definitions are retired rather
+     than kept as an indirection nothing points at any more. --ev-muted/--ev-cream/--ev-moss/
+     --ev-border/--ev-border2 have no matching token (--ev-moss is a second, deliberately
+     distinct green from --sage) and stay as their own literal values. ── */
+  --ev-muted:#8A8898;
   --ev-border:rgba(30,45,74,.12);--ev-border2:rgba(30,45,74,.18);
-  --ev-cream:#F7F3EC;--ev-moss:#4A5E3A;--ev-danger:var(--danger);
+  --ev-cream:#F7F3EC;--ev-moss:#4A5E3A;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 /* ── Giving-letter rendered content (Settings preview + the "View Letter" screen) ──
@@ -1644,56 +1646,56 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 .ev-list-col{width:250px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--ev-border);}
 .ev-list-col-wide{width:290px;}
 .ev-list-header{padding:16px 16px 10px;}
-.ev-list-header h4{font-family:'Lora',serif;font-weight:600;font-size:1rem;color:var(--ev-navy);margin:0 0 10px;}
+.ev-list-header h4{font-family:'Lora',serif;font-weight:600;font-size:1rem;color:var(--color-navy);margin:0 0 10px;}
 .ev-list-header-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;}
 .ev-list-header-row h4{margin:0;}
 .ev-list-search input{background:var(--ev-cream);border:1px solid var(--ev-border);border-radius:8px;font-size:.82rem;color:var(--ev-muted);}
 .ev-list-rows{flex:1;overflow-y:auto;min-height:80px;}
 .ev-list-footer{padding:12px 16px;border-top:1px solid var(--ev-border);}
-.ev-list-footer button{width:100%;background:var(--ev-navy);color:var(--white);border:none;border-radius:8px;padding:9px;font-size:.82rem;font-weight:600;cursor:pointer;}
-.ev-new-btn{background:var(--ev-navy);color:var(--white);border:none;border-radius:7px;padding:6px 11px;font-size:.75rem;font-weight:600;cursor:pointer;flex-shrink:0;}
+.ev-list-footer button{width:100%;background:var(--color-navy);color:var(--white);border:none;border-radius:8px;padding:9px;font-size:.82rem;font-weight:600;cursor:pointer;}
+.ev-new-btn{background:var(--color-navy);color:var(--white);border:none;border-radius:7px;padding:6px 11px;font-size:.75rem;font-weight:600;cursor:pointer;flex-shrink:0;}
 .ev-list-group-hdr{padding:12px 16px 4px;font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ev-muted);cursor:pointer;display:flex;align-items:center;gap:5px;user-select:none;}
 .ev-list-group-hdr:first-child{padding-top:8px;}
-.ev-list-group-hdr:hover{color:var(--ev-navy);}
+.ev-list-group-hdr:hover{color:var(--color-navy);}
 .ev-list-group-chevron{display:inline-block;font-size:.6rem;transition:transform .15s;}
 .ev-list-group-hdr.collapsed .ev-list-group-chevron{transform:rotate(-90deg);}
-.ev-list-group-active-dot{width:6px;height:6px;border-radius:50%;background:var(--ev-teal);flex-shrink:0;}
+.ev-list-group-active-dot{width:6px;height:6px;border-radius:50%;background:var(--color-teal);flex-shrink:0;}
 .ev-list-row{padding:10px 16px;border-left:3px solid transparent;cursor:pointer;}
 .ev-list-row:hover{background:rgba(30,45,74,.03);}
-.ev-list-row.active{background:rgba(46,126,166,.08);border-left-color:var(--ev-teal);}
-.ev-list-row .ev-list-name{font-weight:600;font-size:.82rem;color:var(--ev-navy);}
+.ev-list-row.active{background:rgba(46,126,166,.08);border-left-color:var(--color-teal);}
+.ev-list-row .ev-list-name{font-weight:600;font-size:.82rem;color:var(--color-navy);}
 .ev-list-row.active .ev-list-name{font-weight:700;}
 .ev-list-row .ev-list-meta{font-size:.7rem;color:var(--ev-muted);margin-top:2px;}
 .ev-detail-col{flex:1;min-width:0;padding:22px 26px;overflow-y:auto;}
 .ev-detail-topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
 .ev-badge-open{background:rgba(74,94,58,.1);color:var(--ev-moss);font-size:.7rem;font-weight:600;padding:3px 9px;border-radius:100px;}
-.ev-badge-visible{background:rgba(46,126,166,.1);color:var(--ev-teal);font-size:.69rem;font-weight:600;padding:3px 9px;border-radius:100px;}
-.ev-badge-hidden{background:rgba(192,57,43,.08);color:var(--ev-danger);font-size:.7rem;font-weight:600;padding:3px 9px;border-radius:100px;}
+.ev-badge-visible{background:rgba(46,126,166,.1);color:var(--color-teal);font-size:.69rem;font-weight:600;padding:3px 9px;border-radius:100px;}
+.ev-badge-hidden{background:rgba(192,57,43,.08);color:var(--danger);font-size:.7rem;font-weight:600;padding:3px 9px;border-radius:100px;}
 .ev-field-row{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:14px;}
 @media(max-width:767px){.ev-field-row{grid-template-columns:1fr;}}
-.ev-delete-link{color:var(--ev-danger);font-size:.78rem;font-weight:600;text-decoration:none;cursor:pointer;}
+.ev-delete-link{color:var(--danger);font-size:.78rem;font-weight:600;text-decoration:none;cursor:pointer;}
 .ev-fields{display:flex;flex-direction:column;gap:14px;max-width:480px;}
 .ev-fields label,.ev-field-row label{display:block;font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);margin-bottom:5px;}
 .ev-fields input[type=text],.ev-fields input[type=date],.ev-fields select,.ev-fields textarea,
 .ev-field-row input[type=text],.ev-field-row input[type=date],.ev-field-row select,.ev-field-row textarea{
-  background:var(--white);border:1.5px solid var(--ev-border2);border-radius:7px;padding:9px 12px;font-size:.85rem;color:var(--ev-ink);width:100%;font-family:inherit;
+  background:var(--white);border:1.5px solid var(--ev-border2);border-radius:7px;padding:9px 12px;font-size:.85rem;color:var(--charcoal);width:100%;font-family:inherit;
 }
 .ev-fields textarea{min-height:64px;resize:vertical;}
 .ev-toggle-row{display:flex;align-items:center;gap:10px;background:var(--ev-cream);border-radius:8px;padding:10px 12px;}
-.ev-fields label.ev-toggle-row,.ev-field-row label.ev-toggle-row{display:flex;align-items:center;text-transform:none;font-size:.78rem;font-weight:600;letter-spacing:normal;color:var(--ev-navy);margin-bottom:0;}
-.ev-btn-primary{background:var(--ev-navy);color:var(--white);border:none;border-radius:8px;padding:10px 20px;font-size:.82rem;font-weight:600;cursor:pointer;}
-.ev-btn-secondary{background:transparent;border:1.5px solid var(--ev-border2);color:var(--ev-navy);border-radius:8px;padding:10px 16px;font-size:.82rem;font-weight:600;cursor:pointer;}
+.ev-fields label.ev-toggle-row,.ev-field-row label.ev-toggle-row{display:flex;align-items:center;text-transform:none;font-size:.78rem;font-weight:600;letter-spacing:normal;color:var(--color-navy);margin-bottom:0;}
+.ev-btn-primary{background:var(--color-navy);color:var(--white);border:none;border-radius:8px;padding:10px 20px;font-size:.82rem;font-weight:600;cursor:pointer;}
+.ev-btn-secondary{background:transparent;border:1.5px solid var(--ev-border2);color:var(--color-navy);border-radius:8px;padding:10px 16px;font-size:.82rem;font-weight:600;cursor:pointer;}
 .ev-day-header{display:flex;align-items:center;justify-content:space-between;margin:18px 0 8px;}
 .ev-day-header:first-of-type{margin-top:4px;}
-.ev-day-header h4{font-family:'Lora',serif;font-weight:600;font-size:.92rem;color:var(--ev-navy);margin:0;}
+.ev-day-header h4{font-family:'Lora',serif;font-weight:600;font-size:.92rem;color:var(--color-navy);margin:0;}
 .ev-shift-row{display:grid;grid-template-columns:1.6fr 1fr 60px 50px;gap:10px;align-items:center;background:var(--ev-cream);border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer;}
 .ev-shift-row:hover{background:var(--ev-border);}
-.ev-shift-row .ev-shift-name{font-size:.82rem;font-weight:600;color:var(--ev-navy);}
+.ev-shift-row .ev-shift-name{font-size:.82rem;font-weight:600;color:var(--color-navy);}
 .ev-shift-row .ev-shift-time{font-size:.7rem;color:var(--ev-muted);}
 .ev-fill-bar{height:6px;background:rgba(30,45,74,.1);border-radius:99px;overflow:hidden;}
 .ev-fill-bar>div{height:100%;}
 .ev-fill-count{font-size:.75rem;font-weight:700;text-align:center;}
-.ev-edit-link{font-size:.75rem;font-weight:600;color:var(--ev-teal);text-align:center;}
+.ev-edit-link{font-size:.75rem;font-weight:600;color:var(--color-teal);text-align:center;}
 @media(max-width:767px){.ev-master-detail{flex-direction:column;}.ev-list-col{width:100%;border-right:none;border-bottom:1px solid var(--ev-border);}}
 /* ── Reusable pill toggle switch (Ministry Roles, Settings) ── */
 .toggle-switch{display:inline-flex;align-items:center;gap:10px;cursor:pointer;}
