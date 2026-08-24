@@ -1,9 +1,33 @@
 // ── AUTH ─────────────────────────────────────────────────────────────
-// Cookie formats (all HMAC-SHA256 signed with ADMIN_PASSWORD):
+// Cookie formats (all HMAC-SHA256 signed with SESSION_SECRET — see P23-A below):
 //   4-part: `<ts>.<role>.<username>.<sig>`  sig covers `ts.role.username`
 //   3-part: `<ts>.<role>.<sig>`             sig covers `ts.role`
 //   2-part: `<ts>.<sig>`                    sig covers `ts`  (legacy admin)
 // Username may be empty string for env-var logins.
+//
+// P23-A (SEC15): cookies used to be signed with ADMIN_PASSWORD — a human-chosen password
+// that is also the break-glass LOGIN credential, so anyone holding a valid cookie (down to
+// the lowest-trust `member` role, on their own phone) held HMAC(ADMIN_PASSWORD, knownPayload)
+// and could grind it offline at their leisure. Recovering it forges a cookie for ANY role and
+// hands over the break-glass login too. Signing now uses a separate, high-entropy
+// `SESSION_SECRET` that has no other purpose — compromising a forged cookie no longer also
+// compromises the break-glass admin password, and rotating one no longer force-logs-out
+// break-glass recovery along with everyone else (see SECRETS.md).
+//
+// ⚠ FAILS CLOSED, not open: with no SESSION_SECRET set, sessionSigningKey() throws rather than
+// falling back to an empty-string HMAC key (which HMAC accepts and would be a well-known,
+// trivially-forgeable key). That means every login and every already-issued cookie stops
+// working the moment this ships until `wrangler secret put SESSION_SECRET` is run — a
+// deliberate, one-time, whole-app outage rather than a silent downgrade. Shipped on a day
+// nobody is expected to be logged in, by explicit choice, rather than threading a
+// dual-key accept-either transition through this file.
+async function sessionSigningKey(env, usage) {
+  if (!env.SESSION_SECRET) throw new Error('SESSION_SECRET not configured');
+  return crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(env.SESSION_SECRET),
+    { name: 'HMAC', hash: 'SHA-256' }, false, [usage]
+  );
+}
 //
 // Session behavior:
 //   - Cookie is a session cookie (no Expires) so it dies on browser close.
@@ -107,10 +131,10 @@ async function _resolveAuthInfo(req, env) {
   const age = Date.now() - parseInt(ts, 10);
   if (age > idleTimeoutForRole(role)) return null;
   try {
-    const key = await crypto.subtle.importKey(
-      'raw', new TextEncoder().encode(env.ADMIN_PASSWORD || ''),
-      { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
-    );
+    // Throws if SESSION_SECRET is unset — caught below, same as any other verify failure,
+    // which is exactly the fail-closed behavior wanted here (never falls back to a
+    // well-known empty-string key).
+    const key = await sessionSigningKey(env, 'verify');
     const payload = parts.length === 4 ? `${ts}.${role}.${username}`
                   : parts.length === 3 ? `${ts}.${role}`
                   : ts;
@@ -145,14 +169,14 @@ export async function isAuthed(req, env) {
   return (await getAuthInfo(req, env)) !== null;
 }
 // username must be alphanumeric/underscore/hyphen only (no dots)
+// Throws if SESSION_SECRET is unset — callers that mint a fresh cookie from a login handler
+// need to catch this and show an operator-facing message; refreshAuthCookie's caller never
+// hits it in practice (see its own comment).
 export async function authCookieHeader(env, role = 'admin', username = '') {
   const ts = Date.now().toString();
   const safeUser = username.replace(/[^a-zA-Z0-9_-]/g, '');
   const payload = safeUser ? `${ts}.${role}.${safeUser}` : `${ts}.${role}`;
-  const key = await crypto.subtle.importKey(
-    'raw', new TextEncoder().encode(env.ADMIN_PASSWORD || ''),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  );
+  const key = await sessionSigningKey(env, 'sign');
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
   const b64url = btoa(String.fromCharCode(...new Uint8Array(sig)))
     .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -187,7 +211,16 @@ export async function refreshAuthCookie(response, authInfo, env) {
   // request already carried a fresh cookie in, if any) — skip the wrapper entirely for these.
   const cacheControl = response.headers.get('Cache-Control') || '';
   if (/\bpublic\b/.test(cacheControl) && /\bimmutable\b/.test(cacheControl)) return response;
-  const newCookie = await authCookieHeader(env, authInfo.role, authInfo.username);
+  // authInfo non-null here means getAuthInfo already verified a cookie against SESSION_SECRET
+  // moments ago in the same request, so this can't throw in practice — but a refresh failing
+  // should never turn an otherwise-good response into a 500, so fall back to the unrefreshed
+  // response rather than let a thrown error propagate up to the worker's top-level catch.
+  let newCookie;
+  try {
+    newCookie = await authCookieHeader(env, authInfo.role, authInfo.username);
+  } catch {
+    return response;
+  }
   const headers = new Headers(response.headers);
   headers.append('Set-Cookie', newCookie);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });

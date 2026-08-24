@@ -48,7 +48,7 @@ function makeDb() {
 let db, sqlite, env;
 beforeEach(() => {
   ({ db, sqlite } = makeDb());
-  env = { DB: db, ADMIN_PASSWORD: SECRET };
+  env = { DB: db, ADMIN_PASSWORD: SECRET, SESSION_SECRET: SECRET };
   sqlite.exec(`INSERT INTO app_users (username, role, active) VALUES
     ('andrew','admin',1), ('betty','admin',1), ('carl','staff',1)`);
 });

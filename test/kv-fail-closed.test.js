@@ -38,7 +38,7 @@ describe('login rate limiting fails closed with no RSVP_STORE', () => {
   });
 
   it('still accepts the correct password when RSVP_STORE IS present (fix does not just always refuse)', async () => {
-    const env = { ADMIN_PASSWORD: 'correct-horse-battery-staple', RSVP_STORE: makeKvStore(), DB: null };
+    const env = { ADMIN_PASSWORD: 'correct-horse-battery-staple', SESSION_SECRET: 'test-signing-secret', RSVP_STORE: makeKvStore(), DB: null };
     const res = await handleAdminLogin(loginReq(), env);
     expect(res.status).toBe(302);
     expect(res.headers.get('Set-Cookie')).toBeTruthy();

@@ -24,10 +24,11 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**22 items open** (of 38 total: 22 rows in the table below + 15 Tier 7 carry-forwards). Closed:
+**21 items open** (of 38 total: 21 rows in the table below + 15 Tier 7 carry-forwards). Closed:
 P22-E, P22-F, P24-C and P26-A on 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B, P25-C, P25-G,
-P27-C, P27-B, P27-D, P27-A, P28-E and P25-E on 2026-08-23 — see below. **Tiers 1, 2 and 5 are now
-all complete; Tier 3 has only P25-F left (the shell boot sequence).** Take the next unchecked row.
+P27-C, P27-B, P27-D, P27-A, P28-E, P25-E and P23-A on 2026-08-23 — see below. **Tiers 1, 2 and 5
+are now all complete; Tier 3 has only P25-F left (the shell boot sequence).** Take the next
+unchecked row.
 Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
@@ -72,8 +73,8 @@ The church network is slow; AU2 has been open since July for that reason.
 
 | # | Code | Size | What |
 |---|---|---|---|
-| 13 | **P23-A** | needs scoping | Session cookies are HMAC-signed with `ADMIN_PASSWORD`, a human-chosen password that any member can grind offline. Move to a `SESSION_SECRET`. **⚠ The migration is the hard part, not the change.** |
-| 14 | **P23-B** | needs scoping | MFA for `admin` and `finance`. **P23-A first** — MFA over a guessable session key buys less than it looks like. |
+| 13 | ~~**P23-A**~~ | needs scoping | DONE 2026-08-23. Session cookies now sign with a dedicated `SESSION_SECRET`, not `ADMIN_PASSWORD`. Shipped as a hard cutover (fails closed, forces a full-app relogin) rather than a dual-key transition — user's call, made explicitly for a day nobody was expected to be logged in. **⚠ Manual step: `wrangler secret put SESSION_SECRET` must be run or nobody can log in.** |
+| 14 | **P23-B** | needs scoping | MFA for `admin` and `finance`. **P23-A is done** — MFA now sits on top of a real high-entropy session key instead of a guessable password. |
 
 > Placed below Tier 3 on **sequencing, not importance**. P23-A is the most valuable remaining security
 > item; it is also the one that can log the whole staff out mid-week if the rollout is wrong, so it wants
@@ -257,13 +258,46 @@ v1.191.0. **Not verified**: a live browser, a real sent email, or production D1.
 ## Phase 23 — Authentication foundation (needs scoping before any code)
 **Goal:** the two items that change how sessions and logins work. Both deserve their own session.
 
-- [ ] **P23-A** (retires **SEC15**) — Move session signing off `ADMIN_PASSWORD` onto a separate
-  high-entropy `SESSION_SECRET`. **⚠ Migration matters more than the change**: every existing cookie is
-  signed with the old key, so plan for accept-either-during-rollout or accept-a-forced-logout, and keep
-  LP8's rotate-to-revoke-everything property pointed at the new secret. Update `SECRETS.md`.
+- [x] **P23-A** (retires **SEC15**) — DONE 2026-08-23. Session cookies now sign with a dedicated
+  `SESSION_SECRET`, decoupled entirely from `ADMIN_PASSWORD` — the break-glass admin password is no
+  longer also the key that forges every session cookie for every role. New `sessionSigningKey(env,
+  usage)` in `src/auth.js` centralizes both the sign and verify paths (`authCookieHeader`,
+  `_resolveAuthInfo`), replacing two separate inline `crypto.subtle.importKey(...env.ADMIN_PASSWORD...)`
+  calls.
+  - **⚠ Migration decision, made explicitly by the user rather than scoped as a dual-key transition**:
+    shipped as a hard cutover — `sessionSigningKey()` **throws** if `SESSION_SECRET` is unset, rather than
+    falling back to an empty-string HMAC key (which HMAC accepts and would be a trivially-forgeable,
+    well-known key). `_resolveAuthInfo`'s existing try/catch already turns that throw into a fail-closed
+    `null` for verification; `authCookieHeader`'s one login-issuing caller (`handleAdminLogin`) catches it
+    and shows "Session signing key is not configured" instead of a raw 500; `refreshAuthCookie`'s own call
+    is defensively wrapped too (never reachable in practice — `authInfo` non-null already proves
+    `SESSION_SECRET` verified moments earlier in the same request — but a refresh failing must never turn
+    a good response into a 500). **Net effect**: every existing session invalidates the moment this ships,
+    and nobody can log back in until an admin runs `wrangler secret put SESSION_SECRET` — a deliberate,
+    one-time, whole-app outage instead of a silent security downgrade, chosen for a day nobody was
+    expected to be logged in rather than threading accept-either-during-rollout logic through this file.
+  - **The break-glass credential check in `handleAdminLogin` deliberately still reads `env.ADMIN_PASSWORD`
+    directly and stays untouched** — that function's own `test/admin-login-credentials.test.js` scan
+    (SEC22) asserts it reads exactly one credential from env; the new secret is read one layer down, inside
+    `auth.js`, and `handleAdminLogin` only ever sees the *thrown error*, never `env.SESSION_SECRET` itself,
+    so that invariant holds unchanged.
+  - `SECRETS.md` updated: `ADMIN_PASSWORD`'s entry now states its sole remaining purpose (break-glass
+    login) and that rotating it no longer force-logs-out anyone; new `SESSION_SECRET` entry documents
+    format, the fail-closed behavior, and that rotating IT is now the one action that forces a full-app
+    relogin (LP8's rotate-to-revoke-everything property, now correctly pointed at the new secret).
+  - `npm test` (1828/1828, 1 new test asserting both the DB-account and break-glass login paths refuse
+    with a clear message when `SESSION_SECRET` is unset); verified non-vacuous by reverting `src/auth.js`
+    and confirming it fails. 14 other test files needed a `SESSION_SECRET` fixture added alongside their
+    existing `ADMIN_PASSWORD` (since minting a test cookie now needs both, for different reasons); two of
+    those (`auth-memo.test.js`, `market-shift-lead.test.js`) had a test specifically asserting "a cookie
+    signed with a different key fails to verify" that had to be repointed at `SESSION_SECRET` — leaving it
+    pointed at `ADMIN_PASSWORD` would have made the test pass while proving nothing, since that value no
+    longer has anything to do with signing. `node --check` on every touched file. **Not verified**: a live
+    browser, or the actual production secret being set — that is the one manual step left, and the whole
+    app cannot authenticate anyone until it happens.
 - [ ] **P23-B** (retires **SEC9**) — MFA, at least for `admin` and `finance`. TOTP setup + QR, verification
-  at login, recovery codes, and a decision on which roles are required. **P23-A first** — MFA on top of a
-  session key that is also a guessable password buys less than it looks like.
+  at login, recovery codes, and a decision on which roles are required. **P23-A is done** — MFA now sits
+  on top of a real high-entropy session key instead of a guessable password.
 - **SEC10 (CAPTCHA) is closed as deferred** and stays closed unless the threat model changes here.
 
 **Done when:** each has a design decision logged in this file, or is in active implementation.

@@ -18,6 +18,7 @@ function envForRole(role) {
   const stmt = { bind: () => stmt, first: async () => row, all: async () => ({ results: [] }), run: async () => ({ meta: {} }) };
   return {
     ADMIN_PASSWORD: 'test-signing-secret',
+    SESSION_SECRET: 'test-signing-secret',
     DB: { prepare: () => stmt, batch: async () => [] },
   };
 }

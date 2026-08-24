@@ -52,7 +52,7 @@ function makeTestDb() {
 const ADMIN_PASSWORD = 'test-secret';
 
 async function makeEnvAndReq(db) {
-  const env = { DB: db, ADMIN_PASSWORD };
+  const env = { DB: db, ADMIN_PASSWORD, SESSION_SECRET: ADMIN_PASSWORD };
   const cookie = await authCookieHeader(env, 'admin', '');
   const req = { headers: new Map([['cookie', cookie]]) };
   req.headers.get = Map.prototype.get.bind(req.headers);

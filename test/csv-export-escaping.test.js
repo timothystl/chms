@@ -271,7 +271,7 @@ describe('the public-input exports carry the guard end to end', () => {
     `, (sq) => sq.prepare('INSERT INTO signups VALUES (1,?,?,?,?,?,?,?,?,?,?,NULL,?)')
         .run('worship', PAYLOAD, 'v@x.com', '', '[]', 'both', '[]', 0, '', '+also a formula', '2026-01-01'));
     const { authCookieHeader } = await import('../src/auth.js');
-    const env = { DB: db, ADMIN_PASSWORD: 'pw' };
+    const env = { DB: db, ADMIN_PASSWORD: 'pw', SESSION_SECRET: 'pw' };
     const cookie = (await authCookieHeader(env, 'admin', 'admin')).split(';')[0];
     const url = new URL('https://connect.timothystl.org/admin/api/export.csv');
     const res = await handleAdminApi(new Request(url, { headers: { cookie } }), env, url, 'GET');

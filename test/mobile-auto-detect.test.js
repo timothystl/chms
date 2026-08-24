@@ -9,7 +9,7 @@ import { authCookieHeader } from '../src/auth.js';
 // so a regression shows up as the wrong shell actually being served, not a unit test of
 // an isolated helper that could drift from what the route wiring really does.
 
-const SECRETS = { ADMIN_PASSWORD: 'test-signing-secret' };
+const SECRETS = { ADMIN_PASSWORD: 'test-signing-secret', SESSION_SECRET: 'test-signing-secret' };
 const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 const DESKTOP_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 

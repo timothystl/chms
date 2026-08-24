@@ -37,6 +37,8 @@ function makeKvStore() {
 function envWith(users = []) {
   return {
     ADMIN_PASSWORD: ADMIN_PW,
+    // P23-A: session cookies are signed with a separate secret now, not ADMIN_PASSWORD.
+    SESSION_SECRET: 'test-session-secret',
     FINANCE_PASSWORD: 'finance-pw',
     STAFF_PASSWORD: 'staff-pw',
     MEMBER_PASSWORD: 'member-pw',
@@ -103,6 +105,25 @@ describe('admin login — the credentials that are real still work', () => {
     const res = await handleAdminLogin(loginReq('finance', 'finance-pw'), env);
     expect(signedIn(res)).toBe(false);
     expect(await res.text()).toContain('ADMIN_PASSWORD');
+  });
+
+  // P23-A/SEC15: a valid password no longer implies a mintable session — the signing key is a
+  // separate secret now, and the app must fail closed rather than sign with a well-known
+  // empty-string key when it's missing.
+  it('refuses even a correct password when SESSION_SECRET is unset', async () => {
+    const env = envWith([
+      { id: 3, username: 'Jinah', password_hash: await hashPassword('her-real-password'), role: 'staff', active: 1 },
+    ]);
+    delete env.SESSION_SECRET;
+    const dbRes = await handleAdminLogin(loginReq('jinah', 'her-real-password'), env);
+    expect(signedIn(dbRes)).toBe(false);
+    expect(await dbRes.text()).toMatch(/session signing key/i);
+
+    const bgEnv = envWith();
+    delete bgEnv.SESSION_SECRET;
+    const bgRes = await handleAdminLogin(loginReq('admin', ADMIN_PW), bgEnv);
+    expect(signedIn(bgRes)).toBe(false);
+    expect(await bgRes.text()).toMatch(/session signing key/i);
   });
 });
 

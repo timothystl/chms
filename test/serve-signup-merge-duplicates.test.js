@@ -131,7 +131,7 @@ describe('findDuplicateSignupGroups / mergeDuplicateSignupGroup', () => {
 describe('GET/POST /admin/api/signups/duplicates|merge-duplicates', () => {
   it('requires staff/admin', async () => {
     const db = makeTestDb();
-    const env = { DB: db, ADMIN_PASSWORD: 'secret' };
+    const env = { DB: db, ADMIN_PASSWORD: 'secret', SESSION_SECRET: 'secret' };
     seedHistoricalDuplicates(db);
     const r = await handleAdminApi(makeReq(''), env, new URL('https://x/admin/api/signups/duplicates'), 'GET');
     expect(r.status).toBe(403);
@@ -139,7 +139,7 @@ describe('GET/POST /admin/api/signups/duplicates|merge-duplicates', () => {
 
   it('previews groups, refuses a stale confirm_count, then merges everything on a matching one', async () => {
     const db = makeTestDb();
-    const env = { DB: db, ADMIN_PASSWORD: 'secret' };
+    const env = { DB: db, ADMIN_PASSWORD: 'secret', SESSION_SECRET: 'secret' };
     seedHistoricalDuplicates(db);
     const cookie = (await authCookieHeader(env, 'admin', '')).split(';')[0];
 
@@ -227,7 +227,7 @@ describe('findPossibleDuplicateSignupGroups / mergeSignupsByIds — same name, d
 describe('POST /admin/api/signups/merge (manual, arbitrary ids)', () => {
   it('requires staff/admin', async () => {
     const db = makeTestDb();
-    const env = { DB: db, ADMIN_PASSWORD: 'secret' };
+    const env = { DB: db, ADMIN_PASSWORD: 'secret', SESSION_SECRET: 'secret' };
     const { row1, row2 } = seedSameNameDifferentEmail(db);
     const r = await handleAdminApi(makeReq('', { ids: [row1, row2] }), env, new URL('https://x/admin/api/signups/merge'), 'POST');
     expect(r.status).toBe(403);
@@ -235,7 +235,7 @@ describe('POST /admin/api/signups/merge (manual, arbitrary ids)', () => {
 
   it('rejects fewer than 2 ids', async () => {
     const db = makeTestDb();
-    const env = { DB: db, ADMIN_PASSWORD: 'secret' };
+    const env = { DB: db, ADMIN_PASSWORD: 'secret', SESSION_SECRET: 'secret' };
     const cookie = (await authCookieHeader(env, 'admin', '')).split(';')[0];
     const r = await handleAdminApi(makeReq(cookie, { ids: [1] }), env, new URL('https://x/admin/api/signups/merge'), 'POST');
     expect(r.status).toBe(400);
@@ -243,7 +243,7 @@ describe('POST /admin/api/signups/merge (manual, arbitrary ids)', () => {
 
   it('merges the two Andrew Dinger rows the GET /duplicates response would surface as a possible duplicate', async () => {
     const db = makeTestDb();
-    const env = { DB: db, ADMIN_PASSWORD: 'secret' };
+    const env = { DB: db, ADMIN_PASSWORD: 'secret', SESSION_SECRET: 'secret' };
     const { roleA, roleB, row1, row2 } = seedSameNameDifferentEmail(db);
     const cookie = (await authCookieHeader(env, 'admin', '')).split(';')[0];
 

@@ -98,7 +98,7 @@ function makeDb() {
 let db, sqlite, env;
 beforeEach(() => {
   ({ db, sqlite } = makeDb());
-  env = { DB: db, ADMIN_PASSWORD: SECRET };
+  env = { DB: db, ADMIN_PASSWORD: SECRET, SESSION_SECRET: SECRET };
   sqlite.exec(`INSERT INTO serve_events (name) VALUES ('Christmas Market')`);
   sqlite.exec(`INSERT INTO ministry_roles (ministry, name) VALUES ('worship', 'Usher')`);
   sqlite.exec(`INSERT INTO signups (name, email, ministry) VALUES ('Jane Tester', 'jane@example.com', 'events')`);

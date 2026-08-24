@@ -53,7 +53,7 @@ describe('the write paths strip, so a stale client cannot put them back', () => 
       },
       batch: async (stmts) => Promise.all(stmts.map((s) => s.run())),
     };
-    env = { DB: db, ADMIN_PASSWORD: 'pw' };
+    env = { DB: db, ADMIN_PASSWORD: 'pw', SESSION_SECRET: 'pw' };
   });
 
   const stored = () => {
