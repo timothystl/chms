@@ -57,6 +57,7 @@ var _hhOffset = 0, _hhTotal = 0;
 var _currentPvPerson = null;
 var _pvGivingPersonId = null;
 var _pvGivingEntries = [];
+var _pvPledges = []; // P28-C / PL1b: pledges loaded alongside gift entries for the Giving tab
 var _editGiftId = null;
 var _editGiftFilterYear = '';
 var _userRole = 'admin';

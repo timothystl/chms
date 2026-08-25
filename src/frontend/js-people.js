@@ -2055,13 +2055,73 @@ function loadPvGiving(personId) {
   if (!el) return;
   _pvGivingPersonId = personId;
   _pvGivingEntries = [];
+  _pvPledges = [];
   el.innerHTML = '<div style="padding:20px;color:var(--warm-gray);">Loading...</div>';
-  api('/admin/api/giving?person_id='+personId+'&limit=2000').then(function(d) {
+  Promise.all([
+    api('/admin/api/giving?person_id='+personId+'&limit=2000'),
+    api('/admin/api/people/'+personId+'/pledges').catch(function(){ return { pledges: [] }; }),
+  ]).then(function(results) {
+    var d = results[0], pd = results[1];
     _pvGivingEntries = (d && d.entries) ? d.entries : [];
+    _pvPledges = (pd && pd.pledges) ? pd.pledges : [];
     renderPvGiving('');
   }).catch(function() {
     el.innerHTML = '<div style="padding:20px;color:var(--danger);">Could not load giving.</div>';
   });
+}
+// P28-C / PL1b: pledge card — a small year/pledged/given table plus an inline add-or-update
+// form. Pulled from the profile's own Giving tab data (_pvPledges, loaded alongside the gift
+// entries) so no separate load state is needed.
+function renderPvPledgesCard(personId) {
+  var rows = _pvPledges.slice().sort(function(a,b){ return b.fiscal_year - a.fiscal_year; }).map(function(p) {
+    var pct = p.amount_cents > 0 ? Math.round((p.actual_cents / p.amount_cents) * 100) : 0;
+    return '<tr>'
+      + '<td style="padding:6px 8px;font-size:12px;">'+p.fiscal_year+'</td>'
+      + '<td style="padding:6px 8px;text-align:right;font-size:12px;">$'+(p.amount_cents/100).toFixed(2)+'</td>'
+      + '<td style="padding:6px 8px;text-align:right;font-size:12px;">$'+(p.actual_cents/100).toFixed(2)+'</td>'
+      + '<td style="padding:6px 8px;text-align:right;font-size:12px;font-weight:600;">'+pct+'%</td>'
+      + '<td style="padding:6px 8px;text-align:center;">'
+      + '<button onclick="deletePvPledge('+personId+','+p.fiscal_year+')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:0 4px;line-height:1;" title="Delete">&times;</button>'
+      + '</td></tr>';
+  }).join('');
+  var thisYear = new Date().getFullYear();
+  return '<div style="background:var(--linen);border-radius:8px;padding:14px;margin-bottom:16px;">'
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--slate-blue);margin-bottom:10px;">Pledges</div>'
+    + (rows
+      ? '<table style="width:100%;border-collapse:collapse;margin-bottom:10px;">'
+        + '<thead><tr><th style="padding:6px 8px;text-align:left;font-size:11px;font-weight:600;">Year</th>'
+        + '<th style="padding:6px 8px;text-align:right;font-size:11px;font-weight:600;">Pledged</th>'
+        + '<th style="padding:6px 8px;text-align:right;font-size:11px;font-weight:600;">Given</th>'
+        + '<th style="padding:6px 8px;text-align:right;font-size:11px;font-weight:600;">%</th>'
+        + '<th style="padding:6px 8px;"></th></tr></thead><tbody>'+rows+'</tbody></table>'
+      : '<div style="font-size:12px;color:var(--warm-gray);margin-bottom:10px;">No pledges recorded.</div>')
+    + '<div style="display:grid;grid-template-columns:100px 140px auto;gap:8px;align-items:end;">'
+    + '<div class="field" style="margin:0;"><label style="font-size:11px;">Year</label><input type="number" id="pledge-year" value="'+thisYear+'" style="width:100%;box-sizing:border-box;"></div>'
+    + '<div class="field" style="margin:0;"><label style="font-size:11px;">Pledge ($)</label><input type="number" id="pledge-amount" step="0.01" min="0" placeholder="0.00" style="width:100%;box-sizing:border-box;"></div>'
+    + '<button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;height:fit-content;" onclick="submitPvPledge('+personId+')">Save Pledge</button>'
+    + '</div>'
+    + '</div>';
+}
+function submitPvPledge(personId) {
+  var yearEl = document.getElementById('pledge-year');
+  var amtEl = document.getElementById('pledge-amount');
+  if (!yearEl || !amtEl) return;
+  var year = parseInt(yearEl.value);
+  var amount = parseFloat(amtEl.value);
+  if (!year || !isFinite(amount) || amount < 0) { alert('Enter a year and a non-negative pledge amount.'); return; }
+  api('/admin/api/people/'+personId+'/pledges', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ fiscal_year: year, amount_cents: Math.round(amount * 100) }),
+  }).then(function(d) {
+    if (d && d.error) { alert(d.error); return; }
+    loadPvGiving(personId);
+  }).catch(function() { alert('Could not save the pledge.'); });
+}
+function deletePvPledge(personId, year) {
+  if (!confirm('Remove the '+year+' pledge?')) return;
+  api('/admin/api/people/'+personId+'/pledges/'+year, { method: 'DELETE' }).then(function() {
+    loadPvGiving(personId);
+  }).catch(function() { alert('Could not remove the pledge.'); });
 }
 function renderPvGiving(filterYear) {
   var el = document.getElementById('ptab-giving');
@@ -2130,6 +2190,7 @@ function renderPvGiving(filterYear) {
     + '</div>';
   el.innerHTML = '<div style="padding:16px;">'
     + toolbar
+    + renderPvPledgesCard(personId)
     + addForm
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
     + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--slate-blue);">Gifts'+(filterYear?' ('+filterYear+')':'')+'</div>'

@@ -265,7 +265,14 @@ Use this as the session-to-session roadmap. Complete one phase fully before star
 - [x] **R6** — Per-person attendance tracking: closed — out of scope for now; service-total tracking is sufficient. (2026-05-01)
 - [x] **IN2** — App merge strategy: closed — Decision: Option C (absorb scheduler, leave website admin separate) is the right long-term direction but not active work; website admin stays separate. No action needed until SC1 is revisited. (2026-05-01)
 - [ ] **PM1** — Person merge: deduplicate records by moving giving, tags, and household membership to the canonical record then deleting the duplicate; needs a confirmation UI with diff view. (noted 2026-04-26)
-- [ ] **PL1b** — Pledge tracking: new `pledges` table (person, year, amount); pledge vs. actual giving shown on profile and in a Giving Insights section. (noted 2026-04-26)
+- [x] **PL1b — FIXED 2026-08-24, P28-C.** New `pledges` table + `GET/POST
+  /admin/api/people/:id/pledges` / `DELETE .../pledges/:year`, gated on `isFinance`. Person
+  profile's Giving tab shows a new Pledges card (year/pledged/given/%) with an inline
+  add-or-update form. Deliberately scoped down from the original "and in Giving Insights" — a
+  congregation-wide pledge-vs-actual view needs its own scoping (which year, which population)
+  rather than a guess. Full detail is in `PLAN.md` under P28-C — this is the evidence file, that's
+  the running order, per the split described at the top of the CR10 entry below. `npm test`
+  (1853/1853, 14 new); every new test verified non-vacuous. **Not verified**: a live browser.
 
 **Done when:** Each item either has a design doc / scoping decision logged here, or is in active implementation.
 

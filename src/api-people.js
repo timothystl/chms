@@ -1033,6 +1033,61 @@ if (photoMatch && method === 'DELETE') {
   return json({ ok: true });
 }
 
+// ── Pledges (P28-C / PL1b) ────────────────────────────────────────
+// Giving-related, so gated on isFinance rather than the blanket canEdit -- a role that can't
+// see an individual's giving (e.g. council, which sees only anonymized totals) has no business
+// seeing what one person committed to give either.
+const pledgesListMatch = seg.match(/^people\/(\d+)\/pledges$/);
+if (pledgesListMatch && method === 'GET') {
+  if (!isFinance) return json({ error: 'Access denied' }, 403);
+  const pid = parseInt(pledgesListMatch[1]);
+  const pledges = (await db.prepare(
+    `SELECT id, fiscal_year, amount_cents, note FROM pledges WHERE person_id=? ORDER BY fiscal_year DESC`
+  ).bind(pid).all()).results || [];
+  // Actual given per pledged year, so the caller can show pledge-vs-actual without a second
+  // round trip -- the same window each row's own fiscal_year names, not a rolling 12 months.
+  for (const p of pledges) {
+    const row = await db.prepare(
+      `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
+       JOIN giving_batches gb ON ge.batch_id=gb.id
+       WHERE ge.person_id=? AND strftime('%Y', gb.batch_date) = ?`
+    ).bind(pid, String(p.fiscal_year)).first();
+    p.actual_cents = row?.total || 0;
+  }
+  return json({ pledges });
+}
+if (pledgesListMatch && method === 'POST') {
+  if (!isFinance) return json({ error: 'Access denied' }, 403);
+  const pid = parseInt(pledgesListMatch[1]);
+  const person = await db.prepare('SELECT id FROM people WHERE id=?').bind(pid).first();
+  if (!person) return json({ error: 'Person not found' }, 404);
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const year = parseInt(b.fiscal_year);
+  const amountCents = Math.round(Number(b.amount_cents));
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    return json({ error: 'fiscal_year must be a real year' }, 400);
+  }
+  if (!Number.isFinite(amountCents) || amountCents < 0) {
+    return json({ error: 'amount_cents must be a non-negative number' }, 400);
+  }
+  const note = String(b.note || '').slice(0, 500);
+  await db.prepare(
+    `INSERT INTO pledges(person_id, fiscal_year, amount_cents, note, updated_at)
+     VALUES(?,?,?,?,datetime('now'))
+     ON CONFLICT(person_id, fiscal_year) DO UPDATE SET
+       amount_cents=excluded.amount_cents, note=excluded.note, updated_at=datetime('now')`
+  ).bind(pid, year, amountCents, note).run();
+  return json({ ok: true });
+}
+const pledgeYearMatch = seg.match(/^people\/(\d+)\/pledges\/(\d+)$/);
+if (pledgeYearMatch && method === 'DELETE') {
+  if (!isFinance) return json({ error: 'Access denied' }, 403);
+  const pid = parseInt(pledgeYearMatch[1]);
+  const year = parseInt(pledgeYearMatch[2]);
+  await db.prepare('DELETE FROM pledges WHERE person_id=? AND fiscal_year=?').bind(pid, year).run();
+  return json({ ok: true });
+}
+
 // ── Household photo upload ───────────────────────────────────────
 const hhPhotoMatch = seg.match(/^households\/(\d+)\/photo$/);
 if (hhPhotoMatch && method === 'POST') {
