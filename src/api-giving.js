@@ -2,6 +2,37 @@
 import { json } from './auth.js';
 import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeDepositTotals, batchDepositStatus, batchDepositStatusFromCounts } from './api-utils.js';
 
+// Shared by the desktop `giving/quick-entry` route and the mobile Giving quick-entry screen —
+// one insert path so the two can't drift on the find-or-create-batch logic (the SW17 lesson:
+// a second hand-inlined copy is how two screens come to disagree about what "quick entry" does).
+export async function recordQuickGivingEntry(db, b) {
+  const { person_id, fund_id, amount, method: payMethod, date, notes, check_number } = b || {};
+  if (!fund_id || !amount || !date) return { error: 'fund_id, amount, and date required' };
+  const amtCents = Math.round(parseFloat(amount) * 100);
+  if (!Number.isFinite(amtCents) || amtCents <= 0) return { error: 'Amount must be positive' };
+  // Find or create an open manual-entry batch for this month
+  const monthKey  = String(date).slice(0, 7);
+  const batchDesc = 'Manual Entry ' + monthKey;
+  let existBatch = await db.prepare(
+    `SELECT id FROM giving_batches WHERE description=? AND closed=0 LIMIT 1`
+  ).bind(batchDesc).first();
+  let batchId;
+  if (existBatch) {
+    batchId = existBatch.id;
+  } else {
+    const br = await db.prepare(
+      `INSERT INTO giving_batches (batch_date, description, closed) VALUES (?,?,0)`
+    ).bind(date, batchDesc).run();
+    batchId = br.meta?.last_row_id;
+  }
+  const er = await db.prepare(
+    `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,contribution_date)
+     VALUES (?,?,?,?,?,?,?,?)`
+  ).bind(batchId, person_id ? parseInt(person_id) : null, parseInt(fund_id),
+         amtCents, payMethod || 'cash', check_number || '', notes || '', date).run();
+  return { id: er.meta?.last_row_id, batch_id: batchId };
+}
+
 export async function handleGivingApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit) {
 
 if (method !== 'GET' && !isFinance) return json({ error: 'Access denied' }, 403);
@@ -305,31 +336,9 @@ if (entryDelMatch && method === 'DELETE') {
 // ── Quick Gift Entry (auto-creates open batch for the month) ─────
 if (seg === 'giving/quick-entry' && method === 'POST') {
   let b = {}; try { b = await req.json(); } catch {}
-  const { person_id, fund_id, amount, method: payMethod, date, notes, check_number } = b;
-  if (!fund_id || !amount || !date) return json({ error: 'fund_id, amount, and date required' }, 400);
-  const amtCents = Math.round(parseFloat(amount) * 100);
-  if (amtCents <= 0) return json({ error: 'Amount must be positive' }, 400);
-  // Find or create an open manual-entry batch for this month
-  const monthKey  = String(date).slice(0, 7);
-  const batchDesc = 'Manual Entry ' + monthKey;
-  let existBatch = await db.prepare(
-    `SELECT id FROM giving_batches WHERE description=? AND closed=0 LIMIT 1`
-  ).bind(batchDesc).first();
-  let batchId;
-  if (existBatch) {
-    batchId = existBatch.id;
-  } else {
-    const br = await db.prepare(
-      `INSERT INTO giving_batches (batch_date, description, closed) VALUES (?,?,0)`
-    ).bind(date, batchDesc).run();
-    batchId = br.meta?.last_row_id;
-  }
-  const er = await db.prepare(
-    `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,contribution_date)
-     VALUES (?,?,?,?,?,?,?,?)`
-  ).bind(batchId, person_id ? parseInt(person_id) : null, parseInt(fund_id),
-         amtCents, payMethod || 'cash', check_number || '', notes || '', date).run();
-  return json({ ok: true, id: er.meta?.last_row_id, batch_id: batchId });
+  const result = await recordQuickGivingEntry(db, b);
+  if (result.error) return json({ error: result.error }, 400);
+  return json({ ok: true, id: result.id, batch_id: result.batch_id });
 }
 
 // ── Letters & Statements workspace (GIV-R2) ──────────────────────────────────

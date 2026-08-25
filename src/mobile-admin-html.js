@@ -149,6 +149,26 @@ a{text-decoration:none;}
 .att-form-actions button{flex:1;height:44px;border-radius:10px;font-weight:700;font-size:13.5px;cursor:pointer;border:none;}
 .att-form-save{background:var(--navy);color:#fff;}
 .att-form-cancel{background:var(--linen);color:var(--charcoal);}
+
+/* Giving */
+.giv-form{display:flex;flex-direction:column;gap:12px;padding:14px 16px;}
+.giv-form label{font-size:12px;font-weight:700;color:var(--warm-gray);display:block;margin-bottom:4px;}
+.giv-form input,.giv-form select{width:100%;height:44px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;padding:0 12px;font-family:inherit;box-sizing:border-box;}
+.giv-form-row{display:flex;gap:10px;}
+.giv-form-row>div{flex:1;}
+.giv-save-btn{width:100%;height:48px;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;border:none;background:var(--navy);color:#fff;}
+.giv-save-btn:disabled{opacity:.5;}
+.giv-person-wrap{position:relative;}
+.giv-person-results{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--white);border:1.5px solid var(--border);border-radius:10px;box-shadow:0 8px 20px rgba(20,20,40,.10);max-height:220px;overflow-y:auto;z-index:10;}
+.giv-person-opt{padding:10px 12px;font-size:13.5px;cursor:pointer;border-top:1px solid var(--border);}
+.giv-person-opt:first-child{border-top:none;}
+.giv-person-chip{display:flex;align-items:center;justify-content:space-between;background:var(--blue-mist);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:600;color:var(--navy);}
+.giv-person-chip button{background:none;border:none;color:var(--teal);font-weight:700;font-size:12px;cursor:pointer;}
+.giv-hist-row{border-top:1px solid var(--border);padding:11px 16px;display:flex;align-items:center;gap:10px;}
+.giv-hist-body{flex:1;min-width:0;}
+.giv-hist-title{font-size:13.5px;font-weight:600;color:var(--charcoal);}
+.giv-hist-sub{font-size:12px;color:var(--warm-gray);}
+.giv-hist-amt{font-size:14.5px;font-weight:700;color:var(--navy);}
 </style>
 </head>
 <body>
@@ -174,7 +194,8 @@ a{text-decoration:none;}
     <div class="sb-brand"><img src="/icons/connect-mark.png?v=${DEPLOY_VERSION}" alt=""><div>CONNECT</div></div>
     <button class="sb-item" data-nav="home"><span class="ic">&#9632;</span>Dashboard</button>
     <button class="sb-item" data-nav="people"><span class="ic">&#9633;</span>People</button>
-    <button class="sb-item" data-nav="attendance"><span class="ic">&#10003;</span>Attendance</button>
+    <button class="sb-item" data-nav="attendance" data-requires="can_view_attendance"><span class="ic">&#10003;</span>Attendance</button>
+    <button class="sb-item" data-nav="giving" data-requires="can_view_giving"><span class="ic">$</span>Giving</button>
     <button class="sb-item" data-fullapp="1"><span class="ic">&#8801;</span>Full App</button>
   </div>
 
@@ -202,6 +223,12 @@ const state = {
   attCanEdit: false,
   attEditingId: null,
   attFormOpen: false,
+  givFunds: null,
+  givRecent: null,
+  givCanEdit: false,
+  givForm: { personId: null, personName: '', personQuery: '', fundId: '', amount: '', method: 'cash', date: '', checkNumber: '', notes: '' },
+  givPersonResults: [],
+  givSaving: false,
 };
 
 async function api(path, opts) {
@@ -566,17 +593,174 @@ async function attFormSave() {
   }
 }
 
+// ── Giving ───────────────────────────────────────────────────────────────
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+async function loadGiving() {
+  setTopbarTitle('Giving');
+  document.getElementById('content').innerHTML = '<div class="state-msg">Loading…</div>';
+  if (!state.givForm.date) state.givForm.date = todayISO();
+  try {
+    const [fundsRes, recentRes] = await Promise.all([
+      api('/admin/api/mobile/giving/funds'),
+      api('/admin/api/mobile/giving/recent'),
+    ]);
+    state.givFunds = fundsRes.funds;
+    state.givRecent = recentRes.entries;
+    state.givCanEdit = !!fundsRes.can_edit;
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="state-msg">Could not load Giving. ' + esc(e.message) + '</div>';
+    return;
+  }
+  renderGiving();
+}
+
+function fmtGivDate(dateStr) {
+  const t = new Date(String(dateStr).slice(0, 10) + 'T12:00:00Z');
+  if (isNaN(t.getTime())) return dateStr;
+  return t.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+function fmtCents(c) {
+  return '$' + (Math.round(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function renderGiving(focusPersonSearch) {
+  setTopbarTitle('Giving');
+  if (state.givFunds == null) { loadGiving(); return; }
+  const f = state.givForm;
+  let fundOptsHtml = '<option value="">Select a fund…</option>';
+  for (const fund of state.givFunds) {
+    fundOptsHtml += '<option value="' + esc(fund.id) + '"' + (String(f.fundId) === String(fund.id) ? ' selected' : '') + '>' + esc(fund.name) + '</option>';
+  }
+  let personFieldHtml;
+  if (f.personId) {
+    personFieldHtml = '<div class="giv-person-chip"><span>' + esc(f.personName) + '</span><button data-action="giv-person-clear">Change</button></div>';
+  } else {
+    let resultsHtml = '';
+    if (state.givPersonResults.length) {
+      resultsHtml = '<div class="giv-person-results">';
+      for (const p of state.givPersonResults) {
+        resultsHtml += '<div class="giv-person-opt" data-action="giv-person-pick" data-id="' + esc(p.id) + '" data-name="' + esc(p.name) + '">' + esc(p.name) + '</div>';
+      }
+      resultsHtml += '</div>';
+    }
+    personFieldHtml = '<div class="giv-person-wrap"><input type="text" id="giv-person-search" placeholder="Search for a giver (optional)…" value="' + esc(f.personQuery) + '" autocomplete="off">' + resultsHtml + '</div>';
+  }
+  const canSave = state.givCanEdit && !state.givSaving;
+  const formHtml = state.givCanEdit ? ('<div class="mob-card giv-form">'
+    + '<div><label>Giver</label>' + personFieldHtml + '</div>'
+    + '<div><label>Fund</label><select id="giv-fund">' + fundOptsHtml + '</select></div>'
+    + '<div class="giv-form-row">'
+    + '<div><label>Amount</label><input type="number" inputmode="decimal" id="giv-amount" placeholder="0.00" value="' + esc(f.amount) + '"></div>'
+    + '<div><label>Date</label><input type="date" id="giv-date" value="' + esc(f.date) + '"></div>'
+    + '</div>'
+    + '<div class="giv-form-row">'
+    + '<div><label>Method</label><select id="giv-method">'
+    + ['cash', 'check', 'ach', 'card'].map(m => '<option value="' + m + '"' + (f.method === m ? ' selected' : '') + '>' + m[0].toUpperCase() + m.slice(1) + '</option>').join('')
+    + '</select></div>'
+    + (f.method === 'check' ? '<div><label>Check #</label><input type="text" id="giv-check" value="' + esc(f.checkNumber) + '"></div>' : '<div></div>')
+    + '</div>'
+    + '<button class="giv-save-btn" data-action="giv-save"' + (canSave ? '' : ' disabled') + '>' + (state.givSaving ? 'Saving…' : 'Record Gift') + '</button>'
+    + '</div>') : '';
+  let histHtml = '';
+  if (!state.givRecent.length) {
+    histHtml = '<div class="empty-note">No gifts recorded yet.</div>';
+  } else {
+    for (const e of state.givRecent) {
+      histHtml += '<div class="giv-hist-row"><div class="giv-hist-body">'
+        + '<div class="giv-hist-title">' + esc(e.person_name) + '</div>'
+        + '<div class="giv-hist-sub">' + esc(fmtGivDate(e.txn_date)) + ' · ' + esc(e.fund_name) + ' · ' + esc(e.method) + '</div>'
+        + '</div><div class="giv-hist-amt">' + esc(fmtCents(e.amount)) + '</div></div>';
+    }
+  }
+  document.getElementById('content').innerHTML = '<div class="mob-pad">'
+    + formHtml
+    + '<div class="mob-card"><div class="mob-card-head"><b>Recent Gifts</b></div>' + histHtml + '</div>'
+    + '</div>';
+  // Same refocus-after-rebuild pattern as the People search box (renderPeople) — but scoped to
+  // only the search-triggered re-render, since this panel (unlike People's) has other inputs
+  // that would otherwise lose focus to this one on every unrelated re-render (e.g. Method).
+  if (focusPersonSearch) {
+    const searchInput = document.getElementById('giv-person-search');
+    if (searchInput) searchInput.focus({ preventScroll: true });
+  }
+}
+
+let givPersonDebounce;
+function onGivPersonSearch(v) {
+  state.givForm.personQuery = v;
+  clearTimeout(givPersonDebounce);
+  if (!v.trim()) { state.givPersonResults = []; renderGiving(true); return; }
+  givPersonDebounce = setTimeout(async () => {
+    try {
+      const d = await api('/admin/api/mobile/people?q=' + encodeURIComponent(v) + '&limit=8');
+      state.givPersonResults = d.people;
+      renderGiving(true);
+    } catch (e) { /* leave prior results */ }
+  }, 250);
+}
+
+function givPersonPick(id, name) {
+  state.givForm.personId = parseInt(id, 10);
+  state.givForm.personName = name;
+  state.givPersonResults = [];
+  renderGiving();
+}
+function givPersonClear() {
+  state.givForm.personId = null;
+  state.givForm.personName = '';
+  state.givForm.personQuery = '';
+  renderGiving();
+}
+
+async function givSave() {
+  const f = state.givForm;
+  f.fundId = document.getElementById('giv-fund').value;
+  f.amount = document.getElementById('giv-amount').value;
+  f.date = document.getElementById('giv-date').value;
+  f.method = document.getElementById('giv-method').value;
+  const checkInput = document.getElementById('giv-check');
+  f.checkNumber = checkInput ? checkInput.value : '';
+  if (!f.fundId) { alert('Pick a fund.'); return; }
+  if (!f.amount || parseFloat(f.amount) <= 0) { alert('Enter an amount.'); return; }
+  if (!f.date) { alert('Pick a date.'); return; }
+  state.givSaving = true;
+  renderGiving();
+  try {
+    await api('/admin/api/mobile/giving/entry', { method: 'POST', body: JSON.stringify({
+      person_id: f.personId, fund_id: f.fundId, amount: f.amount, method: f.method,
+      date: f.date, check_number: f.checkNumber, notes: '',
+    }) });
+    state.givForm = { personId: null, personName: '', personQuery: '', fundId: '', amount: '', method: 'cash', date: todayISO(), checkNumber: '', notes: '' };
+    state.givSaving = false;
+    await loadGiving();
+  } catch (e) {
+    state.givSaving = false;
+    alert('Save failed: ' + e.message);
+    renderGiving();
+  }
+}
+
 // ── Render dispatch ──────────────────────────────────────────────────────
 function render() {
   document.getElementById('sidebar').classList.toggle('open', state.sidebarOpen);
   document.getElementById('sb-overlay').classList.toggle('open', state.sidebarOpen);
   document.querySelectorAll('.sb-item[data-nav]').forEach(el => {
     el.classList.toggle('active', el.dataset.nav === state.screen);
+    const req = el.dataset.requires;
+    // Before the dashboard has loaded once, keep every item visible rather than hiding by
+    // default — a role check that fails open on "not loaded yet" is safer than one that
+    // fails closed and hides a nav item the role actually has.
+    if (req) el.style.display = (state.dash && !state.dash[req]) ? 'none' : '';
   });
   if (state.screen === 'home') renderHome();
   else if (state.screen === 'people') renderPeople();
   else if (state.screen === 'person') renderPerson();
   else if (state.screen === 'attendance') renderAttendance();
+  else if (state.screen === 'giving') renderGiving();
 }
 
 // ── Event delegation ─────────────────────────────────────────────────────
@@ -628,10 +812,23 @@ document.getElementById('content').addEventListener('click', (e) => {
     renderAttendance();
   } else if (action === 'att-form-save') {
     attFormSave();
+  } else if (action === 'giv-person-pick') {
+    givPersonPick(t.dataset.id, t.dataset.name);
+  } else if (action === 'giv-person-clear') {
+    givPersonClear();
+  } else if (action === 'giv-save') {
+    givSave();
   }
 });
 document.getElementById('content').addEventListener('input', (e) => {
   if (e.target && e.target.id === 'ppl-search') onSearchInput(e.target.value);
+  else if (e.target && e.target.id === 'giv-person-search') onGivPersonSearch(e.target.value);
+});
+document.getElementById('content').addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'giv-method') {
+    state.givForm.method = e.target.value;
+    renderGiving();
+  }
 });
 
 // ── Boot ─────────────────────────────────────────────────────────────────
