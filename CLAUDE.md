@@ -518,6 +518,55 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### MOB-ADMIN4 — Mobile Admin built toward full parity; Attendance is Phase 1 (2026-08-25, IN PROGRESS)
+Two mobile UIs existed side by side — the dedicated Mobile Admin shell (MOB-ADMIN1/2:
+dashboard/people directory/light Sunday-count entry, auto-detected at the app's normal URL) and
+the desktop admin SPA's own separate mobile-responsive CSS (MOB1-4/ATT7/REG-MOB1-2/VOL-MOB1/
+etc., reachable via Mobile Admin's "Full App" escape hatch). **User's call: keep Mobile Admin as
+the one mobile UI and build it out to cover what the desktop app covers**, rather than the other
+direction (an earlier same-session attempt went the other way — retire Mobile Admin, keep the
+desktop-responsive path — and was reverted before merging once that was corrected). This is a
+genuinely large, multi-phase effort — the desktop app has ~15 tabs; Mobile Admin has 3 screens —
+so it's tracked here phase by phase, same pattern as GIV-R1-4/SC6.
+
+- **Phase 1 — Attendance, DONE.** The dashboard's existing two-service Sunday quick-entry card
+  (08:00/10:45 upsert) is untouched. New standalone **Attendance** screen (sidebar nav + a "View
+  full attendance →" link from the dashboard card): a Recent Services history list (any
+  `service_type` — Sunday/Special/Midweek — newest first, 25 by default) with inline tap-to-edit
+  count and delete, plus a "+ Add special or midweek service" form (date, type, optional time,
+  name, attendance, communion). Backend: `GET mobile/attendance/history`, `POST mobile/attendance/
+  entry` (general create, any date/type — the existing `POST mobile/attendance` stays the
+  narrower upsert-by-date+time-08:00/10:45 shortcut the dashboard card calls), `PATCH`/`DELETE
+  mobile/attendance/entry/:id`. All four gated on the same `attendance` item in the real
+  per-role permission matrix (`canView`/`canEditItem`, `api-mobile.js`) the dashboard card
+  already used — `view` can read history, only `edit` can create/edit/delete. `npm test`
+  (1832/1837, 5 new tests in `test/mobile-admin.test.js`, including one seeding a
+  `role_permissions_json` override to get a real view-only role — no default role sits at `view`
+  for `attendance`, only `none`/`edit` — so a naive check-existence test can't actually prove the
+  edit-level gate is enforced and not just any-access; **verified non-vacuous** by weakening the
+  entry-create gate to `canView` and confirming that exact test fails). `node --check` on both
+  touched backend files and the extracted `<script type="module">` block (the standard
+  quote/backtick-escaping check for this codebase's `String.raw`-adjacent template literals —
+  this file isn't `String.raw` but the same extraction-and-parse verification applies), div/
+  button/span/a tag-balance on the assembled `MOBILE_ADMIN_HTML`. DEPLOY_VERSION bumped to
+  1.207.0. **Not verified**: a live browser or a real phone.
+- **Remaining phases, not yet started, roughly in likely-usage order**: Giving (quick batch/
+  entry lookup — probably the next highest-value "need it in the moment" surface after
+  attendance), Households (currently only reachable as a read-only list on a person's detail
+  screen), Follow Ups as its own browsable screen (currently only a dashboard feed, no history/
+  filter), Reports (a handful of the simpler ones — Contact Completeness, Giving Insights — not
+  the heavy multi-year chart-driven ones), Register, Volunteers, Settings, Tuition Aid, Finance,
+  Scheduler. The last several (Finance, Scheduler, Tuition Aid) are genuinely desktop-shaped
+  workflows (multi-column grids, drag-resize charts, multi-step wizards) and may end up staying
+  "Full App only" by deliberate design rather than full parity — worth a decision closer to when
+  their turn comes, not assumed now.
+- **The "Full App" escape hatch is deliberately left in place** for anything not yet built —
+  removing it before a phase covers the gap would just make that gap unreachable on a phone
+  rather than routed to the desktop-responsive fallback. Revisit removing it once the phase list
+  above is actually exhausted (or once specific phases are deliberately marked "desktop only").
+  (`src/api-mobile.js`, `src/mobile-admin-html.js`, `src/frontend/js-core.js`,
+  `test/mobile-admin.test.js`)
+
 ### TAP6 — A pin made for "next year" is now promoted automatically once that year becomes current (2026-08-23, DONE, P28-E)
 Closes the known, deliberately-deferred limitation this file already documented under TAP6: a
 per-year pin (outside aid, family %, Timothy Award, LHS Award) entered while a school year was

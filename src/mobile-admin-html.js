@@ -128,6 +128,27 @@ a{text-decoration:none;}
 .hh-name{font-size:13.5px;color:var(--charcoal);font-weight:500;}
 .hh-rel{font-size:12px;color:var(--warm-gray);}
 .state-msg{padding:40px 16px;text-align:center;color:var(--warm-gray);font-size:14px;}
+
+/* Attendance */
+.att-hist-row{border-top:1px solid var(--border);padding:11px 16px;display:flex;align-items:center;gap:10px;}
+.att-hist-body{flex:1;min-width:0;}
+.att-hist-title{font-size:13.5px;font-weight:600;color:var(--charcoal);}
+.att-hist-sub{font-size:12px;color:var(--warm-gray);}
+.att-hist-count{font-size:15px;font-weight:700;color:var(--navy);}
+.att-hist-row input{width:56px;height:36px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;color:var(--navy);padding:0 8px;font-family:inherit;text-align:center;}
+.att-hist-actions{display:flex;gap:6px;}
+.att-icon-btn{background:none;border:none;color:var(--teal);font-weight:700;font-size:12px;cursor:pointer;padding:4px 6px;}
+.att-icon-btn.danger{color:var(--danger);}
+.att-add-btn{width:100%;padding:12px;border-radius:12px;border:1.5px dashed var(--border);background:none;color:var(--teal);font-weight:700;font-size:13.5px;cursor:pointer;}
+.att-form{display:flex;flex-direction:column;gap:10px;padding:14px 16px;}
+.att-form label{font-size:12px;font-weight:700;color:var(--warm-gray);display:block;margin-bottom:4px;}
+.att-form input,.att-form select{width:100%;height:44px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;padding:0 12px;font-family:inherit;box-sizing:border-box;}
+.att-form-row{display:flex;gap:10px;}
+.att-form-row>div{flex:1;}
+.att-form-actions{display:flex;gap:10px;margin-top:2px;}
+.att-form-actions button{flex:1;height:44px;border-radius:10px;font-weight:700;font-size:13.5px;cursor:pointer;border:none;}
+.att-form-save{background:var(--navy);color:#fff;}
+.att-form-cancel{background:var(--linen);color:var(--charcoal);}
 </style>
 </head>
 <body>
@@ -153,6 +174,7 @@ a{text-decoration:none;}
     <div class="sb-brand"><img src="/icons/connect-mark.png?v=${DEPLOY_VERSION}" alt=""><div>CONNECT</div></div>
     <button class="sb-item" data-nav="home"><span class="ic">&#9632;</span>Dashboard</button>
     <button class="sb-item" data-nav="people"><span class="ic">&#9633;</span>People</button>
+    <button class="sb-item" data-nav="attendance"><span class="ic">&#10003;</span>Attendance</button>
     <button class="sb-item" data-fullapp="1"><span class="ic">&#8801;</span>Full App</button>
   </div>
 
@@ -176,6 +198,10 @@ const state = {
   peopleLoading: false,
   personId: null,
   personDetail: null,
+  attHistory: null,
+  attCanEdit: false,
+  attEditingId: null,
+  attFormOpen: false,
 };
 
 async function api(path, opts) {
@@ -249,6 +275,7 @@ function renderHome() {
     attendanceCardHtml = '<div class="mob-card">'
       + '<div class="mob-card-head"><b>Sunday Attendance</b><div class="sub">' + esc(d.sunday_label) + '</div></div>'
       + svcHtml
+      + '<button class="att-add-btn" style="border:none;border-top:1px solid var(--border);border-radius:0;" data-action="goto-attendance">View full attendance &#8594;</button>'
       + '</div>';
   }
 
@@ -424,6 +451,121 @@ function renderPerson() {
     + '</div>';
 }
 
+// ── Attendance (history + add special/midweek) ─────────────────────────────
+const ATT_TYPE_LABELS = { sunday: 'Sunday', special: 'Special', midweek: 'Midweek' };
+
+async function loadAttendance() {
+  setTopbarTitle('Attendance');
+  document.getElementById('content').innerHTML = '<div class="state-msg">Loading…</div>';
+  try {
+    const d = await api('/admin/api/mobile/attendance/history?limit=25');
+    state.attHistory = d.services;
+    state.attCanEdit = !!d.can_edit;
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="state-msg">Could not load attendance. ' + esc(e.message) + '</div>';
+    return;
+  }
+  renderAttendance();
+}
+
+function fmtAttDate(dateStr) {
+  const t = new Date(dateStr + 'T12:00:00Z');
+  if (isNaN(t.getTime())) return dateStr;
+  return t.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+
+function renderAttendance() {
+  setTopbarTitle('Attendance');
+  if (!state.attHistory) { loadAttendance(); return; }
+  let rowsHtml = '';
+  if (!state.attHistory.length) {
+    rowsHtml = '<div class="empty-note">No services recorded yet.</div>';
+  } else {
+    for (const s of state.attHistory) {
+      const label = ATT_TYPE_LABELS[s.service_type] || s.service_type;
+      const sub = [fmtAttDate(s.service_date), s.service_time, s.service_name].filter(Boolean).join(' · ') + ' · ' + label;
+      const editing = state.attEditingId === s.id;
+      rowsHtml += '<div class="att-hist-row">'
+        + '<div class="att-hist-body"><div class="att-hist-title">' + esc(sub) + '</div></div>'
+        + (editing
+            ? '<input type="number" inputmode="numeric" value="' + esc(s.attendance) + '" data-att-edit-input="' + esc(s.id) + '">'
+              + '<div class="att-hist-actions"><button class="att-icon-btn" data-action="att-save" data-id="' + esc(s.id) + '">Save</button></div>'
+            : (state.attCanEdit
+                ? '<div class="att-hist-count">' + esc(s.attendance) + '</div>'
+                  + '<div class="att-hist-actions"><button class="att-icon-btn" data-action="att-edit" data-id="' + esc(s.id) + '">Edit</button>'
+                  + '<button class="att-icon-btn danger" data-action="att-delete" data-id="' + esc(s.id) + '">Del</button></div>'
+                : '<div class="att-hist-count">' + esc(s.attendance) + '</div>'))
+        + '</div>';
+    }
+  }
+  let formHtml = '';
+  if (state.attFormOpen) {
+    formHtml = '<div class="mob-card att-form">'
+      + '<div><label>Date</label><input type="date" id="att-form-date"></div>'
+      + '<div class="att-form-row">'
+      + '<div><label>Type</label><select id="att-form-type"><option value="special">Special</option><option value="midweek">Midweek</option><option value="sunday">Sunday</option></select></div>'
+      + '<div><label>Time (optional)</label><input type="time" id="att-form-time"></div>'
+      + '</div>'
+      + '<div><label>Name</label><input type="text" id="att-form-name" placeholder="e.g. Christmas Eve"></div>'
+      + '<div class="att-form-row">'
+      + '<div><label>Attendance</label><input type="number" inputmode="numeric" id="att-form-count" placeholder="0"></div>'
+      + '<div><label>Communion</label><input type="number" inputmode="numeric" id="att-form-communion" placeholder="0"></div>'
+      + '</div>'
+      + '<div class="att-form-actions"><button class="att-form-cancel" data-action="att-form-cancel">Cancel</button>'
+      + '<button class="att-form-save" data-action="att-form-save">Save</button></div>'
+      + '</div>';
+  }
+  document.getElementById('content').innerHTML = '<div class="mob-pad">'
+    + (state.attCanEdit ? (state.attFormOpen ? formHtml : '<button class="att-add-btn" data-action="att-form-open">+ Add special or midweek service</button>') : '')
+    + '<div class="mob-card"><div class="mob-card-head"><b>Recent Services</b></div>' + rowsHtml + '</div>'
+    + '</div>';
+}
+
+async function attSaveEdit(id) {
+  const input = document.querySelector('[data-att-edit-input="' + CSS.escape(String(id)) + '"]');
+  const count = Math.max(0, parseInt(input && input.value, 10) || 0);
+  try {
+    await api('/admin/api/mobile/attendance/entry/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ count }) });
+    const row = state.attHistory.find(s => s.id === id);
+    if (row) row.attendance = count;
+    state.attEditingId = null;
+    renderAttendance();
+  } catch (e) {
+    alert('Save failed: ' + e.message);
+  }
+}
+
+async function attDelete(id) {
+  if (!confirm('Delete this attendance entry?')) return;
+  try {
+    await api('/admin/api/mobile/attendance/entry/' + encodeURIComponent(id), { method: 'DELETE' });
+    state.attHistory = state.attHistory.filter(s => s.id !== id);
+    renderAttendance();
+  } catch (e) {
+    alert('Delete failed: ' + e.message);
+  }
+}
+
+async function attFormSave() {
+  const date = document.getElementById('att-form-date').value;
+  if (!date) { alert('Pick a date.'); return; }
+  const body = {
+    date,
+    type: document.getElementById('att-form-type').value,
+    time: document.getElementById('att-form-time').value,
+    name: document.getElementById('att-form-name').value,
+    count: document.getElementById('att-form-count').value,
+    communion: document.getElementById('att-form-communion').value,
+  };
+  try {
+    await api('/admin/api/mobile/attendance/entry', { method: 'POST', body: JSON.stringify(body) });
+    state.attFormOpen = false;
+    await loadAttendance();
+  } catch (e) {
+    alert('Save failed: ' + e.message);
+  }
+}
+
 // ── Render dispatch ──────────────────────────────────────────────────────
 function render() {
   document.getElementById('sidebar').classList.toggle('open', state.sidebarOpen);
@@ -434,6 +576,7 @@ function render() {
   if (state.screen === 'home') renderHome();
   else if (state.screen === 'people') renderPeople();
   else if (state.screen === 'person') renderPerson();
+  else if (state.screen === 'attendance') renderAttendance();
 }
 
 // ── Event delegation ─────────────────────────────────────────────────────
@@ -457,6 +600,8 @@ document.getElementById('content').addEventListener('click', (e) => {
     saveSvc(t.dataset.time);
   } else if (action === 'goto-people') {
     go('people');
+  } else if (action === 'goto-attendance') {
+    go('attendance');
   } else if (action === 'toggle-notif') {
     toggleNotif(t.dataset.kind, t.dataset.id);
   } else if (action === 'set-filter') {
@@ -468,6 +613,21 @@ document.getElementById('content').addEventListener('click', (e) => {
     loadPeople(false);
   } else if (action === 'back-to-people') {
     go('people');
+  } else if (action === 'att-edit') {
+    state.attEditingId = parseInt(t.dataset.id, 10);
+    renderAttendance();
+  } else if (action === 'att-save') {
+    attSaveEdit(parseInt(t.dataset.id, 10));
+  } else if (action === 'att-delete') {
+    attDelete(parseInt(t.dataset.id, 10));
+  } else if (action === 'att-form-open') {
+    state.attFormOpen = true;
+    renderAttendance();
+  } else if (action === 'att-form-cancel') {
+    state.attFormOpen = false;
+    renderAttendance();
+  } else if (action === 'att-form-save') {
+    attFormSave();
   }
 });
 document.getElementById('content').addEventListener('input', (e) => {
