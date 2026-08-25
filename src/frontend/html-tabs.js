@@ -1147,7 +1147,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="vol-mroles-section" style="margin-bottom:28px;">
         <div class="ev-master-detail">
           <div class="ev-list-col ev-list-col-wide">
-            <div class="ev-list-header"><h4>Ministry Roles <span id="vol-mroles-count" style="background:rgba(30,45,74,.08);color:var(--ev-navy);border-radius:99px;padding:1px 8px;font-size:.7rem;font-family:var(--font-body);margin-left:2px;">…</span></h4></div>
+            <div class="ev-list-header"><h4>Ministry Roles <span id="vol-mroles-count" style="background:rgba(30,45,74,.08);color:var(--color-navy);border-radius:99px;padding:1px 8px;font-size:.7rem;font-family:var(--font-body);margin-left:2px;">…</span></h4></div>
             <div class="ev-list-search"><input type="text" placeholder="Search roles…" oninput="volFilterMRoles(this.value)"></div>
             <div class="ev-list-rows" id="vol-mroles-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
             <div class="ev-list-footer"><button onclick="volNewMinistryRole()">Add role</button></div>
@@ -1174,7 +1174,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
         <div class="ev-master-detail">
           <div class="ev-list-col">
-            <div class="ev-list-header ev-list-header-row"><h4>Events <span id="vol-events-count" style="background:rgba(30,45,74,.08);color:var(--ev-navy);border-radius:99px;padding:1px 8px;font-size:.7rem;font-family:var(--font-body);margin-left:2px;">…</span></h4><button class="ev-new-btn" onclick="volShowAddEventForm()">+ New</button></div>
+            <div class="ev-list-header ev-list-header-row"><h4>Events <span id="vol-events-count" style="background:rgba(30,45,74,.08);color:var(--color-navy);border-radius:99px;padding:1px 8px;font-size:.7rem;font-family:var(--font-body);margin-left:2px;">…</span></h4><button class="ev-new-btn" onclick="volShowAddEventForm()">+ New</button></div>
             <div class="ev-list-rows" id="vol-events-list" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
           </div>
           <div class="ev-detail-col" id="vol-event-detail" style="font-size:.85rem;color:var(--warm-gray);">Loading…</div>
@@ -1287,7 +1287,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 <div id="vol-shift-modal" class="modal-overlay" style="background:rgba(30,45,74,.35);" onclick="if(event.target===this)closeModal('vol-shift-modal')">
   <div class="modal ev-fields" style="max-width:440px;width:95%;padding:24px;gap:14px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <h3 id="vol-shift-modal-title" style="font-family:'Lora',serif;font-weight:600;font-size:1.05rem;color:var(--ev-navy);margin:0;">Edit shift</h3>
+      <h3 id="vol-shift-modal-title" style="font-family:'Lora',serif;font-weight:600;font-size:1.05rem;color:var(--color-navy);margin:0;">Edit shift</h3>
       <span id="vol-shift-day-label" style="font-size:.72rem;color:var(--ev-muted);"></span>
     </div>
     <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">Shift name</label><input type="text" id="vol-shift-name"></div>

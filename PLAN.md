@@ -99,7 +99,7 @@ P26-A is **not** here; it is item 4, because it is a bug.
 | # | Code | Size | What |
 |---|---|---|---|
 | 19 | **P26-B** | medium | Continue PAL7's exact-match hex pass. 423 literals, 171 distinct; the top two are `--color-teal` and `--color-gold` longhand. **⚠ Keep PAL7's two rules.** |
-| 20 | **P26-C** | medium | 1,168 legacy token references against 314 brand ones. `--ev-*` is down to 38 and can go first. |
+| 20 | **P26-C** | medium | **First slice DONE 2026-08-24**: the 4 `--ev-*` tokens that were exact-value aliases (`--ev-navy`/`--ev-teal`/`--ev-ink`/`--ev-danger`) had every `var()` usage repointed at the brand token directly and the alias definitions retired (~20 of ~46 `--ev-*` references gone). The 5 with no brand equivalent (`--ev-muted`/`--ev-cream`/`--ev-moss`/`--ev-border`/`--ev-border2`) are untouched — no target to consolidate into without a naming decision. 1,168 legacy Steel-token references still open. |
 | 21 | **P26-E** | small | Reconcile the palettes. RD1 counted three; there are **five across four surfaces**. Scope from five. |
 | 22 | **P26-F** | large | The a11y pass MO5 deferred: 128 click handlers on non-interactive elements against 2 `tabindex` and 9 `role=`. |
 | 23 | **P26-D** | **with the redesign** | ~3,900 pure-layout inline `style=` attributes. A refactor, not a substitution — RD2's own decision was to let it ride. Keep it there unless the redesign slips. |
@@ -549,7 +549,17 @@ cleanup — do not let it wait for the redesign.**
 - [ ] **P26-C** (retires **PAL2**, **DSN2**) — Migrate legacy token references onto the Palette A set, then
   delete the legacy definitions. Current state: 1,168 legacy references (`--warm-gray` 791 · `--linen` 120 ·
   `--steel-anchor` 113 · `--charcoal` 86 · `--sky-steel` 18 · `--warm-white` 2) against 314 brand-token
-  references. The `--ev-*` family is down to 38 and can go first.
+  references. **First slice DONE 2026-08-24**: of the `--ev-*` family, the 4 that were exact-value
+  aliases for a brand token (`--ev-navy`→`--color-navy`, `--ev-teal`→`--color-teal`, `--ev-ink`→
+  `--charcoal`, `--ev-danger`→`--danger`) had every `var()` usage repointed at the brand token directly
+  and the alias definitions removed from `:root` — a mechanical, value-preserving substitution (same
+  computed color, one fewer indirection), ~20 of ~46 real `--ev-*` usages retired. The remaining 5
+  (`--ev-muted`/`--ev-cream`/`--ev-moss`/`--ev-border`/`--ev-border2`) have no matching brand token and
+  were deliberately left alone — consolidating them means picking a name for a genuinely new color, not
+  a substitution, and is a separate decision. `npm test` (1837/1837, 4 new in
+  `test/ev-token-retirement.test.js`); every new test verified non-vacuous by reverting the change and
+  confirming 3 of 4 fail. `node --check` on both touched files. **Not verified**: a live browser. The
+  1,168 legacy Steel-token references are still fully open.
 - [ ] **P26-D** (retires **RD2**, **CR4**, **DSN4**) — The structural half: ~3,900 pure-layout inline
   `style=` attributes (of 4,004 total; only 99 carry a color, which is P26-B's problem). This is a refactor,
   not a substitution, and RD1/RD2's own 2026-07-12 decision was to let it ride with the redesign. Keep it
