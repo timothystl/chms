@@ -1494,6 +1494,48 @@ export const HTML_TABS_2 = String.raw`
         </div>
       </section>
 
+      <section class="dash-card" style="margin-bottom:16px;">
+        <div class="dash-card-hdr">Planner Settings</div>
+        <div class="dash-card-body" style="padding:14px 18px;">
+          <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">These change how every projection on this tab is computed. Each field saves on its own — nothing else changes until you click its Save.</p>
+          <div class="tap-controls" style="flex-direction:column;align-items:flex-start;gap:10px;">
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;">
+              Base K-8 tuition rate: $<input type="number" id="tap-cfg-tuition_base_cents" min="0" step="1" style="width:100px;">
+              <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveConfigField('tuition_base_cents')">Save</button>
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;">
+              Annual tuition growth: <input type="number" id="tap-cfg-tuition_growth_pct" min="0" step="0.1" style="width:70px;">%/yr
+              <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveConfigField('tuition_growth_pct')">Save</button>
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;">
+              Standard LHS award: $<input type="number" id="tap-cfg-lhs_standard_rate_cents" min="0" step="1" style="width:100px;">
+              <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveConfigField('lhs_standard_rate_cents')">Save</button>
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;">
+              Maximum LHS award: $<input type="number" id="tap-cfg-lhs_max_award_cents" min="0" step="1" style="width:100px;">
+              <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveConfigField('lhs_max_award_cents')">Save</button>
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;">
+              Minimum Timothy Award floor: $<input type="number" id="tap-cfg-timothy_min_award_cents" min="0" step="1" style="width:100px;">
+              <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveConfigField('timothy_min_award_cents')">Save</button>
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;">
+              Family share cap: <input type="number" id="tap-cfg-family_share_cap_pct" min="0" max="100" step="1" style="width:60px;">%
+              <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveConfigField('family_share_cap_pct')">Save</button>
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;">
+              Default pipeline family share: <input type="number" id="tap-cfg-default_pipeline_fam_pct" min="0" max="100" step="1" style="width:60px;">%
+              <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveConfigField('default_pipeline_fam_pct')">Save</button>
+            </span>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;border-top:1px solid var(--border);padding-top:10px;width:100%;">
+              Base school year: <input type="number" id="tap-cfg-base_school_year" min="2000" max="2100" step="1" style="width:80px;">
+              <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveConfigField('base_school_year')">Save</button>
+            </span>
+            <p style="font-size:.72rem;color:#8A7440;margin:0;">&#9888; This is the "current" year (offset 0) everywhere on this tab &mdash; advance it once a year, at rollover, not for any other reason. Changing it reloads the whole planner.</p>
+          </div>
+        </div>
+      </section>
+
       <div id="tap-planner-current">
       <section class="dash-card" style="margin-bottom:16px;">
         <div class="dash-card-hdr">Total Timothy Aid — K-8 (WOL) + LHS combined</div>

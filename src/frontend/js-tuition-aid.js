@@ -355,6 +355,7 @@ function tapRenderAll() {
   tapRenderPipelineList();
   tapRenderYearRateBox();
   tapRenderTotalBudgetBox();
+  tapRenderConfigBox();
   tapRenderPlannerTables();
 }
 function tapRenderTotalBudgetBox() {
@@ -371,6 +372,54 @@ function tapSaveTotalBudget() {
   }).then(function() {
     _tapConfig.timothy_total_budget_cents = String(cents);
     tapUpdateGauges();
+  }).catch(function() {});
+}
+
+// P28-D/TAP3: the eight remaining config knobs (base tuition rate, growth %, LHS rates, the
+// $2,000 floor, the 50% cap, the pipeline default %, and the base school year) were previously
+// only reachable via a direct PATCH /admin/api/tuition-aid/config call — no UI. Every field here
+// is (key, kind, default) matching the tapCfgNum(key, default) call already reading it elsewhere
+// in this file, so a value entered here is picked up everywhere with no other code change.
+var TAP_CONFIG_FIELDS = [
+  { key: 'base_school_year',          kind: 'year', def: 2026 },
+  { key: 'tuition_base_cents',        kind: 'cents', def: 850000 },
+  { key: 'tuition_growth_pct',        kind: 'pct',  def: 6 },
+  { key: 'lhs_standard_rate_cents',   kind: 'cents', def: 120000 },
+  { key: 'lhs_max_award_cents',       kind: 'cents', def: 250000 },
+  { key: 'timothy_min_award_cents',   kind: 'cents', def: 200000 },
+  { key: 'family_share_cap_pct',      kind: 'pct',  def: 50 },
+  { key: 'default_pipeline_fam_pct',  kind: 'pct',  def: 50 },
+];
+function tapConfigFieldDisplay(f) {
+  var n = tapCfgNum(f.key, f.def);
+  return f.kind === 'cents' ? Math.round(n / 100) : n;
+}
+function tapRenderConfigBox() {
+  TAP_CONFIG_FIELDS.forEach(function(f) {
+    var el = document.getElementById('tap-cfg-' + f.key);
+    if (el) el.value = tapConfigFieldDisplay(f);
+  });
+}
+function tapSaveConfigField(key) {
+  var f = TAP_CONFIG_FIELDS.filter(function(x) { return x.key === key; })[0];
+  if (!f) return;
+  var el = document.getElementById('tap-cfg-' + key);
+  var raw = +el.value;
+  if (!isFinite(raw) || raw < 0) return;
+  var stored = f.kind === 'cents' ? Math.round(raw * 100) : raw;
+  var values = {};
+  values[key] = stored;
+  api('/admin/api/tuition-aid/config', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: values })
+  }).then(function() {
+    _tapConfig[key] = String(stored);
+    // base_school_year moves what "current year" (offset 0) means everywhere in the planner —
+    // the year selector, every student's grade-at-offset-0, and the pin-promotion pass
+    // (tapPromoteCurrentYearPins, run once per bundle load) all key off it. A full reload from
+    // the server is what tapApplyBundle actually expects (raw snake_case rows, not the already-
+    // transformed roster this file holds in memory) and is what re-derives all of that safely.
+    if (key === 'base_school_year') { loadTuitionAid(); return; }
+    tapRenderAll();
   }).catch(function() {});
 }
 

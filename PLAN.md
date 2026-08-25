@@ -24,11 +24,11 @@ was on fire; Phase 21 is now complete and Phase 22 is 5 of 7 done, so phase orde
 order. **The codes never change** — `P24-A` is `P24-A` forever, because CLAUDE.md, NOTES.md and every
 shipped commit reference them. Only the ORDER below is re-decided.
 
-**21 items open** (of 38 total: 21 rows in the table below + 15 Tier 7 carry-forwards). Closed:
+**20 items open** (of 38 total: 21 rows in the table below + 14 Tier 7 carry-forwards). Closed:
 P22-E, P22-F, P24-C and P26-A on 2026-08-22; P24-A, P25-D, P24-B, P25-A, P25-B, P25-C, P25-G,
-P27-C, P27-B, P27-D, P27-A, P28-E, P25-E and P23-A on 2026-08-23 — see below. **Tiers 1, 2 and 5
-are now all complete; Tier 3 has only P25-F left (the shell boot sequence).** Take the next
-unchecked row.
+P27-C, P27-B, P27-D, P27-A, P28-E, P25-E and P23-A on 2026-08-23; P28-D on 2026-08-24 — see below.
+**Tiers 1, 2 and 5 are now all complete; Tier 3 has only P25-F left (the shell boot sequence).**
+Take the next unchecked row.
 Detail for every code is in its phase section further down.
 ### Tier 1 — Finish the security work (small, bounded, do first)
 
@@ -647,8 +647,18 @@ nothing is orphaned. Not ordered.
   working precedent** — same shape, same confirm-count safety pattern.
 - [ ] **P28-C** / **PL1b** — Pledge tracking: a `pledges` table, pledge vs. actual on the profile and in
   Giving Insights.
-- [ ] **P28-D** / **TAP3** — The eight remaining tuition config knobs still have no UI (two got one; see the
-  item's own 2026-08-19 note).
+- [x] **P28-D** / **TAP3** — DONE 2026-08-24. New "Planner Settings" card on the Tuition Aid tab covers
+  all eight remaining knobs (`tuition_base_cents`, `tuition_growth_pct`, `lhs_standard_rate_cents`,
+  `lhs_max_award_cents`, `timothy_min_award_cents`, `family_share_cap_pct`, `default_pipeline_fam_pct`,
+  `base_school_year`) — the two that already had one (`tapSaveYearRate`, `tapSaveTotalBudget`) are
+  untouched. Every existing `tapCfgNum()` read elsewhere in the planner picks up a saved value
+  automatically, so no other logic changed. Changing `base_school_year` reloads the whole bundle
+  (`loadTuitionAid()`) rather than patching state in place, since that field redefines "current year"
+  for every student and the in-memory roster can't be safely re-fed through `tapApplyBundle`. `npm test`
+  (1839/1839, 11 new in `test/tuition-config-knobs.test.js`, driving the real functions out of the real
+  built bundle via the same vm-harness pattern as `test/tuition-year-pin-promotion.test.js`); every new
+  test verified non-vacuous by reverting the implementation and confirming all 11 fail. `node --check`
+  on both touched source files. Not verified in a live browser.
 - [x] **P28-E** / **TAP6** — DONE 2026-08-23. A one-time promotion pass (`tapPromoteCurrentYearPins()`,
   run on every bundle load) copies a pin matching the current year's label into the master row via
   the existing PATCH path — the hot `tapSplitFor`/`tapOutsideAidFor`/`tapFamPctFor`/`tapLhsAwardFor`
