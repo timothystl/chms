@@ -2453,12 +2453,15 @@ function openPersonEdit(p) {
   var isNew = !p || !p.id;
   document.getElementById('person-modal-title').textContent = isNew ? 'Add Person' : p.first_name + ' ' + p.last_name;
   document.getElementById('pm-id').value = isNew ? '' : p.id;
-  document.getElementById('pm-first').value = isNew ? '' : (p.first_name||'');
-  document.getElementById('pm-last').value = isNew ? '' : (p.last_name||'');
+  // Prefill from a partial object even when adding new (p.id absent) — e.g. converting a
+  // website contact-form follow-up item into a real person. isNew still governs every OTHER
+  // field below (address/dates/etc.), which no caller has ever passed in for a new person.
+  document.getElementById('pm-first').value = (p && p.first_name) || '';
+  document.getElementById('pm-last').value = (p && p.last_name) || '';
   document.getElementById('pm-middle').value = isNew ? '' : (p.middle_name||'');
   document.getElementById('pm-preferred').value = isNew ? '' : (p.preferred_name||'');
-  document.getElementById('pm-email').value = isNew ? '' : (p.email||'');
-  document.getElementById('pm-phone').value = isNew ? '' : (p.phone||'');
+  document.getElementById('pm-email').value = (p && p.email) || '';
+  document.getElementById('pm-phone').value = (p && p.phone) || '';
   document.getElementById('pm-sms-opt-in').checked = !isNew && !!p.sms_opt_in;
   document.getElementById('pm-addr1').value = isNew ? '' : (p.address1||'');
   var a2El = document.getElementById('pm-addr2'); if (a2El) a2El.value = isNew ? '' : (p.address2||'');

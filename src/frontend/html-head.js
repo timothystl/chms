@@ -343,6 +343,8 @@ a.s-item{text-decoration:none;color:inherit;}
 .reg-flabel{font-size:.72rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.03em;}
 .reg-dash{color:var(--faint);}
 .reg-page{font-size:.72rem;color:var(--faint);}
+.reg-page-link{font-size:.72rem;color:var(--color-teal);text-decoration:none;font-weight:600;}
+.reg-page-link:hover{text-decoration:underline;}
 .reg-yr-count{font-weight:400;color:var(--faint);}
 .reg-rt-badge{display:inline-block;font-size:.68rem;padding:1px 6px;border-radius:4px;background:var(--linen);color:var(--warm-gray);margin-bottom:3px;}
 .reg-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:8px;}

@@ -192,14 +192,17 @@ export const DB_INIT = [
   `CREATE INDEX IF NOT EXISTS idx_register_type ON church_register(type, event_date)`,
   // Pastoral follow-up queue
   `CREATE TABLE IF NOT EXISTS follow_up_items (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    person_id    INTEGER,
-    type         TEXT    NOT NULL DEFAULT 'general',
-    notes        TEXT    NOT NULL DEFAULT '',
-    due_date     TEXT    NOT NULL DEFAULT '',
-    completed    INTEGER NOT NULL DEFAULT 0,
-    completed_at TEXT    NOT NULL DEFAULT '',
-    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id       INTEGER,
+    type            TEXT    NOT NULL DEFAULT 'general',
+    notes           TEXT    NOT NULL DEFAULT '',
+    due_date        TEXT    NOT NULL DEFAULT '',
+    completed       INTEGER NOT NULL DEFAULT 0,
+    completed_at    TEXT    NOT NULL DEFAULT '',
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    requester_name  TEXT    NOT NULL DEFAULT '',
+    requester_email TEXT    NOT NULL DEFAULT '',
+    requester_phone TEXT    NOT NULL DEFAULT ''
   )`,
   `CREATE INDEX IF NOT EXISTS idx_followup_person ON follow_up_items(person_id)`,
   `CREATE INDEX IF NOT EXISTS idx_followup_open ON follow_up_items(completed, created_at)`,
@@ -1790,6 +1793,23 @@ async function _doInitDb(db) {
        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
      )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_pledges_person_year ON pledges(person_id, fiscal_year)`,
+    // (see migrations/0039_followup_contact_fields.sql): the submitter's own contact info,
+    // for a follow-up item created without a linked person record (a website contact-form
+    // submission -- see /api/intake/connect-card).
+    "ALTER TABLE follow_up_items ADD COLUMN requester_name TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE follow_up_items ADD COLUMN requester_email TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE follow_up_items ADD COLUMN requester_phone TEXT NOT NULL DEFAULT ''",
+    // (see migrations/0040_register_scan_pages.sql): scanned register page images, one row
+    // per (register type, page number) -- lets a register row's `pdf_page` link straight to
+    // the scanned book page it was transcribed from.
+    `CREATE TABLE IF NOT EXISTS register_scan_pages (
+       id          INTEGER PRIMARY KEY AUTOINCREMENT,
+       type        TEXT    NOT NULL,
+       page        TEXT    NOT NULL,
+       r2_key      TEXT    NOT NULL,
+       uploaded_at TEXT    NOT NULL DEFAULT (datetime('now'))
+     )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_register_scan_type_page ON register_scan_pages(type, page)`,
   ];
   // Every statement here is either an idempotent CREATE ... IF NOT EXISTS, or an ALTER TABLE
   // ADD COLUMN — SQLite has no "ADD COLUMN IF NOT EXISTS", so a re-run always throws "duplicate

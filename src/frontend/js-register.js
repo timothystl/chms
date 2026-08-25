@@ -6,6 +6,13 @@ var _regLabels = {
   baptism:      { title: 'Baptisms',      nameLbl: 'Name Baptized',  name2Lbl: 'Parent / Sponsor', col2: 'Parent/Sponsor' },
   confirmation: { title: 'Confirmations', nameLbl: 'Name Confirmed', name2Lbl: 'Sponsors / Witnesses', col2: 'Sponsors/Witnesses' }
 };
+// ── Register scan pages: scanned book-page images, one per (type, page number) — a
+// register row's own "p.NN" links straight to the scan it was transcribed from. Useful
+// since the register is AI-transcribed from book scans and a transcription may be wrong.
+var _regScanPages   = {}; // page string -> {id, page, url}
+var _regScanList    = []; // same rows, sorted, for the prev/next viewer
+var _regScanQueue   = []; // pending uploads: [{file, page}]
+var _regScanViewIdx = -1;
 function showRegisterTab(type) {
   _regType = type;
   _regEditId = null;
@@ -20,6 +27,7 @@ function showRegisterTab(type) {
   var cb = document.getElementById('reg-cancel-btn'); if (cb) cb.style.display = 'none';
   clearRegForm();
   loadRegister();
+  loadRegisterScans();
 }
 function clearRegForm() {
   ['reg-date','reg-name','reg-dob','reg-place-of-birth','reg-baptism-place','reg-father','reg-mother','reg-sponsors','reg-officiant','reg-notes','reg-record-type'].forEach(function(id) {
@@ -40,6 +48,149 @@ function toggleRegForm() {
 function closeRegFormMobile() {
   var p = document.getElementById('reg-form-panel');
   if (p) p.classList.remove('reg-form-open');
+}
+// ── Register scan pages ─────────────────────────────────────────────────
+function loadRegisterScans() {
+  api('/admin/api/register/scans?type=' + _regType).then(function(d) {
+    var pages = d.pages || [];
+    _regScanPages = {};
+    pages.forEach(function(p) { _regScanPages[String(p.page)] = p; });
+    _regScanList = pages.slice().sort(function(a, b) {
+      var na = parseFloat(a.page), nb = parseFloat(b.page);
+      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+      return String(a.page).localeCompare(String(b.page));
+    });
+    // Re-render the already-loaded list so any "p.NN" now matching a scan becomes a link.
+    if (typeof regFilterChanged === 'function' && _regEntries.length) regFilterChanged();
+    var mgmModal = document.getElementById('reg-scan-manage-modal');
+    if (mgmModal && mgmModal.classList.contains('open')) renderRegScanExisting();
+  }).catch(function() {});
+}
+function regGuessPageNumber(filename) {
+  var name = (filename || '').replace(/\.[^.]+$/, '');
+  var m = name.match(/(\d+)(?!.*\d)/);
+  return m ? String(parseInt(m[1], 10)) : '';
+}
+function openRegScanManage() {
+  var t = document.getElementById('reg-scan-manage-type');
+  if (t) t.textContent = (_regLabels[_regType] || {}).title || _regType;
+  regScanClearQueue();
+  renderRegScanExisting();
+  openModal('reg-scan-manage-modal');
+}
+function renderRegScanExisting() {
+  var el = document.getElementById('reg-scan-existing');
+  if (!el) return;
+  if (!_regScanList.length) {
+    el.innerHTML = '<div style="padding:16px;text-align:center;color:var(--warm-gray);font-size:.82rem;">No pages scanned in yet for this book.</div>';
+    return;
+  }
+  el.innerHTML = '<div style="font-size:.78rem;font-weight:700;color:var(--warm-gray);margin-bottom:6px;">'+_regScanList.length+' page'+(_regScanList.length===1?'':'s')+' on file</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:10px;max-height:320px;overflow-y:auto;padding-bottom:4px;">'
+    + _regScanList.map(function(p) {
+        return '<div style="width:96px;text-align:center;">'
+          + '<div data-page="'+esc(String(p.page))+'" style="cursor:pointer;" onclick="openRegScanViewer(this.dataset.page)">'
+          +   '<img src="'+esc(p.url)+'" style="width:96px;height:96px;object-fit:cover;border:1px solid var(--border);border-radius:6px;" alt="Scanned page '+esc(String(p.page))+'">'
+          +   '<div style="font-size:.74rem;margin-top:2px;">p.'+esc(String(p.page))+'</div>'
+          + '</div>'
+          + '<button class="btn-secondary require-edit-register" style="font-size:.68rem;padding:1px 6px;margin-top:2px;" data-scan-id="'+p.id+'" onclick="regScanDelete(this)">Delete</button>'
+          + '</div>';
+      }).join('')
+    + '</div>';
+}
+function regScanDelete(btnEl) {
+  var id = btnEl.dataset.scanId;
+  if (!id || !confirm('Delete this scanned page image?')) return;
+  api('/admin/api/register/scans/' + id, { method: 'DELETE' })
+    .then(function() { loadRegisterScans(); })
+    .catch(function(err) { alert('Delete failed: ' + err.message); });
+}
+function regScanFilesChosen(inputEl) {
+  var files = Array.prototype.slice.call(inputEl.files || []);
+  inputEl.value = '';
+  if (!files.length) return;
+  _regScanQueue = files.map(function(f) { return { file: f, page: regGuessPageNumber(f.name) }; });
+  renderRegScanQueue();
+}
+function renderRegScanQueue() {
+  var el = document.getElementById('reg-scan-queue');
+  var actionsEl = document.getElementById('reg-scan-queue-actions');
+  var countEl = document.getElementById('reg-scan-queue-count');
+  if (!el) return;
+  if (!_regScanQueue.length) {
+    el.innerHTML = '';
+    if (actionsEl) actionsEl.style.display = 'none';
+    return;
+  }
+  el.innerHTML = '<table style="width:100%;font-size:.8rem;border-collapse:collapse;">'
+    + '<thead><tr><th style="text-align:left;padding:3px 6px;">File</th><th style="text-align:left;padding:3px 6px;width:110px;">Page #</th></tr></thead>'
+    + '<tbody>' + _regScanQueue.map(function(q, i) {
+        return '<tr><td style="padding:3px 6px;">'+esc(q.file.name)+'</td>'
+          + '<td style="padding:3px 6px;"><input type="text" value="'+esc(q.page)+'" data-qidx="'+i+'" oninput="regScanQueuePageEdit(this)" style="width:80px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;font-size:.8rem;"></td></tr>';
+      }).join('') + '</tbody></table>';
+  if (actionsEl) actionsEl.style.display = 'flex';
+  if (countEl) countEl.textContent = '('+_regScanQueue.length+')';
+}
+function regScanQueuePageEdit(inputEl) {
+  var i = parseInt(inputEl.dataset.qidx, 10);
+  if (_regScanQueue[i]) _regScanQueue[i].page = inputEl.value.trim();
+}
+function regScanClearQueue() {
+  _regScanQueue = [];
+  renderRegScanQueue();
+  var s = document.getElementById('reg-scan-upload-status'); if (s) s.textContent = '';
+}
+function regScanUploadQueue() {
+  var queue = _regScanQueue.filter(function(q) { return q.page; });
+  var skipped = _regScanQueue.length - queue.length;
+  if (!queue.length) { alert('Enter a page number for at least one file.'); return; }
+  var statusEl = document.getElementById('reg-scan-upload-status');
+  var ok = 0, fail = 0, i = 0;
+  function next() {
+    if (i >= queue.length) {
+      if (statusEl) statusEl.textContent = ok+' uploaded'+(fail?', '+fail+' failed':'')+(skipped?', '+skipped+' skipped (no page #)':'')+'.';
+      _regScanQueue = [];
+      renderRegScanQueue();
+      loadRegisterScans();
+      return;
+    }
+    var q = queue[i]; i++;
+    if (statusEl) statusEl.textContent = 'Uploading '+i+' of '+queue.length+'…';
+    var fd = new FormData();
+    fd.append('type', _regType);
+    fd.append('page', q.page);
+    fd.append('file', q.file);
+    api('/admin/api/register/scans', { method: 'POST', body: fd, credentials: 'same-origin' })
+      .then(function() { ok++; next(); })
+      .catch(function() { fail++; next(); });
+  }
+  next();
+}
+function openRegScanViewer(page) {
+  var idx = -1;
+  for (var i = 0; i < _regScanList.length; i++) { if (String(_regScanList[i].page) === String(page)) { idx = i; break; } }
+  if (idx < 0) return;
+  _regScanViewIdx = idx;
+  renderRegScanView();
+  openModal('reg-scan-view-modal');
+}
+function renderRegScanView() {
+  var p = _regScanList[_regScanViewIdx];
+  if (!p) return;
+  var titleEl = document.getElementById('reg-scan-view-title');
+  var imgEl = document.getElementById('reg-scan-view-img');
+  if (titleEl) titleEl.textContent = 'p.'+p.page+'  ·  '+(_regScanViewIdx+1)+' of '+_regScanList.length+' scanned pages';
+  if (imgEl) imgEl.src = p.url;
+  var prevBtn = document.getElementById('reg-scan-view-prev');
+  var nextBtn = document.getElementById('reg-scan-view-next');
+  if (prevBtn) prevBtn.disabled = _regScanViewIdx <= 0;
+  if (nextBtn) nextBtn.disabled = _regScanViewIdx >= _regScanList.length - 1;
+}
+function regScanViewNav(dir) {
+  var next = _regScanViewIdx + dir;
+  if (next < 0 || next >= _regScanList.length) return;
+  _regScanViewIdx = next;
+  renderRegScanView();
 }
 function loadRegister() {
   var el = document.getElementById('reg-list');
@@ -166,7 +317,12 @@ function renderRegisterList(entries, matchCount) {
       // Officiant + record_type badge
       var rtBadge = (e.record_type && hasExtended) ? '<span class="reg-rt-badge">'+esc(e.record_type)+'</span><br>' : '';
       var officPart = e.officiant ? esc(e.officiant) : DASH;
-      var pdfPart = e.pdf_page ? '<br><span class="reg-page">p.'+esc(e.pdf_page)+'</span>' : '';
+      var scanForPage = e.pdf_page ? _regScanPages[String(e.pdf_page).trim()] : null;
+      var pdfPart = e.pdf_page
+        ? ('<br><span class="reg-page">' + (scanForPage
+            ? '<a href="#" class="reg-page-link" data-page="'+esc(String(e.pdf_page).trim())+'" onclick="event.preventDefault();openRegScanViewer(this.dataset.page)" title="View scanned page">p.'+esc(e.pdf_page)+' &#128247;</a>'
+            : 'p.'+esc(e.pdf_page)) + '</span>')
+        : '';
       return '<tr>'
         + '<td class="reg-c-date">'+dateDisp+placeDisp+'</td>'
         + '<td>'+namePart+'</td>'

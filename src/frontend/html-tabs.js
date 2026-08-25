@@ -1062,6 +1062,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <button class="btn-secondary" style="display:none;font-size:.8rem;" id="reg-add-toggle" onclick="toggleRegForm()">+ Add</button>
         <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegFromPeoplePrompt()" title="Generate register entries from people records">&#128100; From People</button>
         <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegImport()">&#8679; Import File</button>
+        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegScanManage()" title="View or attach scanned book-page images, searchable by page number">&#128247; Scanned Pages</button>
         <button class="btn-secondary" style="font-size:.8rem;" onclick="printRegister()">Print</button>
       </div>
     </div>
@@ -1832,6 +1833,46 @@ export const HTML_TABS_2 = String.raw`
       <div style="font-size:.875rem;color:var(--warm-gray);margin-bottom:20px;" id="reg-import-done-sub"></div>
       <button class="btn-primary" onclick="closeRegImport()">Done</button>
     </div>
+  </div>
+</div>
+<!-- Register scan pages: manage (upload/list/delete) -->
+<div class="modal-overlay" id="reg-scan-manage-modal">
+  <div class="modal" style="max-width:640px;width:95vw;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+      <h2 style="margin:0;flex:1;font-size:1.15rem;">Scanned Pages &mdash; <span id="reg-scan-manage-type"></span></h2>
+      <button class="btn-secondary" style="font-size:.8rem;" onclick="closeModal('reg-scan-manage-modal')">&#215; Close</button>
+    </div>
+    <p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 12px;">
+      Attach a photo of each book page. Once a page number here matches an entry's own "p." number, that entry links straight to the scan.
+    </p>
+    <div class="require-edit-register" style="background:var(--linen);border-radius:8px;padding:12px 14px;margin-bottom:16px;">
+      <label style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:var(--teal);color:white;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;">
+        &#8679; Choose Page Image(s)&hellip;
+        <input type="file" id="reg-scan-file-input" accept="image/*" multiple style="display:none;" onchange="regScanFilesChosen(this)">
+      </label>
+      <div style="font-size:.76rem;color:var(--warm-gray);margin-top:8px;">
+        Select one or many at once &mdash; each filename's number (e.g. "042.jpg") is guessed as its page number below; correct any that are wrong before uploading.
+      </div>
+      <div id="reg-scan-queue" style="margin-top:10px;"></div>
+      <div id="reg-scan-queue-actions" style="display:none;margin-top:10px;gap:8px;">
+        <button class="btn-primary" style="font-size:.82rem;" onclick="regScanUploadQueue()">Upload <span id="reg-scan-queue-count"></span></button>
+        <button class="btn-secondary" style="font-size:.82rem;" onclick="regScanClearQueue()">Cancel</button>
+        <span id="reg-scan-upload-status" style="font-size:.8rem;color:var(--warm-gray);"></span>
+      </div>
+    </div>
+    <div id="reg-scan-existing"></div>
+  </div>
+</div>
+<!-- Register scan page viewer (lightbox) -->
+<div class="modal-overlay" id="reg-scan-view-modal">
+  <div class="modal" style="max-width:min(92vw,900px);width:auto;padding:14px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <div style="font-weight:700;flex:1;" id="reg-scan-view-title"></div>
+      <button class="btn-secondary" style="font-size:.78rem;" onclick="regScanViewNav(-1)" id="reg-scan-view-prev">&#8592; Prev</button>
+      <button class="btn-secondary" style="font-size:.78rem;" onclick="regScanViewNav(1)" id="reg-scan-view-next">Next &#8594;</button>
+      <button class="btn-secondary" style="font-size:.78rem;" onclick="closeModal('reg-scan-view-modal')">&#215; Close</button>
+    </div>
+    <img id="reg-scan-view-img" style="max-width:100%;max-height:80vh;display:block;margin:0 auto;border:1px solid var(--border);border-radius:6px;" alt="Scanned register page">
   </div>
 </div>
 <!-- Person edit modal -->
