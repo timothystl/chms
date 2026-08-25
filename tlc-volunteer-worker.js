@@ -42,7 +42,10 @@ const R2_PHOTO_PREFIXES = ['people/', 'households/', 'branding/'];
 // tablet, but it's wide enough that the desktop app is the right default there).
 // A `?desktop=1` link (the mobile page's "Full App" sidebar item) plants a plain
 // (unsigned — a UI preference, not an auth credential) cookie so a deliberate escape
-// hatch doesn't immediately bounce the visitor right back on their next visit.
+// hatch doesn't immediately bounce the visitor right back on their next visit. The
+// desktop shell's own sidebar carries the reciprocal `?mobile=1` link (a real report:
+// a phone user who tapped "Full App" had no way back at all) — it clears that same
+// cookie so User-Agent detection resumes deciding on the visitor's next plain visit.
 function isPhoneUserAgent(req) {
   const ua = req.headers.get('User-Agent') || '';
   return /iPhone|iPod|Android.*Mobile|Windows Phone/i.test(ua);
@@ -51,12 +54,17 @@ function prefersDesktop(req) {
   return /(?:^|;\s*)mob_pref=desktop(?:;|$)/.test(req.headers.get('cookie') || req.headers.get('Cookie') || '');
 }
 const DESKTOP_PREF_COOKIE = 'mob_pref=desktop; Path=/; Max-Age=2592000; SameSite=Lax';
+const CLEAR_DESKTOP_PREF_COOKIE = 'mob_pref=; Path=/; Max-Age=0; SameSite=Lax';
 // Decides which shell to render for an authed request to the app's main URL.
 // volunteer keeps its own destination — the read-only Volunteers admin screen is a
-// different tool entirely, not this phone quick-access surface.
+// different tool entirely, not this phone quick-access surface. `?mobile=1` forces
+// the mobile shell on THIS response even though the clearing Set-Cookie below only
+// takes effect on the visitor's next request — without this, clicking the sidebar
+// link would clear the cookie but still render one more desktop page first.
 function wantsMobileShell(req, url, role) {
   if (role === 'volunteer') return false;
   if (url.searchParams.get('desktop') === '1') return false;
+  if (url.searchParams.get('mobile') === '1') return true;
   if (prefersDesktop(req)) return false;
   return isPhoneUserAgent(req);
 }
@@ -410,6 +418,7 @@ async function _fetch(req, env) {
         if (!auth) return html(LOGIN_HTML);
         const extra = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
         if (url.searchParams.get('desktop') === '1') extra['Set-Cookie'] = DESKTOP_PREF_COOKIE;
+        else if (url.searchParams.get('mobile') === '1') extra['Set-Cookie'] = CLEAR_DESKTOP_PREF_COOKIE;
         if (wantsMobileShell(req, url, auth.role)) return html(MOBILE_ADMIN_HTML, 200, extra);
         return html(chmsHtmlForRole(auth.role), 200, extra);
       }
@@ -498,6 +507,7 @@ async function _fetch(req, env) {
       }
       const extra = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
       if (url.searchParams.get('desktop') === '1') extra['Set-Cookie'] = DESKTOP_PREF_COOKIE;
+      else if (url.searchParams.get('mobile') === '1') extra['Set-Cookie'] = CLEAR_DESKTOP_PREF_COOKIE;
       if (wantsMobileShell(req, url, auth.role)) return html(MOBILE_ADMIN_HTML, 200, extra);
       return html(chmsHtmlForRole(auth.role), 200, extra);
     }
