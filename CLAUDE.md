@@ -525,6 +525,33 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### MOB-ADMIN5 — "Full App" had no way back to Mobile Admin (2026-08-25, DONE)
+Real user report: tapped "Full App" from the Mobile Admin sidebar, and the desktop shell had no
+equivalent link back — the only way out was manually clearing site data (per the `?desktop=1`
+mechanism, that tap plants a 30-day `mob_pref=desktop` cookie, and nothing in the desktop app ever
+offered to clear it).
+
+- **`wantsMobileShell()`** (`tlc-volunteer-worker.js`) gained a `?mobile=1` check, symmetric to
+  the existing `?desktop=1` one — checked before the cookie, so it overrides a stored preference
+  outright rather than needing it cleared first. Both `/` and `/chms` handlers now clear the
+  `mob_pref` cookie (`CLEAR_DESKTOP_PREF_COOKIE`, `Max-Age=0`) whenever `?mobile=1` is present.
+  **⚠ The forced-mobile response and the cookie-clear are two separate mechanisms, both needed**:
+  a `Set-Cookie` only takes effect on the visitor's *next* request, so without the `?mobile=1`
+  query check the very click that's supposed to switch back would still render one more desktop
+  page first — the same one-step-behind trap the original bug was.
+- New **"Mobile View"** link in the desktop sidebar's bottom section (`src/frontend/html-head.js`,
+  next to Settings/the version number), pointing at `?mobile=1` — a relative link, so it resolves
+  correctly against either serving path (`/` or `/chms`). Reuses the existing `a.s-item` styling
+  rule (already present in the stylesheet, apparently anticipated but never used until now).
+  Hidden for `volunteer` role via the same `.role-volunteer .s-item{display:none}` rule every
+  other sidebar item already gets — consistent, since `wantsMobileShell()` never serves that role
+  the mobile shell regardless.
+- `npm test` (1872/1877, 5 skipped baseline, 2 new tests in `test/mobile-auto-detect.test.js`
+  driving the real `worker.fetch()`); **verified non-vacuous** by reverting the `?mobile=1` check
+  in `wantsMobileShell()` and confirming both new tests fail. `node --check` on the worker file.
+  DEPLOY_VERSION bumped to 1.210.0. **Not verified**: a live browser or a real phone.
+  (`tlc-volunteer-worker.js`, `src/frontend/html-head.js`, `test/mobile-auto-detect.test.js`)
+
 ### MOB-ADMIN4 — Mobile Admin built toward full parity; Attendance (P1) + Giving (P2) + Households (P3) (2026-08-25, IN PROGRESS)
 Two mobile UIs existed side by side — the dedicated Mobile Admin shell (MOB-ADMIN1/2:
 dashboard/people directory/light Sunday-count entry, auto-detected at the app's normal URL) and

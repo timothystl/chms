@@ -81,4 +81,29 @@ describe('mobile auto-detect at the root URL', () => {
     const desktop = await call('/chms', { role: 'staff', ua: DESKTOP_UA });
     expect(await desktop.text()).toContain(DESKTOP_TITLE);
   });
+
+  // A real report: a phone user who clicked "Full App" (?desktop=1) had no way back at all —
+  // the desktop shell's sidebar carries a reciprocal "Mobile View" link (?mobile=1) for exactly
+  // this. Two things have to both be true: the round-trip clears the opt-out cookie for FUTURE
+  // requests, and the ?mobile=1 request itself renders mobile immediately rather than one more
+  // desktop page while the clearing Set-Cookie is still only queued up.
+  it('?mobile=1 serves the mobile shell immediately and clears the opt-out cookie for later visits', async () => {
+    const r = await call('/?mobile=1', { role: 'staff', ua: IPHONE_UA, extraCookie: 'mob_pref=desktop' });
+    const body = await r.text();
+    expect(body).toContain(MOBILE_TITLE);
+    const setCookie = r.headers.get('Set-Cookie') || '';
+    expect(setCookie).toContain('mob_pref=;');
+    expect(setCookie).toMatch(/Max-Age=0/);
+
+    // Simulating the browser actually applying that Set-Cookie: a later plain visit (no more
+    // mob_pref cookie sent) resolves back to mobile purely from the phone User-Agent again.
+    const later = await call('/', { role: 'staff', ua: IPHONE_UA });
+    expect(await later.text()).toContain(MOBILE_TITLE);
+  });
+
+  it('the ?mobile=1 round-trip also works on the /chms alias path', async () => {
+    const r = await call('/chms?mobile=1', { role: 'staff', ua: IPHONE_UA, extraCookie: 'mob_pref=desktop' });
+    expect(await r.text()).toContain(MOBILE_TITLE);
+    expect(r.headers.get('Set-Cookie') || '').toMatch(/Max-Age=0/);
+  });
 });
