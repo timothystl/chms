@@ -1,6 +1,7 @@
 // ── Admin API handlers ─────────────────────────────────────────────────────────
 import { html, json, isAuthed, authCookieHeader, getAuthRole, getAuthInfo, hashPassword, verifyPassword, appRootPath, timingSafeEqual } from './auth.js';
 import { handleChmsApi } from './api-chms.js';
+import { handleMobileApi } from './api-mobile.js';
 import { LOGIN_HTML } from './html-templates.js';
 import { randHex, authCardPage, getRolePermissions, permissionsForRole, csvRow } from './api-utils.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './api-emails.js';
@@ -752,6 +753,21 @@ export async function handleAdminApi(req, env, url, method) {
     const result = await broadcastWebPush({ title, body: bodyText, url: '/portal' }, env)
       .catch(e => ({ error: e.message }));
     return json(result);
+  }
+
+  // ── Mobile Admin API dispatch ──────────────────────────────────────
+  // Must be checked before the ChMS dispatch below — 'people' below would otherwise
+  // never match 'mobile/people' anyway, but keeping this first mirrors the scheduler
+  // dispatch pattern above and keeps mobile-specific routing self-contained.
+  if (seg.startsWith('mobile/')) {
+    try {
+      const role = await getAuthRole(req, env);
+      if (!role) return json({ error: 'Unauthorized' }, 401);
+      return await handleMobileApi(req, env, url, method, role);
+    } catch (e) {
+      console.error('Mobile API error [' + method + ' ' + seg + ']:', e?.message, e?.stack);
+      return json({ error: 'Internal server error. Please try again.' }, 500);
+    }
   }
 
   // ── ChMS API dispatch ─────────────────────────────────────────────

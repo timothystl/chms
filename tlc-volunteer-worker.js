@@ -22,6 +22,7 @@ import { handleIntakeApi } from './src/api-intake.js';
 import { handleMemberSetup } from './src/api-people.js';
 import { LOGIN_HTML, PUBLIC_HTML, PUBLIC_APP_CSS, PUBLIC_APP_JS } from './src/html-templates.js';
 import { chmsHtmlForRole, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS, CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS, CHMS_APP_CSS, CHMS_SCHEDULER_HTML, CHMS_SCHEDULER_JS } from './src/html-chms.js';
+import { MOBILE_ADMIN_HTML } from './src/mobile-admin-html.js';
 import { DEPLOY_VERSION } from './src/frontend/js-core.js';
 import { PRIVACY_HTML, TERMS_HTML } from './src/legal-pages.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts, centralDayOfWeek } from './src/api-emails.js';
@@ -32,6 +33,33 @@ import { notifyAdminPush } from './src/api-scheduler.js';
 // non-photo objects (branding assets, and per the backup runbook, full D1 SQL dumps under
 // backups/), so the proxy must never take an arbitrary caller-supplied key.
 const R2_PHOTO_PREFIXES = ['people/', 'households/', 'branding/'];
+
+// ── Mobile Admin auto-detect ────────────────────────────────────────────────
+// A phone opening connect.timothystl.org (root or /chms) gets served the mobile
+// splash/dashboard/people experience INSTEAD of the desktop-oriented SPA — same URL,
+// no visible /admin or /mobile path, decided purely by request User-Agent. Tablet/
+// desktop user agents are unaffected (iPad's UA no longer self-identifies as a
+// tablet, but it's wide enough that the desktop app is the right default there).
+// A `?desktop=1` link (the mobile page's "Full App" sidebar item) plants a plain
+// (unsigned — a UI preference, not an auth credential) cookie so a deliberate escape
+// hatch doesn't immediately bounce the visitor right back on their next visit.
+function isPhoneUserAgent(req) {
+  const ua = req.headers.get('User-Agent') || '';
+  return /iPhone|iPod|Android.*Mobile|Windows Phone/i.test(ua);
+}
+function prefersDesktop(req) {
+  return /(?:^|;\s*)mob_pref=desktop(?:;|$)/.test(req.headers.get('cookie') || req.headers.get('Cookie') || '');
+}
+const DESKTOP_PREF_COOKIE = 'mob_pref=desktop; Path=/; Max-Age=2592000; SameSite=Lax';
+// Decides which shell to render for an authed request to the app's main URL.
+// volunteer keeps its own destination — the read-only Volunteers admin screen is a
+// different tool entirely, not this phone quick-access surface.
+function wantsMobileShell(req, url, role) {
+  if (role === 'volunteer') return false;
+  if (url.searchParams.get('desktop') === '1') return false;
+  if (prefersDesktop(req)) return false;
+  return isPhoneUserAgent(req);
+}
 
 // ── MAIN FETCH HANDLER ────────────────────────────────────────────────
 export default {
@@ -381,6 +409,8 @@ async function _fetch(req, env) {
         const auth = await getAuthInfo(req, env);
         if (!auth) return html(LOGIN_HTML);
         const extra = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
+        if (url.searchParams.get('desktop') === '1') extra['Set-Cookie'] = DESKTOP_PREF_COOKIE;
+        if (wantsMobileShell(req, url, auth.role)) return html(MOBILE_ADMIN_HTML, 200, extra);
         return html(chmsHtmlForRole(auth.role), 200, extra);
       }
       return html(PUBLIC_HTML);
@@ -467,6 +497,8 @@ async function _fetch(req, env) {
         return new Response(null, { status: 302, headers: { 'Location': 'https://connect.timothystl.org/' } });
       }
       const extra = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
+      if (url.searchParams.get('desktop') === '1') extra['Set-Cookie'] = DESKTOP_PREF_COOKIE;
+      if (wantsMobileShell(req, url, auth.role)) return html(MOBILE_ADMIN_HTML, 200, extra);
       return html(chmsHtmlForRole(auth.role), 200, extra);
     }
     if (path === '/chms.webmanifest') {
