@@ -24,7 +24,8 @@ function makeDb() {
   };
   raw.exec(`
     CREATE TABLE chms_config(key TEXT PRIMARY KEY, value TEXT);
-    CREATE TABLE households(id INTEGER PRIMARY KEY, name TEXT);
+    CREATE TABLE households(id INTEGER PRIMARY KEY, name TEXT, address1 TEXT, address2 TEXT,
+      city TEXT, state TEXT, zip TEXT);
     CREATE TABLE people(id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, preferred_name TEXT,
       email TEXT, phone TEXT, address1 TEXT, address2 TEXT, city TEXT, state TEXT, zip TEXT,
       member_type TEXT, household_id INTEGER, family_role TEXT, active INTEGER DEFAULT 1,
@@ -43,7 +44,8 @@ function makeDb() {
     CREATE TABLE giving_entries(id INTEGER PRIMARY KEY, batch_id INTEGER, person_id INTEGER, fund_id INTEGER,
       amount INTEGER, method TEXT, check_number TEXT, notes TEXT, contribution_date TEXT);
 
-    INSERT INTO households VALUES (1,'Alder Household');
+    INSERT INTO households (id,name,address1,city,state,zip) VALUES
+      (1,'Alder Household','123 Main St','St. Louis','MO','63101');
     INSERT INTO people (id,first_name,last_name,preferred_name,email,phone,address1,address2,city,state,zip,member_type,household_id,family_role,active,public_directory,dir_hide_phone,dir_hide_email,dir_hide_address) VALUES
       (1,'Ann','Alder','','ann@example.org','(314) 555-0101','123 Main St','','St. Louis','MO','63101','Member',1,'head',1,1,0,0,0),
       (2,'Al','Alder','','','','','','','','','Member',1,'spouse',1,1,0,0,0),
@@ -276,6 +278,82 @@ describe('handleMobileApi — attendance history + entry CRUD', () => {
     expect(rEdit.status).toBe(403);
     const rDel = await handleMobileApi(makeReq(), { DB: db }, makeUrl('attendance/entry/' + ins.meta.last_row_id), 'DELETE', 'council');
     expect(rDel.status).toBe(403);
+  });
+});
+
+describe('handleMobileApi — households: browse + detail', () => {
+  // Extra households/people scoped to just these tests via direct inserts on a fresh makeDb(),
+  // rather than added to the shared seed — the shared seed's exact people/household counts are
+  // asserted by name elsewhere in this file (people_total etc.), so growing it would silently
+  // break those.
+  function seedExtraHouseholds(db) {
+    db.prepare(`INSERT INTO households (id,name,address1,city,state,zip) VALUES (2,'Hidden Household','9 Quiet Ln','St. Louis','MO','63102')`).run();
+    db.prepare(`INSERT INTO households (id,name,address1,city,state,zip) VALUES (3,'Alder Household','456 Oak Ave','St. Louis','MO','63103')`).run();
+    db.prepare(
+      `INSERT INTO people (id,first_name,last_name,member_type,household_id,family_role,active,public_directory)
+       VALUES (8,'Hank','Hidden','Member',2,'head',1,0)`
+    ).run();
+    db.prepare(
+      `INSERT INTO people (id,first_name,last_name,member_type,household_id,family_role,active,public_directory)
+       VALUES (9,'Ben','Alder','Member',3,'head',1,1)`
+    ).run();
+  }
+
+  it('lists households with member counts, searchable by name/city', async () => {
+    const db = makeDb();
+    seedExtraHouseholds(db);
+    const rAll = await handleMobileApi(makeReq(), { DB: db }, makeUrl('households'), 'GET', 'staff');
+    const dAll = await rAll.json();
+    expect(dAll.total).toBe(3);
+    const alder1 = dAll.households.find(h => h.id === 1);
+    expect(alder1.member_count).toBe(2);
+
+    const rQ = await handleMobileApi(makeReq(), { DB: db }, makeUrl('households?q=Hidden'), 'GET', 'staff');
+    const dQ = await rQ.json();
+    expect(dQ.total).toBe(1);
+    expect(dQ.households[0].id).toBe(2);
+  });
+
+  it('disambiguates a duplicate household name with the head\'s first name, like the desktop app does', async () => {
+    const db = makeDb();
+    seedExtraHouseholds(db);
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('households'), 'GET', 'staff');
+    const d = await r.json();
+    const h1 = d.households.find(h => h.id === 1);
+    const h3 = d.households.find(h => h.id === 3);
+    expect(h1.name).toBe('Ann Alder Household');
+    expect(h3.name).toBe('Ben Alder Household');
+  });
+
+  it('a member sees only the visible member count/list, and a fully-opted-out household 404s', async () => {
+    const db = makeDb();
+    seedExtraHouseholds(db);
+    const rList = await handleMobileApi(makeReq(), { DB: db }, makeUrl('households'), 'GET', 'member');
+    const dList = await rList.json();
+    // Household 2 (Hank, public_directory=0) is entirely invisible to a member.
+    expect(dList.households.find(h => h.id === 2)).toBeUndefined();
+    expect(dList.total).toBe(2);
+
+    const rDetailHidden = await handleMobileApi(makeReq(), { DB: db }, makeUrl('households/2'), 'GET', 'member');
+    expect(rDetailHidden.status).toBe(404);
+
+    const rDetailVisible = await handleMobileApi(makeReq(), { DB: db }, makeUrl('households/1'), 'GET', 'member');
+    const dVisible = await rDetailVisible.json();
+    expect(dVisible.members.length).toBe(2);
+    expect(dVisible.address).toBe('123 Main St, St. Louis, MO 63101');
+  });
+
+  it('household detail includes an address + map link, and 404s for an unknown id', async () => {
+    const db = makeDb();
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('households/1'), 'GET', 'staff');
+    const d = await r.json();
+    expect(d.name).toBe('Alder Household');
+    expect(d.address).toBe('123 Main St, St. Louis, MO 63101');
+    expect(d.map_url).toContain('maps/search');
+    expect(d.members.map(m => m.name).sort()).toEqual(['Al Alder', 'Ann Alder']);
+
+    const rMissing = await handleMobileApi(makeReq(), { DB: db }, makeUrl('households/999'), 'GET', 'staff');
+    expect(rMissing.status).toBe(404);
   });
 });
 

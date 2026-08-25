@@ -7,7 +7,7 @@
 // purpose-built endpoints shaped exactly for the phone screens, instead of asking the
 // mobile frontend to make (and reconcile) several general-purpose API calls.
 import { json } from './auth.js';
-import { getRolePermissions, permissionsForRole } from './api-utils.js';
+import { getRolePermissions, permissionsForRole, disambiguateHHName } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
 
 // Who this surface is for. `member` is allowed — the phone experience IS the member's
@@ -403,6 +403,80 @@ export async function handleMobileApi(req, env, url, method, role) {
       address,
       map_url: address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}` : '',
       household,
+      household_id: p.household_id || null,
+    });
+  }
+
+  // ── Households: browse + detail ─────────────────────────────────────────
+  // Read-only for now (Phase 3 of MOB-ADMIN4) — the desktop household editor (address, photo,
+  // name) isn't ported here yet. Viewing follows the exact same rule the People screens already
+  // apply: a member never sees a household (or a member within one) that has opted out of the
+  // directory (SEC16/P22-A), and a household visible only through opted-out members 404s outright
+  // rather than leaking its name/address through a guessed id.
+  if (seg === 'households' && method === 'GET') {
+    const q = (url.searchParams.get('q') || '').trim();
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '30', 10) || 30, 100);
+    const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0);
+    let where = `1=1`;
+    const binds = [];
+    if (q) { where += ` AND (h.name LIKE ? OR h.city LIKE ?)`; const like = '%' + q + '%'; binds.push(like, like); }
+    if (isMemberRole) where += ` AND h.id IN (SELECT household_id FROM people WHERE active=1 AND public_directory=1 AND household_id IS NOT NULL)`;
+    const rows = (await db.prepare(
+      `SELECT h.id, h.name, h.city,
+              (SELECT COUNT(*) FROM people p WHERE p.household_id=h.id AND p.active=1${isMemberRole ? ' AND p.public_directory=1' : ''}) as member_count,
+              (SELECT p2.first_name FROM people p2 WHERE p2.household_id=h.id AND p2.active=1 AND p2.family_role='head'${isMemberRole ? ' AND p2.public_directory=1' : ''} LIMIT 1) as head_first_name
+       FROM households h WHERE ${where}
+       ORDER BY h.name ASC LIMIT ? OFFSET ?`
+    ).bind(...binds, limit, offset).all()).results || [];
+    const dupNameSet = new Set(
+      ((await db.prepare(`SELECT LOWER(name) as n FROM households GROUP BY LOWER(name) HAVING COUNT(*)>1`).all()).results || []).map(r => r.n)
+    );
+    const households = rows.map(r => ({
+      id: r.id,
+      name: (dupNameSet.has((r.name || '').toLowerCase()) && r.head_first_name) ? disambiguateHHName(r.name, r.head_first_name) : r.name,
+      city: r.city || '',
+      member_count: r.member_count || 0,
+    }));
+    let total;
+    if (offset === 0 && rows.length < limit) {
+      total = rows.length;
+    } else {
+      const t = await db.prepare(`SELECT COUNT(*) as n FROM households h WHERE ${where}`).bind(...binds).first();
+      total = t?.n || rows.length;
+    }
+    return json({ households, total, offset, limit });
+  }
+
+  const hhMatch = seg.match(/^households\/(\d+)$/);
+  if (hhMatch && method === 'GET') {
+    const hid = parseInt(hhMatch[1], 10);
+    const h = await db.prepare(`SELECT * FROM households WHERE id=?`).bind(hid).first();
+    if (!h) return json({ error: 'Not found' }, 404);
+    const members = (await db.prepare(
+      `SELECT id, first_name, last_name, family_role, phone, email, dir_hide_phone, dir_hide_email, public_directory
+       FROM people WHERE household_id=? AND active=1 ORDER BY family_role='head' DESC, first_name ASC`
+    ).bind(hid).all()).results || [];
+    const visible = isMemberRole ? members.filter(m => m.public_directory === 1) : members;
+    if (isMemberRole && !visible.length) return json({ error: 'Not found' }, 404);
+    let name = h.name;
+    const dup = await db.prepare(`SELECT COUNT(*) as n FROM households WHERE LOWER(name)=LOWER(?) AND id!=?`).bind(h.name, hid).first();
+    if (dup?.n > 0) {
+      const head = visible.find(m => m.family_role === 'head') || visible[0];
+      if (head?.first_name) name = disambiguateHHName(h.name, head.first_name);
+    }
+    const address = composeAddress(h);
+    return json({
+      id: h.id,
+      name,
+      address,
+      map_url: address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}` : '',
+      members: visible.map(m => ({
+        id: m.id,
+        name: [m.first_name, m.last_name].filter(Boolean).join(' '),
+        rel: familyRoleLabel(m.family_role),
+        phone: (isMemberRole && m.dir_hide_phone) ? '' : (m.phone || ''),
+        email: (isMemberRole && m.dir_hide_email) ? '' : (m.email || ''),
+      })),
     });
   }
 
