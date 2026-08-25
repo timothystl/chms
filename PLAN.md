@@ -73,7 +73,7 @@ The church network is slow; AU2 has been open since July for that reason.
 
 | # | Code | Size | What |
 |---|---|---|---|
-| 13 | ~~**P23-A**~~ | needs scoping | DONE 2026-08-23. Session cookies now sign with a dedicated `SESSION_SECRET`, not `ADMIN_PASSWORD`. Shipped as a hard cutover (fails closed, forces a full-app relogin) rather than a dual-key transition — user's call, made explicitly for a day nobody was expected to be logged in. **⚠ Manual step: `wrangler secret put SESSION_SECRET` must be run or nobody can log in.** |
+| 13 | ~~**P23-A**~~ | needs scoping | DONE 2026-08-23. Session cookies now sign with a dedicated `SESSION_SECRET`, not `ADMIN_PASSWORD`. Shipped as a hard cutover (fails closed, forces a full-app relogin) rather than a dual-key transition — user's call, made explicitly for a day nobody was expected to be logged in. **✅ `SESSION_SECRET` confirmed set on `tlc-chms` 2026-08-25 — login verified working.** |
 | 14 | **P23-B** | needs scoping | MFA for `admin` and `finance`. **P23-A is done** — MFA now sits on top of a real high-entropy session key instead of a guessable password. |
 
 > Placed below Tier 3 on **sequencing, not importance**. P23-A is the most valuable remaining security
@@ -292,9 +292,12 @@ v1.191.0. **Not verified**: a live browser, a real sent email, or production D1.
     those (`auth-memo.test.js`, `market-shift-lead.test.js`) had a test specifically asserting "a cookie
     signed with a different key fails to verify" that had to be repointed at `SESSION_SECRET` — leaving it
     pointed at `ADMIN_PASSWORD` would have made the test pass while proving nothing, since that value no
-    longer has anything to do with signing. `node --check` on every touched file. **Not verified**: a live
-    browser, or the actual production secret being set — that is the one manual step left, and the whole
-    app cannot authenticate anyone until it happens.
+    longer has anything to do with signing. `node --check` on every touched file. **✅ The manual step is
+    done**: `SESSION_SECRET` was set on the live `tlc-chms` Worker 2026-08-25 and login is confirmed working
+    (there was one false start — the error the app shows when the secret is missing,
+    "Session signing key is not configured," is exactly what surfaced when the first attempt didn't take;
+    a second attempt at setting it on the correct Worker fixed it). **Not verified**: a live browser beyond
+    that one confirmed login — no systematic click-through of the app was done.
 - [ ] **P23-B** (retires **SEC9**) — MFA, at least for `admin` and `finance`. TOTP setup + QR, verification
   at login, recovery codes, and a decision on which roles are required. **P23-A is done** — MFA now sits
   on top of a real high-entropy session key instead of a guessable password.
