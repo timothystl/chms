@@ -966,8 +966,9 @@ phone, a real sent email, or production D1 — the standing caveat on all fronte
   fully decoupled from `ADMIN_PASSWORD`. Shipped as a hard cutover (fails closed with no dual-key
   transition) — the user's explicit call, made for a day nobody was expected to be logged in. Full detail,
   including the `handleAdminLogin`/SEC22 invariant it had to preserve, is in `PLAN.md` under P23-A — this
-  is the evidence file, that's the running order. **⚠ Manual step still outstanding**: `wrangler secret put
-  SESSION_SECRET` must be run before anyone can log in again. Original finding follows, for the record.
+  is the evidence file, that's the running order. **✅ Manual step done, 2026-08-25** — `SESSION_SECRET`
+  is set on the live `tlc-chms` Worker and login is confirmed working again. Original finding follows,
+  for the record.
   Session cookies are HMAC-signed with `ADMIN_PASSWORD`, a human-chosen password.** `auth.js`
   imports `env.ADMIN_PASSWORD` as the HMAC key for every `vol_auth` cookie. Any holder of a valid cookie —
   including the lowest-trust `member` account, on their own phone — holds `HMAC(ADMIN_PASSWORD, knownPayload)`
