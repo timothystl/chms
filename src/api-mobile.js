@@ -8,6 +8,7 @@
 // mobile frontend to make (and reconcile) several general-purpose API calls.
 import { json } from './auth.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
+import { recordQuickGivingEntry } from './api-giving.js';
 
 // Who this surface is for. `member` is allowed — the phone experience IS the member's
 // only view of the directory now, not an add-on — but every attendance/follow-up/prayer
@@ -73,6 +74,14 @@ export async function handleMobileApi(req, env, url, method, role) {
   // isMemberRole doesn't need to be threaded into these — canView/canEditBaseline already
   // resolve correctly for them.
   const canEditBaseline = isAdmin || role === 'finance' || role === 'staff' || role === 'council';
+  // `giving` carries a fourth level, 'anon' (aggregate totals only, no donor named — the level
+  // council runs on). canView()'s plain !=='none' check would wrongly admit it here: every
+  // endpoint below shows or writes an individually-identified gift, so 'anon' must be treated
+  // the same as 'none' — the same rule api-reports.js's isAnonSafeGivingSeg() allowlist exists to
+  // enforce, restated for this handler because it never routes through that allowlist.
+  const givingLevel = isAdmin ? 'edit' : (rolePerms.giving || 'none');
+  const canViewGivingNamed = givingLevel === 'view' || givingLevel === 'edit';
+  const canEditGiving = givingLevel === 'edit';
 
   const seg = url.pathname.replace('/admin/api/mobile/', '').replace(/\/+$/, '');
 
@@ -159,6 +168,7 @@ export async function handleMobileApi(req, env, url, method, role) {
       can_edit_attendance: canEditItem('attendance'),
       people_total: peopleTotal,
       can_view_followups: canViewFollowups || canEditBaseline,
+      can_view_giving: canViewGivingNamed,
       followups: followups.slice(0, 8),
       open_followup_count: openFollowupCount,
     });
@@ -240,6 +250,42 @@ export async function handleMobileApi(req, env, url, method, role) {
       `UPDATE worship_services SET attendance=?, communion=?, service_name=? WHERE id=?`
     ).bind(count, communion, name, id).run();
     return json({ ok: true });
+  }
+
+  // ── Giving: funds picker, recent entries, quick entry ───────────────────────
+  // 'anon' (the level council runs on) is deliberately NOT enough for any of these — every
+  // one shows or writes a named gift. See canViewGivingNamed/canEditGiving above.
+  if (seg === 'giving/funds' && method === 'GET') {
+    if (!canViewGivingNamed) return json({ error: 'Access denied' }, 403);
+    const rows = (await db.prepare(
+      `SELECT id, name FROM funds WHERE active=1 ORDER BY sort_order, name`
+    ).all()).results || [];
+    return json({ funds: rows, can_edit: canEditGiving });
+  }
+
+  if (seg === 'giving/recent' && method === 'GET') {
+    if (!canViewGivingNamed) return json({ error: 'Access denied' }, 403);
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '15', 10) || 15, 50);
+    const rows = (await db.prepare(
+      `SELECT ge.id, ge.amount, ge.method,
+              COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) as txn_date,
+              f.name as fund_name,
+              COALESCE(p.first_name||' '||p.last_name,'(anonymous)') as person_name
+       FROM giving_entries ge
+       JOIN funds f ON ge.fund_id=f.id
+       JOIN giving_batches gb ON ge.batch_id=gb.id
+       LEFT JOIN people p ON ge.person_id=p.id
+       ORDER BY txn_date DESC, ge.id DESC LIMIT ?`
+    ).bind(limit).all()).results || [];
+    return json({ entries: rows });
+  }
+
+  if (seg === 'giving/entry' && method === 'POST') {
+    if (!canEditGiving) return json({ error: 'Access denied' }, 403);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const result = await recordQuickGivingEntry(db, b);
+    if (result.error) return json({ error: result.error }, 400);
+    return json({ ok: true, id: result.id, batch_id: result.batch_id });
   }
 
   // ── Follow-ups: toggle done/undone ────────────────────────────────────────

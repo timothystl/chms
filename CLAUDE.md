@@ -518,7 +518,7 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
-### MOB-ADMIN4 — Mobile Admin built toward full parity; Attendance is Phase 1 (2026-08-25, IN PROGRESS)
+### MOB-ADMIN4 — Mobile Admin built toward full parity; Attendance (Phase 1) + Giving (Phase 2) (2026-08-25, IN PROGRESS)
 Two mobile UIs existed side by side — the dedicated Mobile Admin shell (MOB-ADMIN1/2:
 dashboard/people directory/light Sunday-count entry, auto-detected at the app's normal URL) and
 the desktop admin SPA's own separate mobile-responsive CSS (MOB1-4/ATT7/REG-MOB1-2/VOL-MOB1/
@@ -550,21 +550,42 @@ so it's tracked here phase by phase, same pattern as GIV-R1-4/SC6.
   this file isn't `String.raw` but the same extraction-and-parse verification applies), div/
   button/span/a tag-balance on the assembled `MOBILE_ADMIN_HTML`. DEPLOY_VERSION bumped to
   1.207.0. **Not verified**: a live browser or a real phone.
-- **Remaining phases, not yet started, roughly in likely-usage order**: Giving (quick batch/
-  entry lookup — probably the next highest-value "need it in the moment" surface after
-  attendance), Households (currently only reachable as a read-only list on a person's detail
-  screen), Follow Ups as its own browsable screen (currently only a dashboard feed, no history/
-  filter), Reports (a handful of the simpler ones — Contact Completeness, Giving Insights — not
-  the heavy multi-year chart-driven ones), Register, Volunteers, Settings, Tuition Aid, Finance,
-  Scheduler. The last several (Finance, Scheduler, Tuition Aid) are genuinely desktop-shaped
-  workflows (multi-column grids, drag-resize charts, multi-step wizards) and may end up staying
-  "Full App only" by deliberate design rather than full parity — worth a decision closer to when
-  their turn comes, not assumed now.
+- **Phase 2 — Giving, DONE.** New standalone **Giving** screen (sidebar nav, hidden for a role
+  whose `giving` permission level resolves to `none` or `anon` — see the anon note below): a
+  quick-entry form (giver — optional, live search against the existing `mobile/people` endpoint,
+  same debounced-search-with-refocus pattern as the People screen — fund, amount, date, method,
+  check number when method is Check) plus a Recent Gifts list (last 15, any fund/person). Backend:
+  `GET mobile/giving/funds` (active funds for the picker, plus a `can_edit` flag driving whether
+  the form renders at all), `GET mobile/giving/recent`, `POST mobile/giving/entry`. **The insert
+  logic is shared with the desktop `giving/quick-entry` route, not duplicated** — extracted into
+  `recordQuickGivingEntry()` in `api-giving.js` (find-or-create-this-month's-manual-entry-batch,
+  then insert) so the two screens can't independently drift on what "quick entry" does, the SW17
+  lesson from this file's own history. **⚠ `giving`'s permission matrix has a fourth level, `anon`
+  (aggregate totals only, no donor named — the level `council` runs on by default), and the
+  generic `canView()` helper (`!== 'none'`) would wrongly admit it** — every mobile Giving endpoint
+  shows or writes an individually-named gift, so a local `canViewGivingNamed`/`canEditGiving` pair
+  explicitly requires `view`/`edit`, mirroring the reasoning `isAnonSafeGivingSeg()` encodes for
+  the desktop routes (COUNCIL1 in this file). `npm test` (1837/1842, 5 new tests, including one
+  proving council's default `anon` is refused on all three endpoints; **verified non-vacuous** by
+  loosening the check to plain `!== 'none'` and confirming that exact test fails — it does, the
+  SEC16-class regression this guard exists for). `node --check` on all three touched backend files
+  and the extracted mobile-shell `<script>` block, div/button/span/select/option tag-balance on
+  the assembled `MOBILE_ADMIN_HTML`. DEPLOY_VERSION bumped to 1.208.0. **Not verified**: a live
+  browser or a real phone — in particular the person-search dropdown's positioning/behavior on a
+  real on-screen keyboard.
+- **Remaining phases, not yet started, roughly in likely-usage order**: Households (currently
+  only reachable as a read-only list on a person's detail screen), Follow Ups as its own browsable
+  screen (currently only a dashboard feed, no history/filter), Reports (a handful of the simpler
+  ones — Contact Completeness, Giving Insights — not the heavy multi-year chart-driven ones),
+  Register, Volunteers, Settings, Tuition Aid, Finance, Scheduler. The last several (Finance,
+  Scheduler, Tuition Aid) are genuinely desktop-shaped workflows (multi-column grids, drag-resize
+  charts, multi-step wizards) and may end up staying "Full App only" by deliberate design rather
+  than full parity — worth a decision closer to when their turn comes, not assumed now.
 - **The "Full App" escape hatch is deliberately left in place** for anything not yet built —
   removing it before a phase covers the gap would just make that gap unreachable on a phone
   rather than routed to the desktop-responsive fallback. Revisit removing it once the phase list
   above is actually exhausted (or once specific phases are deliberately marked "desktop only").
-  (`src/api-mobile.js`, `src/mobile-admin-html.js`, `src/frontend/js-core.js`,
+  (`src/api-mobile.js`, `src/api-giving.js`, `src/mobile-admin-html.js`, `src/frontend/js-core.js`,
   `test/mobile-admin.test.js`)
 
 ### TAP6 — A pin made for "next year" is now promoted automatically once that year becomes current (2026-08-23, DONE, P28-E)

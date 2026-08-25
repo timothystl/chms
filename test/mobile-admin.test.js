@@ -37,6 +37,11 @@ function makeDb() {
     CREATE TABLE prayer_requests(id INTEGER PRIMARY KEY, person_id INTEGER, requester_name TEXT,
       requester_email TEXT, request_text TEXT, source TEXT, status TEXT, resolution_note TEXT,
       submitted_at TEXT, resolved_at TEXT, created_at TEXT);
+    CREATE TABLE funds(id INTEGER PRIMARY KEY, name TEXT, active INTEGER DEFAULT 1, sort_order INTEGER DEFAULT 0,
+      category TEXT DEFAULT '', budget_annual_cents INTEGER);
+    CREATE TABLE giving_batches(id INTEGER PRIMARY KEY, batch_date TEXT, description TEXT, closed INTEGER DEFAULT 0);
+    CREATE TABLE giving_entries(id INTEGER PRIMARY KEY, batch_id INTEGER, person_id INTEGER, fund_id INTEGER,
+      amount INTEGER, method TEXT, check_number TEXT, notes TEXT, contribution_date TEXT);
 
     INSERT INTO households VALUES (1,'Alder Household');
     INSERT INTO people (id,first_name,last_name,preferred_name,email,phone,address1,address2,city,state,zip,member_type,household_id,family_role,active,public_directory,dir_hide_phone,dir_hide_email,dir_hide_address) VALUES
@@ -271,6 +276,89 @@ describe('handleMobileApi — attendance history + entry CRUD', () => {
     expect(rEdit.status).toBe(403);
     const rDel = await handleMobileApi(makeReq(), { DB: db }, makeUrl('attendance/entry/' + ins.meta.last_row_id), 'DELETE', 'council');
     expect(rDel.status).toBe(403);
+  });
+});
+
+describe('handleMobileApi — giving: funds, recent, quick entry', () => {
+  function seedFund(db, name) {
+    return db.prepare(`INSERT INTO funds (name, active, sort_order) VALUES (?,1,0)`).bind(name).run();
+  }
+
+  it('finance (default edit) can list funds/recent and record a gift; staff (default none) is denied', async () => {
+    const db = makeDb();
+    const fund = await seedFund(db, 'General Fund');
+
+    const rFundsStaff = await handleMobileApi(makeReq(), { DB: db }, makeUrl('giving/funds'), 'GET', 'staff');
+    expect(rFundsStaff.status).toBe(403);
+    const rRecentStaff = await handleMobileApi(makeReq(), { DB: db }, makeUrl('giving/recent'), 'GET', 'staff');
+    expect(rRecentStaff.status).toBe(403);
+    const rEntryStaff = await handleMobileApi(
+      makeReq({ fund_id: fund.meta.last_row_id, amount: '20', date: '2026-08-23' }),
+      { DB: db }, makeUrl('giving/entry'), 'POST', 'staff'
+    );
+    expect(rEntryStaff.status).toBe(403);
+
+    const rFunds = await handleMobileApi(makeReq(), { DB: db }, makeUrl('giving/funds'), 'GET', 'finance');
+    const dFunds = await rFunds.json();
+    expect(dFunds.can_edit).toBe(true);
+    expect(dFunds.funds.length).toBe(1);
+    expect(dFunds.funds[0].name).toBe('General Fund');
+
+    const rEntry = await handleMobileApi(
+      makeReq({ person_id: 1, fund_id: fund.meta.last_row_id, amount: '43.50', method: 'cash', date: '2026-08-23' }),
+      { DB: db }, makeUrl('giving/entry'), 'POST', 'finance'
+    );
+    const dEntry = await rEntry.json();
+    expect(dEntry.ok).toBe(true);
+    const row = await db.prepare(`SELECT * FROM giving_entries WHERE id=?`).bind(dEntry.id).first();
+    expect(row.amount).toBe(4350);
+    expect(row.person_id).toBe(1);
+    expect(row.fund_id).toBe(fund.meta.last_row_id);
+
+    const rRecent = await handleMobileApi(makeReq(), { DB: db }, makeUrl('giving/recent'), 'GET', 'finance');
+    const dRecent = await rRecent.json();
+    expect(dRecent.entries.length).toBe(1);
+    expect(dRecent.entries[0].person_name).toBe('Ann Alder');
+    expect(dRecent.entries[0].fund_name).toBe('General Fund');
+  });
+
+  it('a second same-month entry reuses the same manual-entry batch (shared logic with the desktop quick-entry route)', async () => {
+    const db = makeDb();
+    const fund = await seedFund(db, 'Building Fund');
+    const r1 = await handleMobileApi(
+      makeReq({ fund_id: fund.meta.last_row_id, amount: '10', date: '2026-08-05' }),
+      { DB: db }, makeUrl('giving/entry'), 'POST', 'finance'
+    );
+    const r2 = await handleMobileApi(
+      makeReq({ fund_id: fund.meta.last_row_id, amount: '15', date: '2026-08-20' }),
+      { DB: db }, makeUrl('giving/entry'), 'POST', 'finance'
+    );
+    const d1 = await r1.json(), d2 = await r2.json();
+    expect(d1.batch_id).toBe(d2.batch_id);
+  });
+
+  it('rejects a zero/invalid amount', async () => {
+    const db = makeDb();
+    const fund = await seedFund(db, 'General Fund');
+    const r = await handleMobileApi(
+      makeReq({ fund_id: fund.meta.last_row_id, amount: '0', date: '2026-08-23' }),
+      { DB: db }, makeUrl('giving/entry'), 'POST', 'finance'
+    );
+    expect(r.status).toBe(400);
+  });
+
+  it("council's default 'anon' level is NOT enough — every giving endpoint shows/writes a named gift", async () => {
+    const db = makeDb();
+    const fund = await seedFund(db, 'General Fund');
+    const rFunds = await handleMobileApi(makeReq(), { DB: db }, makeUrl('giving/funds'), 'GET', 'council');
+    expect(rFunds.status).toBe(403);
+    const rRecent = await handleMobileApi(makeReq(), { DB: db }, makeUrl('giving/recent'), 'GET', 'council');
+    expect(rRecent.status).toBe(403);
+    const rEntry = await handleMobileApi(
+      makeReq({ fund_id: fund.meta.last_row_id, amount: '20', date: '2026-08-23' }),
+      { DB: db }, makeUrl('giving/entry'), 'POST', 'council'
+    );
+    expect(rEntry.status).toBe(403);
   });
 });
 
