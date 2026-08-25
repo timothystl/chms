@@ -525,6 +525,78 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### REG-SCAN1 — Register entries link to their scanned book page, searchable by page number (2026-08-25, DONE)
+Asked for while reviewing an AI-transcribed baptism register entry: since the register is
+transcribed from scans of the physical books and a transcription might be wrong, could a page
+number (already shown on each entry, e.g. "p.42") link to the actual scanned page image so staff
+can check it?
+- **New `register_scan_pages(type, page, r2_key)` table** (migration `0040_register_scan_pages.sql`,
+  `UNIQUE(type, page)`), storing one image per (register type, page number) — the same `type` values
+  the register itself already uses (`baptism`/`confirmation`/`wedding`/`funeral`/`anniversary`) and
+  the same free-text `page` string staff already type into a register entry's own `pdf_page` field,
+  so the two line up by exact match with no new lookup table needed on the register side.
+- New `GET`/`POST`/`DELETE /admin/api/register/scans` (`src/api-import.js`, same file the rest of
+  the register endpoints live in, gated by the existing `register` item in the per-role permission
+  matrix — reads need `view`, writes need `edit`, same as every other register write). Images are
+  validated via the existing `validateImageUpload()` (magic-byte sniff, 8 MB cap) and stored in the
+  shared R2 bucket under `register-scans/{type}/{page}.{ext}` — added to `R2_PHOTO_PREFIXES` in
+  `tlc-volunteer-worker.js` so the existing `/admin/r2photo/` proxy serves them (no new proxy route).
+  Re-uploading the same (type, page) replaces the image in place rather than creating a duplicate.
+- **Register tab UI**: a new "📷 Scanned Pages" button opens a management modal — select one or many
+  page images at once, each filename's trailing digit run is guessed as its page number
+  (`regGuessPageNumber()`, e.g. "042.jpg" → 42) into an editable review table before uploading, plus
+  a gallery of what's already on file with delete. Any register row whose `pdf_page` now matches an
+  uploaded scan turns its "p.42" into a link (`data-page` + delegated `openRegScanViewer()`, not an
+  inline-quoted onclick — the SEC13/SEC14 quote-context escaping trap this codebase has hit three
+  times before) opening a lightbox with Prev/Next through the sorted scanned-page list. The Print
+  view's own "p.42" text is untouched (no link makes sense on paper).
+- **Caught by the new tests, not by reading**: the re-upload/replace path used a double-quoted SQL
+  string literal (`datetime("now")`) — SQLite reads a double-quoted token as a column/table
+  identifier when no such column exists, so the very first re-upload of an existing page would have
+  thrown "no such column: now" in production. Fixed to single-quoted `datetime('now')`.
+- `npm test` (1880/1880, 8 new in `test/register-scan-pages.test.js` and `test/intake-connect-card.test.js`'s
+  suite — the former runs the real `handleImportApi` against real in-memory SQLite plus a fake R2
+  bucket); `node --check` on all touched backend files and the extracted `JS_REGISTER`/`JS_DASHBOARD`/
+  `JS_PEOPLE` script bodies (the SC3-BUG1 `String.raw`-escaping class this codebase watches for), and
+  a div-balance scan of the fully assembled `CHMS_HTML` (1108/1108). DEPLOY_VERSION bumped to
+  1.211.0. **Not verified**: a live browser or a real R2 bucket — same standing caveat as all
+  frontend/upload work in this repo.
+  (`migrations/0040_register_scan_pages.sql`, `src/db.js`, `src/api-import.js`,
+  `tlc-volunteer-worker.js`, `src/frontend/js-register.js`, `src/frontend/html-tabs.js`,
+  `src/frontend/html-head.js`, `test/register-scan-pages.test.js`)
+
+### FU-INTAKE1 — Website contact-form submissions stopped silently creating People records (2026-08-25, DONE)
+Real user report, with a screenshot: a website contact-form submission ("Contact card
+(website-contact): Was hoping to see if you had records of my baptism") showed up in the Follow-up
+Queue with no email visible and no way to reply without opening the person record it had silently
+created — and every such submission, spam included, was becoming a permanent Visitor record in the
+directory.
+- **`POST /api/intake/connect-card` no longer creates a `people` row.** It still does a best-effort
+  read-only lookup for an existing active person by email and links to them if found (so a real
+  member's contact-form message still lands on their profile) — it just never creates a new one.
+  The submitter's own name/email/phone are stored directly on the `follow_up_items` row instead
+  (new `requester_name`/`requester_email`/`requester_phone` columns, migration
+  `0039_followup_contact_fields.sql`, the same pattern `prayer_requests.requester_*` already uses).
+- **Dashboard Follow-up Queue** (`js-dashboard.js`) now shows the submitter's name (linked-person
+  name if one was matched, else the requester's own typed name), plus `mailto:`/`tel:` links for
+  their email/phone — no more opening the person record just to find the email to reply to.
+- **New "+ Add as Person" button** on an unlinked item, for the genuine follow-ups (as opposed to
+  spam) staff do want to add — opens the existing Add Person modal prefilled from the submitter's
+  name/email/phone. **Fixed a real latent bug in `openPersonEdit()`** while wiring this up: every
+  field was gated `isNew ? '' : (p.field||'')`, so passing a partial object for a *new* person (no
+  `id`) always rendered blank regardless of what was passed in — dead code until this was the first
+  caller to ever pass prefill data for a new person. `first_name`/`last_name`/`email`/`phone` now
+  read from `p` regardless of `isNew`; every other field (address, dates, etc.) is untouched, since
+  nothing populates those for this flow.
+- `npm test` (1880/1880, 3 new in `test/intake-connect-card.test.js`, run against real in-memory
+  SQLite — no new person row on an unrecognized email, the follow-up item carries the submitter's
+  contact fields, an existing person is linked by email without creating a duplicate). `node --check`
+  on the touched backend files and the extracted `JS_DASHBOARD`/`JS_PEOPLE` script bodies, div-balance
+  on the assembled `CHMS_HTML`. DEPLOY_VERSION bumped to 1.211.0 (shared with REG-SCAN1 above, same
+  session). **Not verified**: a live browser. (`migrations/0039_followup_contact_fields.sql`,
+  `src/db.js`, `src/api-intake.js`, `src/frontend/js-dashboard.js`, `src/frontend/js-people.js`,
+  `test/intake-connect-card.test.js`)
+
 ### MOB-ADMIN5 — "Full App" had no way back to Mobile Admin (2026-08-25, DONE)
 Real user report: tapped "Full App" from the Mobile Admin sidebar, and the desktop shell had no
 equivalent link back — the only way out was manually clearing site data (per the `?desktop=1`

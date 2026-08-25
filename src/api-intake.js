@@ -6,13 +6,6 @@
 // admin.timothystl.org's Giving tab (GET /api/intake/funds).
 import { json, timingSafeEqual } from './auth.js';
 
-function splitName(full) {
-  const parts = (full || '').trim().split(/\s+/);
-  if (!parts.length || !parts[0]) return { first: '', last: '' };
-  if (parts.length === 1) return { first: parts[0], last: '' };
-  return { first: parts[0], last: parts.slice(1).join(' ') };
-}
-
 async function findPersonByEmail(db, email) {
   if (!email) return null;
   return await db.prepare(
@@ -80,31 +73,19 @@ export async function handleIntakeApi(req, env, path) {
 
   if (path === '/api/intake/connect-card') {
     if (!name || !message) return json({ error: 'name and message required' }, 400);
-    const { first, last } = splitName(name);
-    let person = await findPersonByEmail(db, email);
-    let created = false;
-    if (!person) {
-      const r = await db.prepare(
-        `INSERT INTO people(first_name, last_name, email, phone, member_type, status, active, first_contact_date, followup_status)
-         VALUES(?, ?, ?, ?, 'Visitor', 'active', 1, ?, 'new')`
-      ).bind(first, last, email, phone, submittedAt).run();
-      person = { id: r.meta.last_row_id };
-      created = true;
-    } else {
-      const updates = [];
-      const binds = [];
-      if (!person.first_contact_date) { updates.push("first_contact_date=?", "followup_status='new'"); binds.push(submittedAt); }
-      if (phone) { updates.push('phone = CASE WHEN phone = "" THEN ? ELSE phone END'); binds.push(phone); }
-      if (updates.length) {
-        binds.push(person.id);
-        await db.prepare(`UPDATE people SET ${updates.join(', ')} WHERE id=?`).bind(...binds).run();
-      }
-    }
+    // A website contact-form submission does NOT create a `people` row anymore -- staff
+    // reported the directory filling up with one-off/spam website contacts nobody actually
+    // added as a member or visitor. The submitter's own name/email/phone are stored right on
+    // the follow-up item (same requester_name/email pattern prayer_requests already uses), so
+    // staff can see and reply to them from the dashboard without opening a person record.
+    // Best-effort link to an EXISTING active person by email only -- never creates one.
+    const existing = await findPersonByEmail(db, email);
     const noteText = 'Contact card (' + (source || 'website') + '):\n' + message;
     await db.prepare(
-      "INSERT INTO follow_up_items(person_id, type, notes, created_at) VALUES(?, 'general', ?, datetime('now'))"
-    ).bind(person.id, noteText).run();
-    return json({ ok: true, person_id: person.id, created });
+      `INSERT INTO follow_up_items(person_id, type, notes, requester_name, requester_email, requester_phone, created_at)
+       VALUES(?, 'general', ?, ?, ?, ?, datetime('now'))`
+    ).bind(existing ? existing.id : null, noteText, name, email, phone).run();
+    return json({ ok: true, person_id: existing ? existing.id : null, created: false });
   }
 
   if (path === '/api/intake/prayer') {

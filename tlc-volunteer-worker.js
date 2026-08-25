@@ -32,7 +32,7 @@ import { notifyAdminPush } from './src/api-scheduler.js';
 // Key prefixes the /admin/r2photo/ proxy is allowed to serve. The R2 bucket is shared with
 // non-photo objects (branding assets, and per the backup runbook, full D1 SQL dumps under
 // backups/), so the proxy must never take an arbitrary caller-supplied key.
-const R2_PHOTO_PREFIXES = ['people/', 'households/', 'branding/'];
+const R2_PHOTO_PREFIXES = ['people/', 'households/', 'branding/', 'register-scans/'];
 
 // ── Mobile Admin auto-detect ────────────────────────────────────────────────
 // A phone opening connect.timothystl.org (root or /chms) gets served the mobile

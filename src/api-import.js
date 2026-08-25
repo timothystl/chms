@@ -605,6 +605,52 @@ if (regDelMatch && method === 'DELETE') {
   await db.prepare('DELETE FROM church_register WHERE id=?').bind(parseInt(regDelMatch[1])).run();
   return json({ ok: true });
 }
+// ── Register scan pages ──────────────────────────────────────────────────
+// Scanned book-page images, one per (type, page number), so a register row's own
+// `pdf_page` field ("p.42") can link straight to the scanned page it was transcribed
+// from -- useful for checking an AI-transcribed entry against the original scan.
+if (seg === 'register/scans' && method === 'GET') {
+  const stype = url.searchParams.get('type') || '';
+  let ssql = 'SELECT id, type, page, r2_key, uploaded_at FROM register_scan_pages';
+  const sparams = [];
+  if (stype) { ssql += ' WHERE type=?'; sparams.push(stype); }
+  ssql += ' ORDER BY type, LENGTH(page), page';
+  const rows = (await db.prepare(ssql).bind(...sparams).all()).results || [];
+  return json({ pages: rows.map(r => ({ ...r, url: `/admin/r2photo/${r.r2_key}` })) });
+}
+if (seg === 'register/scans' && method === 'POST') {
+  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket tlc-chms-photos' }, 503);
+  let fd; try { fd = await req.formData(); } catch { return json({ error: 'Invalid form data' }, 400); }
+  const stype = String(fd.get('type') || '').trim();
+  const spage = String(fd.get('page') || '').trim();
+  const file = fd.get('file');
+  const validTypes = ['baptism', 'confirmation', 'wedding', 'funeral', 'anniversary'];
+  if (!validTypes.includes(stype)) return json({ error: 'type must be baptism, confirmation, wedding, funeral, or anniversary' }, 400);
+  if (!spage) return json({ error: 'page required' }, 400);
+  const v = await validateImageUpload(file);
+  if (!v.ok) return json({ error: v.error }, v.status);
+  const r2Key = `register-scans/${stype}/${encodeURIComponent(spage)}.${v.ext}`;
+  await env.PHOTOS.put(r2Key, v.buf, { httpMetadata: { contentType: v.ct } });
+  const existing = await db.prepare('SELECT id, r2_key FROM register_scan_pages WHERE type=? AND page=?').bind(stype, spage).first();
+  if (existing) {
+    // Re-uploading the same page replaces the image. Delete the old R2 object only when its
+    // key differs (a re-upload in a different image format changes the extension/key).
+    if (existing.r2_key && existing.r2_key !== r2Key) await env.PHOTOS.delete(existing.r2_key).catch(() => {});
+    await db.prepare("UPDATE register_scan_pages SET r2_key=?, uploaded_at=datetime('now') WHERE id=?").bind(r2Key, existing.id).run();
+    return json({ ok: true, id: existing.id, url: `/admin/r2photo/${r2Key}` });
+  }
+  const r = await db.prepare('INSERT INTO register_scan_pages(type, page, r2_key) VALUES(?,?,?)').bind(stype, spage, r2Key).run();
+  return json({ ok: true, id: r.meta.last_row_id, url: `/admin/r2photo/${r2Key}` });
+}
+const regScanDelMatch = seg.match(/^register\/scans\/(\d+)$/);
+if (regScanDelMatch && method === 'DELETE') {
+  const sid = parseInt(regScanDelMatch[1]);
+  const row = await db.prepare('SELECT r2_key FROM register_scan_pages WHERE id=?').bind(sid).first();
+  if (row && env.PHOTOS) await env.PHOTOS.delete(row.r2_key).catch(() => {});
+  await db.prepare('DELETE FROM register_scan_pages WHERE id=?').bind(sid).run();
+  return json({ ok: true });
+}
+
 if (seg === 'register/clear' && method === 'POST') {
   let b = {}; try { b = await req.json(); } catch {}
   const validTypes = ['baptism','confirmation','wedding','funeral','anniversary'];

@@ -442,19 +442,31 @@ function renderDashboard(d) {
   html += '<div class="dash-card" style="padding:0;"><div class="dash-card-body">';
   if (fuItems.length) {
     html += fuItems.map(function(item) {
-      var name = item.first_name || item.last_name ? ((item.first_name||'')+' '+(item.last_name||'')).trim() : null;
+      var linkedName = item.first_name || item.last_name ? ((item.first_name||'')+' '+(item.last_name||'')).trim() : null;
+      // A website contact-form submission (see /api/intake/connect-card) carries the
+      // submitter's own name/email/phone right on the item when it isn't linked to an
+      // existing person — that's the common case, since the form no longer creates one.
+      var reqName  = item.requester_name  || '';
+      var reqEmail = item.requester_email || '';
+      var reqPhone = item.requester_phone || '';
+      var displayName = linkedName || reqName || null;
       var typeLabel = fuTypeLabels[item.type] || item.type;
       var typeColor = fuTypeColors[item.type] || '#666';
       var age = item.created_at ? Math.floor((Date.now()-new Date(item.created_at))/86400000) : 0;
       var ageStr = age === 0 ? 'today' : age === 1 ? 'yesterday' : age+'d ago';
-      return '<div class="dash-fu-item" id="fu-'+item.id+'">'
+      var contactBits = [];
+      if (reqEmail) contactBits.push('<a href="mailto:'+esc(reqEmail)+'" style="color:var(--color-teal);text-decoration:none;">'+esc(reqEmail)+'</a>');
+      if (reqPhone) contactBits.push('<a href="tel:'+esc(reqPhone.replace(/[^\d+]/g,''))+'" style="color:var(--color-teal);text-decoration:none;">'+esc(reqPhone)+'</a>');
+      return '<div class="dash-fu-item" id="fu-'+item.id+'" data-req-name="'+esc(reqName)+'" data-req-email="'+esc(reqEmail)+'" data-req-phone="'+esc(reqPhone)+'">'
         + '<button class="dash-fu-check" onclick="completeFollowUp('+item.id+')" title="Mark complete">&#10003;</button>'
         + '<div style="flex:1;min-width:0;">'
         + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'
         + '<span style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:99px;background:'+typeColor+'18;color:'+typeColor+';">'+esc(typeLabel)+'</span>'
-        + (name ? '<span class="dash-item-name" style="cursor:pointer;" onclick="openPersonDetail('+item.person_id+')">'+esc(name)+'</span>' : '')
+        + (displayName ? '<span class="dash-item-name"'+(linkedName?' style="cursor:pointer;" onclick="openPersonDetail('+item.person_id+')"':'')+'>'+esc(displayName)+'</span>' : '')
         + '</div>'
+        + (contactBits.length ? '<div style="font-size:11px;color:var(--warm-gray);margin-top:2px;">'+contactBits.join(' · ')+'</div>' : '')
         + (item.notes ? '<div style="font-size:12px;color:var(--warm-gray);margin-top:2px;white-space:pre-wrap;">'+esc(item.notes)+'</div>' : '')
+        + (!item.person_id && (reqName || reqEmail) ? '<button class="btn-secondary" style="font-size:11px;padding:2px 8px;margin-top:4px;" onclick="dashAddFollowUpAsPerson(this)">+ Add as Person</button>' : '')
         + '</div>'
         + '<div style="font-size:11px;color:var(--faint);flex-shrink:0;">'+ageStr+'</div>'
         + '</div>';
@@ -764,6 +776,22 @@ function addFollowUpForPerson(pid, name, type) {
       showErrorBanner('\u2713 Follow-up added for '+esc(name)+'.'); // reuse banner in success mode
       loadDashboard();
     }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
+}
+// Opens the Add Person modal prefilled from a website contact-form follow-up item's own
+// requester_name/email/phone (see /api/intake/connect-card, which deliberately no longer
+// creates a person automatically). Reads from the row's dataset, not inline-quoted onclick
+// args — the same pattern followupEditNotes() uses, since a submitter's own name/email can
+// contain quote characters unsafe to embed directly in an attribute value (BF13/SEC13 class).
+function dashAddFollowUpAsPerson(btnEl) {
+  var row = btnEl.closest('.dash-fu-item');
+  if (!row) return;
+  var parts = (row.dataset.reqName || '').trim().split(/\s+/);
+  openPersonEdit({
+    first_name: parts[0] || '',
+    last_name:  parts.slice(1).join(' '),
+    email:      row.dataset.reqEmail || '',
+    phone:      row.dataset.reqPhone || '',
+  });
 }
 function openAddFollowUp(pid, name, type) {
   var modal = document.getElementById('followup-modal');
