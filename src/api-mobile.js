@@ -190,6 +190,58 @@ export async function handleMobileApi(req, env, url, method, role) {
     return json({ ok: true, id, count });
   }
 
+  // ── Attendance history: recent services of any type, for browsing/editing ──
+  if (seg === 'attendance/history' && method === 'GET') {
+    if (!canView('attendance')) return json({ error: 'Access denied' }, 403);
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '20', 10) || 20, 100);
+    const rows = (await db.prepare(
+      `SELECT id, service_date, service_time, service_name, service_type, attendance, communion
+       FROM worship_services ORDER BY service_date DESC, service_time DESC LIMIT ?`
+    ).bind(limit).all()).results || [];
+    return json({ services: rows, can_edit: canEditItem('attendance') });
+  }
+
+  // ── Attendance entry: create a service of any type (special/midweek, or a ──
+  // Sunday row outside the two standard times) — the quick dashboard card above
+  // covers only the two known Sunday slots, this is the general form.
+  if (seg === 'attendance/entry' && method === 'POST') {
+    if (!canEditItem('attendance')) return json({ error: 'Access denied' }, 403);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const date = String(b.date || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: 'Invalid date' }, 400);
+    const type = ['sunday', 'special', 'midweek'].includes(b.type) ? b.type : 'special';
+    const name = String(b.name || '').slice(0, 200);
+    const time = String(b.time || '');
+    const count = Math.max(0, parseInt(b.count, 10) || 0);
+    const communion = Math.max(0, parseInt(b.communion, 10) || 0);
+    const r = await db.prepare(
+      `INSERT INTO worship_services (service_date,service_time,service_name,service_type,attendance,communion,notes)
+       VALUES (?,?,?,?,?,?,'')`
+    ).bind(date, time, name, type, count, communion).run();
+    return json({ ok: true, id: r.meta?.last_row_id });
+  }
+
+  // ── Attendance entry: edit/delete an existing service row ──────────────────
+  const attEntryMatch = seg.match(/^attendance\/entry\/(\d+)$/);
+  if (attEntryMatch && (method === 'PATCH' || method === 'DELETE')) {
+    if (!canEditItem('attendance')) return json({ error: 'Access denied' }, 403);
+    const id = parseInt(attEntryMatch[1], 10);
+    if (method === 'DELETE') {
+      await db.prepare(`DELETE FROM worship_services WHERE id=?`).bind(id).run();
+      return json({ ok: true });
+    }
+    const existing = await db.prepare(`SELECT * FROM worship_services WHERE id=?`).bind(id).first();
+    if (!existing) return json({ error: 'Not found' }, 404);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const count = b.count !== undefined ? Math.max(0, parseInt(b.count, 10) || 0) : existing.attendance;
+    const communion = b.communion !== undefined ? Math.max(0, parseInt(b.communion, 10) || 0) : existing.communion;
+    const name = b.name !== undefined ? String(b.name).slice(0, 200) : existing.service_name;
+    await db.prepare(
+      `UPDATE worship_services SET attendance=?, communion=?, service_name=? WHERE id=?`
+    ).bind(count, communion, name, id).run();
+    return json({ ok: true });
+  }
+
   // ── Follow-ups: toggle done/undone ────────────────────────────────────────
   if (seg === 'followups/toggle' && method === 'POST') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }

@@ -174,6 +174,106 @@ describe('handleMobileApi — attendance upsert', () => {
   });
 });
 
+describe('handleMobileApi — attendance history + entry CRUD', () => {
+  it('returns recent services newest-first, with can_edit reflecting the role', async () => {
+    const db = makeDb();
+    await db.prepare(
+      `INSERT INTO worship_services (service_date,service_time,service_name,service_type,attendance,communion,notes)
+       VALUES ('2026-08-16','08:00','','sunday',110,20,''),('2026-08-23','08:00','','sunday',118,22,'')`
+    ).run();
+    const rStaff = await handleMobileApi(makeReq(), { DB: db }, makeUrl('attendance/history'), 'GET', 'staff');
+    const dStaff = await rStaff.json();
+    expect(dStaff.can_edit).toBe(true);
+    expect(dStaff.services.length).toBe(2);
+    expect(dStaff.services[0].service_date).toBe('2026-08-23');
+
+    const rFinance = await handleMobileApi(makeReq(), { DB: db }, makeUrl('attendance/history'), 'GET', 'finance');
+    expect(rFinance.status).toBe(403);
+  });
+
+  it('creates a special-service entry with an arbitrary date/type, rejected for a non-edit role', async () => {
+    const db = makeDb();
+    const rFinance = await handleMobileApi(
+      makeReq({ date: '2026-12-24', type: 'special', name: 'Christmas Eve', count: 240 }),
+      { DB: db }, makeUrl('attendance/entry'), 'POST', 'finance'
+    );
+    expect(rFinance.status).toBe(403);
+
+    const r = await handleMobileApi(
+      makeReq({ date: '2026-12-24', type: 'special', name: 'Christmas Eve', count: 240, communion: 10 }),
+      { DB: db }, makeUrl('attendance/entry'), 'POST', 'staff'
+    );
+    const d = await r.json();
+    expect(d.ok).toBe(true);
+    const row = await db.prepare(`SELECT * FROM worship_services WHERE id=?`).bind(d.id).first();
+    expect(row.service_type).toBe('special');
+    expect(row.service_name).toBe('Christmas Eve');
+    expect(row.attendance).toBe(240);
+    expect(row.communion).toBe(10);
+  });
+
+  it('rejects an entry with a malformed date', async () => {
+    const db = makeDb();
+    const r = await handleMobileApi(
+      makeReq({ date: 'not-a-date', type: 'special', count: 5 }),
+      { DB: db }, makeUrl('attendance/entry'), 'POST', 'staff'
+    );
+    expect(r.status).toBe(400);
+  });
+
+  it('edits an existing entry\'s count via PATCH, 404s on an unknown id, and DELETE removes it', async () => {
+    const db = makeDb();
+    const ins = await db.prepare(
+      `INSERT INTO worship_services (service_date,service_time,service_name,service_type,attendance,communion,notes)
+       VALUES ('2026-11-25','','Thanksgiving Eve','special',85,0,'')`
+    ).run();
+    const id = ins.meta.last_row_id;
+
+    const rFinance = await handleMobileApi(makeReq({ count: 90 }), { DB: db }, makeUrl('attendance/entry/' + id), 'PATCH', 'finance');
+    expect(rFinance.status).toBe(403);
+
+    const r = await handleMobileApi(makeReq({ count: 90 }), { DB: db }, makeUrl('attendance/entry/' + id), 'PATCH', 'staff');
+    expect((await r.json()).ok).toBe(true);
+    const row = await db.prepare(`SELECT attendance FROM worship_services WHERE id=?`).bind(id).first();
+    expect(row.attendance).toBe(90);
+
+    const rMissing = await handleMobileApi(makeReq({ count: 5 }), { DB: db }, makeUrl('attendance/entry/999999'), 'PATCH', 'staff');
+    expect(rMissing.status).toBe(404);
+
+    const rDel = await handleMobileApi(makeReq(), { DB: db }, makeUrl('attendance/entry/' + id), 'DELETE', 'staff');
+    expect((await rDel.json()).ok).toBe(true);
+    const gone = await db.prepare(`SELECT id FROM worship_services WHERE id=?`).bind(id).first();
+    expect(gone).toBeNull();
+  });
+
+  it('a view-only override (attendance:view) can read history but not create/edit/delete', async () => {
+    const db = makeDb();
+    await db.prepare(
+      `INSERT INTO chms_config(key,value) VALUES ('role_permissions_json', ?)`
+    ).bind(JSON.stringify({ council: { attendance: 'view' } })).run();
+
+    const rHist = await handleMobileApi(makeReq(), { DB: db }, makeUrl('attendance/history'), 'GET', 'council');
+    const dHist = await rHist.json();
+    expect(rHist.status).toBe(200);
+    expect(dHist.can_edit).toBe(false);
+
+    const rCreate = await handleMobileApi(
+      makeReq({ date: '2026-12-24', type: 'special', count: 1 }),
+      { DB: db }, makeUrl('attendance/entry'), 'POST', 'council'
+    );
+    expect(rCreate.status).toBe(403);
+
+    const ins = await db.prepare(
+      `INSERT INTO worship_services (service_date,service_time,service_name,service_type,attendance,communion,notes)
+       VALUES ('2026-08-16','08:00','','sunday',110,0,'')`
+    ).run();
+    const rEdit = await handleMobileApi(makeReq({ count: 1 }), { DB: db }, makeUrl('attendance/entry/' + ins.meta.last_row_id), 'PATCH', 'council');
+    expect(rEdit.status).toBe(403);
+    const rDel = await handleMobileApi(makeReq(), { DB: db }, makeUrl('attendance/entry/' + ins.meta.last_row_id), 'DELETE', 'council');
+    expect(rDel.status).toBe(403);
+  });
+});
+
 describe('handleMobileApi — follow-up toggle', () => {
   it('toggles a follow_up_item completed on then off', async () => {
     const db = makeDb();
