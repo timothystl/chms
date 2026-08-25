@@ -518,7 +518,7 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
-### MOB-ADMIN4 — Mobile Admin built toward full parity; Attendance (Phase 1) + Giving (Phase 2) (2026-08-25, IN PROGRESS)
+### MOB-ADMIN4 — Mobile Admin built toward full parity; Attendance (P1) + Giving (P2) + Households (P3) (2026-08-25, IN PROGRESS)
 Two mobile UIs existed side by side — the dedicated Mobile Admin shell (MOB-ADMIN1/2:
 dashboard/people directory/light Sunday-count entry, auto-detected at the app's normal URL) and
 the desktop admin SPA's own separate mobile-responsive CSS (MOB1-4/ATT7/REG-MOB1-2/VOL-MOB1/
@@ -573,14 +573,40 @@ so it's tracked here phase by phase, same pattern as GIV-R1-4/SC6.
   the assembled `MOBILE_ADMIN_HTML`. DEPLOY_VERSION bumped to 1.208.0. **Not verified**: a live
   browser or a real phone — in particular the person-search dropdown's positioning/behavior on a
   real on-screen keyboard.
-- **Remaining phases, not yet started, roughly in likely-usage order**: Households (currently
-  only reachable as a read-only list on a person's detail screen), Follow Ups as its own browsable
-  screen (currently only a dashboard feed, no history/filter), Reports (a handful of the simpler
-  ones — Contact Completeness, Giving Insights — not the heavy multi-year chart-driven ones),
-  Register, Volunteers, Settings, Tuition Aid, Finance, Scheduler. The last several (Finance,
-  Scheduler, Tuition Aid) are genuinely desktop-shaped workflows (multi-column grids, drag-resize
-  charts, multi-step wizards) and may end up staying "Full App only" by deliberate design rather
-  than full parity — worth a decision closer to when their turn comes, not assumed now.
+- **Phase 3 — Households, DONE (read-only).** New standalone **Households** screen (sidebar nav,
+  always visible — household *viewing* was never in the granular per-item permission matrix;
+  per this file's own COUNCIL1 note, "People/Households editing... stays the blanket `canEdit`
+  flag," and this phase adds no editing): search-by-name/city list with a per-household member
+  count, and a detail view (address + map link, member list linking into the existing person
+  detail screen). A "View Household →" link was also added to person detail, using a new
+  `household_id` field on `GET mobile/people/:id`'s response — the household card there already
+  listed a person's other household members but had no way to actually open the household itself.
+  Backend: `GET mobile/households` (list, duplicate-name disambiguation via the same
+  `disambiguateHHName()` the desktop app uses — not reimplemented, imported), `GET
+  mobile/households/:id` (detail). **Member-role scoping mirrors the desktop household endpoint
+  exactly**: a household visible only through opted-out (`public_directory=0`) members 404s
+  outright for a member viewer, rather than leaking its name/address/member list through a
+  guessed id — same reasoning as SEC16/P22-A. Editing (address, name, photo) is left for a later
+  pass; this phase is browse-only, matching how the roadmap described the starting point ("only
+  reachable as a read-only list on a person's detail screen" — now a first-class searchable
+  screen, still read-only). `npm test` (1841/1846, 4 new tests, including one seeding two extra
+  households with a hidden/visible split to prove the member-role 404 rule — **verified
+  non-vacuous** by removing the visibility filter and confirming that test fails). The new test
+  households/people are seeded per-test on top of a fresh `makeDb()`, not added to the shared
+  seed, since several existing tests assert exact people/household counts by name elsewhere in
+  the file and growing the shared seed would have silently broken them. `node --check` on the
+  touched backend file and the extracted mobile-shell `<script>` block, div/button/span/select/
+  option tag-balance on the assembled `MOBILE_ADMIN_HTML`. DEPLOY_VERSION bumped to 1.209.0.
+  **Not verified**: a live browser or a real phone.
+- **Remaining phases, not yet started, roughly in likely-usage order**: Follow Ups as its own
+  browsable screen (currently only a dashboard feed, no history/filter), Reports (a handful of
+  the simpler ones — Contact Completeness, Giving Insights — not the heavy multi-year
+  chart-driven ones), Register, Volunteers, Settings, Tuition Aid, Finance, Scheduler, and
+  Households editing (address/name/photo) as a follow-up to Phase 3's read-only pass. The last
+  several (Finance, Scheduler, Tuition Aid) are genuinely desktop-shaped workflows (multi-column
+  grids, drag-resize charts, multi-step wizards) and may end up staying "Full App only" by
+  deliberate design rather than full parity — worth a decision closer to when their turn comes,
+  not assumed now.
 - **The "Full App" escape hatch is deliberately left in place** for anything not yet built —
   removing it before a phase covers the gap would just make that gap unreachable on a phone
   rather than routed to the desktop-responsive fallback. Revisit removing it once the phase list

@@ -169,6 +169,15 @@ a{text-decoration:none;}
 .giv-hist-title{font-size:13.5px;font-weight:600;color:var(--charcoal);}
 .giv-hist-sub{font-size:12px;color:var(--warm-gray);}
 .giv-hist-amt{font-size:14.5px;font-weight:700;color:var(--navy);}
+
+/* Households */
+.hh-list-row{display:flex;align-items:center;gap:12px;background:none;border:none;border-top:1px solid var(--border);padding:11px 2px;cursor:pointer;text-align:left;width:100%;}
+.hh-list-name{font-size:14.5px;font-weight:600;color:var(--charcoal);}
+.hh-list-sub{font-size:12.5px;color:var(--warm-gray);}
+.hh-list-count{font-size:11px;font-weight:700;color:var(--teal);background:var(--blue-mist);border-radius:10px;padding:3px 9px;flex-shrink:0;}
+.hh-detail-title{font-weight:800;font-size:20px;color:var(--navy);}
+.hh-member-row{display:flex;align-items:center;gap:10px;padding:11px 16px;border-top:1px solid var(--border);cursor:pointer;}
+.hh-member-row:first-child{border-top:none;}
 </style>
 </head>
 <body>
@@ -196,6 +205,7 @@ a{text-decoration:none;}
     <button class="sb-item" data-nav="people"><span class="ic">&#9633;</span>People</button>
     <button class="sb-item" data-nav="attendance" data-requires="can_view_attendance"><span class="ic">&#10003;</span>Attendance</button>
     <button class="sb-item" data-nav="giving" data-requires="can_view_giving"><span class="ic">$</span>Giving</button>
+    <button class="sb-item" data-nav="households"><span class="ic">&#8962;</span>Households</button>
     <button class="sb-item" data-fullapp="1"><span class="ic">&#8801;</span>Full App</button>
   </div>
 
@@ -229,6 +239,14 @@ const state = {
   givForm: { personId: null, personName: '', personQuery: '', fundId: '', amount: '', method: 'cash', date: '', checkNumber: '', notes: '' },
   givPersonResults: [],
   givSaving: false,
+  households: [],
+  householdsTotal: 0,
+  householdsOffset: 0,
+  householdsLoading: false,
+  hhQuery: '',
+  householdsLoaded: false,
+  householdId: null,
+  householdDetail: null,
 };
 
 async function api(path, opts) {
@@ -454,13 +472,15 @@ function renderPerson() {
   setTopbarTitle(p.name || 'Person');
   const c = statusColors(p.member_type);
   let hhHtml = '';
-  if (p.household.length) {
+  if (p.household.length || p.household_id) {
     let rows = '';
     for (const h of p.household) {
       rows += '<div class="hh-row"><div class="avatar avatar-30">' + esc(initials(h.name)) + '</div>'
         + '<div class="hh-name">' + esc(h.name) + '</div><div class="hh-rel">' + esc(h.rel) + '</div></div>';
     }
-    hhHtml = '<div class="mob-card"><div class="hh-title">Household</div>' + rows + '</div>';
+    hhHtml = '<div class="mob-card"><div class="hh-title">Household</div>' + rows
+      + (p.household_id ? '<button class="att-add-btn" style="border:none;border-top:1px solid var(--border);border-radius:0;" data-action="goto-household" data-id="' + esc(p.household_id) + '">View Household &#8594;</button>' : '')
+      + '</div>';
   }
   document.getElementById('content').innerHTML = '<div class="mob-pad">'
     + '<button class="back-link" data-action="back-to-people"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="#2E7EA6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>People</button>'
@@ -744,6 +764,88 @@ async function givSave() {
   }
 }
 
+// ── Households ───────────────────────────────────────────────────────────
+async function loadHouseholds(reset) {
+  if (reset) { state.households = []; state.householdsOffset = 0; }
+  state.householdsLoading = true;
+  state.householdsLoaded = true;
+  renderHouseholds();
+  try {
+    const params = new URLSearchParams({ q: state.hhQuery, offset: String(state.householdsOffset), limit: '30' });
+    const d = await api('/admin/api/mobile/households?' + params.toString());
+    if (reset) state.households = d.households; else state.households = state.households.concat(d.households);
+    state.householdsTotal = d.total;
+    state.householdsOffset = state.householdsOffset + d.households.length;
+  } catch (e) { /* leave existing list in place */ }
+  state.householdsLoading = false;
+  renderHouseholds();
+}
+
+function renderHouseholds() {
+  setTopbarTitle('Households');
+  let rowsHtml = '';
+  for (const h of state.households) {
+    const sub = [h.city, h.member_count + (h.member_count === 1 ? ' person' : ' people')].filter(Boolean).join(' · ');
+    rowsHtml += '<button class="hh-list-row" data-action="open-household" data-id="' + esc(h.id) + '">'
+      + '<div class="ppl-row-body"><div class="hh-list-name">' + esc(h.name) + '</div><div class="hh-list-sub">' + esc(sub) + '</div></div>'
+      + '<span class="hh-list-count">' + esc(h.member_count) + '</span>'
+      + '</button>';
+  }
+  const hasMore = state.households.length < state.householdsTotal;
+  document.getElementById('content').innerHTML = '<div class="mob-pad" style="gap:10px;">'
+    + '<div class="ppl-title">Households</div>'
+    + '<div class="search-wrap"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#8A8377" stroke-width="2"/><path d="M21 21l-4-4" stroke="#8A8377" stroke-width="2" stroke-linecap="round"/></svg>'
+    + '<input type="search" id="hh-search" placeholder="Search households…" value="' + esc(state.hhQuery) + '"></div>'
+    + '<div class="result-count">' + esc(state.households.length) + ' of ' + esc(state.householdsTotal) + ' households</div>'
+    + '<div>' + (rowsHtml || (state.householdsLoading ? '' : '<div class="empty-note">No matches.</div>')) + '</div>'
+    + (hasMore ? '<button class="load-more" data-action="hh-load-more">' + (state.householdsLoading ? 'Loading…' : 'Load more') + '</button>' : '')
+    + '</div>';
+  const input = document.getElementById('hh-search');
+  if (input) input.focus({ preventScroll: true });
+}
+
+let hhSearchDebounce;
+function onHhSearchInput(v) {
+  state.hhQuery = v;
+  clearTimeout(hhSearchDebounce);
+  hhSearchDebounce = setTimeout(() => loadHouseholds(true), 250);
+}
+
+async function openHousehold(id) {
+  state.householdId = id;
+  state.screen = 'household';
+  state.householdDetail = null;
+  render();
+  try {
+    state.householdDetail = await api('/admin/api/mobile/households/' + encodeURIComponent(id));
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="state-msg">Could not load this household. ' + esc(e.message) + '</div>';
+    return;
+  }
+  renderHousehold();
+}
+
+function renderHousehold() {
+  const h = state.householdDetail;
+  if (!h) { document.getElementById('content').innerHTML = '<div class="state-msg">Loading…</div>'; return; }
+  setTopbarTitle(h.name || 'Household');
+  let membersHtml = '';
+  for (const m of h.members) {
+    membersHtml += '<div class="hh-member-row" data-action="open-person-from-hh" data-id="' + esc(m.id) + '">'
+      + '<div class="avatar avatar-30">' + esc(initials(m.name)) + '</div>'
+      + '<div class="ppl-row-body"><div class="ppl-row-name">' + esc(m.name) + '</div><div class="ppl-row-sub">' + esc(m.rel) + '</div></div>'
+      + '</div>';
+  }
+  document.getElementById('content').innerHTML = '<div class="mob-pad">'
+    + '<button class="back-link" data-action="back-to-households"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="#2E7EA6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Households</button>'
+    + '<div class="hh-detail-title">' + esc(h.name) + '</div>'
+    + (h.address
+        ? '<div class="mob-card contact-card"><a href="' + esc(h.map_url) + '" target="_blank" rel="noopener"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="margin-top:2px;"><path d="M12 21s7-6.1 7-11a7 7 0 10-14 0c0 4.9 7 11 7 11z" stroke="#2E7EA6" stroke-width="1.6"/><circle cx="12" cy="10" r="2.4" stroke="#2E7EA6" stroke-width="1.6"/></svg><span class="addr-val">' + esc(h.address) + '<br><span class="addr-hint">Tap for directions</span></span></a></div>'
+        : '')
+    + '<div class="mob-card"><div class="hh-title">Members</div>' + (membersHtml || '<div class="empty-note">No members on file.</div>') + '</div>'
+    + '</div>';
+}
+
 // ── Render dispatch ──────────────────────────────────────────────────────
 function render() {
   document.getElementById('sidebar').classList.toggle('open', state.sidebarOpen);
@@ -761,6 +863,8 @@ function render() {
   else if (state.screen === 'person') renderPerson();
   else if (state.screen === 'attendance') renderAttendance();
   else if (state.screen === 'giving') renderGiving();
+  else if (state.screen === 'households') { if (!state.householdsLoaded) loadHouseholds(true); else renderHouseholds(); }
+  else if (state.screen === 'household') renderHousehold();
 }
 
 // ── Event delegation ─────────────────────────────────────────────────────
@@ -818,11 +922,22 @@ document.getElementById('content').addEventListener('click', (e) => {
     givPersonClear();
   } else if (action === 'giv-save') {
     givSave();
+  } else if (action === 'open-household') {
+    openHousehold(parseInt(t.dataset.id, 10));
+  } else if (action === 'hh-load-more') {
+    loadHouseholds(false);
+  } else if (action === 'back-to-households') {
+    go('households');
+  } else if (action === 'open-person-from-hh') {
+    openPerson(parseInt(t.dataset.id, 10));
+  } else if (action === 'goto-household') {
+    openHousehold(parseInt(t.dataset.id, 10));
   }
 });
 document.getElementById('content').addEventListener('input', (e) => {
   if (e.target && e.target.id === 'ppl-search') onSearchInput(e.target.value);
   else if (e.target && e.target.id === 'giv-person-search') onGivPersonSearch(e.target.value);
+  else if (e.target && e.target.id === 'hh-search') onHhSearchInput(e.target.value);
 });
 document.getElementById('content').addEventListener('change', (e) => {
   if (e.target && e.target.id === 'giv-method') {
