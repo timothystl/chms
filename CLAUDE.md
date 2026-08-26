@@ -525,6 +525,42 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### REG-CLEAR1 — Register Import could silently wipe an entire register type; now dedup-safe (2026-08-26, DONE)
+**Real incident, not a hypothetical.** Register Import (Settings → Import/Export) had a checkbox —
+*"Delete existing records of this type before importing"* — that called `POST
+/admin/api/register/clear`, an unconditional `DELETE FROM church_register WHERE type=?` with no
+confirmation, no undo, and no audit_log entry. Checked once for a Baptism import, it wiped **1,700
+existing baptism entries down to 594** before the new file's rows were even inserted. Diagnosed
+live from production D1 (`church_register.type='baptism'` rows all carrying a `created_at` inside
+the same one-minute window the import ran; confirmations untouched, still dated from April —
+confirming the wipe was scoped to exactly the type being imported, not incidental data loss).
+Recovered via Cloudflare D1 Time Travel (point-in-time restore to just before the wipe) — the
+built-in D1 backup/restore path this file already documents under **D1 Backup & Restore** is what
+made this recoverable at all; a database with no PITR would have lost the data outright.
+- **The destructive route is gone.** `POST /admin/api/register/clear` removed entirely from
+  `api-import.js`; the checkbox and its call site removed from `html-tabs.js`/`js-register.js`.
+  Nothing in the register import flow can delete an existing row anymore.
+- **`POST /admin/api/register/batch` now skips duplicates instead of blindly inserting.** Before
+  inserting, it pre-loads every existing `(type, event_date, name)` key (trimmed, case-insensitive)
+  and skips any row that already matches — both against what's already in the table AND against
+  earlier rows in the same import batch (a file with the same person listed twice can't double them
+  up either). Response now returns `duplicates` alongside `imported`/`errors`; the frontend summary
+  shows "N rows already existed and were skipped" instead of silently discarding that count.
+  **What this deliberately does NOT do**: it can't detect a near-duplicate with a slightly different
+  spelling or a typo'd date — the match key is exact (post-trim/case-fold). A genuinely different
+  record for the same date/name (e.g. two same-named people baptized the same day) would also be
+  skipped as a false-positive duplicate; there's no way to distinguish that from a real re-import
+  with the information in a plain CSV row. Worth revisiting if that turns out to matter in practice.
+- `npm test` (1890/1890, 5 new in `test/register-import-dedup.test.js`): new rows import
+  normally; an exact/whitespace/case-variant duplicate is skipped and never re-inserted;
+  duplicates within one file are caught too; re-importing an entire already-loaded file adds
+  nothing and deletes nothing; `register/clear` now 404s instead of executing. **Verified
+  non-vacuous** — the dedup tests fail without the pre-load/skip logic (would insert duplicates),
+  and the clear-route test fails if the endpoint still exists. `node --check` on all touched
+  files. DEPLOY_VERSION bumped to 1.213.0. **Not verified**: a live browser.
+  (`src/api-import.js`, `src/frontend/js-register.js`, `src/frontend/html-tabs.js`,
+  `test/register-import-dedup.test.js`)
+
 ### SC18 — Confirm/decline status stuck on the role slot, not the person (2026-08-26, DONE)
 Reported live: clicking Confirm or Decline on a role, then reassigning that slot to a different
 volunteer, kept showing the OLD status — now attached to whoever was newly assigned, who never

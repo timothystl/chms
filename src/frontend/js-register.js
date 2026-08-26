@@ -705,15 +705,12 @@ function runRegImport() {
   var btn  = document.querySelector('#reg-import-step2 .btn-primary');
   if (prog) { prog.style.display = ''; prog.textContent = 'Importing\u2026'; }
   if (btn) btn.disabled = true;
-  var regType = document.getElementById('reg-import-type') ? document.getElementById('reg-import-type').value : 'baptism';
-  var clearFirst = document.getElementById('reg-import-clear') && document.getElementById('reg-import-clear').checked;
-  function doImport() {
   // Send in chunks of 50
   var allRows = _regImportRows.slice();
   var CHUNK = 50;
   var chunks = [];
   for (var i = 0; i < allRows.length; i += CHUNK) chunks.push(allRows.slice(i, i+CHUNK));
-  var totalImported = 0, totalErrors = 0, lastApiErr = '';
+  var totalImported = 0, totalErrors = 0, totalDuplicates = 0, lastApiErr = '';
   function sendChunk(idx) {
     if (idx >= chunks.length) {
       if (prog) prog.style.display = 'none';
@@ -722,7 +719,10 @@ function runRegImport() {
       var doneSub = document.getElementById('reg-import-done-sub');
       if (doneMsg) doneMsg.textContent = totalImported + ' records imported successfully';
       if (doneSub) {
-        var sub = totalErrors ? totalErrors+' rows had errors and were skipped.' : 'All records were saved to the register.';
+        var parts = [];
+        parts.push(totalDuplicates ? totalDuplicates+' row'+(totalDuplicates===1?'':'s')+' already existed and '+(totalDuplicates===1?'was':'were')+' skipped.' : '');
+        parts.push(totalErrors ? totalErrors+' row'+(totalErrors===1?'':'s')+' had errors and were skipped.' : '');
+        var sub = parts.filter(Boolean).join(' ') || 'All records were saved to the register.';
         if (lastApiErr) sub += ' Last API error: ' + lastApiErr;
         doneSub.textContent = sub;
       }
@@ -737,7 +737,7 @@ function runRegImport() {
       body: JSON.stringify(chunks[idx])
     }).then(function(r) {
       if (r.error) { lastApiErr = r.error; totalErrors += chunks[idx].length; }
-      else { totalImported += (r.imported||0); totalErrors += (r.errors||0); }
+      else { totalImported += (r.imported||0); totalErrors += (r.errors||0); totalDuplicates += (r.duplicates||0); }
       sendChunk(idx+1);
     }).catch(function(err) {
       lastApiErr = err ? (err.message||String(err)) : 'network error';
@@ -746,17 +746,6 @@ function runRegImport() {
     });
   }
   sendChunk(0);
-  } // end doImport
-  if (clearFirst) {
-    if (prog) prog.textContent = 'Clearing existing records\u2026';
-    api('/admin/api/register/clear', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({type: regType})
-    }).then(function() { doImport(); }).catch(function() { doImport(); });
-  } else {
-    doImport();
-  }
 }
 
 `;
