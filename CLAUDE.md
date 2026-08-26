@@ -525,6 +525,33 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### SC18 — Confirm/decline status stuck on the role slot, not the person (2026-08-26, DONE)
+Reported live: clicking Confirm or Decline on a role, then reassigning that slot to a different
+volunteer, kept showing the OLD status — now attached to whoever was newly assigned, who never
+answered anything.
+- **Root cause: the confirmation key (`dateISO|role|svc`, see `roleSlotView`) is keyed per SLOT,
+  never per PERSON.** `assignRoleSlot()` (the Focus Week picker's write path) and the legacy
+  `#schedule-table` `cell-select` change handler both overwrote who occupies a slot without ever
+  touching `ws_confirmations` — so a stale `confirmed`/`declined` value just sat under the same key
+  waiting to be misread as the new occupant's answer.
+- Both write paths now compare the previous occupant against the new one and delete the slot's
+  `ws_confirmations` entry whenever the assignment actually changes — including clearing a slot
+  back to empty. Left untouched when re-"assigning" the same person (a re-render, no real change),
+  so a genuine confirmation is never wiped for no reason.
+- **`deletePerson()` had the same gap on the slots it vacates** — removing a volunteer nulled their
+  assignments but left the confirmation keyed to that now-empty slot, ready to be misread by
+  whoever fills it next. Fixed the same way.
+- **Not touched, deliberately**: Auto-Fill/Generate Month only ever fill an EMPTY slot
+  (`if (row.assignments[role][svc]) return;`), so they can never inherit a stale status — no fix
+  needed there.
+- `npm test` (1885/1885, 5 new in `test/scheduler-confirmation-reassign.test.js`, running the real
+  served script via the same `vm` harness pattern established in
+  `test/scheduler-grid-view.test.js`); **verified non-vacuous** by reverting the fix and confirming
+  4 of 5 fail (the 5th, "unchanged assignment leaves the status alone," correctly still passes).
+  `node --check` on the touched file, `scheduler/index.html` resynced by evaluating the module (SC5).
+  DEPLOY_VERSION bumped to 1.212.0. **Not verified**: a live browser. (`src/scheduler-html.js`,
+  `scheduler/index.html`, `test/scheduler-confirmation-reassign.test.js`)
+
 ### REG-SCAN1 — Register entries link to their scanned book page, searchable by page number (2026-08-25, DONE)
 Asked for while reviewing an AI-transcribed baptism register entry: since the register is
 transcribed from scans of the physical books and a transcription might be wrong, could a page
