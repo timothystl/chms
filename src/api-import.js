@@ -573,21 +573,34 @@ if (seg === 'register' && method === 'POST') {
 if (seg === 'register/batch' && method === 'POST') {
   let rows = []; try { rows = await req.json(); } catch {}
   if (!Array.isArray(rows) || !rows.length) return json({ error: 'expected array' }, 400);
-  let imported = 0, errors = 0;
+  let imported = 0, errors = 0, duplicates = 0;
+  // Duplicate check: same type + event_date + name (trimmed, case-insensitive) already on file.
+  // A re-import (e.g. re-running the same file, or a corrected file that overlaps the old one)
+  // must never silently create a second copy of the same person's entry -- and per the register
+  // wipe incident, an import must never be able to delete anything either. Skipping a matching
+  // row is the safe middle ground: nothing already in the register is ever removed or duplicated,
+  // and a row that's genuinely new (or genuinely different) still goes in.
+  const existing = new Set(
+    ((await db.prepare('SELECT type, event_date, name FROM church_register').all()).results || [])
+      .map(r => (r.type||'').trim().toLowerCase() + '|' + (r.event_date||'').trim() + '|' + (r.name||'').trim().toLowerCase())
+  );
   const stmt = db.prepare(
     `INSERT INTO church_register (type,event_date,name,name2,officiant,notes,
       record_type,dob,place_of_birth,baptism_place,father,mother,sponsors,pdf_page)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   for (const rb of rows) {
+    const dupKey = (rb.type||'').trim().toLowerCase() + '|' + (rb.event_date||'').trim() + '|' + (rb.name||'').trim().toLowerCase();
+    if (existing.has(dupKey)) { duplicates++; continue; }
     try {
       await stmt.bind(rb.type||'', rb.event_date||'', rb.name||'', rb.name2||'', rb.officiant||'', rb.notes||'',
         rb.record_type||'', rb.dob||'', rb.place_of_birth||'', rb.baptism_place||'',
         rb.father||'', rb.mother||'', rb.sponsors||'', rb.pdf_page||'').run();
+      existing.add(dupKey); // guard against duplicates within the same import batch too
       imported++;
     } catch(e) { errors++; }
   }
-  return json({ ok: true, imported, errors });
+  return json({ ok: true, imported, errors, duplicates });
 }
 const regDelMatch = seg.match(/^register\/(\d+)$/);
 if (regDelMatch && method === 'PUT') {
@@ -649,14 +662,6 @@ if (regScanDelMatch && method === 'DELETE') {
   if (row && env.PHOTOS) await env.PHOTOS.delete(row.r2_key).catch(() => {});
   await db.prepare('DELETE FROM register_scan_pages WHERE id=?').bind(sid).run();
   return json({ ok: true });
-}
-
-if (seg === 'register/clear' && method === 'POST') {
-  let b = {}; try { b = await req.json(); } catch {}
-  const validTypes = ['baptism','confirmation','wedding','funeral','anniversary'];
-  if (!validTypes.includes(b.type)) return json({ error: 'type must be baptism, confirmation, wedding, funeral, or anniversary' }, 400);
-  const r = await db.prepare('DELETE FROM church_register WHERE type=?').bind(b.type).run();
-  return json({ ok: true, deleted: r.meta?.changes ?? 0 });
 }
 
 if (seg === 'import/register-from-people' && method === 'POST') {

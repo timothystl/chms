@@ -1803,11 +1803,8 @@ export const HTML_TABS_2 = String.raw`
         <input type="file" id="reg-import-file" accept=".csv,.tsv,.txt" style="display:none;" onchange="regImportFileChosen(this)">
       </label>
       <span id="reg-import-filename" style="margin-left:10px;font-size:.85rem;color:var(--warm-gray);"></span>
-      <div style="margin-top:14px;padding:10px 14px;background:#fff8f0;border:1px solid #f0c080;border-radius:8px;">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:.85rem;">
-          <input type="checkbox" id="reg-import-clear" style="width:15px;height:15px;flex-shrink:0;">
-          <span><strong>Delete existing records of this type before importing</strong> — use this to re-import after fixing data issues</span>
-        </label>
+      <div style="margin-top:14px;padding:10px 14px;background:var(--linen);border:1px solid var(--border);border-radius:8px;font-size:.8rem;color:var(--charcoal);">
+        Existing records are never deleted or replaced. A row that already matches an existing entry (same type, date, and name) is skipped automatically, so re-importing the same file — or a corrected version of it — is always safe.
       </div>
     </div>
     <!-- Step 2: preview -->
