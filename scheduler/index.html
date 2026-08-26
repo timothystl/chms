@@ -2697,12 +2697,17 @@ function deletePerson(id) {
   }
   // Remove from current schedule assignments
   var scheduleChanged = false;
+  var confsAfterDelete = getConfirmations();
+  var confsAfterDeleteChanged = false;
   currentSchedule.forEach(function(row) {
+    var dateISO = row.date.toISOString().slice(0,10);
     PER_ROLES.forEach(function(role) {
       ['8am','10:45am'].forEach(function(svc) {
         if (row.assignments[role][svc] === id) {
           row.assignments[role][svc] = null;
           scheduleChanged = true;
+          var ck = dateISO+'|'+role+'|'+svc;
+          if (confsAfterDelete.hasOwnProperty(ck)) { delete confsAfterDelete[ck]; confsAfterDeleteChanged = true; }
         }
       });
     });
@@ -2710,9 +2715,12 @@ function deletePerson(id) {
       if (row.assignments[role].shared === id) {
         row.assignments[role].shared = null;
         scheduleChanged = true;
+        var ckShared = dateISO+'|'+role+'|shared';
+        if (confsAfterDelete.hasOwnProperty(ckShared)) { delete confsAfterDelete[ckShared]; confsAfterDeleteChanged = true; }
       }
     });
   });
+  if (confsAfterDeleteChanged) saveConfirmations(confsAfterDelete);
   if (scheduleChanged && currentSchedule.length) {
     var remaining = getPeople();
     var counts = {};
@@ -3774,6 +3782,7 @@ function assignRoleSlot(rowIdx, role, svc, svcIdxOrNull, pid) {
     if (!row.services[svcIdxOrNull].assignments) row.services[svcIdxOrNull].assignments = {};
     row.services[svcIdxOrNull].assignments[role] = pid;
   } else {
+    var prevPid = (svc === 'shared') ? row.assignments[role].shared : row.assignments[role][svc];
     if (svc === 'shared') row.assignments[role].shared = pid;
     else row.assignments[role][svc] = pid;
     var dateISO = row.date.toISOString().slice(0,10);
@@ -3781,6 +3790,19 @@ function assignRoleSlot(rowIdx, role, svc, svcIdxOrNull, pid) {
     var overrides = getScheduleOverrides();
     overrides[overrideKey] = pid || '';
     saveScheduleOverrides(overrides);
+    // The confirmation key is per SLOT (date|role|svc), not per person — it
+    // says nothing about who is in the slot. Swapping in a different
+    // volunteer must not hand them a confirmation (or decline) somebody
+    // else already gave; clear the slot's status whenever the assigned
+    // person actually changes, including clearing the slot to empty.
+    if ((pid || '') !== (prevPid || '')) {
+      var confKey = dateISO+'|'+role+'|'+svc;
+      var confs = getConfirmations();
+      if (confs.hasOwnProperty(confKey)) {
+        delete confs[confKey];
+        saveConfirmations(confs);
+      }
+    }
   }
   setDirty(true);
   renderTable(getPeople(), null);
@@ -3998,6 +4020,7 @@ document.getElementById('schedule-table').addEventListener('change', function(e)
   }
 
   var svc  = sel.getAttribute('data-svc');
+  var prevPid = svc==='shared' ? row.assignments[role].shared : row.assignments[role][svc];
   if (svc==='shared') row.assignments[role].shared = pid;
   else                row.assignments[role][svc]   = pid;
 
@@ -4007,6 +4030,17 @@ document.getElementById('schedule-table').addEventListener('change', function(e)
   var overrides = getScheduleOverrides();
   overrides[overrideKey] = pid || '';   // '' = explicitly cleared
   saveScheduleOverrides(overrides);
+
+  // The confirmation key is per SLOT, not per person (see assignRoleSlot) —
+  // clear a stale confirmation/decline whenever the assigned person changes.
+  if ((pid || '') !== (prevPid || '')) {
+    var confKeyChanged = dateISO + '|' + role + '|' + svc;
+    var confsChanged = getConfirmations();
+    if (confsChanged.hasOwnProperty(confKeyChanged)) {
+      delete confsChanged[confKeyChanged];
+      saveConfirmations(confsChanged);
+    }
+  }
 
   // Update td classes to reflect override state
   var td = sel.parentElement;
