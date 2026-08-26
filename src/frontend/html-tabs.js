@@ -1058,6 +1058,8 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div style="display:flex;align-items:center;border-bottom:1px solid var(--border);padding:0 20px;flex-shrink:0;background:var(--white);">
       <button class="pv-tab active" data-rtab="baptism" onclick="showRegisterTab('baptism')" style="font-size:13px;padding:12px 18px;">Baptisms</button>
       <button class="pv-tab" data-rtab="confirmation" onclick="showRegisterTab('confirmation')" style="font-size:13px;padding:12px 18px;">Confirmations</button>
+      <button class="pv-tab" data-rtab="wedding" onclick="showRegisterTab('wedding')" style="font-size:13px;padding:12px 18px;">Marriages</button>
+      <button class="pv-tab" data-rtab="funeral" onclick="showRegisterTab('funeral')" style="font-size:13px;padding:12px 18px;">Burials</button>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
         <button class="btn-secondary" style="display:none;font-size:.8rem;" id="reg-add-toggle" onclick="toggleRegForm()">+ Add</button>
         <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegFromPeoplePrompt()" title="Generate register entries from people records">&#128100; From People</button>
@@ -1081,12 +1083,15 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <div class="reg-form-title" id="reg-form-title">Add Baptism</div>
         <div class="field"><label>Date</label><input type="date" id="reg-date" name="reg-date"></div>
         <div class="field"><label id="reg-name-lbl">Name Baptized</label><input type="text" id="reg-name" name="reg-name" placeholder="Full name"></div>
+        <div class="field" id="reg-field-name2" style="display:none;"><label id="reg-name2-lbl">Bride</label><input type="text" id="reg-name2" name="reg-name2" placeholder="Optional"></div>
+        <div id="reg-baptism-fields">
         <div class="field"><label>Date of Birth</label><input type="date" id="reg-dob" name="reg-dob"></div>
         <div class="field"><label>Place of Birth</label><input type="text" id="reg-place-of-birth" name="reg-place-of-birth" placeholder="Optional"></div>
         <div class="field"><label>Baptism Place</label><input type="text" id="reg-baptism-place" name="reg-baptism-place" placeholder="Optional"></div>
         <div class="field"><label>Father</label><input type="text" id="reg-father" name="reg-father" placeholder="Optional"></div>
         <div class="field"><label>Mother</label><input type="text" id="reg-mother" name="reg-mother" placeholder="Optional"></div>
         <div class="field"><label>Sponsors / Godparents</label><input type="text" id="reg-sponsors" name="reg-sponsors" placeholder="Optional"></div>
+        </div>
         <div class="field"><label>Officiant</label><input type="text" id="reg-officiant" name="reg-officiant" placeholder="Pastor name"></div>
         <div class="field"><label>Record Type</label><input type="text" id="reg-record-type" name="reg-record-type" placeholder="e.g. Infant, Adult (optional)"></div>
         <div class="field"><label>Notes</label><textarea id="reg-notes" name="reg-notes" placeholder="Optional notes" style="width:100%;height:64px;resize:vertical;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:inherit;"></textarea></div>
@@ -1795,6 +1800,8 @@ export const HTML_TABS_2 = String.raw`
         <select id="reg-import-type" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;" onchange="updateRegImportHeaders()">
           <option value="baptism">Baptisms</option>
           <option value="confirmation">Confirmations</option>
+          <option value="wedding">Marriages</option>
+          <option value="funeral">Burials</option>
         </select>
       </div>
       <div id="reg-import-headers" style="background:var(--linen);border-radius:8px;padding:10px 14px;font-size:.78rem;color:var(--charcoal);margin-bottom:16px;line-height:1.8;"></div>
