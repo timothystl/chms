@@ -525,6 +525,47 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### REG-MARRIAGE1 — Register: Marriages and Burials tabs added alongside Baptisms/Confirmations (2026-08-26, DONE)
+Asked for directly: old marriage and burial records exist and had nowhere to go — the Register tab
+only had Baptisms/Confirmations. `church_register.type` already accepted any string (the scan-page
+upload endpoint's own `validTypes` already listed `wedding`/`funeral`), so this is UI-only — no
+migration.
+- **Baptisms/Confirmations are completely untouched** — same fields, same behavior, zero risk to
+  existing data entry. The new **Marriages** (type `wedding`) and **Burials** (type `funeral`) tabs
+  get a leaner form instead of reusing the baptism-specific fields (DOB/Place of Birth/Baptism
+  Place/Father/Mother/Sponsors) verbatim, the way Confirmations already does — a wedding has none
+  of those, and writing a date of death into the "Date of Birth" input would make the register list
+  mislabel it "b. `<date>`" (that hardcoded prefix is baked into `renderRegisterList`). Reusing the
+  field would have looked like it worked and then read wrong on screen.
+- **A second-name field, added for real** (`reg-name2`/`reg-field-name2`) — the `name2` DB column
+  already existed but the Add/Edit form never had an input for it at all; every entry that ever got
+  a `name2` came only from CSV import. Now labeled "Bride" for Marriages, "Burial Place" for
+  Burials, hidden entirely for Baptisms/Confirmations (`showName2`/`showBaptismFields` flags on
+  `_regLabels`, toggled in `showRegisterTab()`).
+- **⚠ Found and fixed a real latent bug while wiring this up**: `openRegisterEdit()`'s Sponsors
+  field fallback was `entry.sponsors || entry.name2`, so opening a Marriage/Burial entry for edit
+  would have silently copied the Bride's name (or Burial Place) into the hidden Sponsors input —
+  invisible on screen, but resubmitted into the `sponsors` column on next save, disagreeing with
+  whatever the now-separate name2 field held. Changed to `entry.sponsors || ''` — register imports
+  already write the sponsors column directly for baptism/confirmation, so nothing legitimate reads
+  through that fallback.
+- **Import**: the type dropdown gained Marriages/Burials options, `_regImportHeaders` documents
+  their expected columns (Groom/Bride/Wedding Date, Name of Deceased/Burial Place/Burial Date), and
+  the column-detection synonyms (`colMap`) now recognize `groom`/`bride`/`deceased`/`burial
+  place`/`cemetery`/`wedding date`/`burial date`/`funeral date` alongside the existing baptism
+  vocabulary — verified against real-shaped CSV headers, not just added blind.
+- **Register Import's "Scanned Pages" feature (REG-SCAN1) needed no changes** — it already validated
+  `wedding`/`funeral` as page-image types; the two new register tabs just make them reachable from
+  the Register UI instead of only from a direct API call.
+- `npm test` (1903/1903, 13 new in `test/register-marriage-burial-tabs.test.js`, running the real
+  assembled `CHMS_APP_MEMBER_JS`+`CHMS_APP_STAFF_JS` bundles in a `vm` — `showRegisterTab`,
+  `saveRegisterEntry`, `openRegisterEdit`, and `parseRegImportFile` all called for real, not
+  reimplemented). **Verified non-vacuous**: removed the two field-visibility toggle lines and
+  confirmed the 4 tests that depend on them fail (they did), then restored. `node --check` on both
+  touched source files; div-balance on the assembled `CHMS_HTML` (1110/1110). DEPLOY_VERSION bumped
+  to 1.214.0. **Not verified**: a live browser. (`src/frontend/js-register.js`,
+  `src/frontend/html-tabs.js`, `test/register-marriage-burial-tabs.test.js`)
+
 ### REG-CLEAR1 — Register Import could silently wipe an entire register type; now dedup-safe (2026-08-26, DONE)
 **Real incident, not a hypothetical.** Register Import (Settings → Import/Export) had a checkbox —
 *"Delete existing records of this type before importing"* — that called `POST

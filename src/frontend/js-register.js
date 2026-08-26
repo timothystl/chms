@@ -2,9 +2,18 @@ export const JS_REGISTER = String.raw`// ── CHURCH REGISTER ─────�
 var _regType = 'baptism';
 var _regEntries = [];   // cached full list for current type
 var _regEditId = null;  // null = add mode, number = edit mode
+// showName2/showBaptismFields: Baptisms and Confirmations keep the original form as-is (every
+// field shown, matching how this project already worked before Marriages/Burials existed).
+// Marriages and Burials use a leaner form -- a wedding has no father/mother/sponsors/DOB, and
+// reusing those baptism-specific fields for a burial record (e.g. writing a date of death into
+// the "Date of Birth" column) would make the register list mislabel it "b. <date>" -- so those
+// two types hide the baptism-only field group entirely and use the existing name2 column, freshly
+// exposed as a plain second-name field ("Bride" / "Burial Place"), instead of overloading it.
 var _regLabels = {
-  baptism:      { title: 'Baptisms',      nameLbl: 'Name Baptized',  name2Lbl: 'Parent / Sponsor', col2: 'Parent/Sponsor' },
-  confirmation: { title: 'Confirmations', nameLbl: 'Name Confirmed', name2Lbl: 'Sponsors / Witnesses', col2: 'Sponsors/Witnesses' }
+  baptism:      { title: 'Baptisms',      nameLbl: 'Name Baptized',       name2Lbl: '',              col2: 'Parent/Sponsor',      showName2: false, showBaptismFields: true },
+  confirmation: { title: 'Confirmations', nameLbl: 'Name Confirmed',      name2Lbl: '',              col2: 'Sponsors/Witnesses',  showName2: false, showBaptismFields: true },
+  wedding:      { title: 'Marriages',     nameLbl: 'Groom',               name2Lbl: 'Bride',          col2: 'Bride',               showName2: true,  showBaptismFields: false },
+  funeral:      { title: 'Burials',       nameLbl: 'Name of Deceased',    name2Lbl: 'Burial Place',   col2: 'Burial Place',        showName2: true,  showBaptismFields: false }
 };
 // ── Register scan pages: scanned book-page images, one per (type, page number) — a
 // register row's own "p.NN" links straight to the scan it was transcribed from. Useful
@@ -23,6 +32,8 @@ function showRegisterTab(type) {
   var ft = document.getElementById('reg-form-title'); if (ft) ft.textContent = 'Add ' + lbl.title.slice(0,-1);
   var nl = document.getElementById('reg-name-lbl');   if (nl) nl.textContent = lbl.nameLbl;
   var n2 = document.getElementById('reg-name2-lbl');  if (n2) n2.textContent = lbl.name2Lbl;
+  var n2f = document.getElementById('reg-field-name2'); if (n2f) n2f.style.display = lbl.showName2 ? '' : 'none';
+  var bf = document.getElementById('reg-baptism-fields'); if (bf) bf.style.display = lbl.showBaptismFields ? '' : 'none';
   var sb = document.getElementById('reg-save-btn');   if (sb) sb.textContent = 'Add Entry';
   var cb = document.getElementById('reg-cancel-btn'); if (cb) cb.style.display = 'none';
   clearRegForm();
@@ -30,7 +41,7 @@ function showRegisterTab(type) {
   loadRegisterScans();
 }
 function clearRegForm() {
-  ['reg-date','reg-name','reg-dob','reg-place-of-birth','reg-baptism-place','reg-father','reg-mother','reg-sponsors','reg-officiant','reg-notes','reg-record-type'].forEach(function(id) {
+  ['reg-date','reg-name','reg-name2','reg-dob','reg-place-of-birth','reg-baptism-place','reg-father','reg-mother','reg-sponsors','reg-officiant','reg-notes','reg-record-type'].forEach(function(id) {
     var el = document.getElementById(id); if (el) el.value = '';
   });
 }
@@ -363,6 +374,7 @@ function renderRegisterList(entries, matchCount) {
 function saveRegisterEntry() {
   var date          = document.getElementById('reg-date').value;
   var name          = document.getElementById('reg-name').value.trim();
+  var name2         = document.getElementById('reg-name2') ? document.getElementById('reg-name2').value.trim() : '';
   var dob           = document.getElementById('reg-dob').value;
   var placeOfBirth  = document.getElementById('reg-place-of-birth').value.trim();
   var baptismPlace  = document.getElementById('reg-baptism-place').value.trim();
@@ -376,7 +388,7 @@ function saveRegisterEntry() {
   var isEdit = !!_regEditId;
   var url    = isEdit ? '/admin/api/register/' + _regEditId : '/admin/api/register';
   var method = isEdit ? 'PUT' : 'POST';
-  var body   = {event_date: date, name: name, dob: dob, place_of_birth: placeOfBirth, baptism_place: baptismPlace, father: father, mother: mother, sponsors: sponsors, officiant: officiant, notes: notes, record_type: recordType};
+  var body   = {event_date: date, name: name, name2: name2, dob: dob, place_of_birth: placeOfBirth, baptism_place: baptismPlace, father: father, mother: mother, sponsors: sponsors, officiant: officiant, notes: notes, record_type: recordType};
   if (!isEdit) body.type = _regType;
   api(url, {method: method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)}).then(function(r) {
     if (r.ok) {
@@ -396,12 +408,16 @@ function openRegisterEdit(id) {
   _regEditId = id;
   document.getElementById('reg-date').value           = entry.event_date || '';
   document.getElementById('reg-name').value           = entry.name || '';
+  if (document.getElementById('reg-name2')) document.getElementById('reg-name2').value = entry.name2 || '';
   document.getElementById('reg-dob').value            = entry.dob || '';
   document.getElementById('reg-place-of-birth').value = entry.place_of_birth || '';
   document.getElementById('reg-baptism-place').value  = entry.baptism_place || '';
   document.getElementById('reg-father').value         = entry.father || '';
   document.getElementById('reg-mother').value         = entry.mother || '';
-  document.getElementById('reg-sponsors').value       = entry.sponsors || entry.name2 || '';
+  // Not "|| entry.name2" -- that field now carries a per-type value of its own (Bride /
+  // Burial Place for the newer types), not a sponsors fallback. Register import already
+  // writes the sponsors column directly for baptism/confirmation, so nothing here loses data.
+  document.getElementById('reg-sponsors').value       = entry.sponsors || '';
   document.getElementById('reg-officiant').value      = entry.officiant || '';
   document.getElementById('reg-notes').value          = entry.notes || '';
   document.getElementById('reg-record-type').value    = entry.record_type || '';
@@ -506,6 +522,12 @@ var _regImportHeaders = {
   ],
   confirmation: [
     'Entry No.', 'Full Name', 'Confirmation Date', 'Type', 'Remarks / Notes'
+  ],
+  wedding: [
+    'Entry No.', 'Groom', 'Bride', 'Wedding Date', 'Officiant', 'Notes', 'PDF Page'
+  ],
+  funeral: [
+    'Entry No.', 'Name of Deceased', 'Burial Place', 'Burial Date', 'Officiant', 'Notes', 'PDF Page'
   ]
 };
 function updateRegImportHeaders() {
@@ -586,15 +608,15 @@ function parseRegImportFile(text, filename) {
   var colMap = {
     entry_no:       col(['entry no', 'entry no.', '#', 'no', 'no.']),
     record_type:    col(['record type','type']),
-    first_names:    col(['first names','first name','firstname','given names','given name','first name s','christian name','christian names','forename','forenames','baptismal name','baptized name','name of child','child']),
+    first_names:    col(['first names','first name','firstname','given names','given name','first name s','christian name','christian names','forename','forenames','baptismal name','baptized name','name of child','child','groom','name of deceased','deceased','decedent']),
     surname:        col(['surname','last name','lastname','family name']),
     dob:            col(['date of birth','dob','birth date','birthdate']),
     place_of_birth: col(['place of birth','birthplace','birth place']),
-    event_date:     col(['baptism date','confirmation date','wedding date','event date','date']),
+    event_date:     col(['baptism date','confirmation date','wedding date','marriage date','burial date','funeral date','event date','date']),
     baptism_place:  col(['baptism place','place','location','church','baptism location']),
     father:         col(['father']),
     mother:         col(['mother']),
-    sponsors:       col(['sponsors   remarks','sponsors / remarks','sponsors/remarks','sponsors remarks','sponsors witnesses','sponsors / witnesses','sponsors','godparents','witnesses','remarks']),
+    sponsors:       col(['sponsors   remarks','sponsors / remarks','sponsors/remarks','sponsors remarks','sponsors witnesses','sponsors / witnesses','sponsors','godparents','witnesses','remarks','bride','burial place','cemetery','interment']),
     officiant:      col(['officiant','pastor','minister','priest','celebrant']),
     notes:          col(['notes','note','comments','remarks notes','remarks / notes','remarks/notes','remarks']),
     pdf_page:       col(['pdf page','page','pdf'])
