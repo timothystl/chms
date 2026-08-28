@@ -626,6 +626,21 @@ function printRegisterCertificateTemplate(entry, tmpl) {
     + '</body></html>');
   printWin.document.close();
 }
+// ── Export menu (all three register CSV exports live in Settings too, but this is where
+// people actually look for them -- right next to Print/Import File) ────────────────────────
+function regToggleExportMenu() {
+  var m = document.getElementById('reg-export-menu');
+  if (!m) return;
+  var opening = m.style.display === 'none' || !m.style.display;
+  m.style.display = opening ? 'block' : 'none';
+}
+document.addEventListener('click', function(e) {
+  var m = document.getElementById('reg-export-menu');
+  if (!m || m.style.display === 'none' || !m.style.display) return;
+  var wrap = document.getElementById('reg-export-wrap');
+  if (wrap && e.target && wrap.contains && wrap.contains(e.target)) return;
+  m.style.display = 'none';
+});
 function printCertificateForId(id) {
   var entry = _regEntries.find(function(e){ return e.id === id; });
   if (!entry) { alert('Could not find that entry to print a certificate for.'); return; }
@@ -717,10 +732,16 @@ function renderRegCertTemplateEditor() {
       + '<div id="reg-cert-tmpl-status" style="font-size:.8rem;color:var(--warm-gray);margin-top:8px;"></div>';
     return;
   }
-  var rows = defs.map(function(d) {
+  // On a brand-new upload nothing has been positioned yet -- default every field to checked,
+  // staggered down the middle of the image, so the preview shows something immediately instead
+  // of a blank image until each box is ticked by hand. Once ANYTHING has been saved (even
+  // fewer fields than this), real per-field state takes over and this default no longer applies.
+  var freshUpload = tmpl.fields.length === 0;
+  var rows = defs.map(function(d, i) {
     var existing = tmpl.fields.filter(function(f){ return f.key === d.key; })[0];
-    var on = !!existing;
-    var x = existing ? existing.x_pct : 50, y = existing ? existing.y_pct : 50;
+    var on = existing ? true : freshUpload;
+    var defaultY = Math.round(12 + (i * (76 / Math.max(defs.length - 1, 1))));
+    var x = existing ? existing.x_pct : 50, y = existing ? existing.y_pct : defaultY;
     var fs = existing ? existing.font_size_pt : 14, al = existing ? existing.align : 'center';
     return '<tr data-cert-field="' + d.key + '">'
       + '<td><label style="display:flex;align-items:center;gap:6px;font-size:.82rem;"><input type="checkbox" ' + (on?'checked':'') + ' onchange="regCertFieldToggle(this)"> ' + esc(d.label) + '</label></td>'

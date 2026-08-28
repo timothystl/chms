@@ -525,6 +525,34 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### REG-CERT3 / REG-EXPORT2 — Certificate preview on upload; export moved onto the Register tab itself (2026-08-27, DONE)
+Two follow-ups from the same message. Checked the deploy history first (GitHub Actions —
+`deploy.yml` had run and succeeded for both prior PRs, ruling out a stale-deploy explanation) —
+the real cause of "I still don't see the export" was almost certainly that REG-EXPORT1 put the
+three CSV exports in Settings → Import/Export, while Print/Import File/Certificate Template all
+live right on the Register tab itself. That's where someone would naturally look first.
+- **REG-EXPORT2** — new **⬇ Export** button directly on the Register tab, next to Print, opening
+  a small dropdown with the same three links REG-EXPORT1 already built (all records, scanned
+  pages list, page reconciliation) — plain `<a href download>` links, no new backend work.
+  Admin-gated (`require-admin`, matching the export endpoints' own `isAdmin` check) so it isn't
+  offered to a role that would just get a 403. The Settings copies are untouched — this is an
+  additional, more visible entry point, not a move.
+- **REG-CERT3** — a freshly uploaded certificate template now defaults every field to **checked**
+  with staggered vertical positions (evenly spaced 12%–88% down the image) the moment it's
+  uploaded, instead of an all-unchecked table that shows nothing on the live preview until each
+  box is ticked by hand. **The default only applies to a genuinely fresh template** (`fields.length
+  === 0`) — the instant anything is actually saved, even a single field, real per-field state
+  takes over and stops being overwritten; this is what stops "I only want Name" from being
+  silently padded back out to all seven fields on the next render.
+- `npm test` (1953/1953, 5 new in `test/register-certificate-template-print.test.js`: the
+  all-checked default, that a real save is honored over the default, that fields land on distinct
+  default Y positions, the export links/button in the served shell, and the menu toggle).
+  **Verified non-vacuous**: reverted the fresh-upload default to always-false and confirmed the
+  dependent test fails, then restored. `node --check` on both touched files; div-balance on the
+  assembled `CHMS_HTML` (1118/1118). DEPLOY_VERSION bumped to 1.217.0. **Not verified**: a live
+  browser. (`src/frontend/js-register.js`, `src/frontend/html-tabs.js`,
+  `test/register-certificate-template-print.test.js`)
+
 ### REG-CERT2 — Certificate Template: print directly onto the church's own certificate image (2026-08-27, DONE)
 Follow-up to REG-CERT1: the user supplied a real designed "Holy Baptism" certificate (landscape,
 watercolor art column, blank lines for Name/Date/Officiant) and asked to print entry data
