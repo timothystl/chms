@@ -1075,6 +1075,14 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegScanManage()" title="View or attach scanned book-page images, searchable by page number">&#128247; Scanned Pages</button>
         <button class="btn-secondary require-admin" style="font-size:.8rem;" onclick="regOpenCertTemplateManage()" title="Upload a certificate image and position where each field prints on it">&#128196; Certificate Template</button>
         <button class="btn-secondary" style="font-size:.8rem;" onclick="printRegister()">Print</button>
+        <div class="require-admin" id="reg-export-wrap" style="position:relative;">
+          <button class="btn-secondary" style="font-size:.8rem;" onclick="regToggleExportMenu()" title="Download the register as CSV">&#8681; Export</button>
+          <div id="reg-export-menu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--white);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:20;min-width:260px;padding:6px;">
+            <a href="/admin/api/export/register" download="register-export.csv" style="display:block;padding:8px 10px;font-size:.82rem;color:var(--charcoal);text-decoration:none;border-radius:6px;" onmouseover="this.style.background='var(--linen)'" onmouseout="this.style.background=''">All records (Baptisms, Confirmations, Marriages, Burials)</a>
+            <a href="/admin/api/export/register-scans" download="register-scanned-pages.csv" style="display:block;padding:8px 10px;font-size:.82rem;color:var(--charcoal);text-decoration:none;border-radius:6px;" onmouseover="this.style.background='var(--linen)'" onmouseout="this.style.background=''">Scanned page images list</a>
+            <a href="/admin/api/export/register-reconcile" download="register-page-reconciliation.csv" style="display:block;padding:8px 10px;font-size:.82rem;color:var(--charcoal);text-decoration:none;border-radius:6px;" onmouseover="this.style.background='var(--linen)'" onmouseout="this.style.background=''">Page-number reconciliation (entries vs. scans)</a>
+          </div>
+        </div>
       </div>
     </div>
     <!-- Filter toolbar -->

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
-import { CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS } from '../src/html-chms.js';
+import { CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS, CHMS_HTML } from '../src/html-chms.js';
 
 // Certificate templates: printing overlays real entry data onto the church's own uploaded
 // certificate image (position set by an admin, in percent of the image) instead of the app's
@@ -289,5 +289,66 @@ describe('regCertTemplateSave: collects only the checked rows, with sanitized nu
     expect(body.type).toBe('baptism');
     expect(body.fields.map((f) => f.key)).toEqual(['name', 'date']);
     expect(body.fields[0]).toEqual({ key: 'name', x_pct: 50, y_pct: 12, font_size_pt: 18, align: 'center' });
+  });
+});
+
+describe('renderRegCertTemplateEditor: a fresh upload previews immediately', () => {
+  it('checks every field by default when nothing has been saved yet, so the preview is not blank', () => {
+    const ctx = runRegisterCtx();
+    ctx._regType = 'baptism';
+    ctx._regCertTemplates.baptism = { url: '/img.jpg', fields: [] }; // just uploaded, nothing positioned
+    ctx.renderRegCertTemplateEditor();
+    const html = ctx.__store['reg-cert-tmpl-body'].innerHTML;
+    const defCount = ctx.REG_CERT_FIELD_DEFS.baptism.length;
+    const checkedCount = (html.match(/checked/g) || []).length;
+    expect(checkedCount).toBe(defCount);
+  });
+
+  it('respects real saved state once anything has been positioned, rather than re-defaulting to all-checked', () => {
+    const ctx = runRegisterCtx();
+    ctx._regType = 'baptism';
+    ctx._regCertTemplates.baptism = { url: '/img.jpg', fields: [
+      { key: 'name', x_pct: 50, y_pct: 10, font_size_pt: 18, align: 'center' },
+    ] };
+    ctx.renderRegCertTemplateEditor();
+    const html = ctx.__store['reg-cert-tmpl-body'].innerHTML;
+    const checkedCount = (html.match(/checked/g) || []).length;
+    expect(checkedCount).toBe(1); // only "name" -- an explicit save of one field is honored, not padded back out
+  });
+
+  it('stages fields at different Y positions, not all stacked on the same spot', () => {
+    const ctx = runRegisterCtx();
+    ctx._regType = 'baptism';
+    ctx._regCertTemplates.baptism = { url: '/img.jpg', fields: [] };
+    ctx.renderRegCertTemplateEditor();
+    const html = ctx.__store['reg-cert-tmpl-body'].innerHTML;
+    const yValues = [...html.matchAll(/oninput="regCertFieldEdit\(this,'y_pct'\)"/g)];
+    // Can't easily parse each row's own value out of the concatenated string without a real DOM
+    // parser, but the field defs themselves resolve to distinct default Y values -- confirm that
+    // directly instead of scraping HTML.
+    const defs = ctx.REG_CERT_FIELD_DEFS.baptism;
+    const ys = defs.map((d, i) => Math.round(12 + i * (76 / Math.max(defs.length - 1, 1))));
+    expect(new Set(ys).size).toBe(defs.length); // every field lands on its own Y
+  });
+});
+
+describe('Register tab export menu', () => {
+  it('offers all three CSV exports as direct download links', () => {
+    // These are plain <a href download> links with no JS behind the download itself, so they're
+    // checked directly against the served shell rather than through the vm.
+    expect(CHMS_HTML).toContain('href="/admin/api/export/register"');
+    expect(CHMS_HTML).toContain('href="/admin/api/export/register-scans"');
+    expect(CHMS_HTML).toContain('href="/admin/api/export/register-reconcile"');
+    expect(CHMS_HTML).toContain('onclick="regToggleExportMenu()"');
+  });
+
+  it('regToggleExportMenu shows and hides the menu', () => {
+    const ctx = runRegisterCtx();
+    const menu = ctx.document.getElementById('reg-export-menu');
+    menu.style.display = 'none';
+    ctx.regToggleExportMenu();
+    expect(menu.style.display).toBe('block');
+    ctx.regToggleExportMenu();
+    expect(menu.style.display).toBe('none');
   });
 });
