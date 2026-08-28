@@ -1179,6 +1179,73 @@ if (seg.startsWith('export/') && method === 'GET') {
       lines.push(csvRow([r.type,r.event_date,r.name,r.name2||'',r.officiant||'',r.dob||'',r.place_of_birth||'',r.baptism_place||'',r.father||'',r.mother||'',r.sponsors||'',r.notes||'',r.record_type||'',r.pdf_page||'']));
     return new Response(lines.join('\r\n'), { headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="register-export.csv"' } });
   }
+
+  // Read-only exports for reviewing the scanned-page library and how it lines up against the
+  // register's own pdf_page values -- neither of these writes anything, so they're safe to run
+  // as often as needed while cleaning up a mismatch.
+  if (seg === 'export/register-scans') {
+    if (!isAdmin) return json({ error: 'Access denied' }, 403);
+    const rows = (await db.prepare(`
+      SELECT type, page, r2_key, uploaded_at FROM register_scan_pages
+      ORDER BY type, LENGTH(page), page
+    `).all()).results || [];
+    const lines = [csvRow(['Type','Page','Image URL','Uploaded At'])];
+    for (const r of rows)
+      lines.push(csvRow([r.type, r.page, `/admin/r2photo/${r.r2_key}`, r.uploaded_at || '']));
+    return new Response(lines.join('\r\n'), { headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="register-scanned-pages.csv"' } });
+  }
+
+  if (seg === 'export/register-reconcile') {
+    if (!isAdmin) return json({ error: 'Access denied' }, 403);
+    // One row per page number that appears in EITHER source, for every register type -- so a
+    // page with entries but no scan, and a scan with no matching entries, both show up rather
+    // than only the pages that already agree.
+    const entryRows = (await db.prepare(`
+      SELECT type, TRIM(pdf_page) AS page, COUNT(*) AS entry_count,
+             GROUP_CONCAT(name, ' | ') AS entry_names
+      FROM church_register
+      WHERE TRIM(COALESCE(pdf_page,'')) != ''
+      GROUP BY type, TRIM(pdf_page)
+    `).all()).results || [];
+    const scanRows = (await db.prepare(`
+      SELECT type, page, r2_key, uploaded_at FROM register_scan_pages
+    `).all()).results || [];
+
+    const byKey = new Map(); // "type|page" -> { type, page, entry_count, entry_names, scan_url, uploaded_at }
+    const keyOf = (type, page) => `${type}|${page}`;
+    for (const e of entryRows) {
+      byKey.set(keyOf(e.type, e.page), {
+        type: e.type, page: e.page, entry_count: e.entry_count, entry_names: e.entry_names || '',
+        scan_url: '', uploaded_at: '',
+      });
+    }
+    for (const s of scanRows) {
+      const k = keyOf(s.type, s.page);
+      const existing = byKey.get(k);
+      const scanUrl = `/admin/r2photo/${s.r2_key}`;
+      if (existing) { existing.scan_url = scanUrl; existing.uploaded_at = s.uploaded_at || ''; }
+      else byKey.set(k, { type: s.type, page: s.page, entry_count: 0, entry_names: '', scan_url: scanUrl, uploaded_at: s.uploaded_at || '' });
+    }
+
+    const merged = [...byKey.values()].sort((a, b) => {
+      if (a.type !== b.type) return a.type < b.type ? -1 : 1;
+      const na = parseFloat(a.page), nb = parseFloat(b.page);
+      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+      return String(a.page).localeCompare(String(b.page));
+    });
+
+    const lines = [csvRow(['Type','Page','Entries On This Page','Entry Names','Scan Uploaded','Scan URL','Scan Uploaded At','Status'])];
+    for (const m of merged) {
+      const hasEntries = m.entry_count > 0;
+      const hasScan = !!m.scan_url;
+      const status = hasEntries && hasScan ? 'OK'
+        : hasEntries && !hasScan ? 'Missing scan image'
+        : !hasEntries && hasScan ? 'Scan has no matching entries'
+        : '';
+      lines.push(csvRow([m.type, m.page, m.entry_count, m.entry_names, hasScan ? 'Yes' : 'No', m.scan_url, m.uploaded_at, status]));
+    }
+    return new Response(lines.join('\r\n'), { headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="register-page-reconciliation.csv"' } });
+  }
 }
 
 // ── Send Giving Statement via Brevo ───────────────────────────────

@@ -986,7 +986,15 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <button class="btn-secondary" onclick="exportRegister()">&#128214; Export Register</button>
-          <span style="font-size:.82rem;color:var(--warm-gray);">All baptism, confirmation, and wedding records.</span>
+          <span style="font-size:.82rem;color:var(--warm-gray);">All baptism, confirmation, marriage, and burial records.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;">
+          <button class="btn-secondary" onclick="exportRegisterScans()">&#128247; Export Scanned Pages</button>
+          <span style="font-size:.82rem;color:var(--warm-gray);">Every scanned page image on file, with its type, page number, and URL.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;">
+          <button class="btn-secondary" onclick="exportRegisterReconcile()">&#128269; Export Page-Number Reconciliation</button>
+          <span style="font-size:.82rem;color:var(--warm-gray);">One row per page number, showing register entries vs. the scanned image on file — flags any mismatch.</span>
         </div>
       </div>
       <div class="import-status" id="export-status"></div>

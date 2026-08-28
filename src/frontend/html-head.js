@@ -326,6 +326,8 @@ a.s-item{text-decoration:none;color:inherit;}
 .reg-table tr:hover td{background:var(--linen);}
 .reg-person-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--teal);cursor:pointer;border:1px solid var(--teal);border-radius:99px;padding:1px 8px;}
 .reg-person-chip:hover{background:var(--blue-mist);}
+.reg-cert-btn{background:none;border:none;color:var(--color-gold);cursor:pointer;font-size:.78rem;padding:2px 6px;border-radius:4px;opacity:.7;}
+.reg-cert-btn:hover{opacity:1;background:var(--linen);}
 .reg-edit-btn{background:none;border:none;color:var(--sky-steel);cursor:pointer;font-size:.78rem;padding:2px 6px;border-radius:4px;opacity:.7;}
 .reg-edit-btn:hover{opacity:1;background:var(--blue-mist);}
 .reg-del-btn{background:none;border:none;color:var(--danger);cursor:pointer;font-size:.78rem;padding:2px 6px;border-radius:4px;opacity:.7;margin-left:2px;}
