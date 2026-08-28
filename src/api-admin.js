@@ -1,5 +1,5 @@
 // ── Admin API handlers ─────────────────────────────────────────────────────────
-import { html, json, isAuthed, authCookieHeader, getAuthRole, getAuthInfo, hashPassword, verifyPassword, appRootPath, timingSafeEqual } from './auth.js';
+import { html, json, isAuthed, authCookieHeader, getAuthRole, getAuthInfo, hashPassword, verifyPassword, appRootPath, timingSafeEqual, isPhoneUserAgent } from './auth.js';
 import { handleChmsApi } from './api-chms.js';
 import { handleMobileApi } from './api-mobile.js';
 import { LOGIN_HTML } from './html-templates.js';
@@ -230,7 +230,7 @@ export async function handleAdminLogin(req, env) {
     // test/admin-login-credentials.test.js's own scan.
     let cookie;
     try {
-      cookie = await authCookieHeader(env, matchedRole, matchedUsername);
+      cookie = await authCookieHeader(env, matchedRole, matchedUsername, isPhoneUserAgent(req));
     } catch {
       return html(loginRetryHtml('Session signing key is not configured. Set the session secret in the Cloudflare Dashboard.'));
     }

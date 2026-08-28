@@ -525,6 +525,56 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### AUTH-MOBILE1 — Staff/admin sessions on a phone now persist like an app; desktop unchanged (2026-08-28, DONE)
+Reported directly: having to log back into the app on a phone every time was not how a normal
+app behaves on a trusted personal device. The member tier already had exactly this — a
+persistent, 30-day sliding-window cookie (`MEMBER_IDLE_TIMEOUT_MS`, shipped 2026-08-03 for the
+Tithe.ly Church App webview case) — but it was gated on `role === 'member'` alone, so a
+staff/admin account on their own phone (the Mobile Admin shell, or the mobile-responsive
+desktop view) still got the plain 8-hour, dies-on-close session cookie every other role has
+always had.
+- **Generalized the existing member-only mechanism to a DEVICE signal, not a role one.**
+  `isPhoneUserAgent(req)` (moved into `src/auth.js` from `tlc-volunteer-worker.js`, where it
+  already existed for the Mobile Admin shell's own auto-detect, so the two can't drift) now
+  also drives session persistence: `idleTimeoutFor(role, isMobile)` (replaces
+  `idleTimeoutForRole(role)`) returns the long, persistent window (`PERSISTENT_IDLE_TIMEOUT_MS`,
+  was `MEMBER_IDLE_TIMEOUT_MS` — renamed since it's no longer member-only, 30 days unchanged)
+  whenever `role === 'member'` **or** the request carries a phone User-Agent. A desktop/laptop
+  session for every other role is completely unchanged — 8-hour idle window, no `Max-Age`, dies
+  with the browser, per this file's own long-standing "shared office computer" rationale for
+  that case, which still holds.
+- **The device signal is read from the CURRENT request, never baked into the cookie** — a
+  cookie minted on a phone is only honored for the long window if the request replaying it also
+  carries a phone User-Agent (verified: replaying a phone-aged cookie from a desktop UA is
+  rejected past 8 hours), and a session that started on a desktop picks up the persistent
+  window automatically the first time it's used from a phone, via `refreshAuthCookie`'s
+  per-request re-mint — no separate "remember this device" enrollment step. `authCookieHeader`
+  and `refreshAuthCookie` both gained an `isMobile`/`req` parameter for this; both call sites
+  (the login handler in `api-admin.js`, and the worker entry's post-response cookie refresh)
+  updated to pass it through.
+- **⚠ Worth naming plainly: this does widen the blast radius of a stolen cookie for a
+  full-privilege role, not just member.** The mitigating control is unchanged and still applies
+  to every role — `_resolveAuthInfo` live-checks `app_users.active`/`.role` on every single
+  request, so deactivating an account kills its session on the very next request regardless of
+  how long the cookie window nominally is. What changes is how long an unrevoked, unnoticed
+  stolen cookie stays live if nobody catches it — up to 30 days instead of 8 hours, for any role,
+  whenever the replaying request carries a phone-shaped User-Agent (a header the client
+  controls and can spoof). This is the same tradeoff the member tier already accepted 2026-08-03
+  for a much narrower blast radius (read-only, redacted); extending it to admin/staff/finance is
+  a bigger version of that same tradeoff, made because that's the literal, direct ask. Revisit
+  if a real "remember this device" mechanism (an actual per-device token, not a spoofable
+  header) is ever wanted instead.
+- `npm test` (1968/1968, 0 skipped beyond the standing 5 pypdf-gated ones); `test/session-lifetime.test.js`
+  rewritten around the new device-aware behavior (renamed export names, phone-vs-desktop cases
+  added), plus a new `test/mobile-persistent-login.test.js` driving the real `handleAdminLogin`
+  and the real `worker.fetch()` end to end (not just the unit-level `idleTimeoutFor`/
+  `authCookieHeader` — this is what would have caught a wiring mistake like forgetting to pass
+  `req` through to `refreshAuthCookie`). **Verified non-vacuous**: reverted `idleTimeoutFor` to
+  ignore `isMobile` and confirmed the exact 3 tests that guard this fix fail (all others
+  unaffected), then restored. `node --check` on all three touched files. **Not verified**: a live
+  browser or a real phone. (`src/auth.js`, `src/api-admin.js`, `tlc-volunteer-worker.js`,
+  `test/session-lifetime.test.js`, `test/mobile-persistent-login.test.js`)
+
 ### REG-CERT3 / REG-EXPORT2 — Certificate preview on upload; export moved onto the Register tab itself (2026-08-27, DONE)
 Two follow-ups from the same message. Checked the deploy history first (GitHub Actions —
 `deploy.yml` had run and succeeded for both prior PRs, ruling out a stale-deploy explanation) —
