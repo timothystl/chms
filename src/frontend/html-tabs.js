@@ -1073,6 +1073,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegFromPeoplePrompt()" title="Generate register entries from people records">&#128100; From People</button>
         <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegImport()">&#8679; Import File</button>
         <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegScanManage()" title="View or attach scanned book-page images, searchable by page number">&#128247; Scanned Pages</button>
+        <button class="btn-secondary require-admin" style="font-size:.8rem;" onclick="regOpenCertTemplateManage()" title="Upload a certificate image and position where each field prints on it">&#128196; Certificate Template</button>
         <button class="btn-secondary" style="font-size:.8rem;" onclick="printRegister()">Print</button>
       </div>
     </div>
@@ -1873,6 +1874,19 @@ export const HTML_TABS_2 = String.raw`
       </div>
     </div>
     <div id="reg-scan-existing"></div>
+  </div>
+</div>
+<!-- Register certificate template: upload + position fields -->
+<div class="modal-overlay" id="reg-cert-tmpl-modal">
+  <div class="modal" style="max-width:900px;width:95vw;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+      <h2 style="margin:0;flex:1;font-size:1.15rem;">Certificate Template &mdash; <span id="reg-cert-tmpl-type"></span></h2>
+      <button class="btn-secondary" style="font-size:.8rem;" onclick="closeModal('reg-cert-tmpl-modal')">&#215; Close</button>
+    </div>
+    <p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 12px;">
+      Upload the church's own certificate design and position where each field prints on it. Upload the image already rotated to its final print orientation &mdash; positions are set in percent of the image, so any size works once the orientation is right.
+    </p>
+    <div id="reg-cert-tmpl-body"></div>
   </div>
 </div>
 <!-- Register scan page viewer (lightbox) -->

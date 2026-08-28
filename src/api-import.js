@@ -664,6 +664,72 @@ if (regScanDelMatch && method === 'DELETE') {
   return json({ ok: true });
 }
 
+// ── Register certificate templates ───────────────────────────────────────
+// One background image per register type, with a positioned-field list, so a printed
+// certificate can overlay real entry data directly onto the church's own certificate design
+// instead of the app's generic bordered layout. Admin-only (changes what prints for everyone).
+const REG_CERT_VALID_TYPES = ['baptism','confirmation','wedding','funeral'];
+if (seg === 'register/certificate-template' && method === 'GET') {
+  const ctype = url.searchParams.get('type') || '';
+  if (!REG_CERT_VALID_TYPES.includes(ctype)) return json({ error: 'type must be baptism, confirmation, wedding, or funeral' }, 400);
+  const row = await db.prepare('SELECT type, r2_key, fields_json, updated_at FROM register_certificate_templates WHERE type=?').bind(ctype).first();
+  if (!row) return json({ template: null });
+  let fields = [];
+  try { fields = JSON.parse(row.fields_json || '[]'); } catch {}
+  return json({ template: { type: row.type, url: `/admin/r2photo/${row.r2_key}`, fields, updated_at: row.updated_at } });
+}
+if (seg === 'register/certificate-template' && method === 'POST') {
+  if (!isAdmin) return json({ error: 'Access denied' }, 403);
+  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket tlc-chms-photos' }, 503);
+  let fd; try { fd = await req.formData(); } catch { return json({ error: 'Invalid form data' }, 400); }
+  const ctype = String(fd.get('type') || '').trim();
+  const file = fd.get('file');
+  if (!REG_CERT_VALID_TYPES.includes(ctype)) return json({ error: 'type must be baptism, confirmation, wedding, or funeral' }, 400);
+  const v = await validateImageUpload(file);
+  if (!v.ok) return json({ error: v.error }, v.status);
+  const r2Key = `register-certificate-templates/${ctype}.${v.ext}`;
+  const existing = await db.prepare('SELECT id, r2_key, fields_json FROM register_certificate_templates WHERE type=?').bind(ctype).first();
+  await env.PHOTOS.put(r2Key, v.buf, { httpMetadata: { contentType: v.ct } });
+  if (existing) {
+    // Re-uploading a refined version of the same image keeps the field positions -- the whole
+    // point of "these are samples, I can get them more refined" is iterating on the artwork
+    // without having to re-position every field from scratch each time.
+    if (existing.r2_key && existing.r2_key !== r2Key) await env.PHOTOS.delete(existing.r2_key).catch(() => {});
+    await db.prepare("UPDATE register_certificate_templates SET r2_key=?, updated_at=datetime('now') WHERE id=?").bind(r2Key, existing.id).run();
+    return json({ ok: true, url: `/admin/r2photo/${r2Key}`, fields: JSON.parse(existing.fields_json || '[]') });
+  }
+  await db.prepare('INSERT INTO register_certificate_templates(type, r2_key, fields_json) VALUES(?,?,?)').bind(ctype, r2Key, '[]').run();
+  return json({ ok: true, url: `/admin/r2photo/${r2Key}`, fields: [] });
+}
+if (seg === 'register/certificate-template' && method === 'PUT') {
+  if (!isAdmin) return json({ error: 'Access denied' }, 403);
+  let b = {}; try { b = await req.json(); } catch {}
+  const ctype = String(b.type || '').trim();
+  if (!REG_CERT_VALID_TYPES.includes(ctype)) return json({ error: 'type must be baptism, confirmation, wedding, or funeral' }, 400);
+  if (!Array.isArray(b.fields)) return json({ error: 'fields must be an array' }, 400);
+  const row = await db.prepare('SELECT id FROM register_certificate_templates WHERE type=?').bind(ctype).first();
+  if (!row) return json({ error: 'No template uploaded for this type yet' }, 404);
+  // Trust only the shape, not arbitrary keys -- one row per field, numeric position/size.
+  const cleaned = b.fields.filter(f => f && typeof f.key === 'string').map(f => ({
+    key: f.key, x_pct: Number(f.x_pct) || 0, y_pct: Number(f.y_pct) || 0,
+    font_size_pt: Number(f.font_size_pt) || 14, align: (f.align === 'left' || f.align === 'right') ? f.align : 'center',
+  }));
+  await db.prepare("UPDATE register_certificate_templates SET fields_json=?, updated_at=datetime('now') WHERE id=?")
+    .bind(JSON.stringify(cleaned), row.id).run();
+  return json({ ok: true, fields: cleaned });
+}
+if (seg === 'register/certificate-template' && method === 'DELETE') {
+  if (!isAdmin) return json({ error: 'Access denied' }, 403);
+  const ctype = url.searchParams.get('type') || '';
+  if (!REG_CERT_VALID_TYPES.includes(ctype)) return json({ error: 'type must be baptism, confirmation, wedding, or funeral' }, 400);
+  const row = await db.prepare('SELECT id, r2_key FROM register_certificate_templates WHERE type=?').bind(ctype).first();
+  if (row) {
+    if (env.PHOTOS) await env.PHOTOS.delete(row.r2_key).catch(() => {});
+    await db.prepare('DELETE FROM register_certificate_templates WHERE id=?').bind(row.id).run();
+  }
+  return json({ ok: true });
+}
+
 if (seg === 'import/register-from-people' && method === 'POST') {
   let b = {}; try { b = await req.json(); } catch {}
   const cutoff = b.cutoff || '1900-01-01';
