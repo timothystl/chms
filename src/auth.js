@@ -30,35 +30,63 @@ async function sessionSigningKey(env, usage) {
 }
 //
 // Session behavior:
-//   - Cookie is a session cookie (no Expires) so it dies on browser close.
+//   - A desktop/laptop session (any role but member) is a plain session cookie (no Expires)
+//     that dies on browser close, with an IDLE_TIMEOUT_MS idle window. A member, or anyone on
+//     a phone (see isPhoneUserAgent below), gets a persistent cookie on the longer window
+//     instead — see PERSISTENT_IDLE_TIMEOUT_MS.
 //   - The ts embedded in the cookie is the LAST activity time; it's refreshed
 //     on every authenticated request via `refreshAuthCookie` wrapper in the
-//     worker entry. If no request arrives within IDLE_TIMEOUT_MS, the cookie
+//     worker entry. If no request arrives within the applicable idle window, the cookie
 //     is rejected and the user is forced back to the login page.
 export const IDLE_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours
 
-// Members get a much longer, *persistent* session than staff. Two different jobs:
-//
-//   staff/office/finance/admin — a shared office computer, giving records, member PII,
-//     financial reports. A short idle window and a cookie that dies with the browser is
-//     the right posture and stays unchanged.
-//
-//   member — a read-only, self-redacting directory view (see memberSafeView in
-//     api-people.js) on someone's personal phone, opened for fifteen seconds to get a
-//     phone number, often from a Tithe.ly Church App weblink tab. A session cookie plus an
-//     8-hour window means logging in on essentially every visit, which is the thing that
-//     kills adoption of a directory outright.
-//
-// Blast radius of the longer window is bounded by what the member role can actually reach:
-// no writes anywhere (the ACCESS_GATE in api-chms.js 403s every non-GET), no giving, no
-// notes, no tags. Revocation is unaffected — _resolveAuthInfo live-checks app_users.active
-// and .role on every single request, so deactivating a member kills their session on the
-// very next request no matter how long the cookie is good for.
-export const MEMBER_IDLE_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+// True for a phone-shaped User-Agent (iPhone/iPod/Android Mobile/Windows Phone). A phone is a
+// personal device carried in a pocket, not a shared office terminal, so it gets the same
+// "don't make me log in every time" treatment as the member tier below, regardless of role —
+// reported directly: staff opening the app on their own phone had to sign back in on
+// essentially every visit, which is not how an app on a personal device behaves. Defined once
+// here (not duplicated in tlc-volunteer-worker.js, which also uses it to pick the mobile vs.
+// desktop shell) so the two can't drift apart.
+export function isPhoneUserAgent(req) {
+  const ua = req.headers.get('User-Agent') || '';
+  return /iPhone|iPod|Android.*Mobile|Windows Phone/i.test(ua);
+}
 
-/** Idle window for a role. Anything that isn't explicitly `member` gets the short one. */
-export function idleTimeoutForRole(role) {
-  return role === 'member' ? MEMBER_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS;
+// Members, and anyone on a phone, get a much longer, *persistent* session than staff on a
+// desktop or laptop. Two different jobs:
+//
+//   staff/office/finance/admin on a desktop or laptop — a shared office computer, giving
+//     records, member PII, financial reports. A short idle window and a cookie that dies
+//     with the browser is the right posture and stays unchanged there.
+//
+//   anyone on a phone (any role) — a personal device, not shared, not left logged in on a
+//     public terminal. Same reasoning as member below: a session cookie plus an 8-hour
+//     window means logging in on essentially every visit, which is the thing that kills
+//     "use it like an app" on a phone outright.
+//
+//   member specifically — a read-only, self-redacting directory view (see memberSafeView in
+//     api-people.js), often opened for fifteen seconds from a Tithe.ly Church App weblink
+//     tab. Gets the long window on every device, not just a phone — a member's own laptop
+//     carries no more access than their phone does, so there's no reason to treat it
+//     differently.
+//
+// The phone signal is read from the CURRENT request's User-Agent, not baked into the cookie,
+// so a cookie minted on a phone is still only honored for the short window if it somehow shows
+// up on a request from a desktop browser, and a staff cookie that starts out on a desktop
+// picks up the long window (via refreshAuthCookie's per-request re-mint) the moment it's used
+// from a phone instead — no separate "remember this device" step needed.
+//
+// The longer window changes only HOW LONG a valid, unexpired-by-activity cookie is honored —
+// not WHAT it can do (full role permissions either way, same as an 8-hour cookie already
+// grants). Revocation is unaffected: _resolveAuthInfo live-checks app_users.active/.role on
+// every single request, so deactivating or demoting someone kills their session on the very
+// next request no matter how long the cookie is nominally good for.
+export const PERSISTENT_IDLE_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+/** Idle window for a session: the long, persistent window for a member (any device) or
+ *  anyone on a phone (any role); the short, browser-close-scoped window for everyone else. */
+export function idleTimeoutFor(role, isMobile) {
+  return (role === 'member' || isMobile) ? PERSISTENT_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS;
 }
 
 // ── Hostname helpers ────────────────────────────────────────────────
@@ -124,12 +152,15 @@ async function _resolveAuthInfo(req, env) {
     return null;
   }
   if (!ts || !sig) return null;
+  // The device signal comes from THIS request, not the cookie, so it can't be forged by
+  // editing the cookie (see isPhoneUserAgent's comment above).
+  const isMobile = isPhoneUserAgent(req);
   // First gate uses the role claimed by the cookie. That claim is trustworthy *as a claim*
   // — it's covered by the HMAC below, so it can't be edited to buy a longer window without
   // invalidating the signature. It is not necessarily the user's CURRENT role, though, so
   // the effective role gets re-checked against its own window after the DB lookup.
   const age = Date.now() - parseInt(ts, 10);
-  if (age > idleTimeoutForRole(role)) return null;
+  if (age > idleTimeoutFor(role, isMobile)) return null;
   try {
     // Throws if SESSION_SECRET is unset — caught below, same as any other verify failure,
     // which is exactly the fail-closed behavior wanted here (never falls back to a
@@ -156,7 +187,7 @@ async function _resolveAuthInfo(req, env) {
     // would keep riding their old 30-day member cookie while holding staff permissions —
     // the authorization below correctly uses the new role, so the session lifetime has to
     // tighten with it. Always re-checked (not just on a role change) so the two can't drift.
-    if (age > idleTimeoutForRole(dbUser.role)) return null;
+    if (age > idleTimeoutFor(dbUser.role, isMobile)) return null;
     return { role: dbUser.role, username };
   }
   return { role, username };
@@ -172,7 +203,7 @@ export async function isAuthed(req, env) {
 // Throws if SESSION_SECRET is unset — callers that mint a fresh cookie from a login handler
 // need to catch this and show an operator-facing message; refreshAuthCookie's caller never
 // hits it in practice (see its own comment).
-export async function authCookieHeader(env, role = 'admin', username = '') {
+export async function authCookieHeader(env, role = 'admin', username = '', isMobile = false) {
   const ts = Date.now().toString();
   const safeUser = username.replace(/[^a-zA-Z0-9_-]/g, '');
   const payload = safeUser ? `${ts}.${role}.${safeUser}` : `${ts}.${role}`;
@@ -181,13 +212,16 @@ export async function authCookieHeader(env, role = 'admin', username = '') {
   const b64url = btoa(String.fromCharCode(...new Uint8Array(sig)))
     .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const cookieVal = safeUser ? `${ts}.${role}.${safeUser}.${b64url}` : `${ts}.${role}.${b64url}`;
-  // Members get Max-Age so the cookie survives the browser/webview closing; every other role
-  // stays a session cookie that dies on close. Without Max-Age a Tithe.ly Church App weblink
-  // tab (or any in-app browser) drops the cookie the moment the view is dismissed, so a
-  // member re-authenticates on essentially every visit. Max-Age is re-sent on each request by
-  // refreshAuthCookie, so the window slides forward with use rather than expiring at a fixed
-  // wall-clock time from first login.
-  const maxAge = role === 'member' ? `; Max-Age=${Math.floor(MEMBER_IDLE_TIMEOUT_MS / 1000)}` : '';
+  // Members (any device) and anyone on a phone get Max-Age so the cookie survives the
+  // browser/webview closing; a desktop/laptop session for every other role stays a session
+  // cookie that dies on close. Without Max-Age a Tithe.ly Church App weblink tab (or any
+  // in-app mobile browser) drops the cookie the moment the view is dismissed, so staff on
+  // their own phone would re-authenticate on essentially every visit — the same problem the
+  // member tier already had. Max-Age is re-sent on each request by refreshAuthCookie, so the
+  // window slides forward with use rather than expiring at a fixed wall-clock time from first
+  // login.
+  const maxAge = (role === 'member' || isMobile)
+    ? `; Max-Age=${Math.floor(PERSISTENT_IDLE_TIMEOUT_MS / 1000)}` : '';
   // SameSite=Lax (not Strict): the QuickBooks OAuth callback (FIN1) lands back on this app via
   // a cross-site-initiated top-level GET redirect from Intuit's consent screen — SameSite=Strict
   // silently drops the cookie on exactly that kind of request, breaking the whole connect flow.
@@ -199,7 +233,11 @@ export async function authCookieHeader(env, role = 'admin', username = '') {
 // Wrap an authenticated response with a refreshed Set-Cookie so the idle
 // timeout rolls forward with activity. Skips refresh if the response is
 // already setting vol_auth (login/logout handle their own cookie).
-export async function refreshAuthCookie(response, authInfo, env) {
+// `req` (optional) supplies the device signal for the persistent-window decision — omitting
+// it just means the refreshed cookie falls back to the short desktop window, never the wrong
+// direction (a phone-carried cookie losing its persistence is the safe failure here, not a
+// desktop cookie gaining 30 days it shouldn't have).
+export async function refreshAuthCookie(response, authInfo, env, req) {
   if (!authInfo || !response) return response;
   const existing = response.headers.get('Set-Cookie') || '';
   if (existing.includes('vol_auth=')) return response;
@@ -217,7 +255,7 @@ export async function refreshAuthCookie(response, authInfo, env) {
   // response rather than let a thrown error propagate up to the worker's top-level catch.
   let newCookie;
   try {
-    newCookie = await authCookieHeader(env, authInfo.role, authInfo.username);
+    newCookie = await authCookieHeader(env, authInfo.role, authInfo.username, req ? isPhoneUserAgent(req) : false);
   } catch {
     return response;
   }

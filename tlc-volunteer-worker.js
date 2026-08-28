@@ -7,7 +7,7 @@
 // v2 — modular build (src/)
 
 // ── Imports ────────────────────────────────────────────────────────────────────
-import { html, json, isAuthed, getAuthInfo, getAuthRole, refreshAuthCookie, SCHED_CORS, isConnectHost, appRootPath } from './src/auth.js';
+import { html, json, isAuthed, getAuthInfo, getAuthRole, refreshAuthCookie, SCHED_CORS, isConnectHost, appRootPath, isPhoneUserAgent } from './src/auth.js';
 import { initDb } from './src/db.js';
 import { LCMS_CALENDAR_JSON } from './src/lectionary.js';
 import {
@@ -46,10 +46,8 @@ const R2_PHOTO_PREFIXES = ['people/', 'households/', 'branding/', 'register-scan
 // desktop shell's own sidebar carries the reciprocal `?mobile=1` link (a real report:
 // a phone user who tapped "Full App" had no way back at all) — it clears that same
 // cookie so User-Agent detection resumes deciding on the visitor's next plain visit.
-function isPhoneUserAgent(req) {
-  const ua = req.headers.get('User-Agent') || '';
-  return /iPhone|iPod|Android.*Mobile|Windows Phone/i.test(ua);
-}
+// isPhoneUserAgent itself now lives in src/auth.js (imported above) — it also drives the
+// persistent-session decision there, so the two can't drift apart.
 function prefersDesktop(req) {
   return /(?:^|;\s*)mob_pref=desktop(?:;|$)/.test(req.headers.get('cookie') || req.headers.get('Cookie') || '');
 }
@@ -78,7 +76,7 @@ export default {
       // handlers via isAuthed() is cheap (HMAC verify on a short string).
       const authInfo = await getAuthInfo(req, env).catch(() => null);
       const response = await _fetch(req, env);
-      return await refreshAuthCookie(response, authInfo, env);
+      return await refreshAuthCookie(response, authInfo, env, req);
     } catch (e) {
       // Last-resort catch: prevents Cloudflare from returning its HTML error page.
       // All internal handlers have their own try/catch; this only fires for truly
