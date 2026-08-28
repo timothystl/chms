@@ -300,6 +300,30 @@ function exportRegister() {
   document.body.removeChild(a);
   setTimeout(function() { status.textContent = 'Download started.'; status.className = 'import-status ok'; }, 500);
 }
+// Read-only -- neither of these writes anything, so they're safe to run as often as needed
+// while reviewing a page-number/scan-image mismatch.
+function exportRegisterScans() {
+  var status = document.getElementById('export-status');
+  status.textContent = 'Preparing scanned pages export…'; status.className = 'import-status';
+  var a = document.createElement('a');
+  a.href = '/admin/api/export/register-scans';
+  a.download = 'register-scanned-pages.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { status.textContent = 'Download started.'; status.className = 'import-status ok'; }, 500);
+}
+function exportRegisterReconcile() {
+  var status = document.getElementById('export-status');
+  status.textContent = 'Preparing page reconciliation export…'; status.className = 'import-status';
+  var a = document.createElement('a');
+  a.href = '/admin/api/export/register-reconcile';
+  a.download = 'register-page-reconciliation.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { status.textContent = 'Download started.'; status.className = 'import-status ok'; }, 500);
+}
 function clearGivingByYear() {
   var year = (document.getElementById('clear-year-input').value || '').trim();
   if (!/^\d{4}$/.test(year)) { alert('Enter a valid 4-digit year.'); return; }

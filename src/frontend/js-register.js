@@ -340,6 +340,7 @@ function renderRegisterList(entries, matchCount) {
         + '<td class="reg-c-sm">'+familyPart+'</td>'
         + '<td class="reg-c-sm">'+rtBadge+officPart+pdfPart+'</td>'
         + '<td class="reg-c-act">'
+        + '<button class="reg-cert-btn" onclick="printCertificateForId('+e.id+')" title="Print a certificate for this entry">Certificate</button>'
         + '<button class="reg-edit-btn require-edit-register" onclick="openRegisterEdit('+e.id+')" title="Edit">Edit</button>'
         + '<button class="reg-del-btn require-edit-register" onclick="deleteRegisterEntry('+e.id+')" title="Delete">Delete</button>'
         + '</td>'
@@ -399,6 +400,18 @@ function saveRegisterEntry() {
       var cb = document.getElementById('reg-cancel-btn'); if (cb) cb.style.display = 'none';
       closeRegFormMobile();
       loadRegister();
+      // Offer the certificate right after entering a brand-new record -- the whole point is
+      // that printing it happens in the same step as recording it, so it's never the thing that
+      // gets forgotten. Not offered on an edit: re-prompting on every routine correction would
+      // make it impossible to tell, from the register alone, whether a certificate was ever
+      // actually handed out for this entry.
+      if (!isEdit && confirm('Entry saved. Print a certificate now?')) {
+        printRegisterCertificate({
+          type: body.type, name: name, name2: name2, event_date: date, dob: dob,
+          place_of_birth: placeOfBirth, baptism_place: baptismPlace, father: father, mother: mother,
+          sponsors: sponsors, officiant: officiant, notes: notes, record_type: recordType, pdf_page: ''
+        });
+      }
     } else alert('Error: ' + (r.error||'unknown'));
   }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
@@ -510,6 +523,81 @@ function printRegister() {
     +'<table><thead>'+thead+'</thead><tbody>'+tableRows+'</tbody></table>'
     +'</body></html>');
   printWin.document.close();
+}
+
+// ── Certificates ─────────────────────────────────────────────────────
+// Prints a single entry as a formal certificate, in three ways: (1) the "Certificate" button on
+// any row in the list, for an entry entered years ago that never got one printed; (2) right after
+// saving a brand-new entry, so printing the certificate and recording it in the register happen
+// in the same step instead of the certificate being the thing that's easy to forget; (3) not
+// wired to Edit -- re-printing on every routine correction would make "was this certificate ever
+// actually handed out" impossible to tell from the register alone.
+var REG_CERT_TITLES = {
+  baptism: 'Certificate of Holy Baptism',
+  confirmation: 'Certificate of Confirmation',
+  wedding: 'Certificate of Marriage',
+  funeral: 'Certificate of Christian Burial'
+};
+function regCertTitle(type) { return REG_CERT_TITLES[type] || 'Certificate'; }
+function regCertBodyHtml(e) {
+  var d = e.event_date ? esc(e.event_date) : '        ';
+  var officPart = e.officiant ? ', with the Reverend ' + esc(e.officiant) + ' officiating' : '';
+  if (e.type === 'wedding') {
+    return 'This is to certify that<br><span class="cert-name">' + esc(e.name || '—') + '</span> and <span class="cert-name">' + esc(e.name2 || '—') + '</span><br>'
+      + 'were united in Holy Matrimony<br>on ' + d + officPart + '.';
+  }
+  if (e.type === 'funeral') {
+    return 'This is to certify that a service of Christian burial<br>was held for<br><span class="cert-name">' + esc(e.name || '—') + '</span><br>'
+      + 'on ' + d + (e.name2 ? ' at ' + esc(e.name2) : '') + officPart + '.';
+  }
+  if (e.type === 'confirmation') {
+    return 'This is to certify that<br><span class="cert-name">' + esc(e.name || '—') + '</span><br>'
+      + 'was confirmed in the Christian faith<br>on ' + d + officPart + '.'
+      + (e.sponsors ? '<div class="cert-sub">Witnesses: ' + esc(e.sponsors) + '</div>' : '');
+  }
+  // baptism (default) -- and the fallback for any future/unlabeled type
+  var parents = (e.father || e.mother) ? ('<div class="cert-sub">Child of ' + esc([e.father, e.mother].filter(Boolean).join(' and ')) + '</div>') : '';
+  var born = e.dob ? ('<div class="cert-sub">Born ' + esc(e.dob) + (e.place_of_birth ? ' in ' + esc(e.place_of_birth) : '') + '</div>') : '';
+  var sponsors = e.sponsors ? ('<div class="cert-sub">Sponsor' + (e.sponsors.indexOf(',') >= 0 || /\band\b/i.test(e.sponsors) ? 's' : '') + ': ' + esc(e.sponsors) + '</div>') : '';
+  return 'This is to certify that<br><span class="cert-name">' + esc(e.name || '—') + '</span><br>'
+    + 'was baptized in the name of the Father, the Son,<br>and the Holy Spirit<br>on ' + d
+    + (e.baptism_place ? ' at ' + esc(e.baptism_place) : '') + officPart + '.'
+    + parents + born + sponsors;
+}
+/** entry: a plain object shaped like a church_register row (type/name/name2/event_date/etc). */
+function printRegisterCertificate(entry) {
+  if (!entry) return;
+  var churchName = '';
+  var cn = document.getElementById('settings-church-name'); if (cn) churchName = cn.value || '';
+  var printWin = window.open('', '_blank', 'width=850,height=680');
+  printWin.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + esc(regCertTitle(entry.type)) + ' — ' + esc(entry.name || '') + '</title>'
+    + '<style>body{font-family:Georgia,serif;margin:0;padding:40px;background:#f4f1ea;}'
+    + '.cert{max-width:680px;margin:0 auto;background:#fffdf8;border:3px double #8a6d3b;padding:48px 56px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.15);}'
+    + '.cert-church{font-size:15pt;letter-spacing:.08em;text-transform:uppercase;color:#555;margin-bottom:6px;}'
+    + '.cert-title{font-size:26pt;font-weight:bold;color:#2a2418;margin:6px 0 28px;font-variant:small-caps;}'
+    + '.cert-body{font-size:13pt;line-height:1.9;color:#2a2418;}'
+    + '.cert-name{font-size:18pt;font-weight:bold;font-style:italic;}'
+    + '.cert-sub{font-size:10.5pt;color:#666;margin-top:6px;}'
+    + '.cert-notes{font-size:10pt;color:#777;margin-top:22px;font-style:italic;}'
+    + '.cert-sigs{display:flex;justify-content:space-between;margin-top:48px;gap:40px;}'
+    + '.cert-sig{flex:1;border-top:1px solid #8a6d3b;padding-top:6px;font-size:9pt;color:#666;}'
+    + '.cert-page{margin-top:18px;font-size:8pt;color:#999;}'
+    + '@media print{body{padding:0;background:#fff;}.no-print{display:none;}.cert{box-shadow:none;}}</style></head><body>'
+    + '<div class="no-print" style="max-width:680px;margin:0 auto 16px;"><button onclick="window.print()">&#128424; Print</button></div>'
+    + '<div class="cert">'
+    + '<div class="cert-church">' + (churchName ? esc(churchName) : 'Church Register') + '</div>'
+    + '<div class="cert-title">' + esc(regCertTitle(entry.type)) + '</div>'
+    + '<div class="cert-body">' + regCertBodyHtml(entry) + '</div>'
+    + (entry.notes ? '<div class="cert-notes">' + esc(entry.notes) + '</div>' : '')
+    + '<div class="cert-sigs"><div class="cert-sig">Officiant</div><div class="cert-sig">Date</div></div>'
+    + (entry.pdf_page ? '<div class="cert-page">Register p.' + esc(String(entry.pdf_page)) + '</div>' : '')
+    + '</div></body></html>');
+  printWin.document.close();
+}
+function printCertificateForId(id) {
+  var entry = _regEntries.find(function(e){ return e.id === id; });
+  if (!entry) { alert('Could not find that entry to print a certificate for.'); return; }
+  printRegisterCertificate(entry);
 }
 
 // ── REGISTER IMPORT ──────────────────────────────────────────────────

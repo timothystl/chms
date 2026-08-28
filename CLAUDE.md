@@ -525,6 +525,48 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### REG-EXPORT1 / REG-CERT1 — Register: page-reconciliation export, and Print Certificate (2026-08-26, DONE)
+Two requests in the same session, both scoped down from "give me an export function" once the
+real need came out: a way to spot page-number/scan-image mismatches without risking any of the
+last few years' entered data, and a certificate print that happens in the same step as saving a
+new entry so it's never the thing that gets forgotten — plus the ability to print one for an old
+record retroactively.
+- **REG-EXPORT1 — three read-only CSV exports, Settings → Import/Export.** `export/register`
+  already existed (raw entries); two new ones added, both `isAdmin`-gated, both pure `SELECT` —
+  **nothing they do can lose or change data**, so they're safe to run as often as needed while
+  cleaning up a mismatch. `export/register-scans` lists every uploaded scan image (type, page,
+  URL, uploaded-at). `export/register-reconcile` is the one built for the actual reported
+  problem: one row per page number that appears in EITHER the register OR the scan library
+  (a full outer join, not just the pages that already agree), naming how many entries are on that
+  page, their names, whether a scan exists, and a plain-English `Status` — `OK` / `Missing scan
+  image` / `Scan has no matching entries`. Different register types sharing a page number (e.g.
+  baptism p.5 and funeral p.5) are kept separate, since `register_scan_pages` scopes by
+  `(type, page)`.
+- **REG-CERT1 — Print Certificate.** New "Certificate" button on every register row
+  (`printCertificateForId(id)`), alongside Edit/Delete — for an old record that never got one
+  printed. And right after saving a brand-new entry, a confirm prompt offers to print one
+  immediately (`printRegisterCertificate()`, built from the just-submitted form fields, not a
+  reload-and-refetch — no timing dependency on the list refreshing first). **Deliberately not
+  offered on an edit** — re-prompting on every routine correction would make it impossible to
+  tell, from the register alone, whether a certificate was ever actually handed out for that
+  entry. Per-type wording (`regCertBodyHtml`/`regCertTitle`): Baptism names parents/sponsors and
+  place if recorded; Confirmation names witnesses; Marriage names groom and bride; Burial names
+  the deceased and burial place. A plain bordered print layout (`window.open` + a manual Print
+  button, matching this app's existing `printRegister()` convention rather than auto-triggering
+  `window.print()` on load) with the church name from Settings, an officiant/date signature line,
+  and — when the entry has a `pdf_page` — a small "Register p.NN" footer tying the printed
+  certificate back to the scanned source page.
+- `npm test` (1922/1922, 19 new across `test/register-export-reconcile.test.js` — real
+  `handleImportApi` against real in-memory SQLite — and `test/register-certificate.test.js` — the
+  real assembled `CHMS_APP_MEMBER_JS`+`CHMS_APP_STAFF_JS` bundles run in a `vm`, driving
+  `saveRegisterEntry`/`printCertificateForId`/`regCertBodyHtml` for real). **Verified
+  non-vacuous**: disabled the save-prompt wiring and confirmed the two dependent tests fail, then
+  restored. `node --check` on all touched files; div-balance on the assembled `CHMS_HTML`
+  (1112/1112). DEPLOY_VERSION bumped to 1.215.0. **Not verified**: a live browser or a real print
+  dialog. (`src/api-import.js`, `src/frontend/js-register.js`, `src/frontend/js-export-import.js`,
+  `src/frontend/html-tabs.js`, `src/frontend/html-head.js`,
+  `test/register-export-reconcile.test.js`, `test/register-certificate.test.js`)
+
 ### REG-MARRIAGE1 — Register: Marriages and Burials tabs added alongside Baptisms/Confirmations (2026-08-26, DONE)
 Asked for directly: old marriage and burial records exist and had nowhere to go — the Register tab
 only had Baptisms/Confirmations. `church_register.type` already accepted any string (the scan-page
