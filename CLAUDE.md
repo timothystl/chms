@@ -525,6 +525,56 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### REG-CERT2 — Certificate Template: print directly onto the church's own certificate image (2026-08-27, DONE)
+Follow-up to REG-CERT1: the user supplied a real designed "Holy Baptism" certificate (landscape,
+watercolor art column, blank lines for Name/Date/Officiant) and asked to print entry data
+directly onto it rather than the app's generic bordered layout, with the explicit note "these are
+samples, I can get them more refined" — so the tool has to support swapping in a better image
+later without losing work already done.
+- **New `register_certificate_templates` table** (migration `0041`, one row per register type,
+  `UNIQUE(type)`): an R2-stored background image plus a `fields_json` array of positioned fields
+  (`{key, x_pct, y_pct, font_size_pt, align}`). Admin-only writes (`POST`/`PUT`/`DELETE
+  /admin/api/register/certificate-template`, gated same as every other admin-only register tool
+  in this file); `GET` is open to any authenticated user, since printing a certificate isn't an
+  admin-only action.
+- **⚠ Deliberately did NOT attempt to compute the image's rotation.** The uploaded sample was
+  portrait with the title reading bottom-to-top; asked the user directly (`AskUserQuestion`)
+  rather than guess a rotation transform I have no way to visually verify — confirmed "landscape,
+  rotate 90°." Rather than apply a CSS rotation blind, **the tool asks the admin to upload the
+  image already in its final print orientation** and positions fields in plain percent-of-image
+  coordinates, which are correct regardless of orientation once the image itself is right. This
+  sidesteps the one class of error I have no way to catch without a live browser.
+- **Re-uploading a refined version keeps the field positions** — the whole point of "I can get
+  these more refined": `POST` on an existing type only replaces the R2 image, never touches
+  `fields_json`, so iterating on the artwork doesn't mean re-positioning every field from scratch.
+- **Position editor is numeric, not drag-and-drop** — same reasoning as the rotation call: a
+  pointer-drag UI is untestable without a live browser, where typed X%/Y%/font-size/align inputs
+  with a live preview (rendered against a fixed sample entry, `REG_CERT_SAMPLE_ENTRY`) are
+  ordinary, verifiable HTML. `REG_CERT_FIELD_DEFS` lists the placeable fields per type (baptism
+  gets `parents`/`born` composites beyond the four shared ones; wedding/funeral both offer
+  `name2` as Bride/Burial Place, reusing REG-MARRIAGE1's own field).
+- **`printRegisterCertificate()` now dispatches**: template-overlay
+  (`printRegisterCertificateTemplate`) when a template exists AND has at least one positioned
+  field, else the existing generic bordered design (`printRegisterCertificateGeneric`, REG-CERT1,
+  untouched) — so a type with no template yet, or one uploaded but not yet positioned, still
+  prints something sensible rather than a blank page.
+- **A positioned field with no data for that entry renders nothing**, not an empty box — printing
+  a burial certificate for an entry with no recorded burial place skips that field silently
+  instead of showing a floating blank rectangle where the text should be.
+- `npm test` (1948/1948, 26 new across `test/register-certificate-template.test.js` — real
+  backend CRUD against real in-memory SQLite + a fake R2 bucket — and
+  `test/register-certificate-template-print.test.js` — the real assembled bundles run in a `vm`,
+  driving `printRegisterCertificate`'s dispatch, `regCertFieldValue`, the upload/delete/save
+  network calls, and `regCertTemplateSave`'s row-collection logic via staged fake DOM rows).
+  **Verified non-vacuous**: disabled the template/generic dispatch and confirmed the two
+  dependent tests fail, then restored. `node --check` on all touched files; div-balance on the
+  assembled `CHMS_HTML` (1116/1116). DEPLOY_VERSION bumped to 1.216.0. **Not verified**: a live
+  browser, a real print, or the real rotation/positioning against the user's actual uploaded
+  image — the sample screenshot was never saved to a file this session could reference again.
+  (`migrations/0041_register_certificate_templates.sql`, `src/db.js`, `src/api-import.js`,
+  `src/frontend/js-register.js`, `src/frontend/html-tabs.js`,
+  `test/register-certificate-template.test.js`, `test/register-certificate-template-print.test.js`)
+
 ### REG-EXPORT1 / REG-CERT1 — Register: page-reconciliation export, and Print Certificate (2026-08-26, DONE)
 Two requests in the same session, both scoped down from "give me an export function" once the
 real need came out: a way to spot page-number/scan-image mismatches without risking any of the

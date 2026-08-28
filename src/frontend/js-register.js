@@ -39,6 +39,7 @@ function showRegisterTab(type) {
   clearRegForm();
   loadRegister();
   loadRegisterScans();
+  loadRegisterCertTemplate(type);
 }
 function clearRegForm() {
   ['reg-date','reg-name','reg-name2','reg-dob','reg-place-of-birth','reg-baptism-place','reg-father','reg-mother','reg-sponsors','reg-officiant','reg-notes','reg-record-type'].forEach(function(id) {
@@ -564,9 +565,17 @@ function regCertBodyHtml(e) {
     + (e.baptism_place ? ' at ' + esc(e.baptism_place) : '') + officPart + '.'
     + parents + born + sponsors;
 }
-/** entry: a plain object shaped like a church_register row (type/name/name2/event_date/etc). */
+/** entry: a plain object shaped like a church_register row (type/name/name2/event_date/etc).
+ *  Uses the church's own uploaded certificate image for this type, positioned per
+ *  regCertTemplateFor(); falls back to the generic bordered design when nothing's uploaded yet
+ *  or nothing has been positioned on it. */
 function printRegisterCertificate(entry) {
   if (!entry) return;
+  var tmpl = _regCertTemplates[entry.type];
+  if (tmpl && tmpl.fields && tmpl.fields.length) printRegisterCertificateTemplate(entry, tmpl);
+  else printRegisterCertificateGeneric(entry);
+}
+function printRegisterCertificateGeneric(entry) {
   var churchName = '';
   var cn = document.getElementById('settings-church-name'); if (cn) churchName = cn.value || '';
   var printWin = window.open('', '_blank', 'width=850,height=680');
@@ -594,10 +603,204 @@ function printRegisterCertificate(entry) {
     + '</div></body></html>');
   printWin.document.close();
 }
+/** Overlays entry data onto the church's own uploaded certificate image, one absolutely
+ *  positioned box per field. Assumes the image is already in its final print orientation --
+ *  see regOpenCertTemplateManage()'s own note on that. */
+function printRegisterCertificateTemplate(entry, tmpl) {
+  var printWin = window.open('', '_blank', 'width=1000,height=750');
+  var overlays = tmpl.fields.map(function(f) {
+    var val = regCertFieldValue(f.key, entry);
+    if (!val) return '';
+    return '<div style="position:absolute;left:' + f.x_pct + '%;top:' + f.y_pct + '%;'
+      + 'font-size:' + f.font_size_pt + 'pt;text-align:' + f.align + ';'
+      + (f.align === 'center' ? 'transform:translateX(-50%);' : f.align === 'right' ? 'transform:translateX(-100%);' : '')
+      + 'white-space:nowrap;font-family:Georgia,serif;color:#1a1a1a;">' + esc(val) + '</div>';
+  }).join('');
+  printWin.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + esc(regCertTitle(entry.type)) + ' — ' + esc(entry.name || '') + '</title>'
+    + '<style>body{margin:0;padding:24px;background:#eee;}'
+    + '.cert-wrap{position:relative;max-width:1000px;margin:0 auto;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.15);}'
+    + '.cert-wrap img{width:100%;display:block;}'
+    + '@media print{body{padding:0;background:#fff;}.no-print{display:none;}.cert-wrap{box-shadow:none;max-width:none;}}</style></head><body>'
+    + '<div class="no-print" style="max-width:1000px;margin:0 auto 16px;"><button onclick="window.print()">&#128424; Print</button></div>'
+    + '<div class="cert-wrap"><img src="' + esc(tmpl.url) + '" alt="">' + overlays + '</div>'
+    + '</body></html>');
+  printWin.document.close();
+}
 function printCertificateForId(id) {
   var entry = _regEntries.find(function(e){ return e.id === id; });
   if (!entry) { alert('Could not find that entry to print a certificate for.'); return; }
   printRegisterCertificate(entry);
+}
+
+// ── Certificate templates: uploaded background image + positioned fields ────────────────────
+var _regCertTemplates = {}; // type -> {url, fields, updated_at} | undefined
+var REG_CERT_FIELD_DEFS = {
+  baptism: [
+    { key: 'name', label: 'Name' }, { key: 'date', label: 'Date' }, { key: 'officiant', label: 'Officiant' },
+    { key: 'baptism_place', label: 'Baptism Place' }, { key: 'sponsors', label: 'Sponsors' },
+    { key: 'parents', label: 'Parents (Father and Mother)' }, { key: 'born', label: 'Born (DOB + place)' }
+  ],
+  confirmation: [
+    { key: 'name', label: 'Name' }, { key: 'date', label: 'Date' }, { key: 'officiant', label: 'Officiant' },
+    { key: 'sponsors', label: 'Witnesses' }
+  ],
+  wedding: [
+    { key: 'name', label: 'Groom' }, { key: 'name2', label: 'Bride' },
+    { key: 'date', label: 'Date' }, { key: 'officiant', label: 'Officiant' }
+  ],
+  funeral: [
+    { key: 'name', label: 'Name of Deceased' }, { key: 'name2', label: 'Burial Place' },
+    { key: 'date', label: 'Date' }, { key: 'officiant', label: 'Officiant' }
+  ]
+};
+/** The one place that decides what text a field key actually shows -- shared between the live
+ *  editor preview (fed a blank/sample entry) and the real print (fed the real entry), so the two
+ *  can never disagree about what a field means. */
+function regCertFieldValue(key, entry) {
+  entry = entry || {};
+  switch (key) {
+    case 'name': return entry.name || '';
+    case 'name2': return entry.name2 || '';
+    case 'date': return entry.event_date || '';
+    case 'officiant': return entry.officiant || '';
+    case 'baptism_place': return entry.baptism_place || '';
+    case 'sponsors': return entry.sponsors || '';
+    case 'parents': return [entry.father, entry.mother].filter(Boolean).join(' and ');
+    case 'born': return entry.dob ? (entry.dob + (entry.place_of_birth ? ' in ' + entry.place_of_birth : '')) : '';
+    default: return '';
+  }
+}
+function loadRegisterCertTemplate(type) {
+  api('/admin/api/register/certificate-template?type=' + type).then(function(d) {
+    _regCertTemplates[type] = d.template || undefined;
+    var mgm = document.getElementById('reg-cert-tmpl-modal');
+    if (mgm && mgm.classList.contains('open')) renderRegCertTemplateEditor();
+  }).catch(function() {});
+}
+function regOpenCertTemplateManage() {
+  var t = document.getElementById('reg-cert-tmpl-type');
+  if (t) t.textContent = (_regLabels[_regType] || {}).title || _regType;
+  renderRegCertTemplateEditor();
+  openModal('reg-cert-tmpl-modal');
+}
+function regCertTemplateFileChosen(inputEl) {
+  var file = inputEl.files && inputEl.files[0];
+  inputEl.value = '';
+  if (!file) return;
+  var status = document.getElementById('reg-cert-tmpl-status');
+  if (status) status.textContent = 'Uploading…';
+  var fdata = new FormData();
+  fdata.append('type', _regType);
+  fdata.append('file', file);
+  api('/admin/api/register/certificate-template', { method: 'POST', body: fdata, credentials: 'same-origin' })
+    .then(function(d) {
+      _regCertTemplates[_regType] = { url: d.url, fields: d.fields || [] };
+      if (status) status.textContent = 'Uploaded.';
+      renderRegCertTemplateEditor();
+    })
+    .catch(function(err) { if (status) status.textContent = 'Upload failed: ' + err.message; });
+}
+function regCertTemplateDelete() {
+  if (!confirm('Remove this certificate template? Printing will go back to the plain generic certificate for ' + (_regLabels[_regType] || {}).title + '.')) return;
+  api('/admin/api/register/certificate-template?type=' + _regType, { method: 'DELETE' })
+    .then(function() { _regCertTemplates[_regType] = undefined; renderRegCertTemplateEditor(); })
+    .catch(function(err) { alert('Could not remove: ' + err.message); });
+}
+function renderRegCertTemplateEditor() {
+  var el = document.getElementById('reg-cert-tmpl-body');
+  if (!el) return;
+  var tmpl = _regCertTemplates[_regType];
+  var defs = REG_CERT_FIELD_DEFS[_regType] || [];
+  if (!tmpl) {
+    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No certificate image uploaded yet for ' + esc((_regLabels[_regType]||{}).title||'') + '. Upload one already rotated to its final print orientation (landscape or portrait, however it should print) — position controls below work in percent of the image, so any size works.</p>'
+      + '<label class="btn-secondary require-admin" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;">&#8679; Upload Certificate Image<input type="file" accept="image/*" style="display:none;" onchange="regCertTemplateFileChosen(this)"></label>'
+      + '<div id="reg-cert-tmpl-status" style="font-size:.8rem;color:var(--warm-gray);margin-top:8px;"></div>';
+    return;
+  }
+  var rows = defs.map(function(d) {
+    var existing = tmpl.fields.filter(function(f){ return f.key === d.key; })[0];
+    var on = !!existing;
+    var x = existing ? existing.x_pct : 50, y = existing ? existing.y_pct : 50;
+    var fs = existing ? existing.font_size_pt : 14, al = existing ? existing.align : 'center';
+    return '<tr data-cert-field="' + d.key + '">'
+      + '<td><label style="display:flex;align-items:center;gap:6px;font-size:.82rem;"><input type="checkbox" ' + (on?'checked':'') + ' onchange="regCertFieldToggle(this)"> ' + esc(d.label) + '</label></td>'
+      + '<td><input type="number" step="0.1" value="' + x + '" style="width:64px;" oninput="regCertFieldEdit(this,\'x_pct\')"> %</td>'
+      + '<td><input type="number" step="0.1" value="' + y + '" style="width:64px;" oninput="regCertFieldEdit(this,\'y_pct\')"> %</td>'
+      + '<td><input type="number" step="0.5" value="' + fs + '" style="width:56px;" oninput="regCertFieldEdit(this,\'font_size_pt\')"> pt</td>'
+      + '<td><select onchange="regCertFieldEdit(this,\'align\')"><option value="left" ' + (al==='left'?'selected':'') + '>Left</option><option value="center" ' + (al==='center'?'selected':'') + '>Center</option><option value="right" ' + (al==='right'?'selected':'') + '>Right</option></select></td>'
+      + '</tr>';
+  }).join('');
+  el.innerHTML = '<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">'
+    + '<div style="flex:1;min-width:300px;">'
+    + '<table style="width:100%;font-size:.82rem;border-collapse:collapse;"><thead><tr>'
+    + '<th style="text-align:left;padding:3px 6px;">Field</th><th style="padding:3px 6px;">X</th><th style="padding:3px 6px;">Y</th><th style="padding:3px 6px;">Size</th><th style="padding:3px 6px;">Align</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table>'
+    + '<p style="font-size:.75rem;color:var(--warm-gray);margin-top:8px;">X/Y are percent from the top-left corner of the image. Check a field to place it; uncheck to leave that field off the certificate.</p>'
+    + '<div style="display:flex;gap:8px;margin-top:10px;">'
+    + '<button class="btn-primary require-admin" onclick="regCertTemplateSave()">Save Positions</button>'
+    + '<label class="btn-secondary require-admin" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">&#8679; Replace Image<input type="file" accept="image/*" style="display:none;" onchange="regCertTemplateFileChosen(this)"></label>'
+    + '<button class="btn-secondary require-admin" style="color:var(--danger);" onclick="regCertTemplateDelete()">Remove Template</button>'
+    + '</div>'
+    + '<div id="reg-cert-tmpl-status" style="font-size:.8rem;color:var(--warm-gray);margin-top:8px;"></div>'
+    + '</div>'
+    + '<div style="flex:1;min-width:280px;position:relative;">'
+    + '<img src="' + esc(tmpl.url) + '" style="width:100%;display:block;border:1px solid var(--border);" alt="">'
+    + '<div id="reg-cert-tmpl-preview-overlays"></div>'
+    + '</div>'
+    + '</div>';
+  renderRegCertTemplatePreview();
+}
+/** Sample text so a placed-but-empty field is still visible in the live preview. */
+var REG_CERT_SAMPLE_ENTRY = {
+  name: 'Jane Doe', name2: 'John Smith', event_date: '2026-01-01', officiant: 'Rev. Pastor',
+  baptism_place: 'Sample Church', sponsors: 'Sample Sponsors', father: 'Sample Father', mother: 'Sample Mother',
+  dob: '2020-01-01', place_of_birth: 'Sample City'
+};
+function renderRegCertTemplatePreview() {
+  var host = document.getElementById('reg-cert-tmpl-preview-overlays');
+  if (!host) return;
+  var rows = document.querySelectorAll('[data-cert-field]');
+  var html = '';
+  rows.forEach(function(row) {
+    var key = row.dataset.certField;
+    var cb = row.querySelector('input[type=checkbox]');
+    if (!cb || !cb.checked) return;
+    var inputs = row.querySelectorAll('input[type=number]');
+    var x = parseFloat(inputs[0].value) || 0, y = parseFloat(inputs[1].value) || 0, fs = parseFloat(inputs[2].value) || 14;
+    var al = row.querySelector('select').value;
+    var val = regCertFieldValue(key, REG_CERT_SAMPLE_ENTRY);
+    html += '<div style="position:absolute;left:' + x + '%;top:' + y + '%;font-size:' + Math.max(fs * 0.6, 8) + 'px;'
+      + 'text-align:' + al + ';' + (al==='center'?'transform:translateX(-50%);':al==='right'?'transform:translateX(-100%);':'')
+      + 'white-space:nowrap;background:rgba(255,220,120,.55);padding:1px 3px;border-radius:2px;">' + esc(val) + '</div>';
+  });
+  host.innerHTML = html;
+}
+function regCertFieldToggle(cbEl) { renderRegCertTemplatePreview(); }
+function regCertFieldEdit(inputEl, prop) { renderRegCertTemplatePreview(); }
+function regCertTemplateSave() {
+  var rows = document.querySelectorAll('[data-cert-field]');
+  var fields = [];
+  rows.forEach(function(row) {
+    var cb = row.querySelector('input[type=checkbox]');
+    if (!cb || !cb.checked) return;
+    var inputs = row.querySelectorAll('input[type=number]');
+    fields.push({
+      key: row.dataset.certField,
+      x_pct: parseFloat(inputs[0].value) || 0,
+      y_pct: parseFloat(inputs[1].value) || 0,
+      font_size_pt: parseFloat(inputs[2].value) || 14,
+      align: row.querySelector('select').value
+    });
+  });
+  var status = document.getElementById('reg-cert-tmpl-status');
+  if (status) status.textContent = 'Saving…';
+  api('/admin/api/register/certificate-template', {
+    method: 'PUT', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ type: _regType, fields: fields })
+  }).then(function(d) {
+    _regCertTemplates[_regType] = { url: _regCertTemplates[_regType].url, fields: d.fields || [] };
+    if (status) status.textContent = 'Saved.';
+  }).catch(function(err) { if (status) status.textContent = 'Save failed: ' + err.message; });
 }
 
 // ── REGISTER IMPORT ──────────────────────────────────────────────────

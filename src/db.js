@@ -1810,6 +1810,17 @@ async function _doInitDb(db) {
        uploaded_at TEXT    NOT NULL DEFAULT (datetime('now'))
      )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_register_scan_type_page ON register_scan_pages(type, page)`,
+    // (see migrations/0041_register_certificate_templates.sql): one background certificate
+    // image per register type, with a JSON list of positioned fields (name/date/officiant/etc,
+    // each an x/y percent offset), so a printed certificate can overlay real entry data onto
+    // the church's own certificate design instead of the app's generic bordered layout.
+    `CREATE TABLE IF NOT EXISTS register_certificate_templates (
+       id          INTEGER PRIMARY KEY AUTOINCREMENT,
+       type        TEXT    NOT NULL UNIQUE,
+       r2_key      TEXT    NOT NULL,
+       fields_json TEXT    NOT NULL DEFAULT '[]',
+       updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+     )`,
   ];
   // Every statement here is either an idempotent CREATE ... IF NOT EXISTS, or an ALTER TABLE
   // ADD COLUMN — SQLite has no "ADD COLUMN IF NOT EXISTS", so a re-run always throws "duplicate
