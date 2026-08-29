@@ -525,6 +525,60 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### REG-DUP1 — 47 duplicate baptism register entries found and removed; the "From People" bulk-generation tool's own dedup gap fixed at the root (2026-08-29, DONE)
+User spotted visually apparent duplicate name pairs in the Church Register (screenshots of two
+same-day baptism batches showing e.g. "Khadie Kargbo"/"Khadija Kargbo", four "Oschwald" children,
+"Daniel Dinger"/"Daniel Everett Dinger") and asked for a systemic check. Diagnosed directly
+against production D1 by self-joining `church_register` on `(type, dob, event_date)` between the
+2026-04-10 book-transcription batch and the 2026-04-16 "From People" bulk-generation batch —
+matching dob AND baptism date together is a much stronger identity signal than either alone, and
+cross-referencing `created_at` confirmed the provenance (one batch is hand-transcribed from the
+physical register, the other is machine-generated from `people` rows on a single day).
+- **Found 50 candidate pairs, verified down to 47 real duplicates** by hand — not by trusting the
+  query. Three were confirmed to be genuinely different people who happen to share a birth date
+  *and* baptism date (twins or a group baptism day): `John Carway Passawe`/`Mustapha Passawe`,
+  `Liam Oschwald`/`Jadon Robert Oschwald`, `Kevin Yarngo`/`Nymene Yarngo` — left untouched. Three
+  more (`Isatta Passawe`/`Isatta Bangura`, `Henry Nguyen`/`Huy Nguyen`, `Lea Tehebe`/`Tehebe
+  Tehebe`) had a surname or first-name mismatch a name-matching heuristic alone couldn't resolve
+  with confidence — held for the user's own judgment rather than guessed at; user confirmed by hand
+  that all three ARE duplicates, so they were included in the final cleanup.
+- **⚠ Every duplicate row was the ONLY one carrying the real `person_id` link to that person's
+  profile** — the original book-transcribed row had `person_id = NULL` in all 47 cases (the
+  "From People" tool creates the link; a hand-transcribed entry never had one). A blind `DELETE`
+  of the duplicate rows would have silently severed 47 working register↔person links. Fixed by
+  migrating `person_id` from each duplicate row onto the row being kept (one `UPDATE ... CASE id
+  WHEN ...`, guarded `AND person_id IS NULL` so it could never overwrite a real existing link)
+  *before* deleting anything.
+- **The actual `DELETE` was run by the user directly** in the Cloudflare D1 console — the coding
+  harness's own auto-mode safety classifier blocked this session from executing a bulk `DELETE`
+  against production data outright, and per this project's standing no-workarounds rule around
+  destructive operations (reinforced hard by the register-wipe incident earlier this same day —
+  see the D1 Backup & Restore section), the right call was to hand over the exact, already-verified
+  SQL rather than attempt to route around the block. Verified afterward: 0/47 duplicate ids remain,
+  baptism count is 1,653 (1,700 restored − 47 removed), and the migrated `person_id` links are
+  intact on the surviving rows.
+- **Root cause fixed, not just the symptom.** `POST /admin/api/import/register-from-people`
+  already had *some* dedup logic (skip if `person_id` matches, or if `event_date`+`name` match
+  exactly) — but that's exactly what let the 44-of-47 through: the tool builds a name from
+  `people.first_name + people.last_name` only, which never string-matches a book-transcribed
+  register entry carrying a middle name ("Ivan Alexander" generated vs. "Ivan Dean Alexander"
+  already on file). Added a third fallback check — same `type`, non-blank `dob`, matching
+  `event_date` — regardless of name, mirroring the actual signal that caught every real duplicate
+  during the manual diagnosis. Applied to both the baptism and confirmation blocks (the two types
+  this tool generates). A coincidental same-dob-same-date collision between two genuinely
+  different people is a rare, low-stakes false-positive skip (a missed row an admin can add by
+  hand) — an acceptable trade against a silent duplicate, the same reasoning REG-CLEAR1 already
+  established for `register/batch`'s own exact-match dedup.
+- `npm test` (1959/1964, 6 new in `test/register-from-people-dedup.test.js`, run against real
+  in-memory SQLite). **Verified non-vacuous**: reverted the fix and confirmed the two tests that
+  exercise the new dob+event_date fallback fail — including the test that reproduces the exact
+  2026-04-16 failure shape (a fuller book-transcribed name, unlinked, same dob+event_date) — while
+  the test proving two genuinely different same-day baptisms are NOT skipped still passes either
+  way. `node --check` on the touched file. No frontend files changed, so no `DEPLOY_VERSION` bump.
+  **Not verified**: a live browser, or the tool actually run again in production (it currently has
+  nothing left to skip, since the real duplicates it would have re-created no longer exist).
+  (`src/api-import.js`, `test/register-from-people-dedup.test.js`)
+
 ### REG-CERT3 / REG-EXPORT2 — Certificate preview on upload; export moved onto the Register tab itself (2026-08-27, DONE)
 Two follow-ups from the same message. Checked the deploy history first (GitHub Actions —
 `deploy.yml` had run and succeeded for both prior PRs, ruling out a stale-deploy explanation) —
