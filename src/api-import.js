@@ -746,10 +746,18 @@ if (seg === 'import/register-from-people' && method === 'POST') {
     );
     for (const p of people) {
       const fullName = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-      // Skip if already in register by person_id link OR by matching name+date (catches manual entries)
+      // Skip if already in register by person_id link, by matching name+date (catches manual
+      // entries), OR by matching event_date+dob regardless of name. That third check exists
+      // because a book-transcribed register entry often carries a fuller name (middle name
+      // included) than `people.first_name + people.last_name` produces -- "Ivan Alexander"
+      // here never string-matched "Ivan Dean Alexander" in the register, so the name+date check
+      // alone silently let 44 duplicates through on 2026-04-16. dob+event_date is the actual
+      // identity signal that caught every one of them on manual review; keep it, even though a
+      // real coincidence (e.g. twins baptized the same day) could rarely cause a false-positive
+      // skip -- that's a missed row an admin can add by hand, not a silent duplicate.
       const existing = await db.prepare(
-        `SELECT id FROM church_register WHERE type='baptism' AND (person_id=? OR (event_date=? AND name=?))`
-      ).bind(p.id, p.baptism_date, fullName).first();
+        `SELECT id FROM church_register WHERE type='baptism' AND (person_id=? OR (event_date=? AND name=?) OR (dob!='' AND dob=? AND event_date=?))`
+      ).bind(p.id, p.baptism_date, fullName, p.dob||'', p.baptism_date).first();
       if (existing) { skipped++; continue; }
       await stmt.bind(p.baptism_date, fullName, p.dob||'', p.id).run();
       imported++;
@@ -766,9 +774,10 @@ if (seg === 'import/register-from-people' && method === 'POST') {
     );
     for (const p of people) {
       const fullName = ((p.first_name||'')+' '+(p.last_name||'')).trim();
+      // Same dob+event_date fallback as the baptism block above, and for the same reason.
       const existing = await db.prepare(
-        `SELECT id FROM church_register WHERE type='confirmation' AND (person_id=? OR (event_date=? AND name=?))`
-      ).bind(p.id, p.confirmation_date, fullName).first();
+        `SELECT id FROM church_register WHERE type='confirmation' AND (person_id=? OR (event_date=? AND name=?) OR (dob!='' AND dob=? AND event_date=?))`
+      ).bind(p.id, p.confirmation_date, fullName, p.dob||'', p.confirmation_date).first();
       if (existing) { skipped++; continue; }
       await stmt.bind(p.confirmation_date, fullName, p.dob||'', p.id).run();
       imported++;
