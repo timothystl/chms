@@ -1021,10 +1021,16 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div class="import-card require-admin">
       <h3>&#128241; Automated Texts (SMS1)</h3>
       <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Daily cron sends birthday and anniversary SMS via Brevo to members with SMS opt-in enabled and a valid phone number. Use these buttons to trigger manually or test.</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn-secondary" style="font-size:.88rem;" onclick="runSmsTest(\'birthday\')">&#127874; Send Birthday Texts (Today)</button>
-        <button class="btn-secondary" style="font-size:.88rem;" onclick="runSmsTest(\'anniversary\')">&#10084; Send Anniversary Texts (Today)</button>
+      <div class="field" style="max-width:280px;margin-bottom:10px;">
+        <label>Sender Name (max 11 letters/digits, no spaces &mdash; shown as the "From" on the text)</label>
+        <input type="text" id="st-sms-sender" name="st-sms-sender" maxlength="11" placeholder="TimothyLuth" style="width:100%;">
       </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="btn-secondary" style="font-size:.88rem;" onclick="saveSmsSenderName()">Save Sender Name</button>
+        <button class="btn-secondary" style="font-size:.88rem;" onclick="runSmsTest('birthday')">&#127874; Send Birthday Texts (Today)</button>
+        <button class="btn-secondary" style="font-size:.88rem;" onclick="runSmsTest('anniversary')">&#10084; Send Anniversary Texts (Today)</button>
+      </div>
+      <div class="import-status" id="sms-sender-status" style="margin-top:8px;"></div>
       <div class="import-status" id="sms-test-status" style="margin-top:8px;"></div>
     </div>
     <div class="import-card require-admin">

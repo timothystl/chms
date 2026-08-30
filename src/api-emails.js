@@ -277,27 +277,49 @@ function normalizePhone(phone) {
   return null;
 }
 
-async function sendTwilioSms(env, to, content) {
-  const sid = env.TWILIO_ACCOUNT_SID || '';
-  if (!sid) return { ok: false, error: 'Twilio not configured (missing TWILIO_ACCOUNT_SID)' };
+// Brevo's alphanumeric sender ID: letters/digits only, max 11 chars (their numeric-only
+// form allows up to 15, but an alphanumeric name reads far better on a lock screen than a
+// bare number, so this app only ever uses the alphanumeric form). A stored value is already
+// sanitized at save time (config/church PUT) — this re-sanitizes defensively so a value that
+// somehow got in some other way (direct DB edit, a future write path) can never reach Brevo's
+// API and cause the whole batch to 400.
+const DEFAULT_SMS_SENDER = 'TimothyLuth';
+function sanitizeSmsSenderName(raw) {
+  const cleaned = String(raw || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 11);
+  return cleaned || DEFAULT_SMS_SENDER;
+}
+
+async function getSmsSenderName(db) {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='sms_sender_name'").first();
+  return sanitizeSmsSenderName(row && row.value);
+}
+
+// Brevo Transactional SMS. Same account/API key as the newsletter sync and the giving-letter
+// transactional email above — one vendor, no separate carrier account or per-number monthly
+// fee. Deliberately one-way only (an alphanumeric sender ID can't receive replies) — see
+// SMS1's queued-item note for why Twilio (which this replaced) was considered and declined.
+async function sendBrevoSms(env, to, content, senderName) {
+  const apiKey = env.BREVO_API_KEY || '';
+  if (!apiKey) return { ok: false, error: 'BREVO_API_KEY not set in Worker environment' };
   try {
-    const url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`;
-    const body = new URLSearchParams({ To: to, From: env.TWILIO_PHONE_NUMBER || '', Body: content });
-    const res = await fetch(url, {
+    const res = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
       method: 'POST',
-      headers: {
-        'Authorization': 'Basic ' + btoa(sid + ':' + (env.TWILIO_AUTH_TOKEN || '')),
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: body.toString(),
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        sender: sanitizeSmsSenderName(senderName),
+        recipient: to,
+        content,
+        type: 'transactional',
+      }),
     });
     const data = await res.json().catch(() => ({}));
-    return res.ok ? { ok: true } : { ok: false, error: data.message || String(res.status) };
+    return res.ok ? { ok: true, id: data.messageId } : { ok: false, error: data.message || String(res.status) };
   } catch (e) { return { ok: false, error: e.message }; }
 }
 
 export async function sendBirthdayTexts(env) {
   const db = env.DB;
+  const senderName = await getSmsSenderName(db);
   const todayMMDD = centralTodayMMDD();
   const alreadySent = await alreadySentTodayCentral(db, 'birthday_sms_sent');
   const people = (await db.prepare(
@@ -317,7 +339,7 @@ export async function sendBirthdayTexts(env) {
     targets.push({ p, e164 });
   }
   const results = await Promise.all(targets.map(({ p, e164 }) =>
-    sendTwilioSms(env, e164, `Happy Birthday, ${p.first_name}! Wishing you a blessed day. - Timothy Lutheran Church`)
+    sendBrevoSms(env, e164, `Happy Birthday, ${p.first_name}! Wishing you a blessed day. - Timothy Lutheran Church`, senderName)
       .then(r => ({ p, r }))));
   const auditStmts = [];
   for (const { p, r } of results) {
@@ -334,6 +356,7 @@ export async function sendBirthdayTexts(env) {
 
 export async function sendAnniversaryTexts(env) {
   const db = env.DB;
+  const senderName = await getSmsSenderName(db);
   const todayMMDD = centralTodayMMDD();
   const alreadySent = await alreadySentTodayCentral(db, 'anniversary_sms_sent');
   const rows = (await db.prepare(
@@ -375,7 +398,7 @@ export async function sendAnniversaryTexts(env) {
     }
   }
   const results = await Promise.all(sends.map(s =>
-    sendTwilioSms(env, s.e164, s.content).then(r => ({ s, r }))));
+    sendBrevoSms(env, s.e164, s.content, senderName).then(r => ({ s, r }))));
   const householdSent = new Map();
   for (const { s, r } of results) {
     if (r.ok) { sent++; householdSent.set(String(s.p1.household_id || s.p1.id), s); }

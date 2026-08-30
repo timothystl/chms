@@ -525,6 +525,64 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### SMS2 — Birthday/anniversary SMS actually sends now (was silently sending nothing since SMS1 shipped); two independent bugs fixed (2026-08-30, DONE — P1 of a 3-phase text-notifications request)
+Asked to explore adding text notifications to the app. Traced the existing SMS1 feature (birthday/
+anniversary texts) end to end before building anything new, and found it has never actually sent a
+single message, on any deploy, since it shipped — two separate, independent bugs, neither visible
+without reading the code:
+- **Wrong provider, no secrets to match.** `sendBirthdayTexts`/`sendAnniversaryTexts` called a
+  `sendTwilioSms()` function requiring `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_PHONE_NUMBER`
+  — none of which exist anywhere (not `wrangler.toml`, not `SECRETS.md`, no evidence of
+  `wrangler secret put`). Meanwhile `SECRETS.md` and the Settings-tab copy itself both always said
+  this ran "via Brevo" — the church's existing account (already used for newsletter sync and giving
+  letters). The daily 9am-Central cron has been calling Twilio and catching
+  `"Twilio not configured"` silently, every day, since the feature shipped.
+- **The admin test buttons were also independently broken.** `onclick="runSmsTest(\'birthday\')"` —
+  a real, literal backslash inside the HTML attribute (confirmed via `cat -A`), left over from
+  some earlier edit. Compared against the identical, correctly-written Email buttons one card
+  above (`onclick="runEmailTest('birthday')"`, no backslash) — this is the SC3-BUG1/SEC13-class
+  escaping mistake this file has hit several times before, just in plain markup rather than inside
+  a `String.raw` module boundary. Even if Twilio secrets HAD existed, clicking either SMS button
+  would have thrown a JS syntax error and done nothing.
+- **Fixed both, switching the send path to Brevo** (matching what the docs always said): new
+  `sendBrevoSms()` (`src/api-emails.js`, `POST /v3/transactionalSMS/sms`, same `api-key` header
+  pattern as the existing `sendBrevoTransactionalEmail`) replaces `sendTwilioSms` outright — deleted,
+  zero remaining references anywhere in the repo. New admin-editable **Sender Name** field on the
+  Automated Texts card (`chms_config.sms_sender_name`, sanitized server-side to Brevo's alphanumeric
+  sender-ID limit — letters/digits only, 11 chars max — since an invalid sender 400s the whole send,
+  not just one message), defaulting to `TimothyLuth` when unset. Fixed the onclick backslash bug in
+  the same pass.
+- **Verified this was a real problem, not assumed**: confirmed via `git grep`/`wrangler.toml` that no
+  Twilio secret exists; confirmed via `cat -A` that the backslashes are real bytes in the file, not a
+  display artifact; after the fix, extracted every one of the 346 `onclick` attributes in the fully
+  assembled `CHMS_HTML` shell and ran each through `new Function()` (after HTML-entity-decoding, since
+  this app's convention is `&#39;`-encoded quotes that the browser decodes before the JS parser ever
+  sees them) — zero throw, confirming the fix didn't introduce a new instance of the same bug class
+  elsewhere and that div balance (1120/1120) held.
+- `npm test` (1979/1979, 5 new in `test/sms-brevo.test.js`, run against real in-memory SQLite with
+  `fetch` stubbed — confirms the call goes to `api.brevo.com` not Twilio, the api-key header is set,
+  sender-name sanitization, the safe default, and the anniversary couple-greeting path). **Verified
+  non-vacuous**: reverted `sanitizeSmsSenderName` to a no-op and confirmed the sender-sanitization
+  test fails, then restored. `node --check` on all touched files. **Not verified**: a live browser, or
+  a real Brevo SMS send — this session has no network path to api.brevo.com and no live D1/Worker
+  secrets to test against; the church still needs to type a real sender name into Settings once this
+  ships (a safe default already applies if they don't). (`src/api-emails.js`, `src/api-import.js`,
+  `src/frontend/js-settings.js`, `src/frontend/html-tabs.js`, `test/sms-brevo.test.js`)
+
+**Scoped for later, not built this session (Phases 2-3 of the same request)**: the user also asked
+about extending texting to (a) volunteer shift reminders — the Scheduler already emails/push-notifies
+about upcoming shifts and unfilled slots (`sendScheduleReminders`, admin push via `notifyAdminPush`);
+adding SMS there means deciding whose phone number gates it (`scheduler_volunteers` → linked `people`
+row → same `sms_opt_in`/`phone` this feature already reads, per the SC6 relationalization) and how
+opt-in is granted for a volunteer who isn't necessarily a full member; (b) follow-up/pastoral-care
+nudges — the Follow-up Queue (`follow_up_items`/`prayer_requests`) is currently email/manual-only;
+texting either staff or the person being followed up with is a real pastoral-care judgment call
+about tone and consent, not just a wiring exercise; (c) a general opt-in text blast tool, mirroring
+the existing bulk-email tools in Settings. All three should reuse `sendBrevoSms()`/`sms_sender_name`
+built here rather than a fresh provider integration — that's the whole point of fixing the foundation
+first. Each is its own scoping conversation (who gets texted, what triggers it, what the message
+says) before being built, per this file's own convention for phased delivery.
+
 ### REG-DUP1 — 47 duplicate baptism register entries found and removed; the "From People" bulk-generation tool's own dedup gap fixed at the root (2026-08-29, DONE)
 User spotted visually apparent duplicate name pairs in the Church Register (screenshots of two
 same-day baptism batches showing e.g. "Khadie Kargbo"/"Khadija Kargbo", four "Oschwald" children,
