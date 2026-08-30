@@ -2787,23 +2787,39 @@ var FIN_REVENUE_CLASSES = { 'Income': true, 'Other Income': true };
 // been loaded yet, so a caller with no stream data renders exactly what it always did.
 //
 var FIN_STREAM_GROUP_LABELS = { earned: 'Earned Income', passive: 'Passive Income', restricted: 'Restricted Income' };
-// QuickBooks invents "Unapplied Cash Bill Payment Expense" / "Unapplied Cash Payment Income" on a
-// cash-basis report to hold a bill payment or customer payment that isn't applied to a bill or
-// invoice. It is a bookkeeping artifact of the report, not an account anybody at the church chose,
-// and it is nearly always $0 — so an empty one is dropped from every account tree.
+// Prunes any line with no money in it at all — this year's actual AND budget are both exactly $0
+// (or unset, which totals the same as $0) — since a $0.00/$0.00 row carries no information either
+// way and is pure clutter. Reported live 2026-08-30 against a real case: this church's QuickBooks
+// carries an old, superseded pair of accounts ("50160 MDO Supplies"/"50161 MDO Wages") alongside
+// their real replacements ("57160 MDO - Supplies"/"57161 MDO - Wages") — the old ones sit at
+// $0.00/$0.00 in every report forever, since nothing is ever posted to them again. QuickBooks'
+// own "Unapplied Cash Bill Payment Expense"/"Unapplied Cash Payment Income" cash-basis artifact
+// (still called out by name below, for its explanatory hint) turned out to be the first named
+// instance of this same general pattern, not a special case of its own.
 //
-// ⚠ Only when it is empty. A row carrying real money stays, with a note explaining what it is,
-// because hiding a dollar that a total on the same screen still counts is exactly the defect FIN58
-// existed to fix (and FIN60 set this same zero-only rule for Cost of Goods Sold).
+// A GROUP node (one with children) is only ever pruned once EVERY one of its children has already
+// been pruned away, leaving it with nothing underneath and nothing posted to it directly either —
+// never while it still has one real child, however many dead siblings were removed around it.
+// Recomputed fresh against the live totals on every render, so nothing here is a stored decision:
+// the moment real money posts to a previously-dead account, it reappears on its own, no un-hiding
+// needed.
+//
+// ⚠ Only when it is empty. A row carrying real money always stays — hiding a dollar that a total
+// on the same screen still counts is exactly the defect FIN58 existed to fix (and FIN60 set this
+// same zero-only rule for Cost of Goods Sold).
 var FIN_UNAPPLIED_CASH_RE = /\bunapplied cash\b/i;
 var FIN_UNAPPLIED_CASH_HINT = 'QuickBooks adds this line on a cash-basis report for a bill or customer payment that is not applied to a bill or invoice. It is hidden here when it is $0.';
-function finPruneEmptyUnappliedCash(nodes) {
+function finPruneEmptyLeaves(nodes) {
   for (var i = (nodes || []).length - 1; i >= 0; i--) {
     var n = nodes[i];
-    finPruneEmptyUnappliedCash(n.children);
-    if (!FIN_UNAPPLIED_CASH_RE.test(n.label || '')) continue;
-    if (!n.totalActualCents && !n.totalBudgetCents && !n.children.length) nodes.splice(i, 1);
-    else n.hint = FIN_UNAPPLIED_CASH_HINT;
+    finPruneEmptyLeaves(n.children);
+    if (n.children.length) continue; // a real child survived underneath — the group stays
+    var isZero = !n.totalActualCents && !n.totalBudgetCents;
+    if (!isZero) {
+      if (FIN_UNAPPLIED_CASH_RE.test(n.label || '')) n.hint = FIN_UNAPPLIED_CASH_HINT;
+      continue;
+    }
+    nodes.splice(i, 1);
   }
 }
 function finReorganizeChurchTree(roots, streamMap) {
@@ -2834,7 +2850,11 @@ function finReorganizeChurchTree(roots, streamMap) {
     }
   }
   if (incomeRoot) incomeRoot.label = 'Revenue';
-  finPruneEmptyUnappliedCash(cloned);
+  // Prune within each top-level classification root's own children, never the root itself — a
+  // whole section (Income/Expenses/Cost of Goods Sold/...) disappearing outright is a bigger,
+  // different decision than a dead line or dead sub-group vanishing, and isn't what this rule is
+  // for; that's handled separately, per-view, where it already is (see finChurchMultiYearClassHasData).
+  cloned.forEach(function(root) { finPruneEmptyLeaves(root.children); });
   finSetNodeDepth({ depth: -1, children: cloned }, -1);
   finRecomputeTreeTotals(cloned);
   cloned.sort(function(a, b) {
@@ -6295,6 +6315,13 @@ var _finPlanBaseNet = { actualCents: 0, budgetCents: 0 };
 var _finPlanEdits = {}; // category_path -> dollars string, for cells the user has typed into
 var _finPlanBaseProjOverrides = {}; // { [baseYear]: { category_path: cents } } — saved server-side
 var _finPlanBaseProjEdits = {}; // category_path -> dollars string, unsaved edits to FY{base} Projected
+// category_path -> dollars-and-cents string, unsaved edits to FY{base} ACTUAL — a per-line
+// correction to the imported/synced figure itself (not a projection), saved as its own
+// finance_church_entries row (source='manual_actual_override', see api-finance.js) so the fix
+// shows up everywhere Actual is read — Church Report, Financial Health — not just here, without
+// needing to re-upload or re-sync the whole year. Clearing a cell back to blank removes the
+// override and reverts to whatever the real import/sync says.
+var _finPlanActualEdits = {};
 // The Salary Calculator and Health Insurance cards fully rebuild #fin-plan-root's innerHTML on
 // every keystroke (same pattern as the rest of this app), which destroys and recreates the
 // focused input — losing both keyboard focus and (since nothing stays focused) the page's scroll
@@ -6506,6 +6533,7 @@ function finLoadPlanning() {
     _finPlanBaseProjOverrides = (results[2] && results[2].overrides) || {};
     _finPlanEdits = {};
     _finPlanBaseProjEdits = {};
+    _finPlanActualEdits = {};
     if (!_finSalaryLoaded) {
       _finSalaryLoaded = true;
       return finLoadSalaryPlannerData().then(function() {
@@ -6675,6 +6703,28 @@ function finRenderPlanning() {
     });
   })(_finPlanBaseTree);
 
+  // FY{base} Actual — normally just each leaf's own totalActualCents (already the real,
+  // precedence-resolved imported/synced figure, since the server merges any saved
+  // manual_actual_override row into it before this ever reaches the browser — see
+  // resolveChurchYearPrecedence in api-finance.js). An UNSAVED edit here (_finPlanActualEdits)
+  // takes over locally so the figure — and every group/subtotal/Net row above it — updates live
+  // while typing, same as the Plan and Projected columns; a group's own Actual is always the sum
+  // of its leaves, never independently editable.
+  var actualCentsByPath = {};
+  (function computeActual(nodes) {
+    (nodes || []).forEach(function(node) {
+      if (!node.children.length) {
+        var editedVal = _finPlanActualEdits[node.path];
+        actualCentsByPath[node.path] = editedVal !== undefined
+          ? ((editedVal !== '' && isFinite(parseFloat(editedVal))) ? Math.round(parseFloat(editedVal) * 100) : 0)
+          : (node.totalActualCents || 0);
+      } else {
+        computeActual(node.children);
+        actualCentsByPath[node.path] = node.children.reduce(function(sum, c) { return sum + (actualCentsByPath[c.path] || 0); }, 0);
+      }
+    });
+  })(_finPlanBaseTree);
+
   // Δ% — (Projected − FY Budget) / FY Budget, matching the Finance Workspace handoff's Planning
   // column: terracotta when spending is projected to grow more than 4%, green when it's projected
   // to shrink, muted otherwise. No budget to compare against (a brand-new line) renders as "—".
@@ -6695,7 +6745,7 @@ function finRenderPlanning() {
     return '<tr style="font-weight:700;border-top:1px solid var(--warm-border);' + shade + '">'
       + finTreeLabelCell(node, 'Total ' + node.label, { padV: '5px' })
       + '<td style="text-align:right;padding:5px 8px;">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
-      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(node.totalActualCents/100) + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney((actualCentsByPath[node.path] || 0)/100) + '</td>'
       + '<td style="text-align:right;padding:5px 8px;color:var(--warm-ink-label);">$' + finFmtMoney((baseProjByPath[node.path] || 0)/100) + '</td>'
       + '<td style="text-align:right;padding:5px 8px;">' + (projCents ? '$' + finFmtMoney(projCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
       + deltaCell(node.totalBudgetCents, projCents)
@@ -6717,10 +6767,19 @@ function finRenderPlanning() {
     var baseProjectedCell = '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
       ? '<input type="text" inputmode="numeric" id="' + finPlanCellId('fin-baseproj-cell', node.path) + '" value="' + baseCellVal + '" class="fin-editable-input" style="width:100px;text-align:right;color:var(--warm-ink-label);" oninput="finPlanEditBaseProjCell(' + jsAttr(node.path) + ', finPlanSanitizeWholeDollarInput(this))">'
       : '$' + finFmtMoney((baseProjByPath[node.path] || 0)/100)) + '</td>';
+    // FY{base} Actual — the one column that corrects the imported/synced figure itself, not a
+    // plan. Admin-only, dollars-and-cents (a real posted amount, unlike Plan/Projected's
+    // whole-dollar planning figures). Blank clears any saved override and reverts to the real
+    // imported/synced value on the next load — same convention as Base Projected above.
+    var actualEditedVal = _finPlanActualEdits[node.path];
+    var actualCellVal = actualEditedVal !== undefined ? actualEditedVal : String((node.totalActualCents || 0) / 100);
+    var actualCell = '<td style="text-align:right;padding:4px 8px;">' + (isAdminUI
+      ? '<input type="text" inputmode="decimal" id="' + finPlanCellId('fin-actual-cell', node.path) + '" value="' + actualCellVal + '" class="fin-editable-input" title="Corrects this account&rsquo;s imported/synced actual directly — clear the box to revert to the real figure." style="width:100px;text-align:right;" oninput="finPlanEditActualCell(' + jsAttr(node.path) + ', finSanitizeDecimalInput(this))">'
+      : '$' + finFmtMoney((actualCentsByPath[node.path] || 0)/100)) + '</td>';
     return '<tr>'
       + finTreeLabelCell(node, node.label, { padV: '4px' })
       + '<td style="text-align:right;padding:4px 8px;">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
-      + '<td style="text-align:right;padding:4px 8px;">$' + finFmtMoney(node.totalActualCents/100) + '</td>'
+      + actualCell
       + baseProjectedCell
       + projectedCell
       + deltaCell(node.totalBudgetCents, projCents)
@@ -6745,14 +6804,19 @@ function finRenderPlanning() {
   var expenseProjectedCents = expenseRoots.reduce(function(sum, n) { return sum + (projectedCentsByPath[n.path] || 0); }, 0);
   var baseRevenueProjCents = revenueRoots.reduce(function(sum, n) { return sum + (baseProjByPath[n.path] || 0); }, 0);
   var baseExpenseProjCents = expenseRoots.reduce(function(sum, n) { return sum + (baseProjByPath[n.path] || 0); }, 0);
+  // Live Actual totals — sums actualCentsByPath (which honors an in-progress, not-yet-saved edit)
+  // rather than each root's static totalActualCents, so a corrected line's effect on Total
+  // Revenue/Total Expenses/Net shows immediately instead of only after the next reload.
+  var revenueActualCents = revenueRoots.reduce(function(sum, n) { return sum + (actualCentsByPath[n.path] || 0); }, 0);
+  var expenseActualCents = expenseRoots.reduce(function(sum, n) { return sum + (actualCentsByPath[n.path] || 0); }, 0);
   // A single root now prints its own "Total X" beneath its accounts, so the section subtotal
   // would be the same figure twice in consecutive rows. It is still needed when a section has
   // several roots (Income + Other Income), where no one root's total covers the section.
   function sectionSelfTotals(roots) { return roots.length === 1 && roots[0].children.length > 0; }
   walk(revenueRoots);
-  if (revenueRoots.length && !sectionSelfTotals(revenueRoots)) rowsHtml.push(subtotalRow('Total Revenue', sumRoots(revenueRoots, 'totalBudgetCents'), revenueRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(revenueRoots, 'totalActualCents'), baseRevenueProjCents, revenueProjectedCents));
+  if (revenueRoots.length && !sectionSelfTotals(revenueRoots)) rowsHtml.push(subtotalRow('Total Revenue', sumRoots(revenueRoots, 'totalBudgetCents'), revenueRoots.some(function(n){return n.hasBudgetInfo;}), revenueActualCents, baseRevenueProjCents, revenueProjectedCents));
   walk(expenseRoots);
-  if (expenseRoots.length && !sectionSelfTotals(expenseRoots)) rowsHtml.push(subtotalRow('Total Expenses', sumRoots(expenseRoots, 'totalBudgetCents'), expenseRoots.some(function(n){return n.hasBudgetInfo;}), sumRoots(expenseRoots, 'totalActualCents'), baseExpenseProjCents, expenseProjectedCents));
+  if (expenseRoots.length && !sectionSelfTotals(expenseRoots)) rowsHtml.push(subtotalRow('Total Expenses', sumRoots(expenseRoots, 'totalBudgetCents'), expenseRoots.some(function(n){return n.hasBudgetInfo;}), expenseActualCents, baseExpenseProjCents, expenseProjectedCents));
   var projectedRevenueCents = revenueProjectedCents, projectedExpenseCents = expenseProjectedCents;
   var projectedNetCents = projectedRevenueCents - projectedExpenseCents;
   function netCell(cents) {
@@ -6760,7 +6824,7 @@ function finRenderPlanning() {
   }
   var netRow = '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 8px;">Net (Revenue − Expenses)</td>'
     + (_finPlanBaseNet.budgetCents ? netCell(_finPlanBaseNet.budgetCents) : '<td style="padding:5px 8px;text-align:right;color:var(--warm-gray);">—</td>')
-    + netCell(_finPlanBaseNet.actualCents)
+    + netCell(revenueActualCents - expenseActualCents)
     + netCell(baseRevenueProjCents - baseExpenseProjCents)
     + netCell(projectedNetCents)
     + '<td></td>'
@@ -6771,7 +6835,7 @@ function finRenderPlanning() {
     + '<thead><tr style="background:var(--warm-surface-header);">'
     + '<th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Category</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanBaseYear + ' Bud</th>'
-    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanBaseYear + ' Actual</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);" title="Editable — corrects the imported/synced figure for one account without re-uploading or re-syncing the whole year. Clear the box to revert to the real figure.">FY' + _finPlanBaseYear + ' Actual</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);"' + (baseProrated ? ' title="Projected year-end total — base-year actuals annualized from ' + baseThroughWeek.toFixed(1) + ' week(s) of data. Editable — type a whole-dollar figure to override any line."' : ' title="Editable — type a whole-dollar figure to override any line."') + '>FY' + _finPlanBaseYear + ' Projected</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">FY' + _finPlanTargetYear + ' Plan</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">&Delta;%</th>'
@@ -6902,6 +6966,11 @@ function finPlanEditBaseProjCell(categoryPath, value) {
   finRerenderPlanTablePreserveFocus();
   finPlanScheduleAutoSave();
 }
+function finPlanEditActualCell(categoryPath, value) {
+  _finPlanActualEdits[categoryPath] = value;
+  finRerenderPlanTablePreserveFocus();
+  finPlanScheduleAutoSave();
+}
 // Autosave — edits used to sit in memory (_finPlanEdits/_finPlanBaseProjEdits) until an explicit
 // "Save Changes" click; navigating away (switching years, tabs, etc.) before that click silently
 // discarded them. Every cell edit now schedules a debounced background save shortly after typing
@@ -6921,7 +6990,7 @@ function finPlanFlushAutoSave() {
 // Shared by the debounced autosave and the manual "Save Changes" button — walks the tree once,
 // collecting every path with a pending edit into the two shapes each save endpoint expects.
 function finPlanCollectPendingEdits() {
-  var rows = [], baseProjRows = [];
+  var rows = [], baseProjRows = [], actualRows = [];
   function collect(nodes) {
     (nodes || []).forEach(function(node) {
       var v = _finPlanEdits[node.path];
@@ -6933,29 +7002,35 @@ function finPlanCollectPendingEdits() {
       // intentional '' (cleared field), which the backend treats as "remove the override."
       var bv = _finPlanBaseProjEdits[node.path];
       if (bv !== undefined) baseProjRows.push({ category: node.path, amount: bv });
+      // Same shape for a FY{base} Actual correction — pre-sanitized to digits/one-decimal-point
+      // (or '') by finSanitizeDecimalInput, so an intentional '' means "clear the override."
+      var av = _finPlanActualEdits[node.path];
+      if (av !== undefined) actualRows.push({ category: node.path, classification: node.classification, account_name: node.label, amount: av });
       collect(node.children);
     });
   }
   collect(_finPlanBaseTree);
-  return { rows: rows, baseProjRows: baseProjRows };
+  return { rows: rows, baseProjRows: baseProjRows, actualRows: actualRows };
 }
 function finPlanAutoSaveNow() {
   var pending = finPlanCollectPendingEdits();
-  if (!pending.rows.length && !pending.baseProjRows.length) return;
+  if (!pending.rows.length && !pending.baseProjRows.length && !pending.actualRows.length) return;
   var msgEl = document.getElementById('fin-plan-msg');
   if (msgEl) msgEl.textContent = 'Saving…';
-  // Not a per-call .catch on either promise below (this is finPlanAutoSaveNow) — this
-  // Promise.all already has its own .catch, and a per-call catch that swallows its own
-  // rejection would let the aggregate resolve as though both saves succeeded even when one
-  // genuinely failed (the "reports success on failure" bug this whole pass exists to close).
+  // Not a per-call .catch on any promise below (this is finPlanAutoSaveNow) — this Promise.all
+  // already has its own .catch, and a per-call catch that swallows its own rejection would let
+  // the aggregate resolve as though every save succeeded even when one genuinely failed (the
+  // "reports success on failure" bug this whole pass exists to close).
   Promise.all([
     pending.rows.length ? api('/admin/api/finance/planning/church/override-bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ rows: pending.rows }) }) : Promise.resolve({ saved: 0 }),
     pending.baseProjRows.length ? api('/admin/api/finance/planning/base-projection', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ year: _finPlanBaseYear, rows: pending.baseProjRows }) }) : Promise.resolve({ saved: 0 }),
+    pending.actualRows.length ? api('/admin/api/finance/church/actual-override', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ year: _finPlanBaseYear, rows: pending.actualRows }) }) : Promise.resolve({ saved: 0 }),
   ]).then(function(results) {
-    var d = results[0], d2 = results[1];
+    var d = results[0], d2 = results[1], d3 = results[2];
     if (!msgEl) return;
     if (d && d.error) { msgEl.textContent = d.error; return; }
     if (d2 && d2.error) { msgEl.textContent = d2.error; return; }
+    if (d3 && d3.error) { msgEl.textContent = d3.error; return; }
     msgEl.textContent = 'Saved automatically.';
   }).catch(function(err) { if (msgEl) msgEl.textContent = err && err.message || 'Autosave failed — click Save Changes to retry.'; });
 }
@@ -6982,17 +7057,19 @@ function finPlanSaveAll() {
   clearTimeout(_finPlanAutoSaveTimer);
   var msgEl = document.getElementById('fin-plan-msg');
   var pending = finPlanCollectPendingEdits();
-  if (!pending.rows.length && !pending.baseProjRows.length) { msgEl.textContent = 'No changes to save.'; return; }
+  if (!pending.rows.length && !pending.baseProjRows.length && !pending.actualRows.length) { msgEl.textContent = 'No changes to save.'; return; }
   msgEl.textContent = 'Saving…';
   // Not a per-call .catch — see the identical note in finPlanAutoSaveNow above.
   Promise.all([
     pending.rows.length ? api('/admin/api/finance/planning/church/override-bulk', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ rows: pending.rows }) }) : Promise.resolve({ saved: 0 }),
     pending.baseProjRows.length ? api('/admin/api/finance/planning/base-projection', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ year: _finPlanBaseYear, rows: pending.baseProjRows }) }) : Promise.resolve({ saved: 0 }),
+    pending.actualRows.length ? api('/admin/api/finance/church/actual-override', { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ year: _finPlanBaseYear, rows: pending.actualRows }) }) : Promise.resolve({ saved: 0 }),
   ]).then(function(results) {
-    var d = results[0], d2 = results[1];
+    var d = results[0], d2 = results[1], d3 = results[2];
     if (d && d.error) { msgEl.textContent = d.error; return; }
     if (d2 && d2.error) { msgEl.textContent = d2.error; return; }
-    msgEl.textContent = 'Saved ' + (d.saved || 0) + ' plan line(s), ' + (d2.saved || 0) + ' projected line(s).';
+    if (d3 && d3.error) { msgEl.textContent = d3.error; return; }
+    msgEl.textContent = 'Saved ' + (d.saved || 0) + ' plan line(s), ' + (d2.saved || 0) + ' projected line(s), ' + (d3.saved || 0) + ' actual correction(s).';
     finLoadPlanning();
   }).catch(function(err) { msgEl.textContent = err && err.message || 'Save failed.'; });
 }

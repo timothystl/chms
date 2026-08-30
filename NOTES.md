@@ -24,6 +24,43 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.219.0 — Planning: FY{base} Actual is editable per line; dead $0.00/$0.00 accounts hidden (2026-08-30)
+
+Two asks off a live Planning ("Category by category") screenshot. **(1)** FY{base} Actual was
+plain text — the only way to fix a wrong imported/synced figure was to re-upload or re-sync the
+whole year. New `PUT /admin/api/finance/church/actual-override` (admin-only) writes a per-account
+correction into `finance_church_entries` as `source='manual_actual_override'`;
+`resolveChurchYearPrecedence()` now layers any such override onto whichever source actually won
+that year (qbo_sync/import/import_activity/plan_committed) — a REPLACEMENT of just the one named
+`category_path`, never a new priority tier (a same-shaped tier would have made the one edited line
+the ONLY row surviving for the whole year, deleting every other account). So the fix shows up
+everywhere Actual is read — Church Report, Financial Health, Planning — not just the cell it was
+typed into, and survives a future re-sync/re-import of that year. The Planning table's Actual
+column is now a live-editable dollars-and-cents input (`finPlanEditActualCell`, autosaved on the
+existing 800ms debounce alongside Plan/Projected), with every group/subtotal/Net row recomputing
+from a new `actualCentsByPath` map so an in-progress edit's effect is visible immediately, not just
+after a reload; clearing a cell to blank deletes the override and reverts to the real
+imported/synced figure. **(2)** Reported in the same message: this church's QuickBooks carries an
+old, superseded pair of accounts ("50160 MDO Supplies"/"50161 MDO Wages") sitting at $0.00/$0.00
+in every report forever, alongside their real renamed replacements ("57160 MDO -
+Supplies"/"57161 MDO - Wages"). The existing "hide Unapplied Cash only when it's $0" rule
+(`finPruneEmptyUnappliedCash`, FIN58/FIN60) turned out to be the first NAMED instance of a general
+pattern rather than a special case — generalized into `finPruneEmptyLeaves`: any line with $0.00
+actual AND $0.00 budget is dropped, whatever its name; a group is only pruned once every one of its
+own children has been pruned away too. **Deliberately never prunes a top-level classification root
+itself** (Income/Expenses/Cost of Goods Sold/...) even if it nets to zero — that's a bigger,
+different decision than a dead line vanishing, and an existing test caught exactly this the first
+time (an all-zero synthetic Income/Expenses fixture disappeared outright); fixed by pruning within
+each root's own children, never the roots array itself. `npm test` (2014/2014, 30 new across
+`test/finance-church.test.js`, `test/finance-budget-plan.test.js`, and `test/finance-qb-order.test.js`,
+the latter two driving the real assembled bundle in a `vm`); **every new test verified non-vacuous**
+by reverting `src/api-finance.js`/`src/frontend/js-finance.js` to the pre-change version and
+confirming all new tests fail (21/21, plus the whole `finance-church-tree.test.js` suite failing to
+even load — the renamed extraction target). `node --check` on all three built bundles, div-balance
+on the assembled `CHMS_HTML` (1120/1120). **Not verified**: a live browser. (`src/api-finance.js`,
+`src/frontend/js-finance.js`, `test/finance-church.test.js`, `test/finance-budget-plan.test.js`,
+`test/finance-qb-order.test.js`, `test/finance-church-tree.test.js`)
+
 ### v1.218.0 — Mobile Admin: Scheduler screen, current/upcoming Sunday only (2026-08-30)
 
 MOB-ADMIN4 Phase 4. New read-only **Scheduler** screen on the phone-optimized Mobile Admin shell —

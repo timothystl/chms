@@ -175,6 +175,75 @@ describe('Planning budget builder — QuickBooks order', () => {
   });
 });
 
+// The ask: correct one line of FY{base} Actual without re-uploading/re-syncing the whole file.
+describe('Planning budget builder — FY{base} Actual is editable', () => {
+  function renderPlanningWithActualEdits(tree, actualEdits, role) {
+    const root = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+    const fin = loadBundle({ 'fin-plan-root': root });
+    fin._finPlanBaseTree = tree;
+    fin._finPlanBaseYear = 2026;
+    fin._finPlanTargetYear = 2027;
+    fin._finPlanBaseNet = { actualCents: 0, budgetCents: 0 };
+    fin._finPlanRows = [];
+    fin._finPlanEdits = {};
+    fin._finPlanBaseProjEdits = {};
+    fin._finPlanBaseProjOverrides = {};
+    fin._finPlanActualEdits = actualEdits || {};
+    fin._userRole = role || 'admin';
+    fin.finRenderPlanning();
+    return { html: root.innerHTML, fin: fin };
+  }
+
+  it('renders the Actual cell as an editable input for an admin, seeded with the real figure', () => {
+    const { html } = renderPlanningWithActualEdits(sampleTree(), {});
+    const account = rowsOf(html).find(r => textOf(r).startsWith('40085 Sunday Offering'));
+    expect(account).toContain('<input');
+    expect(account).toContain('finPlanEditActualCell');
+    // 22671104 cents -> 226711.04 dollars, the exact typed-editing value (not comma-formatted)
+    expect(account).toContain('value="226711.04"');
+  });
+
+  it('shows plain text, not an input, for a non-admin', () => {
+    const { html } = renderPlanningWithActualEdits(sampleTree(), {}, 'staff');
+    const account = rowsOf(html).find(r => textOf(r).startsWith('40085 Sunday Offering'));
+    expect(account).not.toContain('<input');
+    expect(account).toContain('226,711.04');
+  });
+
+  it('an unsaved edit is what displays, not the original synced figure', () => {
+    const { html } = renderPlanningWithActualEdits(sampleTree(), { 'Income:40 Donor:40085 Sunday Offering': '5.00' });
+    const account = rowsOf(html).find(r => textOf(r).startsWith('40085 Sunday Offering'));
+    expect(account).toContain('value="5.00"');
+  });
+
+  it('an unsaved leaf edit propagates live into its group total, the section subtotal, and Net — before any save', () => {
+    const { html } = renderPlanningWithActualEdits(sampleTree(), { 'Income:40 Donor:40085 Sunday Offering': '5.00' });
+    const groupTotal = rowsOf(html).find(r => textOf(r).startsWith('Total 40 Donor Income'));
+    expect(groupTotal, 'group total row').toContain('$5.00');
+    expect(groupTotal).not.toContain('226,711.04');
+    const revenueTotal = rowsOf(html).find(r => textOf(r).startsWith('Total Revenue'));
+    expect(revenueTotal).toContain('$5.00');
+    // sampleTree()'s Expenses side (57160 MDO Supplies) has a real, UNEDITED $1,200.00 actual —
+    // so Net is the edited $5.00 of revenue minus that untouched $1,200.00, not just the edit.
+    const netRow = rowsOf(html).find(r => textOf(r).startsWith('Net (Revenue'));
+    expect(netRow).toContain('−$1,195.00');
+  });
+
+  it('clearing the box back to blank is a real, distinguishable action from typing "0"', () => {
+    const clearedZero = renderPlanningWithActualEdits(sampleTree(), { 'Income:40 Donor:40085 Sunday Offering': '' });
+    const clearedRow = rowsOf(clearedZero.html).find(r => textOf(r).startsWith('40085 Sunday Offering'));
+    expect(clearedRow).toContain('value=""');
+    const collected = clearedZero.fin.finPlanCollectPendingEdits();
+    expect(collected.actualRows).toEqual([{ category: 'Income:40 Donor:40085 Sunday Offering', classification: 'Income', account_name: '40085 Sunday Offering', amount: '' }]);
+  });
+
+  it('finPlanCollectPendingEdits carries a pending Actual edit through to the save payload', () => {
+    const { fin } = renderPlanningWithActualEdits(sampleTree(), { 'Income:40 Donor:40085 Sunday Offering': '263586.47' });
+    const collected = fin.finPlanCollectPendingEdits();
+    expect(collected.actualRows).toEqual([{ category: 'Income:40 Donor:40085 Sunday Offering', classification: 'Income', account_name: '40085 Sunday Offering', amount: '263586.47' }]);
+  });
+});
+
 describe('Unapplied Cash — a QuickBooks artifact, hidden only when it is empty', () => {
   const fin = loadBundle();
 
@@ -206,6 +275,77 @@ describe('Unapplied Cash — a QuickBooks artifact, hidden only when it is empty
     const html = fin.finRenderChurchDetailBody(fin.finReorganizeChurchTree(treeWith(45000, 0)), null, true);
     expect(html).toContain('Unapplied Cash Bill Payment Expense');
     expect(html).toMatch(/title="[^"]*QuickBooks/);
+  });
+});
+
+// Reported live 2026-08-30: this church's QuickBooks carries an old, superseded pair of accounts
+// ("50160 MDO Supplies"/"50161 MDO Wages") alongside their real replacements ("57160 MDO -
+// Supplies"/"57161 MDO - Wages"), sitting at $0.00/$0.00 forever. Unapplied Cash above turned out
+// to be the first NAMED instance of a general "any $0.00/$0.00 line is clutter" rule, not a
+// special case of its own — this describes the generalized version.
+describe('finPruneEmptyLeaves — any $0.00/$0.00 line is dropped, whatever its name', () => {
+  const fin = loadBundle();
+
+  function mdoExpensesTree() {
+    // Exactly the reported real-world shape: two dead duplicate accounts sitting alongside their
+    // real replacements, all under the same group.
+    const deadSupplies = node('Expenses:57 MDO Expenses:50160 MDO Supplies', '50160 MDO Supplies', 'Expenses', 2, 0, 0);
+    const deadWages = node('Expenses:57 MDO Expenses:50161 MDO Wages', '50161 MDO Wages', 'Expenses', 2, 0, 0);
+    const realSupplies = node('Expenses:57 MDO Expenses:57160 MDO - Supplies', '57160 MDO - Supplies', 'Expenses', 2, 1764148, 1500000);
+    const realWages = node('Expenses:57 MDO Expenses:57161 MDO - Wages', '57161 MDO - Wages', 'Expenses', 2, 24553498, 27400000);
+    const mdoGroup = node('Expenses:57 MDO Expenses', '57 MDO Expenses', 'Expenses', 1, 0, null, [deadSupplies, deadWages, realSupplies, realWages]);
+    return [node('Expenses', 'Expenses', 'Expenses', 0, 0, null, [mdoGroup])];
+  }
+
+  it('drops the two dead $0.00/$0.00 duplicates but keeps their real, funded replacements', () => {
+    const out = fin.finReorganizeChurchTree(mdoExpensesTree());
+    const labels = [];
+    (function walk(ns) { ns.forEach(n => { labels.push(n.label); walk(n.children); }); })(out);
+    expect(labels).not.toContain('50160 MDO Supplies');
+    expect(labels).not.toContain('50161 MDO Wages');
+    expect(labels).toContain('57160 MDO - Supplies');
+    expect(labels).toContain('57161 MDO - Wages');
+    expect(labels).toContain('57 MDO Expenses'); // the group survives — it still has two real children
+  });
+
+  it('keeps the group total reconciling to only the real accounts once the dead ones are gone', () => {
+    const out = fin.finReorganizeChurchTree(mdoExpensesTree());
+    const group = out[0].children.find(n => n.label === '57 MDO Expenses');
+    expect(group.children).toHaveLength(2);
+    expect(group.totalActualCents).toBe(1764148 + 24553498);
+    expect(group.totalBudgetCents).toBe(1500000 + 27400000);
+  });
+
+  it('cascades: a group whose every child is $0.00/$0.00 is pruned too, not left behind as an empty header', () => {
+    const deadA = node('Expenses:Dead Group:A', 'A', 'Expenses', 2, 0, 0);
+    const deadB = node('Expenses:Dead Group:B', 'B', 'Expenses', 2, 0, null);
+    const deadGroup = node('Expenses:Dead Group', 'Dead Group', 'Expenses', 1, 0, null, [deadA, deadB]);
+    const real = node('Expenses:Real', 'Real', 'Expenses', 1, 500, 500);
+    const out = fin.finReorganizeChurchTree([node('Expenses', 'Expenses', 'Expenses', 0, 0, null, [deadGroup, real])]);
+    const labels = [];
+    (function walk(ns) { ns.forEach(n => { labels.push(n.label); walk(n.children); }); })(out);
+    expect(labels).not.toContain('Dead Group');
+    expect(labels).not.toContain('A');
+    expect(labels).not.toContain('B');
+    expect(labels).toContain('Real');
+  });
+
+  it('never drops a line that carries real money in either column', () => {
+    const zeroActualHasBudget = node('Expenses:Zero Actual', 'Zero Actual', 'Expenses', 1, 0, 500000); // budgeted, not yet spent
+    const hasActualNoBudget = node('Expenses:Unbudgeted', 'Unbudgeted', 'Expenses', 1, 250, null); // spent, never budgeted
+    const out = fin.finReorganizeChurchTree([node('Expenses', 'Expenses', 'Expenses', 0, 0, null, [zeroActualHasBudget, hasActualNoBudget])]);
+    const labels = out[0].children.map(n => n.label);
+    expect(labels).toContain('Zero Actual');
+    expect(labels).toContain('Unbudgeted');
+  });
+
+  it('a group that survives with real children never loses one of them to the prune', () => {
+    // Regression guard for the "if (n.children.length) continue" ordering — a group must not be
+    // evaluated for its OWN zero-ness while a live child is still hanging off it.
+    const out = fin.finReorganizeChurchTree(mdoExpensesTree());
+    const group = out[0].children.find(n => n.label === '57 MDO Expenses');
+    expect(group).toBeTruthy();
+    expect(group.hint).toBeUndefined(); // not the Unapplied Cash special case — no hint attached
   });
 });
 

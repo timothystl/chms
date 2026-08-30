@@ -1729,6 +1729,16 @@ async function fetchQboJson(label, resPromise, warnings, hint) {
 // with no real data yet, and must get out of the way the moment either a live sync or a real
 // import exists for that year, rather than permanently overriding them.
 const CHURCH_SOURCE_PRIORITY = ['qbo_sync', 'import', 'import_activity', 'plan_committed'];
+// A one-line, hand-typed correction to a single account's Actual for a single year — see the
+// `finance/church/actual-override` endpoint below (PATTERN: same as `manual_budget_override` on
+// finance_daycare_entries — a same-shaped row, applied afterward as a REPLACEMENT, never summed
+// in). Deliberately NOT a fifth entry in CHURCH_SOURCE_PRIORITY: that list picks ONE source's
+// rows wholesale for a whole year, so a same-shaped priority tier holding just the one edited
+// line would become the ONLY row surviving for that year — silently deleting every other
+// account's actual. Applied per-category-path over whichever source actually won the year
+// instead, so a correction takes effect everywhere Actual is read (Church Report, Financial
+// Health, Planning) without needing to re-upload or re-sync the whole file for one line.
+const CHURCH_ACTUAL_OVERRIDE_SOURCE = 'manual_actual_override';
 export function resolveChurchYearPrecedence(rows) {
   const byYear = new Map();
   for (const r of rows) {
@@ -1737,10 +1747,25 @@ export function resolveChurchYearPrecedence(rows) {
   }
   const out = [];
   for (const yearRows of byYear.values()) {
+    let base = [];
     for (const src of CHURCH_SOURCE_PRIORITY) {
       const matching = yearRows.filter(r => r.source === src);
-      if (matching.length) { out.push(...matching); break; }
+      if (matching.length) { base = matching; break; }
     }
+    const overrides = yearRows.filter(r => r.source === CHURCH_ACTUAL_OVERRIDE_SOURCE);
+    if (!overrides.length) { out.push(...base); continue; }
+    const overrideByPath = new Map(overrides.map(r => [r.category_path, r]));
+    const coveredPaths = new Set();
+    for (const r of base) {
+      const ov = overrideByPath.get(r.category_path);
+      // Keep every other field from the winning source's own row (classification, depth,
+      // has_children, own_budget_cents) — only the actual figure and its source label change.
+      out.push(ov ? { ...r, own_actual_cents: ov.own_actual_cents, source: CHURCH_ACTUAL_OVERRIDE_SOURCE } : r);
+      coveredPaths.add(r.category_path);
+    }
+    // An override for an account with no row at all in the winning source (no sync/import ever
+    // covered it for this year) still has to surface — use the override row's own stored fields.
+    for (const ov of overrides) if (!coveredPaths.has(ov.category_path)) out.push(ov);
   }
   return out;
 }
@@ -4204,6 +4229,56 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       `INSERT INTO chms_config (key,value) VALUES ('finance_base_proj_overrides',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(JSON.stringify(overrides)).run();
     return json({ ok: true, year, saved: rows.length });
+  }
+
+  // Corrects one account's Actual figure for one year directly, without re-uploading or
+  // re-syncing the whole file — the ask behind this endpoint. Stored as its own
+  // finance_church_entries row (source='manual_actual_override'; see
+  // CHURCH_ACTUAL_OVERRIDE_SOURCE/resolveChurchYearPrecedence above for how it's merged in), so
+  // the correction is picked up by every reader of that resolver — Church Report, Financial
+  // Health, Planning — not just the screen it was typed on. A future re-sync/re-import of the
+  // same year doesn't erase it: the override still wins for that one category_path.
+  // Whole-dollars-and-cents (unlike the whole-dollar-only Plan/Projected overrides above) — this
+  // is a correction to a real posted amount, not a planning figure.
+  if (seg === 'finance/church/actual-override' && method === 'PUT') {
+    if (!isAdmin) return json({ error: 'Access denied: correcting an actual figure requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const year = parseInt(b.year, 10);
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
+    if (!rows.length) return json({ error: 'No rows to save' }, 400);
+    const ops = [];
+    let saved = 0;
+    for (const r of rows) {
+      const category = String(r.category || '').trim();
+      if (!category) return json({ error: 'Every row needs a category' }, 400);
+      // period_month=0 = the annual row (see migrations/0018_finance_church_entries.sql) — this
+      // never touches a monthly (1-12) row, same scoping every other church-entries writer here
+      // uses.
+      if (r.amount === '' || r.amount === null || r.amount === undefined) {
+        ops.push(db.prepare(
+          `DELETE FROM finance_church_entries WHERE fiscal_year=? AND period_month=0 AND category_path=? AND source=?`
+        ).bind(year, category, CHURCH_ACTUAL_OVERRIDE_SOURCE));
+        saved++;
+        continue;
+      }
+      const amountCents = Math.round(Number(r.amount) * 100);
+      if (!Number.isFinite(amountCents)) return json({ error: `Invalid amount for ${category}` }, 400);
+      const classification = String(r.classification || 'Expenses');
+      const accountName = String(r.account_name || category.split(':').pop() || category);
+      const depth = Math.max(0, category.split(':').length - 1);
+      ops.push(db.prepare(
+        `INSERT INTO finance_church_entries
+           (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, notes, synced_at)
+         VALUES (?,0,?,?,?,?,0,?,NULL,?,'Manually corrected',datetime('now'))
+         ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
+           own_actual_cents=excluded.own_actual_cents, classification=excluded.classification,
+           account_name=excluded.account_name, depth=excluded.depth, synced_at=excluded.synced_at`
+      ).bind(year, classification, category, accountName, depth, amountCents, CHURCH_ACTUAL_OVERRIDE_SOURCE));
+      saved++;
+    }
+    await db.batch(ops);
+    return json({ ok: true, year, saved });
   }
 
   // Generates a compounding multi-year projection from a base dollar amount + a flat growth

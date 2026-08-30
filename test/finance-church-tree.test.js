@@ -9,7 +9,7 @@ const CHMS_APP_EXT_JS_ALL = CHMS_APP_EXT_JS + '\n' + CHMS_APP_FINANCE_JS;
 // not as exported module functions — extract them (none touch the DOM) and eval standalone.
 // Same technique used elsewhere in this project (see CLAUDE.md SC3-BUG1 / TAP11 / FIN10).
 function loadChurchTreeHelpers() {
-  const names = ['finSetNodeDepth', 'finExtractNodesByLabel', 'finMakeGroupNode', 'finRecomputeTreeTotals', 'finPruneEmptyUnappliedCash', 'finReorganizeChurchTree'];
+  const names = ['finSetNodeDepth', 'finExtractNodesByLabel', 'finMakeGroupNode', 'finRecomputeTreeTotals', 'finPruneEmptyLeaves', 'finReorganizeChurchTree'];
   const fnSrcs = names.map(name => {
     const m = CHMS_APP_EXT_JS_ALL.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
     if (!m) throw new Error(`${name} not found in built script`);
