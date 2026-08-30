@@ -47,6 +47,27 @@ function currentSundayISO() {
   return d.toISOString().slice(0, 10);
 }
 
+// The Sunday a phone user actually wants to see for "who's serving": today if today IS
+// Sunday, otherwise the next upcoming one. Deliberately NOT currentSundayISO() above — that
+// one intentionally looks backward (the Sunday whose attendance you're still entering days
+// later); the Scheduler screen looks forward instead.
+function nextOrCurrentSundayISO() {
+  const now = new Date();
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const dow = d.getUTCDay();
+  if (dow !== 0) d.setUTCDate(d.getUTCDate() + (7 - dow));
+  return d.toISOString().slice(0, 10);
+}
+
+// Mirrors PER_ROLES/SHARED_ROLES in src/scheduler-html.js — that file is the desktop
+// Scheduler's own source of truth for these two lists, but it's a giant client-side
+// template-literal blob (not an importable module), so this is a deliberate, small,
+// hand-kept-in-sync duplication rather than a shared-module refactor. If a role is ever
+// added/renamed on the desktop Scheduler, update both places.
+const SCHED_PER_ROLES = ['Elder', 'Acolyte', 'PowerPoint', 'Lector', 'Liturgist'];
+const SCHED_SHARED_ROLES = ['Preacher', 'Childrens Message'];
+const SCHED_SVC_LABELS = { '8am': '8:00 AM', '10:45am': '10:45 AM' };
+
 function composeAddress(p) {
   const line1 = [p.address1, p.address2].filter(Boolean).join(' ');
   const cityStateZip = [[p.city, p.state].filter(Boolean).join(', '), p.zip].filter(Boolean).join(' ');
@@ -169,8 +190,103 @@ export async function handleMobileApi(req, env, url, method, role) {
       people_total: peopleTotal,
       can_view_followups: canViewFollowups || canEditBaseline,
       can_view_giving: canViewGivingNamed,
+      can_view_scheduler: role === 'admin' || role === 'staff',
       followups: followups.slice(0, 8),
       open_followup_count: openFollowupCount,
+    });
+  }
+
+  // ── Scheduler: read-only view of the current/upcoming Sunday's assignments ──
+  // Deliberately narrower than mobileAllowed() above (which also admits finance/council/
+  // member) — mirrors handleSchedulerDataApi's own gate exactly (api-admin.js), since the
+  // desktop Scheduler tab itself is admin/staff only and this is just a phone-shaped read
+  // view onto the same data, not a new grant of access. Schedule data lives as JSON blobs
+  // in the generic scheduler_data key/value table (ws_schedule_v2/ws_people/
+  // ws_confirmations) — there's no relational schema for it to query directly.
+  if (seg === 'scheduler/this-sunday' && method === 'GET') {
+    if (role !== 'admin' && role !== 'staff') return json({ error: 'Access denied' }, 403);
+    const dateISO = nextOrCurrentSundayISO();
+    const blobRows = (await db.prepare(
+      `SELECT key, value, updated_at FROM scheduler_data WHERE key IN ('ws_schedule_v2','ws_people','ws_confirmations')`
+    ).all()).results || [];
+    const blobs = {};
+    let confirmationsAsOf = null;
+    for (const r of blobRows) {
+      try { blobs[r.key] = JSON.parse(r.value); } catch { blobs[r.key] = null; }
+      if (r.key === 'ws_confirmations') confirmationsAsOf = r.updated_at || null;
+    }
+    const months = (blobs.ws_schedule_v2 && typeof blobs.ws_schedule_v2 === 'object') ? blobs.ws_schedule_v2 : {};
+    const people = Array.isArray(blobs.ws_people) ? blobs.ws_people : [];
+    const confirmations = (blobs.ws_confirmations && typeof blobs.ws_confirmations === 'object') ? blobs.ws_confirmations : {};
+    const peopleById = {};
+    for (const p of people) if (p && p.id != null) peopleById[String(p.id)] = p;
+
+    function personOf(pid) {
+      if (pid == null) return null;
+      const p = peopleById[String(pid)];
+      return { id: pid, name: p ? (p.name || '') : '(unknown)' };
+    }
+    function statusOf(roleName, svc) {
+      return confirmations[`${dateISO}|${roleName}|${svc}`] || 'pending';
+    }
+
+    const monthKey = dateISO.slice(0, 7);
+    const monthRows = (months[monthKey] && Array.isArray(months[monthKey].rows)) ? months[monthKey].rows : [];
+    const row = monthRows.find(r => r && r.dateISO === dateISO);
+
+    if (!row) {
+      return json({ date_iso: dateISO, has_schedule: false });
+    }
+
+    // A holiday falling on a Sunday (e.g. Christmas) is stored as its own "special" row
+    // shape instead of a regular Sunday row — a lower-confidence secondary path (this
+    // shape is rarer and less exercised than the regular Sunday one below), but cheap to
+    // support since the data already carries what's needed.
+    if (row.type === 'special') {
+      const services = (Array.isArray(row.services) ? row.services : []).map(s => {
+        const svcKey = s.time || 'shared';
+        return {
+          time: s.time || '',
+          roles: (Array.isArray(s.roles) ? s.roles : []).map(roleName => ({
+            role: roleName,
+            person: personOf(s.assignments ? s.assignments[roleName] : null),
+            status: statusOf(roleName, svcKey),
+          })),
+        };
+      });
+      let filled = 0, total = 0;
+      for (const s of services) for (const r2 of s.roles) { total++; if (r2.person) filled++; }
+      return json({
+        date_iso: dateISO, has_schedule: true, kind: 'special', name: row.name || '',
+        confirmations_as_of: confirmationsAsOf,
+        services, counts: { filled, open: total - filled, total },
+      });
+    }
+
+    const assignments = (row.assignments && typeof row.assignments === 'object') ? row.assignments : {};
+    const services = ['8am', '10:45am'].map(svc => ({
+      svc, svc_label: SCHED_SVC_LABELS[svc] || svc,
+      roles: SCHED_PER_ROLES.map(roleName => ({
+        role: roleName,
+        person: personOf(assignments[roleName] ? assignments[roleName][svc] : null),
+        status: statusOf(roleName, svc),
+      })),
+    }));
+    const sharedRoles = SCHED_SHARED_ROLES.map(roleName => ({
+      role: roleName,
+      person: personOf(assignments[roleName] ? assignments[roleName].shared : null),
+      status: statusOf(roleName, 'shared'),
+    }));
+    let filled = 0, total = 0;
+    for (const s of services) for (const r2 of s.roles) { total++; if (r2.person) filled++; }
+    for (const r2 of sharedRoles) { total++; if (r2.person) filled++; }
+
+    return json({
+      date_iso: dateISO, has_schedule: true, kind: 'sunday',
+      ordinal: row.ordinal || null, label: row.label || '',
+      confirmations_as_of: confirmationsAsOf,
+      services, shared_roles: sharedRoles,
+      counts: { filled, open: total - filled, total },
     });
   }
 

@@ -1031,21 +1031,67 @@ so it's tracked here phase by phase, same pattern as GIV-R1-4/SC6.
   touched backend file and the extracted mobile-shell `<script>` block, div/button/span/select/
   option tag-balance on the assembled `MOBILE_ADMIN_HTML`. DEPLOY_VERSION bumped to 1.209.0.
   **Not verified**: a live browser or a real phone.
+- **Phase 4 — Scheduler, DONE (read-only, current/upcoming Sunday only).** Scoped down
+  deliberately, not a port of the desktop Scheduler tab: user's own call was that the one thing
+  that matters on a phone is "who's serving this Sunday, by role, and have they confirmed" — not
+  editing, not multi-week browsing. New standalone **Scheduler** screen (sidebar nav, gated by a
+  new `can_view_scheduler` dashboard flag), admin/staff only — narrower than every other Mobile
+  Admin screen (which also admit finance/council/member), matching the desktop Scheduler tab's own
+  existing gate exactly (`handleSchedulerDataApi` in `api-admin.js`) rather than granting a new
+  role a look at the schedule for the first time. **No new permission-matrix item was added** —
+  `ROLE_PERMISSION_ITEMS` (`api-utils.js`) still has no `scheduler` key; this is a flat role check,
+  by design, per the user's explicit choice over adding one.
+  - Backend: `GET mobile/scheduler/this-sunday`, a single new endpoint reading the schedule
+    straight out of the `scheduler_data` key/value table's three JSON blobs
+    (`ws_schedule_v2`/`ws_people`/`ws_confirmations`) — there is no relational schema for the
+    schedule itself (only `scheduler_volunteers`, the SC6-relationalized volunteer *roster*, has
+    one). New `nextOrCurrentSundayISO()` (deliberately separate from the existing
+    `currentSundayISO()`, which looks *backward* for attendance-entry purposes — this one looks
+    forward). `SCHED_PER_ROLES`/`SCHED_SHARED_ROLES`/`SCHED_SVC_LABELS` are a **small, deliberate,
+    hand-kept-in-sync duplication** of the same two lists in `scheduler-html.js` (`PER_ROLES`/
+    `SHARED_ROLES`) — that file is a giant client-side template-literal blob, not an importable
+    module, so copying two small constant arrays was the right call over a shared-module refactor.
+    A holiday landing on a Sunday (a `type:'special'` row, e.g. Christmas) is handled via a
+    secondary, lower-confidence code path reusing the same person/status lookups.
+  - Response includes `confirmations_as_of` (the `ws_confirmations` row's `updated_at`) — per the
+    user's decision, confirm/decline status is shown on the phone screen, but labeled with when it
+    last synced, since `ws_confirmations` is a snapshot the desktop Notify panel refreshes
+    manually and can lag a volunteer's actual RSVP click (this is the same staleness the desktop
+    Focus Week view already lives with — see SC18/`syncConfirmations()` — not a new gap this
+    screen introduces).
+  - Frontend: one card per service (8:00 AM / 10:45 AM) listing role → person name or "Open",
+    each with a `.status-pill`-styled confirm/decline/needs-changes/pending badge (reusing the
+    existing pill class and its inline-style-per-status pattern already used for `member_type`
+    pills elsewhere in this file); a "Both Services" card for the two shared roles (Preacher,
+    Children's Message); an empty state pointing back at the full Scheduler tab when nothing's
+    been generated yet for that Sunday. No editing, no multi-week rail — pure glance view, matching
+    scope.
+  - `npm test` (1984/1989, 10 new in `test/mobile-scheduler.test.js`, using `vi.useFakeTimers()`/
+    `setSystemTime()` to pin "today" for deterministic date-resolution assertions — a pattern not
+    otherwise needed in this file's test suite since Attendance/Giving/Households don't depend on
+    wall-clock date math the way "the current/upcoming Sunday" does); **every new test verified
+    non-vacuous** by injecting the exact regression it guards (3 injections: the role gate, the
+    forward-vs-backward Sunday-resolution math, and the shared-roles half of the open/filled
+    count — all 3 caught). `node --check` on the touched backend file and the extracted mobile-shell
+    `<script>` block, div/button/span tag-balance on the assembled `MOBILE_ADMIN_HTML`.
+    DEPLOY_VERSION bumped to 1.218.0. **Not verified**: a live browser or a real phone — same
+    standing caveat as every phase before it.
 - **Remaining phases, not yet started, roughly in likely-usage order**: Follow Ups as its own
   browsable screen (currently only a dashboard feed, no history/filter), Reports (a handful of
   the simpler ones — Contact Completeness, Giving Insights — not the heavy multi-year
-  chart-driven ones), Register, Volunteers, Settings, Tuition Aid, Finance, Scheduler, and
-  Households editing (address/name/photo) as a follow-up to Phase 3's read-only pass. The last
-  several (Finance, Scheduler, Tuition Aid) are genuinely desktop-shaped workflows (multi-column
-  grids, drag-resize charts, multi-step wizards) and may end up staying "Full App only" by
-  deliberate design rather than full parity — worth a decision closer to when their turn comes,
-  not assumed now.
+  chart-driven ones), Register, Volunteers, Settings, Tuition Aid, Finance, and Households editing
+  (address/name/photo) as a follow-up to Phase 3's read-only pass — plus the rest of Scheduler
+  itself (assigning/confirming from a phone, multi-week browsing, generating a month), which Phase
+  4 deliberately left on desktop. Finance and Tuition Aid are genuinely desktop-shaped workflows
+  (multi-column grids, drag-resize charts, multi-step wizards) and may end up staying "Full App
+  only" by deliberate design rather than full parity — worth a decision closer to when their turn
+  comes, not assumed now.
 - **The "Full App" escape hatch is deliberately left in place** for anything not yet built —
   removing it before a phase covers the gap would just make that gap unreachable on a phone
   rather than routed to the desktop-responsive fallback. Revisit removing it once the phase list
   above is actually exhausted (or once specific phases are deliberately marked "desktop only").
   (`src/api-mobile.js`, `src/api-giving.js`, `src/mobile-admin-html.js`, `src/frontend/js-core.js`,
-  `test/mobile-admin.test.js`)
+  `test/mobile-admin.test.js`, `test/mobile-scheduler.test.js`)
 
 ### TAP6 — A pin made for "next year" is now promoted automatically once that year becomes current (2026-08-23, DONE, P28-E)
 Closes the known, deliberately-deferred limitation this file already documented under TAP6: a
