@@ -297,6 +297,20 @@ function tapPctFromFamilyOwed(tuition, outsideAid, familyOwed) {
   var familyRaw = Math.min(tuition, familyOwed + outsideAid);
   return Math.max(0, Math.min(100, Math.round((familyRaw / tuition) * 100)));
 }
+// The stored Family Share % (famPct) is really "everything not covered by Timothy's award" —
+// (outside aid + family owed) / tuition, per tapPctFromFamilyOwed above and the seed formula in
+// db.js. That's a meaningful number only while outside aid is smaller than the family's assigned
+// share. Once a family's outside aid alone covers (or exceeds) that share, family owed floors at
+// $0, and the stored/back-derived % stops representing anything about the family's own
+// responsibility — it just reflects how much outside aid they happen to have, which reads as
+// contradictory next to "$0 owed" (see the family-share-calc-bug report). This is a DISPLAY-ONLY
+// correction: once a family truly owes nothing, show the real effective % (family owed / tuition
+// — 0%) instead of the inflated number, without touching the stored fam_pct, the dollar amounts,
+// or how editing the % box/Apply Policy/Auto-Balance behave.
+function tapDisplayFamPct(famPctVal, sp, tuition) {
+  if (sp.familyOwed > 0.005) return famPctVal;
+  return tuition > 0 ? Math.round((sp.familyOwed / tuition) * 100) : 0;
+}
 
 // ── Year selector ──────────────────────────────────────────────────
 function tapBuildYearOptions() {
@@ -717,7 +731,10 @@ function tapRenderPlannerTables() {
     // "K" after "8" (letters sort after digits) and misorder any double-digit grade.
     if (col === 'grade') return TAP_GRADE_SEQ.indexOf(row.grade);
     if (col === 'outside') return row.outsideAidVal;
-    if (col === 'pct') return row.famPctVal;
+    // Sort by what's actually shown in the box, not the raw stored/back-derived figure a $0
+    // family-owed row hides (see tapDisplayFamPct) — otherwise "sort by Family Share %" would
+    // order a visible 0% row as if it were 81%.
+    if (col === 'pct') return tapDisplayFamPct(row.famPctVal, row.sp, tuition);
     if (col === 'timothy') return row.sp.timothyAward;
     if (col === 'family_owes') return row.sp.familyOwed;
     return '';
@@ -726,6 +743,7 @@ function tapRenderPlannerTables() {
 
   var k8Rows = k8List.map(function(row) {
     var s = row.s, grade = row.grade, sp = row.sp, famPctVal = row.famPctVal, outsideAidVal = row.outsideAidVal, isOverridden = row.isOverridden;
+    var displayPct = tapDisplayFamPct(famPctVal, sp, tuition);
     var isPreview = !!row.preview;
     // A future-year preview row is fully editable, same inputs as a real row — Outside Aid,
     // Family Share %, and Timothy Award all save into the same per-year "pin" a real student's
@@ -752,7 +770,7 @@ function tapRenderPlannerTables() {
         // Family Share % is a typed figure, no drag slider — the numbers here are decided, not
         // dialed in, and a slider next to a number box is two controls for one value.
         + '<div class="tap-slider-row">'
-          + '<input type="number" min="0" max="100" step="1" value="' + famPctVal + '" oninput="tapSliderChange(this,' + s.id + ')">%'
+          + '<input type="number" min="0" max="100" step="1" value="' + displayPct + '" oninput="tapSliderChange(this,' + s.id + ')">%'
         + '</div>'
         + '<div class="tap-slider-caption">Family share of $' + Math.round(tuition).toLocaleString() + ' bill</div>'
       + '</td>'
