@@ -546,6 +546,75 @@ describe('resolveChurchYearPrecedence', () => {
   // Precedence involving 'import_activity' (the multi-year Statement of Activity import) is
   // covered by the dedicated CHURCH_SOURCE_PRIORITY test in the
   // 'findActivityMultiYearSheet / parseActivityMultiYearGrid' describe block below.
+
+  // A one-line correction (source='manual_actual_override', written by the new
+  // finance/church/actual-override endpoint — see the "correcting one line" describe block in
+  // test/finance-budget-plan.test.js) so a bookkeeper can fix a single account without
+  // re-uploading or re-syncing the whole year's file.
+  describe('manual_actual_override — a single-line correction layered over the winning source', () => {
+    it('replaces just the one account the override names, leaving every other synced row untouched', () => {
+      const rows = [
+        { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Expenses:50160 MDO Supplies', own_actual_cents: 0, own_budget_cents: 0 },
+        { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Expenses:57160 MDO - Supplies', own_actual_cents: 1500000, own_budget_cents: 1500000 },
+        { fiscal_year: 2026, source: 'manual_actual_override', category_path: 'Expenses:50160 MDO Supplies', own_actual_cents: 500 },
+      ];
+      const resolved = resolveChurchYearPrecedence(rows);
+      expect(resolved.length).toBe(2); // the override REPLACES its one match, never adds a third row
+      const corrected = resolved.find(r => r.category_path === 'Expenses:50160 MDO Supplies');
+      expect(corrected.own_actual_cents).toBe(500);
+      expect(corrected.source).toBe('manual_actual_override');
+      const untouched = resolved.find(r => r.category_path === 'Expenses:57160 MDO - Supplies');
+      expect(untouched.own_actual_cents).toBe(1500000);
+      expect(untouched.source).toBe('qbo_sync'); // NOT relabeled — only the corrected line is
+    });
+
+    it('does NOT become the only row surviving for the year (the failure mode a same-shaped priority tier would cause)', () => {
+      const rows = [
+        { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Income:A', own_actual_cents: 100 },
+        { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Income:B', own_actual_cents: 200 },
+        { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Income:C', own_actual_cents: 300 },
+        { fiscal_year: 2026, source: 'manual_actual_override', category_path: 'Income:A', own_actual_cents: 150 },
+      ];
+      const resolved = resolveChurchYearPrecedence(rows);
+      expect(resolved.length).toBe(3); // B and C must survive — a whole-source-priority tier would have deleted them
+      expect(resolved.find(r => r.category_path === 'Income:A').own_actual_cents).toBe(150);
+      expect(resolved.find(r => r.category_path === 'Income:B').own_actual_cents).toBe(200);
+      expect(resolved.find(r => r.category_path === 'Income:C').own_actual_cents).toBe(300);
+    });
+
+    it('falls back to import when there is no qbo_sync, and the override still applies on top', () => {
+      const rows = [
+        { fiscal_year: 2026, source: 'import', category_path: 'Income:A', own_actual_cents: 100 },
+        { fiscal_year: 2026, source: 'manual_actual_override', category_path: 'Income:A', own_actual_cents: 900 },
+      ];
+      const resolved = resolveChurchYearPrecedence(rows);
+      expect(resolved.length).toBe(1);
+      expect(resolved[0].own_actual_cents).toBe(900);
+    });
+
+    it('surfaces an override for an account with no row at all in the winning source', () => {
+      const rows = [
+        { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Income:A', own_actual_cents: 100 },
+        { fiscal_year: 2026, source: 'manual_actual_override', category_path: 'Income:Z (never synced)', own_actual_cents: 5000, classification: 'Income', account_name: 'Z (never synced)' },
+      ];
+      const resolved = resolveChurchYearPrecedence(rows);
+      expect(resolved.length).toBe(2);
+      const surfaced = resolved.find(r => r.category_path === 'Income:Z (never synced)');
+      expect(surfaced).toBeTruthy();
+      expect(surfaced.own_actual_cents).toBe(5000);
+    });
+
+    it('leaves a year with no override at all completely unaffected', () => {
+      const rows = [
+        { fiscal_year: 2026, source: 'qbo_sync', category_path: 'Income:A', own_actual_cents: 100 },
+        { fiscal_year: 2027, source: 'qbo_sync', category_path: 'Income:A', own_actual_cents: 200 },
+        { fiscal_year: 2027, source: 'manual_actual_override', category_path: 'Income:A', own_actual_cents: 999 },
+      ];
+      const resolved = resolveChurchYearPrecedence(rows);
+      expect(resolved.find(r => r.fiscal_year === 2026).own_actual_cents).toBe(100); // untouched — the override was only for 2027
+      expect(resolved.find(r => r.fiscal_year === 2027).own_actual_cents).toBe(999);
+    });
+  });
 });
 
 describe('computeYearSummary', () => {
