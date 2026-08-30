@@ -261,3 +261,98 @@ describe('handleFinanceApi — override-bulk', () => {
     expect(rows).toHaveLength(0);
   });
 });
+
+// Corrects one account's Actual for one year directly (the "let me fix this one line instead of
+// re-uploading the whole file" ask) — writes into finance_church_entries with
+// source='manual_actual_override', which resolveChurchYearPrecedence() (see
+// test/finance-church.test.js for the merge-logic tests) then layers over whichever source
+// actually won that year, so the correction is picked up everywhere Actual is read.
+describe('handleFinanceApi — finance/church/actual-override (FY{base} Actual column)', () => {
+  it('PUT writes a manual_actual_override row for the named account and year', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ year: 2026, rows: [
+      { category: 'Expenses:50160 MDO Supplies', classification: 'Expenses', account_name: '50160 MDO Supplies', amount: '5.00' },
+    ] }), {}, new URL('https://x/'), 'PUT', 'finance/church/actual-override', db, true, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.saved).toBe(1);
+    const rows = db._raw.prepare("SELECT * FROM finance_church_entries WHERE source='manual_actual_override'").all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].fiscal_year).toBe(2026);
+    expect(rows[0].period_month).toBe(0);
+    expect(rows[0].category_path).toBe('Expenses:50160 MDO Supplies');
+    expect(rows[0].own_actual_cents).toBe(500); // $5.00 -> 500 cents
+    expect(rows[0].own_budget_cents).toBeNull(); // never touches the Budget side, only Actual
+  });
+
+  it('keeps dollars-and-cents precision, unlike the whole-dollar-only Plan/Projected overrides', async () => {
+    const db = makeTestDb();
+    await handleFinanceApi(makeReq({ year: 2026, rows: [
+      { category: 'Income:40085 Sunday Offering', classification: 'Income', amount: '263586.47' },
+    ] }), {}, new URL('https://x/'), 'PUT', 'finance/church/actual-override', db, true, true);
+    const row = db._raw.prepare("SELECT own_actual_cents FROM finance_church_entries WHERE source='manual_actual_override'").get();
+    expect(row.own_actual_cents).toBe(26358647);
+  });
+
+  it('re-saving the same category and year replaces the row rather than adding a second one', async () => {
+    const db = makeTestDb();
+    await handleFinanceApi(makeReq({ year: 2026, rows: [{ category: 'Expenses:Utilities', amount: '100' }] }), {}, new URL('https://x/'), 'PUT', 'finance/church/actual-override', db, true, true);
+    await handleFinanceApi(makeReq({ year: 2026, rows: [{ category: 'Expenses:Utilities', amount: '250.50' }] }), {}, new URL('https://x/'), 'PUT', 'finance/church/actual-override', db, true, true);
+    const rows = db._raw.prepare("SELECT * FROM finance_church_entries WHERE source='manual_actual_override'").all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].own_actual_cents).toBe(25050);
+  });
+
+  it('an empty amount clears a previously-saved override', async () => {
+    const db = makeTestDb();
+    await handleFinanceApi(makeReq({ year: 2026, rows: [{ category: 'Expenses:Utilities', amount: '2000' }] }), {}, new URL('https://x/'), 'PUT', 'finance/church/actual-override', db, true, true);
+    const clearRes = await handleFinanceApi(makeReq({ year: 2026, rows: [{ category: 'Expenses:Utilities', amount: '' }] }), {}, new URL('https://x/'), 'PUT', 'finance/church/actual-override', db, true, true);
+    expect(clearRes.status).toBe(200);
+    const rows = db._raw.prepare("SELECT * FROM finance_church_entries WHERE source='manual_actual_override'").all();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('saves multiple corrected lines in one call', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ year: 2026, rows: [
+      { category: 'Expenses:A', amount: '10' },
+      { category: 'Expenses:B', amount: '20' },
+    ] }), {}, new URL('https://x/'), 'PUT', 'finance/church/actual-override', db, true, true);
+    const body = await res.json();
+    expect(body.saved).toBe(2);
+    const rows = db._raw.prepare("SELECT * FROM finance_church_entries WHERE source='manual_actual_override'").all();
+    expect(rows).toHaveLength(2);
+  });
+
+  it('never writes anything to a different year than the one requested', async () => {
+    const db = makeTestDb();
+    await handleFinanceApi(makeReq({ year: 2026, rows: [{ category: 'Expenses:Utilities', amount: '100' }] }), {}, new URL('https://x/'), 'PUT', 'finance/church/actual-override', db, true, true);
+    const otherYear = db._raw.prepare("SELECT * FROM finance_church_entries WHERE source='manual_actual_override' AND fiscal_year=2027").all();
+    expect(otherYear).toHaveLength(0);
+  });
+
+  it('rejects a non-admin write', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ year: 2026, rows: [{ category: 'Expenses:Utilities', amount: '100' }] }), {}, new URL('https://x/'), 'PUT', 'finance/church/actual-override', db, false, true);
+    expect(res.status).toBe(403);
+    const rows = db._raw.prepare('SELECT * FROM finance_church_entries').all();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('rejects a request with no rows', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ year: 2026, rows: [] }), {}, new URL('https://x/'), 'PUT', 'finance/church/actual-override', db, true, true);
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects the whole batch if one row is malformed, saving nothing', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi(makeReq({ year: 2026, rows: [
+      { category: 'Expenses:Utilities', amount: '100' },
+      { category: 'Expenses:BadAmount', amount: 'not-a-number' },
+    ] }), {}, new URL('https://x/'), 'PUT', 'finance/church/actual-override', db, true, true);
+    expect(res.status).toBe(400);
+    const rows = db._raw.prepare('SELECT * FROM finance_church_entries').all();
+    expect(rows).toHaveLength(0);
+  });
+});

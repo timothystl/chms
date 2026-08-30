@@ -554,6 +554,36 @@ it just reflects how much outside aid they happen to have (Daniel Dinger: $6,900
   **Not verified**: a live browser. (`src/frontend/js-tuition-aid.js`,
   `test/tuition-family-share-display.test.js`)
 
+### FIN69 — Planning: FY{base} Actual editable per line; dead $0.00/$0.00 accounts hidden (2026-08-30, DONE)
+Two asks off a live Planning screenshot. **(1)** "Could we edit one individual line [of FY{base}
+Actual] without having to reupload a file?" New `PUT /admin/api/finance/church/actual-override`
+(admin-only) writes a per-account correction into `finance_church_entries`
+(`source='manual_actual_override'`); `resolveChurchYearPrecedence()` layers it onto whichever
+source actually won that year as a REPLACEMENT of just the one `category_path` — deliberately NOT
+a new entry in `CHURCH_SOURCE_PRIORITY`, since that list picks one source's rows wholesale for a
+year and a same-shaped tier holding one edited line would delete every other account's actual for
+that year. So the fix is visible everywhere Actual is read (Church Report, Financial Health,
+Planning), not just the cell it was typed into, and survives a future re-sync/re-import. Planning's
+Actual column is now a live dollars-and-cents input, autosaved on the same debounce as Plan/
+Projected; group/subtotal/Net rows recompute live from it; blanking a cell clears the override.
+**(2)** "Wage and mdo supplies is an old duplicate name in quickbooks — the zero balance ones are
+junk data" — this church's QuickBooks carries "50160 MDO Supplies"/"50161 MDO Wages" (superseded,
+$0.00/$0.00 forever) alongside their real renamed replacements ("57160 MDO -
+Supplies"/"57161 MDO - Wages"). The existing "hide Unapplied Cash only when it's $0" rule
+(FIN58/FIN60) turned out to be the first named case of a general pattern, not a special one —
+generalized (`finPruneEmptyLeaves`, was `finPruneEmptyUnappliedCash`): any line at $0.00/$0.00 is
+dropped, whatever its name; a group is pruned only once every child under it is gone too.
+**Deliberately never prunes a top-level classification root itself** (Income/Expenses/Cost of
+Goods Sold/...) — an existing test caught exactly this the first pass (an all-zero synthetic
+Income/Expenses pair vanished outright); fixed by pruning within each root's own children, never
+the roots array. `npm test` (2014/2014, 30 new); every new test verified non-vacuous by reverting
+`src/api-finance.js`/`src/frontend/js-finance.js` to the pre-change version and confirming all 21
+directly-testable assertions fail (plus the whole `finance-church-tree.test.js` suite failing to
+load, from the renamed extraction target). `node --check` on all three built bundles, div-balance
+on the assembled `CHMS_HTML` (1120/1120). **Not verified**: a live browser. Full detail in
+NOTES.md v1.219.0. (`src/api-finance.js`, `src/frontend/js-finance.js`, `test/finance-church.test.js`,
+`test/finance-budget-plan.test.js`, `test/finance-qb-order.test.js`, `test/finance-church-tree.test.js`)
+
 ### SMS2 — Birthday/anniversary SMS actually sends now (was silently sending nothing since SMS1 shipped); two independent bugs fixed (2026-08-30, DONE — P1 of a 3-phase text-notifications request)
 Asked to explore adding text notifications to the app. Traced the existing SMS1 feature (birthday/
 anniversary texts) end to end before building anything new, and found it has never actually sent a
