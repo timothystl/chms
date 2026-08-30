@@ -232,6 +232,7 @@ function loadSettings() {
     el = document.getElementById('st-vol-phone'); if (el) el.value = d.volunteer_phone || '';
     el = document.getElementById('st-notify-new-signup'); if (el) el.checked = d.notify_new_signup === '1';
     el = document.getElementById('st-notify-weekly-digest'); if (el) el.checked = d.notify_weekly_digest === '1';
+    el = document.getElementById('st-sms-sender'); if (el) el.value = d.sms_sender_name || '';
   });
   api('/admin/api/tags').then(function(d) {
     allTags = d.tags || [];
@@ -303,6 +304,14 @@ function saveVolunteerSettings() {
   api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(d) {
     if (d.ok) { setStatus('st-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('st-status','');}, 2500); }
     else setStatus('st-status', 'Error: ' + (d.error||'unknown'), 'err');
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
+}
+function saveSmsSenderName() {
+  var v = (document.getElementById('st-sms-sender') || {}).value;
+  if (!v) { setStatus('sms-sender-status', 'Enter a sender name first.', 'err'); return; }
+  api('/admin/api/config/church', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({sms_sender_name: v})}).then(function(d) {
+    if (d.ok) { setStatus('sms-sender-status', 'Saved!', 'ok'); setTimeout(function(){setStatus('sms-sender-status','');}, 2500); }
+    else setStatus('sms-sender-status', 'Error: ' + (d.error||'unknown'), 'err');
   }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function renderLetterheadLogoState(ext) {

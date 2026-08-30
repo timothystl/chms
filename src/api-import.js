@@ -391,7 +391,7 @@ if (seg === 'config/church' && method === 'GET') {
   // already loads _churchConfig picks it up for free; it can only be SET via the dedicated
   // config/letterhead-logo upload/delete endpoints below, not this generic PUT.
   const publicKeys = ['church_from_name','church_from_email','giving_letter_template','giving_midyear_letter_template',
-    'online_giving_url','church_name','letterhead_logo_ext',
+    'online_giving_url','church_name','letterhead_logo_ext','sms_sender_name',
     'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
   const keys = isAdmin ? ['church_ein', ...publicKeys] : publicKeys;
   const rows = (await db.prepare(`SELECT key, value FROM chms_config WHERE key IN (${keys.map(()=>'?').join(',')})`).bind(...keys).all()).results || [];
@@ -424,7 +424,7 @@ if (seg === 'config/church' && method === 'GET') {
 if (seg === 'config/church' && method === 'PUT') {
   let b = {}; try { b = await req.json(); } catch {}
   const allowed = ['church_ein','church_from_name','church_from_email','giving_letter_template','giving_midyear_letter_template',
-    'online_giving_url','church_name',
+    'online_giving_url','church_name','sms_sender_name',
     'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
   // The two letter-template editors have no image-upload endpoint — an inserted image
   // (via the toolbar, or paste/drag-drop, which TinyMCE also embeds as base64 by default
@@ -442,6 +442,10 @@ if (seg === 'config/church' && method === 'PUT') {
     // see sanitizeLetterTemplateHtml() — before it ever reaches storage.
     if (b[k]) b[k] = sanitizeLetterTemplateHtml(String(b[k])).cleaned;
   }
+  // Brevo's alphanumeric SMS sender ID must be letters/digits only, max 11 chars — sanitize
+  // here rather than trusting the frontend's maxlength, since this is a real API constraint
+  // (a sender with a space or a 12th character 400s the whole send, not just this one field).
+  if (b.sms_sender_name) b.sms_sender_name = String(b.sms_sender_name).replace(/[^A-Za-z0-9]/g, '').slice(0, 11);
   for (const k of allowed) {
     // Only save non-empty values — preserves existing config if user saves with a blank field
     if (b[k]) {
