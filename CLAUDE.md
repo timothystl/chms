@@ -525,6 +525,34 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### TAP18 — Family Share % showed 81% next to a $0 Family Owed for a family whose outside aid exceeded their assigned share (2026-08-30, DONE)
+Reported live from the Tuition Aid Planner (Dinger family row): Family Share % showed 81% while
+Family Owed showed $0.00. Traced to the actual formula: `fam_pct` is stored/back-derived as
+`(outside aid + family owed) / tuition` (see the seed formula in `db.js` and `tapPctFromFamilyOwed`
+in `js-tuition-aid.js`) — this only represents "the family's assigned share" while their outside
+aid is smaller than that share. Once outside aid alone covers (or exceeds) it, family owed floors
+at $0 and the stored/back-derived % stops meaning anything about the family's own responsibility —
+it just reflects how much outside aid they happen to have (Daniel Dinger: $6,900 outside aid vs. an
+~$6,885 81%-of-tuition assigned share, $15 apart), which reads as contradictory next to "$0 owed."
+- **Asked the user how they wanted it resolved** (`AskUserQuestion`) rather than guess, since this
+  touches real financial-aid math for real families: display-only fix (keep every dollar amount
+  exactly as-is, just stop showing the misleading %) vs. netting outside aid out of tuition before
+  applying the family's % (a real math change that would raise/lower what some families owe) vs.
+  leaving it alone and just documenting it. **User chose the display-only fix.**
+- **New `tapDisplayFamPct(famPctVal, sp, tuition)`**: once a family's actual computed `familyOwed`
+  is $0, shows the true effective % (`familyOwed / tuition` — always 0% in that case) instead of
+  the inflated stored/back-derived number. Purely a render-time substitution in the K-8 planner
+  row's % `<input>` — the stored `fam_pct` field, every dollar amount, and how editing the % box /
+  Apply Aid Policy / Auto-Balance behave are all completely untouched. Also applied to the "sort by
+  Family Share %" column key, so sorting matches what's actually shown on screen rather than the
+  hidden stored figure.
+- `npm test` (1993/1993, 4 new in `test/tuition-family-share-display.test.js`, including the exact
+  reported Dinger repro, a normal non-floored case proving the fix doesn't touch rows where the
+  family genuinely owes something, an edge case with no outside aid at all, and the sort-order
+  fix). **Verified non-vacuous**: reverted the display substitution and confirmed the two
+  dependent tests fail (81%/100% instead of 0%), then restored. `node --check` on the touched file.
+  **Not verified**: a live browser. (`src/frontend/js-tuition-aid.js`,
+  `test/tuition-family-share-display.test.js`)
 ### FIN69 — Planning: FY{base} Actual editable per line; dead $0.00/$0.00 accounts hidden (2026-08-30, DONE)
 Two asks off a live Planning screenshot. **(1)** "Could we edit one individual line [of FY{base}
 Actual] without having to reupload a file?" New `PUT /admin/api/finance/church/actual-override`
