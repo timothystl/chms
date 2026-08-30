@@ -24,6 +24,24 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.218.0 — Mobile Admin: Scheduler screen, current/upcoming Sunday only (2026-08-30)
+
+MOB-ADMIN4 Phase 4. New read-only **Scheduler** screen on the phone-optimized Mobile Admin shell —
+scoped deliberately narrow per the user's own priority: "who's serving this Sunday, by role, and
+have they confirmed," not a phone port of the full desktop Scheduler tab. New
+`GET /admin/api/mobile/scheduler/this-sunday` (`src/api-mobile.js`), gated admin/staff only
+(narrower than the rest of Mobile Admin, matching the desktop Scheduler tab's own existing gate —
+no new permission-matrix item was added). Reads the current/upcoming Sunday's role assignments
+straight out of the `scheduler_data` blob table (`ws_schedule_v2`/`ws_people`/`ws_confirmations` —
+there's no relational schema for the schedule itself), resolves person names, and shows
+confirm/decline status labeled with an "as of" sync time since that snapshot can lag a volunteer's
+actual RSVP click until an admin re-syncs on desktop. `npm test` (1984/1989, 10 new in
+`test/mobile-scheduler.test.js`); every new test verified non-vacuous by injecting the exact
+regression it guards. `node --check` + tag-balance on the assembled `MOBILE_ADMIN_HTML`. **Not
+verified**: a live browser or a real phone. Full detail and reasoning under MOB-ADMIN4 → Phase 4 in
+CLAUDE.md. (`src/api-mobile.js`, `src/mobile-admin-html.js`, `src/frontend/js-core.js`,
+`test/mobile-scheduler.test.js`)
+
 ### v1.198.0 — New "volunteer" role: read-only access to the Volunteers screen only (2026-08-21)
 
 Requested to let someone test the Christmas Market public sign-up flow and then check, inside

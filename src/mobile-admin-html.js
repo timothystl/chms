@@ -170,6 +170,19 @@ a{text-decoration:none;}
 .giv-hist-sub{font-size:12px;color:var(--warm-gray);}
 .giv-hist-amt{font-size:14.5px;font-weight:700;color:var(--navy);}
 
+/* Scheduler */
+.sched-head{padding:2px 2px 4px;}
+.sched-date{font-weight:800;font-size:20px;color:var(--navy);}
+.sched-sub{font-size:12.5px;color:var(--warm-gray);margin-top:2px;}
+.sched-asof{font-size:11px;color:var(--warm-gray);margin-top:6px;}
+.sched-svc-title{font-weight:700;font-size:13px;color:var(--navy);padding:14px 16px 4px;}
+.sched-role-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--border);padding:10px 16px;}
+.sched-role-row:first-child{border-top:none;}
+.sched-role-name{font-size:13.5px;font-weight:600;color:var(--charcoal);}
+.sched-person-wrap{display:flex;align-items:center;gap:8px;}
+.sched-person{font-size:13.5px;color:var(--charcoal);text-align:right;}
+.sched-person.open{color:var(--warm-gray);font-style:italic;}
+
 /* Households */
 .hh-list-row{display:flex;align-items:center;gap:12px;background:none;border:none;border-top:1px solid var(--border);padding:11px 2px;cursor:pointer;text-align:left;width:100%;}
 .hh-list-name{font-size:14.5px;font-weight:600;color:var(--charcoal);}
@@ -205,6 +218,7 @@ a{text-decoration:none;}
     <button class="sb-item" data-nav="people"><span class="ic">&#9633;</span>People</button>
     <button class="sb-item" data-nav="attendance" data-requires="can_view_attendance"><span class="ic">&#10003;</span>Attendance</button>
     <button class="sb-item" data-nav="giving" data-requires="can_view_giving"><span class="ic">$</span>Giving</button>
+    <button class="sb-item" data-nav="scheduler" data-requires="can_view_scheduler"><span class="ic">&#128197;</span>Scheduler</button>
     <button class="sb-item" data-nav="households"><span class="ic">&#8962;</span>Households</button>
     <button class="sb-item" data-fullapp="1"><span class="ic">&#8801;</span>Full App</button>
   </div>
@@ -239,6 +253,7 @@ const state = {
   givForm: { personId: null, personName: '', personQuery: '', fundId: '', amount: '', method: 'cash', date: '', checkNumber: '', notes: '' },
   givPersonResults: [],
   givSaving: false,
+  sched: null,
   households: [],
   householdsTotal: 0,
   householdsOffset: 0,
@@ -613,6 +628,97 @@ async function attFormSave() {
   }
 }
 
+// ── Scheduler (read-only: the current/upcoming Sunday's assignments) ───────
+function schedStatusStyle(status) {
+  if (status === 'confirmed') return { bg: 'var(--pale-sage)', color: 'var(--sage-text)', label: 'Confirmed' };
+  if (status === 'declined') return { bg: 'rgba(184,92,58,.14)', color: 'var(--danger)', label: 'Declined' };
+  if (status === 'needs_changes') return { bg: 'var(--pale-gold)', color: 'var(--gold-text)', label: 'Needs changes' };
+  return { bg: 'var(--linen)', color: 'var(--warm-gray)', label: 'Pending' };
+}
+
+function schedFmtDate(dateStr) {
+  const t = new Date(dateStr + 'T12:00:00Z');
+  if (isNaN(t.getTime())) return dateStr;
+  return t.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+// scheduler_data.updated_at is a plain SQL datetime ('YYYY-MM-DD HH:MM:SS'), no timezone
+// marker — treat it as UTC, matching how it's written (SQLite's datetime('now')).
+function schedFmtAsOf(dateStr) {
+  if (!dateStr) return '';
+  const iso = dateStr.length === 19 ? dateStr.replace(' ', 'T') + 'Z' : dateStr;
+  const t = new Date(iso);
+  if (isNaN(t.getTime())) return '';
+  return t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' at '
+    + t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function schedRoleRowHtml(r) {
+  const st = schedStatusStyle(r.status);
+  const personHtml = r.person
+    ? '<span class="sched-person">' + esc(r.person.name) + '</span>'
+    : '<span class="sched-person open">Open</span>';
+  return '<div class="sched-role-row">'
+    + '<div class="sched-role-name">' + esc(r.role) + '</div>'
+    + '<div class="sched-person-wrap">' + personHtml
+    + (r.person ? '<span class="status-pill" style="background:' + st.bg + ';color:' + st.color + ';">' + esc(st.label) + '</span>' : '')
+    + '</div></div>';
+}
+
+async function loadScheduler() {
+  setTopbarTitle('Scheduler');
+  document.getElementById('content').innerHTML = '<div class="state-msg">Loading…</div>';
+  try {
+    state.sched = await api('/admin/api/mobile/scheduler/this-sunday');
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="state-msg">Could not load the schedule. ' + esc(e.message) + '</div>';
+    return;
+  }
+  renderScheduler();
+}
+
+function renderScheduler() {
+  setTopbarTitle('Scheduler');
+  const d = state.sched;
+  if (!d) { loadScheduler(); return; }
+  if (!d.has_schedule) {
+    document.getElementById('content').innerHTML = '<div class="mob-pad">'
+      + '<div class="state-msg">No schedule found for ' + esc(schedFmtDate(d.date_iso)) + ' yet.<br>Generate it from the full Scheduler tab.</div>'
+      + '</div>';
+    return;
+  }
+  const asOf = d.confirmations_as_of
+    ? ('Confirmations as of ' + esc(schedFmtAsOf(d.confirmations_as_of)))
+    : 'Confirmations have not synced from volunteer replies yet';
+  let bodyHtml = '';
+  if (d.kind === 'special') {
+    bodyHtml += '<div class="mob-card"><div class="mob-card-head"><b>' + esc(d.name || 'Special Service') + '</b></div>';
+    for (const s of d.services) {
+      bodyHtml += '<div class="sched-svc-title">' + esc(s.time || 'Service') + '</div>';
+      for (const r of s.roles) bodyHtml += schedRoleRowHtml(r);
+    }
+    bodyHtml += '</div>';
+  } else {
+    for (const s of d.services) {
+      bodyHtml += '<div class="mob-card"><div class="sched-svc-title">' + esc(s.svc_label) + '</div>';
+      for (const r of s.roles) bodyHtml += schedRoleRowHtml(r);
+      bodyHtml += '</div>';
+    }
+    if (d.shared_roles && d.shared_roles.length) {
+      bodyHtml += '<div class="mob-card"><div class="sched-svc-title">Both Services</div>';
+      for (const r of d.shared_roles) bodyHtml += schedRoleRowHtml(r);
+      bodyHtml += '</div>';
+    }
+  }
+  document.getElementById('content').innerHTML = '<div class="mob-pad">'
+    + '<div class="sched-head"><div class="sched-date">' + esc(schedFmtDate(d.date_iso)) + '</div>'
+    + '<div class="sched-sub">' + esc(d.counts.filled) + ' of ' + esc(d.counts.total) + ' roles filled'
+    + (d.counts.open ? ' · ' + esc(d.counts.open) + ' open' : '') + '</div>'
+    + '<div class="sched-asof">' + asOf + '</div></div>'
+    + bodyHtml
+    + '</div>';
+}
+
 // ── Giving ───────────────────────────────────────────────────────────────
 function todayISO() {
   const d = new Date();
@@ -863,6 +969,7 @@ function render() {
   else if (state.screen === 'person') renderPerson();
   else if (state.screen === 'attendance') renderAttendance();
   else if (state.screen === 'giving') renderGiving();
+  else if (state.screen === 'scheduler') { if (!state.sched) loadScheduler(); else renderScheduler(); }
   else if (state.screen === 'households') { if (!state.householdsLoaded) loadHouseholds(true); else renderHouseholds(); }
   else if (state.screen === 'household') renderHousehold();
 }
