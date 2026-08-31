@@ -47,7 +47,7 @@ All secrets are stored as Cloudflare Worker secrets (`wrangler secret put <NAME>
 - **Risk if leaked**: Ability to send email from the configured `EMAIL_FROM` address via Resend.
 
 ### `CHMS_INTAKE_API_KEY`
-- **Purpose**: Shared secret for intake API endpoints (`/api/intake/connect-card`, `/api/intake/prayer`). The website Worker passes this key to authenticate form submissions without a user session.
+- **Purpose**: Shared secret for intake API endpoints (`/api/intake/connect-card`, `/api/intake/prayer`) and the Christmas Market cross-app endpoints (`GET /api/signups/christmasmarket/summary`, `POST /api/signups/christmasmarket/toggle`). The website Worker passes this key to authenticate form submissions and the market's Volunteers-tab read/write without a user session.
 - **Format**: Any strong random string (≥32 chars).
 - **Rotation**: `wrangler secret put CHMS_INTAKE_API_KEY`, then update the same value in the website Worker.
 - **Risk if leaked**: Ability to create person records and prayer requests via the intake endpoints.

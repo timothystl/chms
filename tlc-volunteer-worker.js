@@ -15,7 +15,7 @@ import {
   handleVolunteerPending, handleVolunteerGeneralPending, handleVolunteerEventPending,
   handleSchedEmailSend, handleSchedRsvpStore, handleSchedRsvpSync, handleEsvPassage,
   handleSchedRsvpPortal, handleSchedRsvp, handleSchedBreezeProxy,
-  handleChristmasMarketSummary,
+  handleChristmasMarketSummary, handleChristmasMarketToggle,
 } from './src/api-scheduler.js';
 import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
 import { handleIntakeApi } from './src/api-intake.js';
@@ -251,6 +251,7 @@ function isSchedCorsPath(path) {
   if (path.startsWith('/api/')) {
     if (path === '/api/events' || path === '/api/ministry-roles') return false;
     if (path === '/api/signups/christmasmarket/summary') return false;
+    if (path === '/api/signups/christmasmarket/toggle') return false;
     if (path.startsWith('/api/intake/')) return false;
     return true;
   }
@@ -474,6 +475,17 @@ async function _fetch(req, env) {
         return await handleChristmasMarketSummary(req, env);
       } catch (e) {
         console.error('Market summary error:', e?.message, e?.stack);
+        return json({ error: 'Internal server error' }, 500, { 'Cache-Control': 'no-store' });
+      }
+    }
+    // The write twin — same shared secret, same server-to-server shape, same
+    // "must stay above the Breeze-proxy catch-all" reasoning. Lets the website
+    // repo's admin open/close market sign-ups without a second application.
+    if (path === '/api/signups/christmasmarket/toggle' && method === 'POST') {
+      try {
+        return await handleChristmasMarketToggle(req, env);
+      } catch (e) {
+        console.error('Market toggle error:', e?.message, e?.stack);
         return json({ error: 'Internal server error' }, 500, { 'Cache-Control': 'no-store' });
       }
     }

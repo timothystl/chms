@@ -24,6 +24,42 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### MKT2 — Christmas Market signup open/close, from the website admin (2026-08-31)
+
+The write twin of MKT1 below. Dinger, on the website repo's read-only Volunteers
+tab: he wanted a toggle there to also control whether Serve is taking market
+volunteer sign-ups — which, until now, could only be set from this app's own
+Scheduler screen (connect.timothystl.org/#volunteers). Backend only, same
+reasoning as MKT1: no frontend change, `DEPLOY_VERSION` not bumped.
+
+- **New `POST /api/signups/christmasmarket/toggle`, `{ "open": true|false }`**,
+  in `src/api-scheduler.js` beside `handleChristmasMarketSummary` — same event
+  lookup (`slug='christmasmarket'`, falling back to `name='Christmas Market'`),
+  same shared-secret auth (`X-Intake-Key` / `CHMS_INTAKE_API_KEY`), same
+  server-to-server-only shape (no CORS headers). It is the one other door onto
+  `serve_events.hidden` for this event — the same column the Scheduler screen's
+  own checkbox already writes, and the same column `handleSignup()` already
+  refuses a public sign-up against ("Registrations for this event are currently
+  on hold"). Nothing about what "closed" means changed; only who else can set it.
+- **⚠ A missing event is 404, not a silent no-op or a fabricated row.** The
+  market's Serve event might genuinely not be set up yet for the season — the
+  caller (the website repo's admin) needs to say so in plain words rather than
+  claim success or invent a placeholder event to toggle.
+- **`{ open }` in the body, not a header or a query string** — matches the shape
+  the website repo's own toggle already posts for its local `has_volunteers`
+  flag, so the one call it makes carries one clear boolean.
+- **Routed above the `/api/*` Breeze-proxy catch-all**, same trap
+  `/api/signups/christmasmarket/summary` is already worked around for — and
+  added to `isSchedCorsPath()`'s early-`false` list beside it, since this is
+  also never called from a browser.
+- `npm test` (2029/2029, 9 new in `test/market-signup-summary.test.js` — refusal
+  without/with a wrong key, 503 with no key configured, 400 on malformed JSON or
+  a non-boolean `open`, 404 with no event, closing, reopening, the by-name
+  fallback, and a round trip through the summary route itself confirming the two
+  routes agree). **Not verified**: a live call from the website Worker — see
+  that repo's own CLAUDE.md for the caller side of this.
+  (`src/api-scheduler.js`, `tlc-volunteer-worker.js`, `test/market-signup-summary.test.js`)
+
 ### v1.219.0 — Planning: FY{base} Actual is editable per line; dead $0.00/$0.00 accounts hidden (2026-08-30)
 
 Two asks off a live Planning ("Category by category") screenshot. **(1)** FY{base} Actual was
