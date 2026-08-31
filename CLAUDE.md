@@ -525,6 +525,36 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### SC19-FIX1 — ⚠ SC19's Grid-view fix targeted the wrong CSS property; real cause was a class-name collision with the app shell's own `.empty` rule (2026-08-31, DONE)
+User reported the exact same bug live, after SC19 (below) had already deployed and its
+`!important` hardening should have taken effect — proof the diagnosis was wrong, not that the
+deploy hadn't landed (confirmed the deploy for that merge succeeded before the report came in).
+**Root cause: a class-name collision, not a specificity fight.** ChMS's own global stylesheet
+(`html-head.js`) carries an **unscoped** `.empty { ...; grid-column:1/-1; }` rule for its own
+"no results" empty-states elsewhere in the app. CSS class matching has no concept of component
+boundaries — the scheduler's own unfilled grid cells carry the class `role-row gr-cell empty`
+(the scheduler's own convention for an open slot, coincidentally the same class name), so that
+outer rule reached straight into the embedded scheduler's DOM. **`.role-row.gr-cell` never set
+`grid-column` at all**, so the outer app's rule was the *only* declaration for that one property
+and won outright — regardless of every other property (`display`/`width`/`padding`/etc.) SC19's
+fix had already locked down with `!important`. Cascade resolves per-property, not per-rule: a
+rule can dominate on every property it actually sets and still lose on the one property it never
+mentioned. Fixed with one more rule, `.role-row.gr-cell.empty { grid-column: auto !important; ... }`
+— its specificity alone (four classes, scoped under `.sched-root`) already beats the bare
+`.empty` rule, so `!important` here is defense-in-depth, not load-bearing.
+`npm test` (2040/2040, 3 new in `test/scheduler-grid-empty-cell-column.test.js`, pinning the CSS
+source directly — the app shell really does still carry the colliding rule, the scheduler embed
+now sets its own `grid-column`, and the scoped selector's specificity is confirmed higher).
+**Verified non-vacuous**: removed the new rule and confirmed both dependent tests fail, then
+restored. `node --check` on the extracted served script; `scheduler/index.html` resynced.
+DEPLOY_VERSION bumped to 1.221.1. **Not verified**: a live browser — same standing caveat, though
+this fix is now grounded in an actual found collision rather than a guess. **Lesson for next
+time**: when a CSS layout bug survives a targeted specificity fix unchanged, check whether the
+element's class list collides with an UNRELATED, unscoped rule elsewhere in the same page's
+stylesheet before assuming the fix's own selector just needs more `!important`.
+(`src/scheduler-html.js`, `scheduler/index.html`, `src/frontend/js-core.js`,
+`test/scheduler-grid-empty-cell-column.test.js`)
+
 ### SC19 — New Month (Blank); pickBest tie-breaks now shuffled; Grid view empty cells stay under their column (2026-08-31, DONE)
 Three asks in one report. **(1)** "Generate Month" was the only way to create a new month's
 Sundays, and it always auto-fills every slot in the same step — no way to open a blank month, fill

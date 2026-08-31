@@ -593,6 +593,18 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
    cascade) and an empty cell's longer "— assign — / OPEN" content is exactly
    what exposes it — a filled cell's short name never shows the gap. */
 .role-row.gr-cell { display:flex !important; flex-direction:column !important; align-items:flex-start !important; justify-content:center !important; gap:3px; min-height:58px !important; padding:8px 10px !important; margin:0 !important; min-width:0 !important; width:100% !important; max-width:100%; box-sizing:border-box; }
+.role-row.gr-cell.empty { grid-column: auto !important; text-align: left !important; padding: 8px 10px !important; }
+/* ⚠ The real cause of the empty cells spanning the whole grid: ChMS's own
+   global stylesheet (html-head.js) has an UNSCOPED ".empty" rule for its own
+   "no results" empty-states, which sets grid-column:1/-1. That class name
+   collides with our own "role-row gr-cell empty" — CSS class matching has no
+   concept of component boundaries, so the outer app's rule reaches straight
+   into the scheduler's DOM. .role-row.gr-cell never set grid-column at all,
+   so that outer rule was the only declaration for it and won outright — every
+   open slot spanned every column and the grid auto-placed each one onto its
+   own row. Do not remove this even if the outer rule is later renamed; a
+   grid item should never be silently placed by a class it doesn't own. */
+
 .gr-cell-top { display:flex; align-items:center; gap:5px; min-width:0; max-width:100%; }
 .gr-cell .rr-name { font-size:.88rem; }
 .gr-open { font-size:.68rem; font-weight:700; color:var(--danger-btn); text-transform:uppercase; letter-spacing:.04em; font-family: var(--font-body); }
