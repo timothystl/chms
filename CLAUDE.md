@@ -525,6 +525,40 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### SC19-FIX3 — Auto scheduler wasn't prioritizing preferred Sundays; Auto-Fill silently ignored role-specific overrides (2026-08-31, DONE)
+Reported after SC19's rotation-fairness shuffle shipped: people weren't being put in first for
+their preferred Sundays anymore, were landing on "off" Sundays, and the same (flexible) people
+were getting picked multiple times a month. Two real, distinct causes.
+- **`pickBest()` only ever compared load (counts), never constraint.** Before SC19, ties were
+  always broken by roster order — which, by coincidence, tended to favor whoever was entered
+  earlier, and for a small roster that sometimes lined up with "the restricted person wins."
+  SC19's shuffle fix (for the *separate*, real "some people never rotate in" bug) removed that
+  accidental correlation, exposing the actual gap: an "Any Sunday" person tied on count with
+  someone whose ONLY eligible day this month was the Sunday being filled had a fair coin-flip
+  chance of winning it — and since the flexible person is equally "eligible" on every OTHER
+  Sunday too, they kept winning, both displacing the constrained person from their one chance
+  and stacking up multiple assignments across the month. New `personConstraintScore(person,
+  role)` (size of the role-specific override if one's set, else the global `preferredSundays`
+  list, `Infinity` for "Any Sunday") is now a SECONDARY sort key in `pickBest()` — count still
+  decides first (so an overused constrained person doesn't jump an underused flexible one), and
+  only among people tied on count does the more constrained candidate win. Remaining ties (equal
+  count AND equal constraint) still shuffle, per SC19.
+- **`autoFillSchedule()`'s two `eligible()` calls never passed `role` at all** — the 5th
+  parameter that selects a role-specific Sunday override over the person's broader global
+  preference. `generateSchedule()`'s own calls already passed it correctly; Auto-Fill's didn't,
+  so a per-role restriction was silently ignored there and fell back to whatever the person's
+  global preference allowed — a second, independent way to land someone on an "off" Sunday for
+  that specific role. Fixed both call sites to match `generateSchedule()`'s.
+`npm test` (2044/2044, 6 new in `test/scheduler-blank-month-rotation.test.js`, run against the
+real served `<script>`). **Every new test verified non-vacuous**: reverted `pickBest()`'s
+constraint tie-break and confirmed both constraint-priority tests fail (one initially passed by
+luck of a single-trial shuffle and was rewritten to loop 50 trials, matching the pattern SC19's
+own rotation test already used); reverted one `eligible()` call's `role` arg and confirmed the
+static-source regression test catches it. Both restored. `node --check` on the extracted served
+script; `scheduler/index.html` resynced. DEPLOY_VERSION bumped to 1.221.3. **Not verified**: a
+live browser. (`src/scheduler-html.js`, `scheduler/index.html`, `src/frontend/js-core.js`,
+`test/scheduler-blank-month-rotation.test.js`)
+
 ### SC19-FIX2 — Grid view spacing loosened (2026-08-31, DONE)
 User feedback once the column-collision fix (SC19-FIX1) was live and correctly rendered: the
 grid read as "ever so tight." Pure spacing pass, no layout-mechanism change: `.gr-row` gap

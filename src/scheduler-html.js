@@ -2800,10 +2800,31 @@ function shuffleInPlace(arr) {
   }
   return arr;
 }
-function pickBest(pool, counts) {
+// How restricted is this person's availability for this role — the size of the
+// preferred-Sundays list actually in effect (a role-specific override, else the
+// global preference), or Infinity for "Any Sunday" (unrestricted). Smaller is
+// MORE constrained, and pickBest sorts constrained people first: someone who
+// can only ever serve the 2nd Sunday should win that slot over an "Any Sunday"
+// person who has every other Sunday open to fall back to instead. Without this,
+// pickBest only ever compared load (counts), so a flexible person tied on count
+// won just as often as the one person this Sunday is their only chance for —
+// which read as "preferred Sundays aren't respected" and, since the flexible
+// winner keeps winning ties across the Sundays they ARE free for, also as
+// "the same person keeps getting picked multiple times a month."
+function personConstraintScore(person, role) {
+  var sundays = (role && person.roleSundayOverrides && person.roleSundayOverrides[role] && person.roleSundayOverrides[role].length > 0)
+    ? person.roleSundayOverrides[role]
+    : (person.preferredSundays || []);
+  return sundays.length > 0 ? sundays.length : Infinity;
+}
+function pickBest(pool, counts, role) {
   if (!pool.length) return null;
   shuffleInPlace(pool);
-  pool.sort(function(a,b){ return (counts[a.id]||0)-(counts[b.id]||0); });
+  pool.sort(function(a,b){
+    var byCount = (counts[a.id]||0)-(counts[b.id]||0);
+    if (byCount !== 0) return byCount;
+    return personConstraintScore(a,role) - personConstraintScore(b,role);
+  });
   return pool[0];
 }
 
@@ -2899,7 +2920,7 @@ function generateSchedule() {
         picked = ((primary.blackoutDates||[]).indexOf(dateISO)!==-1 || isOnAbsence(primary,dateISO)) ? null : primary;
       } else {
         var pool = people.filter(function(p){ return p.roles.indexOf(role)>-1 && eligible(p,ordinal,'shared',dateISO,role); });
-        picked = pickBest(pool, counts);
+        picked = pickBest(pool, counts, role);
       }
       assignments[role] = {shared: picked ? picked.id : null};
       if (picked) {
@@ -2926,7 +2947,7 @@ function generateSchedule() {
           var pool = people.filter(function(p){
             return p.roles.indexOf(role)>-1 && eligible(p,ordinal,svc,dateISO,role) && !usedIds[p.id] && !usedThisService[svc][p.id];
           });
-          picked = pickBest(pool, counts);
+          picked = pickBest(pool, counts, role);
         }
         assignments[role][svc] = picked ? picked.id : null;
         if (picked) { counts[picked.id]++; usedIds[picked.id]=true; usedThisService[svc][picked.id]=true; }
@@ -7266,8 +7287,14 @@ function autoFillSchedule() {
 
     SHARED_ROLES.forEach(function(role) {
       if (row.assignments[role].shared) return;
-      var pool = people.filter(function(p){ return p.roles.indexOf(role)>-1 && eligible(p,ordinal,'shared',dateISO); });
-      var picked = pickBest(pool, counts);
+      // ⚠ Must pass role to eligible() — the 5th arg is what selects a
+      // role-specific preferred-Sunday override over the person's global
+      // preference. Without it, a per-role restriction was silently ignored
+      // during Auto-Fill (generateSchedule's own calls already passed it),
+      // which is exactly how someone ends up on a Sunday they'd restricted
+      // themselves off of for THIS role specifically.
+      var pool = people.filter(function(p){ return p.roles.indexOf(role)>-1 && eligible(p,ordinal,'shared',dateISO,role); });
+      var picked = pickBest(pool, counts, role);
       if (picked) {
         row.assignments[role].shared = picked.id; counts[picked.id]++; filled++;
         usedThisService['8am'][picked.id] = true; usedThisService['10:45am'][picked.id] = true;
@@ -7278,9 +7305,9 @@ function autoFillSchedule() {
       ['8am','10:45am'].forEach(function(svc) {
         if (row.assignments[role][svc]) { usedForRole[row.assignments[role][svc]] = true; return; }
         var pool = people.filter(function(p){
-          return p.roles.indexOf(role)>-1 && eligible(p,ordinal,svc,dateISO) && !usedForRole[p.id] && !usedThisService[svc][p.id];
+          return p.roles.indexOf(role)>-1 && eligible(p,ordinal,svc,dateISO,role) && !usedForRole[p.id] && !usedThisService[svc][p.id];
         });
-        var picked = pickBest(pool, counts);
+        var picked = pickBest(pool, counts, role);
         if (picked) {
           row.assignments[role][svc] = picked.id; counts[picked.id]++; filled++;
           usedForRole[picked.id] = true; usedThisService[svc][picked.id] = true;
