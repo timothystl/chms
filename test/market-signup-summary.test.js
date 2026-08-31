@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  handleChristmasMarketSummary, buildMarketSummary, marketShiftLabel,
+  handleChristmasMarketSummary, handleChristmasMarketToggle, buildMarketSummary, marketShiftLabel,
 } from '../src/api-scheduler.js';
 
 // Minimal D1-shaped wrapper around node:sqlite, same pattern as
@@ -72,6 +72,18 @@ function reqWith(key) {
   const headers = new Map(key === undefined ? [] : [['X-Intake-Key', key]]);
   headers.get = Map.prototype.get.bind(headers);
   return { headers };
+}
+
+// Same shape as reqWith, plus a body for the toggle route's own req.json().
+// `body` can be a plain object (JSON.stringify'd and re-parsed, same as a
+// real request) or, for the malformed-JSON case, left undefined so req.json()
+// throws exactly the way a real empty/garbled body would.
+function postReqWith(key, body) {
+  const req = reqWith(key);
+  req.json = body === undefined
+    ? async () => { throw new SyntaxError('Unexpected end of JSON input'); }
+    : async () => JSON.parse(JSON.stringify(body));
+  return req;
 }
 
 function seedMarket(db, { hidden = 0, slug = 'christmasmarket' } = {}) {
@@ -235,6 +247,96 @@ describe('GET /api/signups/christmasmarket/summary', () => {
     const d = await (await handleChristmasMarketSummary(reqWith(KEY), env)).json();
     expect(d.open).toBe(true);
     expect(d.roles.length).toBeGreaterThan(0);
+  });
+});
+
+describe('POST /api/signups/christmasmarket/toggle', () => {
+  let db, env;
+  beforeEach(() => {
+    db = makeTestDb();
+    env = { DB: db, CHMS_INTAKE_API_KEY: KEY };
+  });
+
+  it('refuses a request with no shared secret', async () => {
+    seedMarket(db);
+    const res = await handleChristmasMarketToggle(postReqWith(undefined, { open: false }), env);
+    expect(res.status).toBe(401);
+  });
+
+  it('refuses a wrong shared secret', async () => {
+    seedMarket(db);
+    const res = await handleChristmasMarketToggle(postReqWith('nope', { open: false }), env);
+    expect(res.status).toBe(401);
+  });
+
+  it('answers 503 rather than accepting a write when the key is unset on this Worker', async () => {
+    seedMarket(db);
+    const res = await handleChristmasMarketToggle(postReqWith(KEY, { open: false }), { DB: db });
+    expect(res.status).toBe(503);
+  });
+
+  it('refuses malformed JSON', async () => {
+    seedMarket(db);
+    const res = await handleChristmasMarketToggle(postReqWith(KEY, undefined), env);
+    expect(res.status).toBe(400);
+  });
+
+  it('refuses a body with no boolean "open"', async () => {
+    seedMarket(db);
+    for (const body of [{}, { open: 'yes' }, { open: 1 }, { open: null }]) {
+      const res = await handleChristmasMarketToggle(postReqWith(KEY, body), env);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+  });
+
+  it('says plainly when there is no Christmas Market event yet in Serve, rather than pretending it worked', async () => {
+    // No seedMarket() call — the table is empty.
+    const res = await handleChristmasMarketToggle(postReqWith(KEY, { open: false }), env);
+    expect(res.status).toBe(404);
+    // And nothing was silently created to "fix" it.
+    expect(db._raw.prepare('SELECT COUNT(*) AS n FROM serve_events').get().n).toBe(0);
+  });
+
+  it('closes an open event — hidden goes from 0 to 1', async () => {
+    const evId = seedMarket(db, { hidden: 0 });
+    const res = await handleChristmasMarketToggle(postReqWith(KEY, { open: false }), env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ open: false });
+    expect(db._raw.prepare('SELECT hidden FROM serve_events WHERE id = ?').get(evId).hidden).toBe(1);
+  });
+
+  it('reopens a closed event — hidden goes from 1 back to 0', async () => {
+    const evId = seedMarket(db, { hidden: 1 });
+    const res = await handleChristmasMarketToggle(postReqWith(KEY, { open: true }), env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ open: true });
+    expect(db._raw.prepare('SELECT hidden FROM serve_events WHERE id = ?').get(evId).hidden).toBe(0);
+  });
+
+  // ⚠ THE PUBLIC SIGN-UP PATH HAS TO ACTUALLY HONOR IT — this route is only
+  // worth having if flipping `hidden` here is the same fact handleSignup()
+  // already checks server-side. Verified directly rather than assumed.
+  it('is the exact fact the public signup route already refuses on', async () => {
+    const evId = seedMarket(db, { hidden: 0 });
+    await handleChristmasMarketToggle(postReqWith(KEY, { open: false }), env);
+    const row = db._raw.prepare('SELECT hidden FROM serve_events WHERE id = ?').get(evId);
+    expect(row.hidden).toBe(1);
+    // handleSignup()'s own gate: `if (evCheck && evCheck.hidden) { ...409... }`.
+    expect(!!row.hidden).toBe(true);
+  });
+
+  it('finds the event by name when no slug has been set, same lookup as the summary route', async () => {
+    const evId = seedMarket(db, { slug: '', hidden: 0 });
+    const res = await handleChristmasMarketToggle(postReqWith(KEY, { open: false }), env);
+    expect(res.status).toBe(200);
+    expect(db._raw.prepare('SELECT hidden FROM serve_events WHERE id = ?').get(evId).hidden).toBe(1);
+  });
+
+  it('round-trips through the summary route — closing here reads back as closed there', async () => {
+    seedMarket(db, { hidden: 0 });
+    await handleChristmasMarketToggle(postReqWith(KEY, { open: false }), env);
+    const summary = await (await handleChristmasMarketSummary(reqWith(KEY), env)).json();
+    expect(summary.open).toBe(false);
   });
 });
 

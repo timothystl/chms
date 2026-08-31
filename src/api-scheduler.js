@@ -252,6 +252,52 @@ export async function handleChristmasMarketSummary(req, env) {
   });
 }
 
+// ── CHRISTMAS MARKET SIGNUP OPEN/CLOSE (cross-Worker, write) ──────────
+// POST /api/signups/christmasmarket/toggle  { "open": true|false }
+//
+// The write twin of handleChristmasMarketSummary above — same event lookup,
+// same shared-secret auth (X-Intake-Key / env.CHMS_INTAKE_API_KEY), same
+// server-to-server-only shape (no CORS headers, matching /api/intake/*). It
+// exists because admin.timothystl.org's Christmas Market → Volunteers tab
+// used to only ever READ `hidden` and never had a way to set it — the only
+// door onto "is Serve taking market volunteer sign-ups" was Connect's own
+// Scheduler screen (connect.timothystl.org/#volunteers). This is the second
+// door, so the coordinator does not have to open a second application to
+// pause the roster for the year.
+//
+// `hidden` is exactly what handleSignup() already checks server-side (see
+// "Registrations for this event are currently on hold" above) and what the
+// public event pages already render around — this route changes nothing
+// about how "closed" behaves, only who else can flip it.
+export async function handleChristmasMarketToggle(req, env) {
+  const expectedKey = env.CHMS_INTAKE_API_KEY || '';
+  if (!expectedKey) return noStoreJson({ error: 'Intake not configured' }, 503);
+  if (!(await timingSafeEqual(req.headers.get('X-Intake-Key') || '', expectedKey))) {
+    return noStoreJson({ error: 'Unauthorized' }, 401);
+  }
+
+  let data;
+  try { data = await req.json(); } catch { return noStoreJson({ error: 'Invalid JSON' }, 400); }
+  if (typeof data.open !== 'boolean') {
+    return noStoreJson({ error: '"open" (boolean) is required' }, 400);
+  }
+
+  // Same lookup as the summary route, by design — the two must never be able
+  // to disagree about which row is "the" Christmas Market.
+  const ev = await env.DB.prepare(
+    "SELECT id FROM serve_events WHERE slug=? OR name=? ORDER BY (slug=?) DESC, id LIMIT 1"
+  ).bind(XMAS_MARKET_SLUG, XMAS_MARKET_NAME, XMAS_MARKET_SLUG).first();
+  // ⚠ NO EVENT TO TOGGLE IS A REAL STATE, NOT AN ERROR THE CALLER CAUSED —
+  // the market's Serve event might not be set up yet for the season. A 404
+  // lets the website repo's admin say so in plain words rather than reading
+  // it as its own bug.
+  if (!ev) return noStoreJson({ error: 'No Christmas Market event exists yet in Serve.' }, 404);
+
+  const hidden = data.open ? 0 : 1;
+  await env.DB.prepare('UPDATE serve_events SET hidden = ? WHERE id = ?').bind(hidden, ev.id).run();
+  return noStoreJson({ open: !hidden });
+}
+
 // ── RATE LIMITING ─────────────────────────────────────────────────────
 // Allows max 10 signups per IP per hour using KV as a counter store.
 export async function checkSignupRateLimit(env, req) {
