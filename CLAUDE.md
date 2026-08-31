@@ -525,6 +525,19 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### SC19-FIX2 — Grid view spacing loosened (2026-08-31, DONE)
+User feedback once the column-collision fix (SC19-FIX1) was live and correctly rendered: the
+grid read as "ever so tight." Pure spacing pass, no layout-mechanism change: `.gr-row` gap
+6px→10px, row margin-bottom 6px→10px, `.gr-cell` padding 8px 10px→10px 13px, min-height
+58px→64px, `.gr-rowlbl` padding 9px 12px→10px 14px, day-column min width `minmax(150px,1fr)`→
+`minmax(168px,1fr)`, role-label column 184px→190px, `.fw-grid-pane` min-width 940px→1040px (so
+the wider columns don't just get squeezed back down under the same floor).
+`npm test` (2040/2040, unchanged — pure CSS values, nothing new to assert beyond what
+`scheduler-grid-view.test.js`/`scheduler-grid-empty-cell-column.test.js` already pin structurally).
+`node --check` on the extracted served script; `scheduler/index.html` resynced. DEPLOY_VERSION
+bumped to 1.221.2. **Not verified**: a live browser. (`src/scheduler-html.js`,
+`scheduler/index.html`, `src/frontend/js-core.js`)
+
 ### SC19-FIX1 — ⚠ SC19's Grid-view fix targeted the wrong CSS property; real cause was a class-name collision with the app shell's own `.empty` rule (2026-08-31, DONE)
 User reported the exact same bug live, after SC19 (below) had already deployed and its
 `!important` hardening should have taken effect — proof the diagnosis was wrong, not that the

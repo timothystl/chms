@@ -567,8 +567,8 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .fw-gstat-open { color:var(--danger-btn); }
 .fw-gstat-ok { color:var(--sage); }
 .fw-grid-scroll { background:var(--white); border:1px solid var(--border); border-radius:12px; overflow-x:auto; }
-.fw-grid-pane { min-width:940px; padding:14px 16px 18px; }
-.gr-row { display:grid; gap:6px; margin-bottom:6px; align-items:stretch; }
+.fw-grid-pane { min-width:1040px; padding:14px 16px 18px; }
+.gr-row { display:grid; gap:10px; margin-bottom:10px; align-items:stretch; }
 .gr-head { padding-bottom:8px; margin-bottom:4px; border-bottom:1px solid var(--border); align-items:end; }
 .gr-corner, .gr-rowlbl, .gr-footlbl { position:sticky; left:0; z-index:2; background:var(--white); }
 .gr-corner, .gr-footlbl { font-size:.68rem; font-weight:700; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.05em; align-self:center; font-family: var(--font-body); }
@@ -580,7 +580,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .gr-pill-open { background:var(--pale-gold); color:var(--on-pale-gold); border:1px solid var(--honey); }
 .gr-pill-full { background:var(--pale-sage); color:var(--on-pale-sage); border:1px solid var(--soft-sage); }
 .gr-band { font-size:.75rem; font-weight:700; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.05em; margin:16px 0 8px; font-family: var(--font-body); }
-.gr-rowlbl { background:var(--linen); border:1px solid var(--border); border-radius:10px; padding:9px 12px; display:flex; flex-direction:column; justify-content:center; gap:2px; }
+.gr-rowlbl { background:var(--linen); border:1px solid var(--border); border-radius:10px; padding:10px 14px; display:flex; flex-direction:column; justify-content:center; gap:3px; }
 .gr-rowlbl-name { font-size:.88rem; font-weight:700; color:var(--steel-anchor); font-family: var(--font-body); }
 .gr-rowlbl-cov { font-size:.7rem; color:var(--warm-gray); }
 /* Overrides the base .role-row flex bar — same class, so the click delegation,
@@ -590,8 +590,8 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
    min-height:56px otherwise still apply here (equal specificity, later in the
    cascade) and an empty cell's longer "— assign — / OPEN" content is exactly
    what exposes it — a filled cell's short name never shows the gap. */
-.role-row.gr-cell { display:flex !important; flex-direction:column !important; align-items:flex-start !important; justify-content:center !important; gap:3px; min-height:58px !important; padding:8px 10px !important; margin:0 !important; min-width:0 !important; width:100% !important; max-width:100%; box-sizing:border-box; }
-.role-row.gr-cell.empty { grid-column: auto !important; text-align: left !important; padding: 8px 10px !important; }
+.role-row.gr-cell { display:flex !important; flex-direction:column !important; align-items:flex-start !important; justify-content:center !important; gap:4px; min-height:64px !important; padding:10px 13px !important; margin:0 !important; min-width:0 !important; width:100% !important; max-width:100%; box-sizing:border-box; }
+.role-row.gr-cell.empty { grid-column: auto !important; text-align: left !important; padding: 10px 13px !important; }
 /* ⚠ The real cause of the empty cells spanning the whole grid: ChMS's own
    global stylesheet (html-head.js) has an UNSCOPED ".empty" rule for its own
    "no results" empty-states, which sets grid-column:1/-1. That class name
@@ -3628,7 +3628,7 @@ function focusWeekGridHtml(pMap) {
   }
 
   var confs = getConfirmations();
-  var tmpl = 'grid-template-columns:184px repeat(' + cols.length + ', minmax(150px, 1fr));';
+  var tmpl = 'grid-template-columns:190px repeat(' + cols.length + ', minmax(168px, 1fr));';
 
   // Per-column tallies, and the month totals derived from the same walk so the
   // chips can never claim a total the columns beneath them do not add up to.
