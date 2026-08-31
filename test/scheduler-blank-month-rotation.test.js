@@ -193,3 +193,69 @@ describe('pickBest rotation fairness — tie-breaks are shuffled, not roster ord
     expect(ctx.pickBest([], {})).toBeNull();
   });
 });
+
+// Reported live: the auto scheduler stopped putting people in on their
+// preferred Sundays first, put them on off Sundays instead, and the same
+// (flexible) volunteers kept showing up multiple times a month. Two real
+// causes, both fixed together: (1) pickBest() only ever compared load
+// (counts), so an "Any Sunday" person tied on count with someone whose ONLY
+// eligible day this month was the one being filled had an even chance of
+// winning it — and kept winning, since they're tied-and-flexible on every
+// OTHER Sunday too; (2) autoFillSchedule()'s two eligible() calls never
+// passed `role`, so a role-specific Sunday override was silently ignored
+// there (falling back to the person's broader global preference) even
+// though generateSchedule()'s own calls already passed it correctly.
+describe('pickBest prioritizes constrained availability over flexible', () => {
+  function person(id, preferredSundays) {
+    return { id, name: id, preferredSundays: preferredSundays || [] };
+  }
+
+  it('a person restricted to this Sunday wins over an "Any Sunday" person at equal count', () => {
+    const { ctx } = runScheduler();
+    const restricted = person('restricted', [2]); // only the 2nd Sunday
+    const flexible = person('flexible', []);       // any Sunday
+    const counts = { restricted: 0, flexible: 0 };
+    // Run many trials — before the fix this was a coin flip (shuffled tie);
+    // after the fix the constrained person should win every time.
+    for (let trial = 0; trial < 50; trial++) {
+      const picked = ctx.pickBest([person('restricted', [2]), person('flexible', [])], counts);
+      expect(picked.id).toBe('restricted');
+    }
+  });
+
+  it('count still dominates constraint — an already-overused restricted person does not jump the flexible one', () => {
+    const { ctx } = runScheduler();
+    const restricted = person('restricted', [2]);
+    const flexible = person('flexible', []);
+    const counts = { restricted: 3, flexible: 0 };
+    const picked = ctx.pickBest([restricted, flexible], counts);
+    expect(picked.id).toBe('flexible');
+  });
+
+  it('a role-specific Sunday override outranks the global preference for constraint scoring', () => {
+    const { ctx } = runScheduler();
+    const counts = { a: 0, b: 0 };
+    for (let trial = 0; trial < 50; trial++) {
+      const overridden = { id: 'a', name: 'a', preferredSundays: [], roleSundayOverrides: { Elder: [3] } };
+      const flexible = { id: 'b', name: 'b', preferredSundays: [] };
+      const picked = ctx.pickBest([overridden, flexible], counts, 'Elder');
+      expect(picked.id).toBe('a');
+    }
+  });
+});
+
+describe('autoFillSchedule respects role-specific Sunday overrides (regression)', () => {
+  it('eligible() is called with the role for both SHARED_ROLES and PER_ROLES pools', () => {
+    // Static check against the served source: both autoFillSchedule pools must
+    // pass the 5th arg to eligible(), matching generateSchedule's own calls —
+    // this is what makes a role-specific override actually take effect during
+    // Auto-Fill instead of silently falling back to the global preference.
+    expect(SERVED_JS).toMatch(/eligible\(p,ordinal,'shared',dateISO,role\)/);
+    expect(SERVED_JS).toMatch(/eligible\(p,ordinal,svc,dateISO,role\)/g);
+    // Every eligible(...) call inside this file must end in ",role)" or
+    // ",role);" — a bare ",dateISO)" with no role arg is the regression.
+    const calls = SERVED_JS.match(/eligible\(p,ordinal,[^)]*\)/g) || [];
+    expect(calls.length).toBeGreaterThan(0);
+    calls.forEach((call) => { expect(call).toMatch(/,role\)$/); });
+  });
+});
