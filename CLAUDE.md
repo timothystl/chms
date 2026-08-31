@@ -525,6 +525,43 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### SC19 — New Month (Blank); pickBest tie-breaks now shuffled; Grid view empty cells stay under their column (2026-08-31, DONE)
+Three asks in one report. **(1)** "Generate Month" was the only way to create a new month's
+Sundays, and it always auto-fills every slot in the same step — no way to open a blank month, fill
+some slots by hand, and Auto-Fill the rest afterward. New **+ New Month (Blank)** button
+(`newBlankMonth()`) builds the month's Sunday rows with every role/service left `null` — no
+`pickBest()` call at all, verified by a test that stubs `pickBest` and asserts it's never invoked.
+Existing specials for the month are kept; an already-filled month is archived to History first
+(same confirm-before-overwrite shape `generateSchedule()` already uses). Auto-Fill (`autoFillSchedule()`)
+was already skip-if-filled per role/service (SC8), so it needed no change — it's exactly the "fill
+the rest" step this new button sets up. **(2)** "Some people are not falling a rotation as much as
+others": traced to `pickBest()` — `Array.sort` is stable, and the pool is built by filtering the
+People array in its stored order, so a tie (most commonly several people all still at count 0) was
+always won by whoever appears earliest in the roster. Counts reset to 0 on every new month's
+Generate/Auto-Fill, so the same early-roster people won the first tie every single month,
+compounding over time. New `shuffleInPlace()` (Fisher–Yates) shuffles the pool before the stable
+count-sort, so tie-breaks vary run to run instead of always favoring roster order — deliberately
+NOT a reintroduction of the `ws_last_served`-based cross-month sorting SC9 removed (that was a
+recency bias overriding programmed availability; this only randomizes ties among people who are
+otherwise equally loaded within the run being built). **(3)** Grid view: empty ("— assign — /
+OPEN") cells were rendering as full-width bars instead of staying inside their Sunday's column.
+`.role-row.gr-cell`'s layout properties (`display`/`flex-direction`/`width`/`min-height`/etc.) had
+no `!important`, so `.role-row`'s own `width:100%`-plus-block declarations (equal specificity, same
+class, later in the cascade for some properties) could still leak through — a filled cell's short
+name never showed the gap, but a longer-content empty cell did. Hardened the cell rule with
+`!important` on every sizing/layout property plus an explicit `width:100% !important;
+box-sizing:border-box` so a grid cell can never escape its own column track regardless of any
+cascade ordering surprise elsewhere in the stylesheet.
+`npm test` (2037/2037, 8 new in `test/scheduler-blank-month-rotation.test.js`, run against the real
+served `<script>` via the same `vm` harness pattern `test/scheduler-grid-view.test.js` established).
+**Verified non-vacuous**: reverted the `shuffleInPlace()` call and confirmed the "does not always
+pick the first pool entry" test fails (100% single-winner across 200 trials), then restored.
+`node --check` on the extracted served script; `scheduler/index.html` resynced by evaluating the
+module (SC5). DEPLOY_VERSION bumped to 1.221.0. **Not verified**: a live browser — the Grid-view CSS
+fix in particular is a defensive hardening based on static cascade analysis, since this session has
+no browser to directly reproduce the reported layout. (`src/scheduler-html.js`,
+`scheduler/index.html`, `src/frontend/js-core.js`, `test/scheduler-blank-month-rotation.test.js`)
+
 ### TAP18 — Family Share % showed 81% next to a $0 Family Owed for a family whose outside aid exceeded their assigned share (2026-08-30, DONE)
 Reported live from the Tuition Aid Planner (Dinger family row): Family Share % showed 81% while
 Family Owed showed $0.00. Traced to the actual formula: `fam_pct` is stored/back-derived as

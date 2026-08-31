@@ -584,8 +584,13 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .gr-rowlbl-name { font-size:.88rem; font-weight:700; color:var(--steel-anchor); font-family: var(--font-body); }
 .gr-rowlbl-cov { font-size:.7rem; color:var(--warm-gray); }
 /* Overrides the base .role-row flex bar — same class, so the click delegation,
-   the filled/empty colors and the hover all still come from there. */
-.role-row.gr-cell { display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:3px; min-height:58px; padding:8px 10px; margin-bottom:0; min-width:0; }
+   the filled/empty colors and the hover all still come from there. !important on
+   the sizing properties because a .gr-cell button is a CSS Grid item and must
+   stay inside its own column track; .role-row's width:100%/margin-bottom:8px/
+   min-height:56px otherwise still apply here (equal specificity, later in the
+   cascade) and an empty cell's longer "— assign — / OPEN" content is exactly
+   what exposes it — a filled cell's short name never shows the gap. */
+.role-row.gr-cell { display:flex !important; flex-direction:column !important; align-items:flex-start !important; justify-content:center !important; gap:3px; min-height:58px !important; padding:8px 10px !important; margin:0 !important; min-width:0 !important; width:100% !important; max-width:100%; box-sizing:border-box; }
 .gr-cell-top { display:flex; align-items:center; gap:5px; min-width:0; max-width:100%; }
 .gr-cell .rr-name { font-size:.88rem; }
 .gr-open { font-size:.68rem; font-weight:700; color:var(--danger-btn); text-transform:uppercase; letter-spacing:.04em; font-family: var(--font-body); }
@@ -834,6 +839,7 @@ body.embedded #app-content { display:block!important; }
       <button class="btn btn-outline btn-sm" id="btn-prev-month">&#8592;</button>
       <span class="month-nav-label" id="current-month-label">Loading…</span>
       <button class="btn btn-outline btn-sm" id="btn-next-month">&#8594;</button>
+      <button class="btn btn-outline btn-sm" id="btn-new-month" title="Create empty Sundays for this month with no assignments — fill some in by hand, then Auto-Fill the rest">+ New Month (Blank)</button>
       <button class="btn btn-primary btn-sm" id="btn-generate">Generate Month</button>
       <button class="btn btn-outline btn-sm" id="btn-autofill" title="Auto-fill empty slots based on each volunteer's set availability">&#9889; Auto-Fill</button>
       <button class="btn btn-outline btn-sm" id="btn-add-special">+ Special Service</button>
@@ -2765,11 +2771,65 @@ function eligibleForRequest(person, svc, dateISO) {
   if (isOnAbsence(person, dateISO)) return false;
   return true;
 }
+// Fisher–Yates shuffle, in place. pickBest()'s Array.sort is stable, so without
+// this every tie (most commonly two-or-more people both sitting at count 0) is
+// resolved the same way every time: whoever appears earliest in the People list
+// wins. That person then accumulates a higher count than everyone else tied
+// behind them, over and over, month after month — the actual mechanism behind
+// "some people aren't falling into rotation as much as others." Shuffling the
+// pool before the count sort makes tie-breaks random instead of roster-order,
+// so which of several equally-served people gets picked varies run to run.
+function shuffleInPlace(arr) {
+  for (var i = arr.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+  }
+  return arr;
+}
 function pickBest(pool, counts) {
   if (!pool.length) return null;
+  shuffleInPlace(pool);
   pool.sort(function(a,b){ return (counts[a.id]||0)-(counts[b.id]||0); });
   return pool[0];
 }
+
+function blankAssignmentsForRow() {
+  var assignments = {};
+  SHARED_ROLES.forEach(function(role) { assignments[role] = { shared: null }; });
+  PER_ROLES.forEach(function(role) { assignments[role] = { '8am': null, '10:45am': null }; });
+  return assignments;
+}
+
+// Creates this month's Sundays with every slot left open — no pickBest calls at
+// all — so a month can be opened, filled in by hand, and only then handed to
+// Auto-Fill for whatever's left. Distinct from "Generate Month", which builds
+// the same Sundays but immediately assigns every slot.
+function newBlankMonth() {
+  showAlert('schedule-alert','','');
+  var sundayDates = getSundaysForMonth(currentMonthKey);
+  if (!sundayDates.length) { showAlert('schedule-alert','No Sundays found for this month.','warning'); return; }
+
+  var existingSpecials = currentSchedule.filter(function(r){ return r.type === 'special'; });
+
+  if (currentSchedule.filter(function(r){return r.type==='sunday';}).length) {
+    if (!confirm('This will replace the current schedule for ' + monthKeyLabel(currentMonthKey) + ' with empty Sundays. Any existing assignments will be archived to History. Continue?')) return;
+    archiveCurrentSchedule();
+  }
+
+  var sundayRows = sundayDates.map(function(s) {
+    return { type:'sunday', date:s.date, ordinal:s.ordinal, label:'', assignments: blankAssignmentsForRow() };
+  });
+
+  currentSchedule = sundayRows.concat(existingSpecials);
+  currentSchedule.sort(function(a,b){ return a.date-b.date; });
+
+  renderTable(getPeople(), null);
+  document.getElementById('schedule-output').style.display = 'block';
+  setDirty(true);
+  showAlert('schedule-alert', monthKeyLabel(currentMonthKey) + '\u2019s Sundays are ready with every slot open. Fill in what you know by hand, then use Auto-Fill for the rest.', 'success');
+}
+
+document.getElementById('btn-new-month').addEventListener('click', newBlankMonth);
 
 function generateSchedule() {
   showAlert('schedule-alert','','');
