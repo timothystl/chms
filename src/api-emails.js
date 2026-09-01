@@ -206,7 +206,7 @@ function esc(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-export { centralDayOfWeek };
+export { centralDayOfWeek, centralTodayMMDD };
 
 async function sendResend(env, to, subject, text, htmlBody, replyTo) {
   const key = env.RESEND_API_KEY || '';

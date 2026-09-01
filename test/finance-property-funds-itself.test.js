@@ -59,8 +59,16 @@ function figures(html) {
   return [...html.matchAll(/\$([\d,]+\.\d\d)/g)].map((m) => Math.round(parseFloat(m[1].replace(/,/g, '')) * 100));
 }
 
+// ⚠ Must pin "now" — finRenderPropertyFundsItself's principal-to-date figure is
+// prorated by months elapsed in the real calendar year, so without this the
+// test's expected numbers (computed against this fixture as of 2026-08-07)
+// silently drift and fail the moment real wall-clock time crosses a month
+// boundary, with no app bug involved. Matches the fixed date the "deducts
+// mortgage principal" test below already uses for the same reason.
+const NOW = { now: '2026-08-07' };
+
 describe('finRenderPropertyFundsItself', () => {
-  const html = fin.finRenderPropertyFundsItself(D);
+  const html = fin.finRenderPropertyFundsItself(D, NOW);
   const nums = figures(html);
 
   it('the printed lines add up to the printed total', () => {
@@ -76,7 +84,7 @@ describe('finRenderPropertyFundsItself', () => {
   });
 
   it('deducts mortgage principal', () => {
-    const a = fin.finComputeAvailableForDistribution(D, { now: '2026-08-07' });
+    const a = fin.finComputeAvailableForDistribution(D, NOW);
     expect(a.principalCents).toBeGreaterThan(0);
     expect(html).toMatch(/Mortgage principal/);
     expect(nums[2]).toBe(a.principalCents);

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { sendBirthdayTexts, sendAnniversaryTexts } from '../src/api-emails.js';
+import { sendBirthdayTexts, sendAnniversaryTexts, centralTodayMMDD } from '../src/api-emails.js';
 
 // SMS1's daily birthday/anniversary texts were wired to call Twilio, which this Worker has
 // no secrets for anywhere (not in wrangler.toml, not ever `wrangler secret put`) — so every
@@ -56,8 +56,14 @@ function stubFetch(impl) {
 
 const okBrevo = () => Promise.resolve({ ok: true, status: 201, json: () => Promise.resolve({ messageId: 123 }) });
 
-const TODAY = new Date();
-const MMDD = String(TODAY.getMonth() + 1).padStart(2, '0') + '-' + String(TODAY.getDate()).padStart(2, '0');
+// ⚠ Must be Central-time "today", not the CI runner's local clock (usually UTC).
+// sendBirthdayTexts/sendAnniversaryTexts decide "today" via centralTodayMMDD()
+// (BG2/SW9) — a plain `new Date()` here disagreed with that for hours every
+// evening (UTC rolls to the next day ~5-6 hours before Central does), so the
+// seeded birthday matched neither day and every assertion here failed with no
+// real bug involved. Reusing the app's own helper keeps the two in sync no
+// matter what timezone the test happens to run in.
+const MMDD = centralTodayMMDD();
 const DOB = `1990-${MMDD}`;
 
 afterEach(() => { vi.unstubAllGlobals(); });
