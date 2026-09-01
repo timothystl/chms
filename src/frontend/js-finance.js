@@ -5723,8 +5723,8 @@ function finComputeDistributionsAfter(d, period) {
     periods: rows.map(function(dd) { return dd.period; }),
   };
 }
-function finComputeDistributedThisYear(d) {
-  var year = new Date().getFullYear();
+function finComputeDistributedThisYear(d, opts) {
+  var year = (opts && opts.now) ? new Date(opts.now).getFullYear() : new Date().getFullYear();
   var cents = (d.distributions || []).filter(function(dd) { return String(dd.period || '').slice(0, 4) === String(year); })
     .reduce(function(sum, dd) { return sum + (dd.amount_cents || 0); }, 0);
   return { year: year, cents: cents };
@@ -5775,11 +5775,18 @@ function finLedgerStrip(key, title, sub, bodyHtml) {
 // Mortgage principal is deducted here for the same reason it is deducted in the forecast: it is
 // cash out of this property's account that never appears as an expense, so leaving it out
 // overstated what reaches the church by ~$17,000 over the half-year.
-function finRenderPropertyFundsItself(d) {
-  var year = new Date().getFullYear();
+// opts.now (an override, e.g. '2026-08-07') exists purely so tests can pin what
+// "today" is — every real caller omits it and gets the actual wall-clock date.
+// Without a way to pin it, the card's own principal-to-date figure (threaded
+// through to finComputeAvailableForDistribution's months-elapsed math) silently
+// drifts as real calendar days pass, which is exactly what made a fixture-based
+// test start failing the moment the month rolled over with no app bug involved.
+function finRenderPropertyFundsItself(d, opts) {
+  var now = (opts && opts.now) ? new Date(opts.now) : new Date();
+  var year = now.getFullYear();
   var cur = (d.annualSummary || []).filter(function(y) { return y.year === year; })[0];
-  var a = finComputeAvailableForDistribution(d);
-  var taken = finComputeDistributedThisYear(d);
+  var a = finComputeAvailableForDistribution(d, opts);
+  var taken = finComputeDistributedThisYear(d, opts);
   if (!cur) {
     return '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">Does it fund itself?</div>'
       + '<p style="font-size:.85rem;color:var(--warm-gray);">No ' + year + ' months recorded yet — add this year\'s AHRA reports from the Data &amp; Imports tab.</p></div>';

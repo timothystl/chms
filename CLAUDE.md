@@ -525,6 +525,40 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### CI1b — Two pre-existing test-suite flakes fixed: SMS day-boundary, Finance render date-drift (2026-09-01, DONE)
+Found while babysitting PR #810 (unrelated scheduler work) — CI kept failing on 6 tests in two
+files that had nothing to do with that PR's diff, reproduced identically on a clean `origin/main`.
+Both traced to the same underlying class of bug: computing "today" from the real wall clock
+instead of a value a test can pin, so the test silently breaks the moment real calendar time
+crosses a boundary the fixture data didn't anticipate — no app bug involved either time.
+- **`test/sms-brevo.test.js`** computed its seeded birthday's month/day via a plain `new Date()`
+  at module scope — which in CI resolves in UTC — while `sendBirthdayTexts`/`sendAnniversaryTexts`
+  (`src/api-emails.js`) decide "today" via `centralTodayMMDD()` (Central time, per BG2/SW9). Every
+  evening for several hours (UTC has already rolled to the next day, Central hasn't yet), the two
+  disagreed and the seeded birthday matched neither day, so `sent` came back 0 and every assertion
+  failed. Fixed by exporting `centralTodayMMDD` from `api-emails.js` and having the test reuse it
+  instead of local `Date` math — the seeded date now always matches what the app itself computes,
+  regardless of what timezone the CI runner happens to be in.
+- **`test/finance-property-funds-itself.test.js`** called `finRenderPropertyFundsItself(D)` (no
+  `opts`) — but that function's mortgage-principal figure is prorated by real months-elapsed-in-
+  the-year (`new Date().getMonth()+1`, threaded through `finComputeAvailableForDistribution`),
+  and the function had no way to pin "now" at all. The test's expected dollar figures were
+  computed against the fixture as of Aug 2026; the instant real wall-clock crossed into
+  September, `monthsElapsed` went 8→9 and the printed principal inflated — reproduced exactly
+  (`2267668` expected vs `2551127` received, matching the real CI failure to the cent). Added an
+  optional `opts` param to `finRenderPropertyFundsItself()` and `finComputeDistributedThisYear()`
+  (mirroring the pattern `finComputeAvailableForDistribution`/`finAmortizationSchedule` already
+  used) — every real caller omits it and gets the actual date unchanged; the test now pins
+  `{now:'2026-08-07'}` for both the render call and the direct helper call it already pinned.
+`npm test` (2044/2044). **Verified non-vacuous** by directly reproducing both bugs against a
+`vm`-loaded copy of the real bundle: with no `opts.now`, simulating "now" as Aug 7 vs Sep 15 gave
+different principal figures (2267668 vs 2551127 — the exact CI numbers); with `opts.now` pinned,
+both simulated dates gave the identical figure. `node --check` on `api-emails.js`; the assembled
+`CHMS_APP_FINANCE_JS` bundle re-verified to parse. DEPLOY_VERSION bumped to 1.221.5 (js-finance.js
+is part of the served bundle). **Not verified**: a live browser. (`src/api-emails.js`,
+`src/frontend/js-finance.js`, `src/frontend/js-core.js`, `test/sms-brevo.test.js`,
+`test/finance-property-funds-itself.test.js`)
+
 ### SC19-FIX4 — Grid view: room for all 5 Sundays without horizontal scroll (2026-08-31, DONE)
 User feedback with a screenshot: the 5th Sunday of the month was cut off, only 4 fit before
 scrolling. Asked specifically to narrow the role-label column, "what else." Narrowed the role
