@@ -525,6 +525,22 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### SC19-FIX4 — Grid view: room for all 5 Sundays without horizontal scroll (2026-08-31, DONE)
+User feedback with a screenshot: the 5th Sunday of the month was cut off, only 4 fit before
+scrolling. Asked specifically to narrow the role-label column, "what else." Narrowed the role
+column 190px→126px (role names are short — "PowerPoint" is the longest — and the row is tall
+enough for the coverage subtitle to wrap onto a second line if needed), day columns' floor
+150px→144px (from SC19-FIX2's 168px), `.gr-rowlbl` horizontal padding 14px→11px to match the
+narrower column, and `.fw-grid-pane`'s minimum width 1040px→860px so the pane can actually shrink
+to fit rather than forcing the same horizontal scroll at a smaller scale. The row/cell padding and
+gaps from SC19-FIX2 (the "ever so tight" fix) are untouched — this pass only frees horizontal
+space, not vertical breathing room. `npm test` (2044/2044 excluding 6 pre-existing failures in
+`test/sms-brevo.test.js`/`test/finance-property-funds-itself.test.js` confirmed unrelated —
+reproduced identically with this change stashed out, so not caused by it; all 224 scheduler tests
+pass clean). `node --check` on the extracted served script; `scheduler/index.html` resynced.
+DEPLOY_VERSION bumped to 1.221.4. **Not verified**: a live browser. (`src/scheduler-html.js`,
+`scheduler/index.html`, `src/frontend/js-core.js`)
+
 ### SC19-FIX3 — Auto scheduler wasn't prioritizing preferred Sundays; Auto-Fill silently ignored role-specific overrides (2026-08-31, DONE)
 Reported after SC19's rotation-fairness shuffle shipped: people weren't being put in first for
 their preferred Sundays anymore, were landing on "off" Sundays, and the same (flexible) people

@@ -569,7 +569,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .fw-gstat-open { color:var(--danger-btn); }
 .fw-gstat-ok { color:var(--sage); }
 .fw-grid-scroll { background:var(--white); border:1px solid var(--border); border-radius:12px; overflow-x:auto; }
-.fw-grid-pane { min-width:1040px; padding:14px 16px 18px; }
+.fw-grid-pane { min-width:860px; padding:14px 16px 18px; }
 .gr-row { display:grid; gap:10px; margin-bottom:10px; align-items:stretch; }
 .gr-head { padding-bottom:8px; margin-bottom:4px; border-bottom:1px solid var(--border); align-items:end; }
 .gr-corner, .gr-rowlbl, .gr-footlbl { position:sticky; left:0; z-index:2; background:var(--white); }
@@ -582,7 +582,7 @@ thead th.per-header { background: var(--mid-steel); font-size: 0.75rem; text-tra
 .gr-pill-open { background:var(--pale-gold); color:var(--on-pale-gold); border:1px solid var(--honey); }
 .gr-pill-full { background:var(--pale-sage); color:var(--on-pale-sage); border:1px solid var(--soft-sage); }
 .gr-band { font-size:.75rem; font-weight:700; color:var(--warm-gray); text-transform:uppercase; letter-spacing:.05em; margin:16px 0 8px; font-family: var(--font-body); }
-.gr-rowlbl { background:var(--linen); border:1px solid var(--border); border-radius:10px; padding:10px 14px; display:flex; flex-direction:column; justify-content:center; gap:3px; }
+.gr-rowlbl { background:var(--linen); border:1px solid var(--border); border-radius:10px; padding:10px 11px; display:flex; flex-direction:column; justify-content:center; gap:3px; }
 .gr-rowlbl-name { font-size:.88rem; font-weight:700; color:var(--steel-anchor); font-family: var(--font-body); }
 .gr-rowlbl-cov { font-size:.7rem; color:var(--warm-gray); }
 /* Overrides the base .role-row flex bar — same class, so the click delegation,
@@ -3651,7 +3651,7 @@ function focusWeekGridHtml(pMap) {
   }
 
   var confs = getConfirmations();
-  var tmpl = 'grid-template-columns:190px repeat(' + cols.length + ', minmax(168px, 1fr));';
+  var tmpl = 'grid-template-columns:126px repeat(' + cols.length + ', minmax(144px, 1fr));';
 
   // Per-column tallies, and the month totals derived from the same walk so the
   // chips can never claim a total the columns beneath them do not add up to.
