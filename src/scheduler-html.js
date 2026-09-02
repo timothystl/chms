@@ -6594,6 +6594,19 @@ document.getElementById('btn-test-breeze').addEventListener('click', function() 
 // ══════════════════════════════════════════════════════════════════
 // BREEZE API HELPER
 // ══════════════════════════════════════════════════════════════════
+// A 401 from either of these means the ChMS session cookie the scheduler's own backend
+// routes require (SEC11/SEC12 — /api/*, /breeze/* need an admin/staff cookie) has expired or
+// was never sent — not a Breeze problem. Every other part of the app already redirects to the
+// login page on a 401 (see api() in js-core.js); these two raw fetch() calls predate that
+// convention, so a scheduler tab left open past the idle-session window surfaced a bare
+// "Connection failed: HTTP 401" that reads like a Breeze outage instead of what it actually is.
+// frontendAppRootPath() is defined in the app-shell bundle (js-core.js), which is always loaded
+// before this one in production (the scheduler is only ever loaded embedded — the standalone
+// /scheduler route now just redirects into the embedded tab); the plain '/' fallback covers any
+// other context.
+function schedRedirectToLogin() {
+  location.href = (typeof frontendAppRootPath === 'function') ? frontendAppRootPath() : '/';
+}
 function breezeGet(path, params) {
   var s = getBreezeSettings();
   // The API key is the Worker's (env.BREEZE_API_KEY) and is no longer held here at all, so the
@@ -6614,6 +6627,7 @@ function breezeGet(path, params) {
     },
   })
     .then(function(r) {
+      if (r.status === 401) { schedRedirectToLogin(); throw 'Your session has expired. Redirecting to login\\u2026'; }
       if (!r.ok) throw 'HTTP '+r.status+' ('+url+')';
       return r.json();
     });
@@ -6641,6 +6655,7 @@ function breezePost(path, fields) {
     body: body,
   })
     .then(function(r) {
+      if (r.status === 401) { schedRedirectToLogin(); throw 'Your session has expired. Redirecting to login\\u2026'; }
       if (!r.ok) throw 'HTTP '+r.status;
       return r.json();
     });
