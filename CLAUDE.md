@@ -525,6 +525,41 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### SC20 — Scheduler "Test Connection" showed a raw 401 instead of prompting re-login (2026-09-02, DONE)
+Reported live: Settings → Integrations → Test Connection showed "Connection failed: HTTP 401
+(https://connect.timothystl.org/api/people?limit=1&details=0)" — reads like a Breeze outage.
+**Traced end to end, not guessed.** That URL/status is exactly the correct, by-design response of
+the SEC11/SEC12 gate on `/api/*` (`tlc-volunteer-worker.js`, verified against
+`test/scheduler-route-authz.test.js`'s own "401s, not 403s, with no session at all" case): the
+request carried no valid `vol_auth` session cookie. `breezeGet()` builds its request URL as
+`(s.workerUrl || window.location.origin) + path` — with `workerUrl` blank (the normal, correct
+state since SEC17 moved the Breeze key/worker-secret server-side), that's a genuinely same-origin
+fetch, so the cookie should ride along automatically; the 401 itself means the session had
+actually expired (the scheduler tab sat open past the 8-hour idle window, `src/auth.js`
+`IDLE_TIMEOUT_MS`) or was never present. **The actual defect: nothing told the user that.** Every
+other authenticated call in this app already redirects to the login page on a 401 (`api()` in
+`js-core.js`) — `breezeGet()`/`breezePost()` predate that convention and just threw a bare
+`'HTTP '+r.status+' ('+url+')'` string, which is what rendered as the confusing "Connection
+failed" message.
+- **Fixed by matching the app's own convention**, not by touching the (correct) server-side gate.
+  New `schedRedirectToLogin()` in `src/scheduler-html.js` — calls the app shell's
+  `frontendAppRootPath()` if it's already defined (it always is in production: `js-core.js` loads
+  before the lazy-loaded scheduler embed, per `ensureSchedulerLoaded()` in `js-core.js`), else
+  falls back to `'/'`. Both `breezeGet()` and `breezePost()` now check `r.status === 401` before
+  the generic `!r.ok` branch and redirect instead of just throwing.
+- **Deliberately scoped to a 401 only** — a genuine upstream error (500, Breeze misconfigured,
+  etc.) still reports the real HTTP status exactly as before; only "no session" bounces to login.
+- `npm test` (2050/2050, 6 new in `test/scheduler-breeze-session-expired.test.js`, run against the
+  real served `<script>` via the same `vm` harness pattern `test/scheduler-grid-view.test.js`
+  established). **Verified non-vacuous**: reverted the fix and confirmed 3 of the 6 fail (the
+  redirect-on-401 cases); the success/500/parse-only cases correctly still pass either way, since
+  those paths weren't touched. `node --check` on all three built bundles (`app-core.js`,
+  `app-ext.js`, the standalone scheduler script); `scheduler/index.html` resynced by evaluating the
+  module (SC5). DEPLOY_VERSION bumped to 1.221.6. **Not verified**: a live browser — same standing
+  caveat as every other Scheduler change in this file. (`src/scheduler-html.js`,
+  `scheduler/index.html`, `src/frontend/js-core.js`,
+  `test/scheduler-breeze-session-expired.test.js`)
+
 ### CI1b — Two pre-existing test-suite flakes fixed: SMS day-boundary, Finance render date-drift (2026-09-01, DONE)
 Found while babysitting PR #810 (unrelated scheduler work) — CI kept failing on 6 tests in two
 files that had nothing to do with that PR's diff, reproduced identically on a clean `origin/main`.
