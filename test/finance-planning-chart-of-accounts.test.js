@@ -204,21 +204,76 @@ describe('Planning table — Board view / QuickBooks order toggle', () => {
     expect(root.innerHTML).toContain('Unrestricted Gifts');
   });
 
-  it('an admin sees a per-leaf category picker on a Board-view account row', () => {
+  // No per-leaf category picker on Planning any more — reassigning an account is Chart of
+  // Accounts' job alone now (finPlanSetBoardCategory still exists, and is still called, but only
+  // from finCoaBuildCard's own <select> — see the "Chart of Accounts page" describe block below).
+  it('an admin sees NO per-leaf category picker on a Board-view account row any more', () => {
     const root = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
     const fin = loadBundle({ 'fin-plan-root': root });
     baseSetup(fin, fixtureTree());
     const account = rowsOf(root.innerHTML).find(r => textOf(r).startsWith('48001 Altar Guild'));
-    expect(account).toContain('finPlanSetBoardCategory');
+    expect(account).not.toContain('finPlanSetBoardCategory');
+    expect(root.innerHTML).not.toContain('finPlanSetBoardCategory');
   });
 
-  it('a non-admin sees no category picker at all', () => {
+  // The category headings themselves ("Unrestricted Gifts", etc.) and the "Donor Income" wrapper
+  // ARE editable right here, admin-only — same rename controls Chart of Accounts offers, same
+  // store, so a rename made from either screen shows up on both.
+  it('an admin sees an editable "Unrestricted Gifts" category heading in Board view', () => {
+    const root = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+    const fin = loadBundle({ 'fin-plan-root': root });
+    baseSetup(fin, fixtureTree());
+    const header = rowsOf(root.innerHTML).find(r => textOf(r) === 'Unrestricted Gifts');
+    expect(header).toContain('contenteditable="true"');
+    expect(header).toContain('finCoaRename(true,&quot;donor&quot;,this)');
+  });
+
+  it('an admin sees an editable "Donor Income" wrapper heading in Board view', () => {
+    const root = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+    const fin = loadBundle({ 'fin-plan-root': root });
+    baseSetup(fin, fixtureTree());
+    const header = rowsOf(root.innerHTML).find(r => textOf(r) === 'Donor Income');
+    expect(header).toContain('contenteditable="true"');
+    expect(header).toContain('finCoaRenameWrapper(this)');
+  });
+
+  it('an admin sees an editable expense category heading too, tagged as expense (isRev=false)', () => {
+    const root = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+    const fin = loadBundle({ 'fin-plan-root': root });
+    baseSetup(fin, fixtureTree());
+    const header = rowsOf(root.innerHTML).find(r => r.includes('Salaries &amp; Benefits'));
+    expect(header).toContain('finCoaRename(false,&quot;salaries&quot;,this)');
+  });
+
+  it('a non-admin sees no editable headings at all — no picker, no contenteditable', () => {
     const root = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
     const fin = loadBundle({ 'fin-plan-root': root });
     baseSetup(fin, fixtureTree());
     fin._userRole = 'staff';
     fin.finRenderPlanning();
     expect(root.innerHTML).not.toContain('finPlanSetBoardCategory');
+    expect(root.innerHTML).not.toContain('contenteditable');
+    const header = rowsOf(root.innerHTML).find(r => textOf(r) === 'Unrestricted Gifts');
+    expect(header).toBeTruthy(); // the heading itself still renders, just as plain text
+  });
+
+  it('QuickBooks-order view group headers are never editable, even for an admin — there is no board category to rename there', () => {
+    const root = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+    const fin = loadBundle({ 'fin-plan-root': root });
+    baseSetup(fin, fixtureTree());
+    fin.finPlanSetView('qb');
+    expect(root.innerHTML).not.toContain('contenteditable');
+  });
+
+  it('a custom donorWrapperLabel from Chart of Accounts shows on the Budget tab\'s wrapper heading too', () => {
+    const root = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+    const fin = loadBundle({ 'fin-plan-root': root });
+    baseSetup(fin, fixtureTree());
+    fin._finPlanBoardCats.donorWrapperLabel = 'Giving';
+    fin.finRenderPlanning();
+    expect(root.innerHTML).not.toContain('Donor Income');
+    const header = rowsOf(root.innerHTML).find(r => textOf(r) === 'Giving');
+    expect(header).toContain('finCoaRenameWrapper(this)');
   });
 });
 

@@ -325,7 +325,7 @@ function finRenderDataImports() {
       + (isAdminUI
         ? '<div class="fin-card require-admin" style="border:1px solid var(--danger);">'
           + '<div class="fin-card-title" style="color:var(--danger);font-size:19px;">Danger zone</div>'
-          + '<p class="fin-data-card-body">Clears stored Church Report, Balance Sheet, Daycare and Planning data. <b>Commercial Property and all Giving data are never touched.</b></p>'
+          + '<p class="fin-data-card-body">Clears stored Church Report, Balance Sheet, Daycare and Budget data. <b>Commercial Property and all Giving data are never touched.</b></p>'
           + '<button class="btn-secondary" style="border-color:var(--danger);color:var(--danger);" onclick="finLoadClearDataPreview()">Clear budget &amp; report data…</button>'
           + '<div id="fin-clear-data-panel" style="margin-top:10px;"></div>'
           + '</div>'
@@ -1867,7 +1867,7 @@ function finLoadClearDataPreview() {
     _finClearDataCounts = d.counts;
     var total = Object.keys(d.counts).reduce(function(s, k) { return s + d.counts[k]; }, 0);
     if (!total) { el.innerHTML = '<p style="font-size:.8rem;color:var(--warm-gray);">Nothing to clear — church budget/actuals data is already empty.</p>'; return; }
-    el.innerHTML = '<p style="font-size:.82rem;margin:0 0 8px;">This will permanently delete <b>' + total + ' row(s)</b>: ' + d.counts.finance_church_entries + ' Church Report line item(s), ' + d.counts.finance_qb_snapshot + ' cached QuickBooks report snapshot(s). Daycare, Balance Sheet, Budget Planning, Commercial Property, and Giving data are not affected.</p>'
+    el.innerHTML = '<p style="font-size:.82rem;margin:0 0 8px;">This will permanently delete <b>' + total + ' row(s)</b>: ' + d.counts.finance_church_entries + ' Church Report line item(s), ' + d.counts.finance_qb_snapshot + ' cached QuickBooks report snapshot(s). Daycare, Balance Sheet, Budget, Commercial Property, and Giving data are not affected.</p>'
       + '<button class="btn-danger" onclick="finConfirmClearData()">Yes, permanently clear this data</button>';
   });
 }
@@ -2908,7 +2908,7 @@ var FIN_BOARD_EXP_ORDER = ['mdo', 'salaries', 'property', 'education', 'programs
 var FIN_BOARD_EXP_DEFAULT_LABEL = { mdo: 'MDO', salaries: 'Salaries & Benefits', property: 'Property & Operations', education: 'Lutheran Education', programs: 'Programs' };
 // Empty until finLoadPlanning()'s fetch resolves — every reader below tolerates that (an unset
 // map just means "everything is on its regex default"), so a page opened mid-load never throws.
-var _finPlanBoardCats = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {} };
+var _finPlanBoardCats = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' };
 function finBoardCatFor(leafPath, leafLabel, isRev) {
   var saved = isRev ? _finPlanBoardCats.revenue[leafPath] : _finPlanBoardCats.expense[leafPath];
   if (saved) return saved;
@@ -2931,7 +2931,12 @@ function finBoardBucket(leaves, key, isRev) {
   var members = leaves.filter(function(l) { return finBoardCatFor(l.path, l.label, isRev) === key; })
     .map(function(l) { var c = JSON.parse(JSON.stringify(l)); c.children = []; return c; });
   if (!members.length) return null;
-  return finMakeGroupNode(finBoardLabelFor(key, isRev), isRev ? 'Income' : 'Expenses', members);
+  var g = finMakeGroupNode(finBoardLabelFor(key, isRev), isRev ? 'Income' : 'Expenses', members);
+  // Which of the four/five category keys this group renames to — read by groupHeaderRow() in
+  // finRenderPlanning so the same rename control Chart of Accounts offers also works right here.
+  g.boardCatKey = key;
+  g.boardCatIsRev = isRev;
+  return g;
 }
 // Restricted giving nests under one "Donor Income" wrapper with Unrestricted, same as every
 // other place this app displays the mix as a whole (see displayStreamOf in api-finance.js) —
@@ -2943,10 +2948,16 @@ function finBuildBoardTree(baseTree) {
   var revRoot = finMakeGroupNode('Revenue', 'Income', []);
   var donorMembers = [];
   ['donor', 'restricted'].forEach(function(k) { var g = finBoardBucket(revLeaves, k, true); if (g) donorMembers.push(g); });
-  // The wrapper's own title is a fixed organizational header, not one of the four renameable
-  // category labels — Chart of Accounts only ever offers "donor"/"restricted"/"earned"/"passive"
-  // to rename, matching what it actually assigns accounts into.
-  if (donorMembers.length) revRoot.children.push(finMakeGroupNode('Donor Income', 'Income', donorMembers));
+  // The wrapper's own title isn't one of the four category keys Chart of Accounts assigns
+  // accounts into ("donor"/"restricted"/"earned"/"passive") — it's purely organizational, so it
+  // gets its own stored label (donorWrapperLabel) rather than being folded into revenueLabels'
+  // four-key allowlist. Still renameable, from either this table or Chart of Accounts — see
+  // finCoaRenameWrapper.
+  if (donorMembers.length) {
+    var wrapper = finMakeGroupNode(_finPlanBoardCats.donorWrapperLabel || 'Donor Income', 'Income', donorMembers);
+    wrapper.isDonorWrapper = true;
+    revRoot.children.push(wrapper);
+  }
   ['earned', 'passive'].forEach(function(k) { var g = finBoardBucket(revLeaves, k, true); if (g) revRoot.children.push(g); });
   var expRoot = finMakeGroupNode('Expenses', 'Expenses', []);
   FIN_BOARD_EXP_ORDER.forEach(function(k) { var g = finBoardBucket(expLeaves, k, false); if (g) expRoot.children.push(g); });
@@ -3042,9 +3053,12 @@ function finRenderTreeQbOrder(nodes, render, out) {
 function finTreeLabelCell(node, label, opts) {
   opts = opts || {};
   var v = opts.padV || '5px';
+  // opts.html, when given, is trusted markup the caller built itself (e.g. an editable span
+  // wrapping its own esc()'d text) and is used verbatim instead of escaping "label" a second
+  // time — every existing caller omits it and keeps the plain esc(label) behavior unchanged.
   return '<td style="padding:' + v + ' 8px ' + v + ' ' + (10 + node.depth * 16) + 'px;'
     + (opts.color ? 'color:' + opts.color + ';' : '') + '"'
-    + (node.hint ? ' title="' + esc(node.hint) + '"' : '') + '>' + esc(label) + '</td>';
+    + (node.hint ? ' title="' + esc(node.hint) + '"' : '') + '>' + (opts.html != null ? opts.html : esc(label)) + '</td>';
 }
 function finRenderDetailTreeRows(nodes, html) {
   // Kept as the leaf/header pair the Church Report table feeds into finRenderTreeQbOrder.
@@ -6707,8 +6721,8 @@ function finLoadPlanning() {
     // per-fiscal-year one), so this is re-fetched on every load rather than gated behind a
     // "loaded once" flag like the salary planner — it's a cheap GET either way.
     _finPlanBoardCats = results[3] && typeof results[3] === 'object'
-      ? { revenue: results[3].revenue || {}, expense: results[3].expense || {}, revenueLabels: results[3].revenueLabels || {}, expenseLabels: results[3].expenseLabels || {} }
-      : { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {} };
+      ? { revenue: results[3].revenue || {}, expense: results[3].expense || {}, revenueLabels: results[3].revenueLabels || {}, expenseLabels: results[3].expenseLabels || {}, donorWrapperLabel: results[3].donorWrapperLabel || '' }
+      : { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' };
     _finPlanEdits = {};
     _finPlanBaseProjEdits = {};
     _finPlanActualEdits = {};
@@ -6917,10 +6931,20 @@ function finRenderPlanning() {
   function csvPush(label, budTxt, actTxt, projTxt, planTxt, deltaTxt) {
     csvRows.push([label, cols.bud ? budTxt : null, cols.act ? actTxt : null, cols.proj ? projTxt : null, cols.plan ? planTxt : null, cols.delta ? deltaTxt : null].filter(function(v) { return v !== null; }));
   }
-  // Group rows: the name alone, with the figures on the "Total X" row beneath the accounts.
+  // Group rows: the name alone, with the figures on the "Total X" row beneath the accounts. In
+  // Board view, a category header (e.g. "Unrestricted Gifts") or the "Donor Income" wrapper is
+  // renameable right here, same as Chart of Accounts — see finCoaRename/finCoaRenameWrapper and
+  // boardCatKey/isDonorWrapper on the node, set by finBoardBucket/finBuildBoardTree above.
   function groupHeaderRow(node) {
     csvPush(node.label, '', '', '', '', '');
-    return '<tr style="font-weight:700;">' + finTreeLabelCell(node, node.label, { padV: '4px' })
+    var editable = _finPlanViewMode === 'board' && isAdminUI && (node.boardCatKey || node.isDonorWrapper);
+    var labelHtml = editable
+      ? '<span contenteditable="true" onblur="' + (node.boardCatKey
+          ? 'finCoaRename(' + (node.boardCatIsRev ? 'true' : 'false') + ',' + jsAttr(node.boardCatKey) + ',this)'
+          : 'finCoaRenameWrapper(this)')
+        + '" title="Click to rename. Display only — nothing in QuickBooks changes; the same name shows on Chart of Accounts." style="outline:none;border-radius:6px;padding:1px 5px;margin-left:-5px;cursor:text;border-bottom:1px dashed var(--warm-row-divider);">' + esc(node.label) + '</span>'
+      : esc(node.label);
+    return '<tr style="font-weight:700;">' + finTreeLabelCell(node, node.label, { padV: '4px', html: labelHtml })
       + new Array(visibleColCount + 1).join('<td></td>') + '</tr>';
   }
   function groupTotalRow(node) {
@@ -6944,7 +6968,6 @@ function finRenderPlanning() {
   // category it reads under). A group's Plan/Projected/Actual are always the live sum of its own
   // leaves (see maps above), so there is nothing on a group row to type into.
   function leafRow(node) {
-    var isRev = !!FIN_REVENUE_CLASSES[node.classification];
     var excluded = !!_finPlanExcluded[node.path];
     var dim = excluded ? 'opacity:.45;' : '';
 
@@ -6976,24 +6999,15 @@ function finRenderPlanning() {
 
     var budCell = cols.bud ? ('<td style="text-align:right;padding:4px 8px;' + dim + '">' + (node.hasBudgetInfo ? '$' + finFmtMoney(node.totalBudgetCents/100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>') : '';
 
-    // Category picker — Board view only, admin only: which board category this one account reads
-    // under, independent of its QuickBooks group. Saves immediately (a picker change is a
-    // discrete choice, not continuous typing, so it doesn't need the debounced-autosave dance the
-    // dollar inputs above need) and re-renders, since the change can move the row to a whole
-    // different group.
-    var pickerHtml = '';
-    if (_finPlanViewMode === 'board' && isAdminUI) {
-      var catKey = finBoardCatFor(node.path, node.label, isRev);
-      var order = isRev ? FIN_BOARD_REV_ORDER : FIN_BOARD_EXP_ORDER;
-      pickerHtml = '<select onchange="finPlanSetBoardCategory(' + jsAttr(node.path) + ',' + (isRev ? 'true' : 'false') + ',this.value)" title="Which board category this account reads under, set on Chart of Accounts. Display only — QuickBooks is never renumbered." style="margin-left:8px;font-size:11px;font-weight:600;padding:2px 5px;border-radius:6px;border:1px solid var(--warm-border);background:var(--warm-surface-page);color:var(--warm-ink-label);vertical-align:middle;">'
-        + order.map(function(k) { return '<option value="' + k + '"' + (k === catKey ? ' selected' : '') + '>' + esc(finBoardLabelFor(k, isRev)) + '</option>'; }).join('')
-        + '</select>';
-    }
+    // Which category an account reads under is set on Chart of Accounts only — no per-leaf
+    // picker here anymore (this table used to carry its own copy of the same control; removed so
+    // there's exactly one place to reassign an account). The category-level and "Donor Income"
+    // headers just above this row ARE still renameable from here — see groupHeaderRow.
     var checkboxHtml = _finPlanPicking
       ? '<input type="checkbox" ' + (excluded ? '' : 'checked') + ' onchange="finPlanToggleExcluded(' + jsAttr(node.path) + ')" title="Include this line on the printed sheet and the export" style="margin-right:9px;width:14px;height:14px;vertical-align:middle;">'
       : '';
     var indentPx = 10 + node.depth * 16;
-    var labelCell = '<td style="padding:4px 8px 4px ' + indentPx + 'px;white-space:nowrap;' + dim + '">' + checkboxHtml + esc(node.label) + pickerHtml + '</td>';
+    var labelCell = '<td style="padding:4px 8px 4px ' + indentPx + 'px;white-space:nowrap;' + dim + '">' + checkboxHtml + esc(node.label) + '</td>';
 
     csvPush(node.label, node.hasBudgetInfo ? (node.totalBudgetCents/100).toFixed(2) : '', (actualCents/100).toFixed(2), (projCents/100).toFixed(2), (planCents/100).toFixed(2), deltaCsv(node.totalBudgetCents, planCents));
     return '<tr>' + labelCell + budCell + actualCell + projectedCell + planCell + deltaCell(node.totalBudgetCents, planCents) + '</tr>';
@@ -7102,7 +7116,7 @@ function finRenderPlanning() {
 
   // Header: the two year inputs belong beside the title they qualify, not in a separate strip
   // above the table — every figure on the page is read as "FY{target}, built from FY{base}".
-  var header = finPageHeader('Planning FY' + _finPlanTargetYear,
+  var header = finPageHeader('Budget FY' + _finPlanTargetYear,
     'Base year ' + _finPlanBaseYear + (baseProrated ? ' (annualized from ' + baseThroughWeek.toFixed(0) + ' weeks of actuals)' : '') + ' &middot; independent of QuickBooks until you commit',
     '<label class="fin-inline-field">Base year<input type="number" id="fin-plan-base-year" value="' + _finPlanBaseYear + '" onchange="finPlanChangeBaseYear()"></label>'
     + '<label class="fin-inline-field">Projecting for<input type="number" id="fin-plan-target-year" value="' + _finPlanTargetYear + '" onchange="finPlanChangeTargetYear()"></label>'
@@ -7382,23 +7396,26 @@ function finPlanPrint() {
 }
 
 // ── Chart of Accounts ─────────────────────────────────────────────────────────────────────────
-// Which board category each account reads under, and what each category is called — the same
-// finance_planning_board_categories store Planning's own per-leaf picker writes to (see
-// finPlanSetBoardCategory below), just with a dedicated page for bulk moves and renaming. Nothing
-// here ever touches category_path, fund numbers, or QuickBooks itself — see the footer note this
-// page renders, which states that in as many words.
+// Which board category each account reads under, and what each category is called — the ONE
+// place an account gets reassigned (the Budget tab's Board view used to carry its own copy of
+// this same per-leaf picker; removed, so there's exactly one control to look for). Nothing here
+// ever touches category_path, fund numbers, or QuickBooks itself — see the footer note this page
+// renders, which states that in as many words. The Budget tab's category/"Donor Income" headings
+// stay renameable in place, via finCoaRename/finCoaRenameWrapper below — same store, same effect
+// whichever screen the rename is made from.
 //
 // Saves immediately per action (a checkbox tick, a picker change, a bulk "Move to", a rename) —
 // deliberately not a batched "Save changes" button. Every other admin-editable control on this
-// tab (the per-leaf picker on Planning itself, the Fund Categories card in Settings) already saves
-// on change with no separate commit step, and a page whose entire job is "reassign a few accounts"
-// doesn't gain anything from a save queue a person could navigate away from and lose.
+// tab (the Fund Categories card in Settings) already saves on change with no separate commit
+// step, and a page whose entire job is "reassign a few accounts" doesn't gain anything from a
+// save queue a person could navigate away from and lose.
 function finCoaSaveCategories(patch) {
   return api('/admin/api/finance/planning/board-categories', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(patch) }).then(function(d) {
     if (d && d.error) { finToast(d.error); return; }
     _finPlanBoardCats = {
       revenue: (d && d.revenue) || {}, expense: (d && d.expense) || {},
       revenueLabels: (d && d.revenueLabels) || {}, expenseLabels: (d && d.expenseLabels) || {},
+      donorWrapperLabel: (d && d.donorWrapperLabel) || '',
     };
     finRenderChartOfAccounts();
     // A moved/renamed category changes what Planning's Board view groups look like too, whenever
@@ -7407,9 +7424,7 @@ function finCoaSaveCategories(patch) {
     if (document.getElementById('fin-plan-root')) finRenderPlanning();
   }).catch(function(err) { if (err && err.message !== 'Unauthorized') finToast(err && err.message || 'Save failed.'); });
 }
-// Planning's own per-leaf category picker (Board view, admin only — see leafRow() in
-// finRenderPlanning). A single account reassigned from the table it's actually sitting in, without
-// a trip to Chart of Accounts.
+// Chart of Accounts' own per-leaf category picker (see finCoaBuildCard below).
 function finPlanSetBoardCategory(path, isRev, value) {
   if (!value) return;
   var patch = isRev ? { revenue: {} } : { expense: {} };
@@ -7441,10 +7456,21 @@ function finCoaBulkMove(codes, isRev, value) {
 }
 function finCoaRename(isRev, key, textEl) {
   var clean = String((textEl && textEl.textContent) || '').replace(/\s+/g, ' ').trim();
-  if (!clean) { finRenderChartOfAccounts(); return; } // blanked out — revert to the default label rather than saving an empty name
+  // Blanked out — revert to the default label rather than saving an empty name. This can be
+  // called from either Chart of Accounts or the Budget tab's own Board view (see groupHeaderRow
+  // in finRenderPlanning), so both re-render if mounted, matching finCoaSaveCategories below.
+  if (!clean) { finRenderChartOfAccounts(); if (document.getElementById('fin-plan-root')) finRenderPlanning(); return; }
   var patch = isRev ? { revenueLabels: {} } : { expenseLabels: {} };
   patch[isRev ? 'revenueLabels' : 'expenseLabels'][key] = clean;
   finCoaSaveCategories(patch);
+}
+// The "Donor Income" wrapper node on the Budget tab's Board view (finBuildBoardTree) — nests
+// Unrestricted + Restricted together, so it isn't one of the four category keys finCoaRename
+// above renames; it gets its own store field (donorWrapperLabel) and its own tiny save path.
+function finCoaRenameWrapper(textEl) {
+  var clean = String((textEl && textEl.textContent) || '').replace(/\s+/g, ' ').trim();
+  if (!clean) { finRenderChartOfAccounts(); if (document.getElementById('fin-plan-root')) finRenderPlanning(); return; }
+  finCoaSaveCategories({ donorWrapperLabel: clean });
 }
 // One card (Revenue or Expenses): every real leaf of that kind, grouped by its current board
 // category in the fixed category order, each group carrying a checkbox-select + per-account picker
@@ -7499,7 +7525,7 @@ function finRenderChartOfAccounts() {
   var el = document.getElementById('fin-coa-root');
   if (!el) return;
   if (!_finPlanBaseTree || !_finPlanBaseTree.length) {
-    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Open Planning first to load a fiscal year&rsquo;s accounts.</p>';
+    el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Open the Budget tab first to load a fiscal year&rsquo;s accounts.</p>';
     return;
   }
   var leaves = finFlattenLeaves(_finPlanBaseTree);
@@ -7513,7 +7539,7 @@ function finRenderChartOfAccounts() {
     + finCoaBuildCard(expLeaves, false, FIN_BOARD_EXP_ORDER, 'Expenses',
         'The five categories the board reads spending against &mdash; the same ones the money-flow chart is drawn from.')
     + '<div style="font-size:12px;color:var(--warm-meta);line-height:1.55;max-width:90ch;padding-bottom:24px;">'
-    + 'Fund numbers, names and QuickBooks groups are untouched by anything on this page &mdash; the next export lands in exactly the same accounts. Only Connect&rsquo;s reading of them changes, on Planning, the Church Report and Financial Health alike.'
+    + 'Fund numbers, names and QuickBooks groups are untouched by anything on this page &mdash; the next export lands in exactly the same accounts. Only Connect&rsquo;s reading of them changes, on the Budget tab, the Church Report and Financial Health alike.'
     + '</div>';
 }
 
@@ -8889,7 +8915,7 @@ function finCompRenderBaselineNote(totals) {
   }
   out += '<div style="margin-top:7px;">'
     + (b.prorated
-        ? 'FY' + _finPlanBaseYear + ' is still in progress (' + b.weeks.toFixed(0) + ' weeks in), so an account with no budget on file is annualized from its actual &mdash; the same 52/weeks the Planning tab uses. Both sides are a full year. '
+        ? 'FY' + _finPlanBaseYear + ' is still in progress (' + b.weeks.toFixed(0) + ' weeks in), so an account with no budget on file is annualized from its actual &mdash; the same 52/weeks the Budget tab uses. Both sides are a full year. '
         : 'FY' + _finPlanBaseYear + ' is complete, so these are its own full-year figures. ')
     + '<b>What this still cannot see:</b> an account the church names in some other way is not counted at all, '
     + 'and a pooled benefit line covers everyone the church paid that year, including anyone listed above as not on this roster.'
@@ -9845,7 +9871,7 @@ function finCompSendToBudget() {
   if (!target) { finCompSay('No salary account found in the FY' + _finPlanBaseYear + ' budget to apply this to.'); finRenderCompensation(); return; }
   _finSalaryTargetCategory = target;
   _finPlanEdits[target] = (totals.totalCents / 100).toFixed(2);
-  finCompSay(finCompMoney(totals.totalCents) + ' sent to the FY' + _finPlanTargetYear + ' Planning budget — click Save Changes there to keep it.');
+  finCompSay(finCompMoney(totals.totalCents) + ' sent to the FY' + _finPlanTargetYear + ' Budget — click Save Changes there to keep it.');
   finRerenderPlanningPreserveFocus();
   finRenderPlanning();
 }

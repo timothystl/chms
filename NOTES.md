@@ -139,6 +139,48 @@ can land in different board categories.
   `src/frontend/html-tabs.js`, `src/frontend/html-head.js`,
   `test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`,
   `test/finance-qb-order.test.js`)
+
+### v1.223.0 — Budget tab follow-ups: renamed from Planning, headings editable in place, per-leaf picker removed (2026-09-04)
+
+Three live-screenshot follow-ups on FIN70 (Chart of Accounts / Board view, PR #813, just merged).
+
+1. **"Planning" renamed to "Budget"** everywhere it's shown to a user — the sidebar sub-nav
+   label, the page header ("Budget FY2027"), and every user-facing sentence that named the tab
+   (the Data & Imports danger-zone copy, Chart of Accounts' own empty-state and footer note, the
+   Compensation tab's "sent to the Budget" message, the base-year proration tooltip). The `id`/
+   `finSection`/route (`planning`), every function name (`finRenderPlanning`, `finLoadPlanning`,
+   `_finPlanViewMode`, etc.) and the endpoint paths are all untouched — this is a display-string
+   rename only, so nothing that persists or gets looked up by name had to migrate.
+2. **The category headings on the Budget tab's own Board view are now editable in place** —
+   "Unrestricted Gifts," "Donor Income," "Salaries & Benefits," etc. — the same rename control
+   Chart of Accounts already offered, reachable from either screen, writing to the same
+   `finance_planning_board_categories` store either way. **The "Donor Income" wrapper needed a
+   new field to be renameable at all**: it isn't one of the four category keys
+   (`REVENUE_STREAMS`) the store already validates against — it's the purely organizational node
+   that nests Unrestricted + Restricted together (see `finBuildBoardTree`) — so it gets its own
+   plain-string `donorWrapperLabel` field, trimmed server-side, blank clears back to the default
+   "Donor Income." `finTreeLabelCell()` gained an `opts.html` escape hatch (an editable span the
+   caller already `esc()`'d, used verbatim instead of double-escaping) — every existing caller
+   that doesn't pass it keeps the old plain-`esc(label)` behavior unchanged.
+3. **The per-leaf category `<select>` on the Budget table itself is gone.** It was a second copy
+   of the exact same control Chart of Accounts already offers — the user's own framing was that
+   reassigning an account is Chart of Accounts' job, and having the same dropdown appear a second
+   time on the Budget table (which is what the screenshot showed) was confusing, not a second
+   convenience. `finPlanSetBoardCategory()` itself is untouched and still backs Chart of
+   Accounts' own per-leaf `<select>` — only the Budget table's copy of the call site is gone.
+
+`npm test` (2102/2102, 12 new/updated across `test/finance-planning-board-categories.test.js` and
+`test/finance-planning-chart-of-accounts.test.js`); **every changed/new assertion verified
+non-vacuous** by stashing the `js-finance.js` change and confirming all 5 dependent frontend tests
+fail against the pre-change code (the two board-categories default-shape tests were already
+directly falsified by the new `donorWrapperLabel` field, confirmed the same way). `node --check`
+on all three touched files and the fully assembled served bundle (`CHMS_APP_CORE_JS`+
+`CHMS_APP_EXT_JS`+`CHMS_APP_FINANCE_JS`), div-balance on the assembled `CHMS_HTML` shell
+(1122/1122), and the repo's own American-English spelling check (clean). DEPLOY_VERSION bumped to
+1.223.0. **Not verified**: a live browser. (`src/api-finance.js`, `src/frontend/js-finance.js`,
+`src/frontend/js-core.js`, `test/finance-planning-board-categories.test.js`,
+`test/finance-planning-chart-of-accounts.test.js`)
+
 ### MKT2 — Christmas Market signup open/close, from the website admin (2026-08-31)
 
 The write twin of MKT1 below. Dinger, on the website repo's read-only Volunteers
