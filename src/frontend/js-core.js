@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.224.0';
+export const DEPLOY_VERSION = '1.225.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -313,6 +313,7 @@ function typeDotHtml(mt, size) {
 var FIN_TOPNAV_ITEMS = [
   { id: 'health', label: 'Financial Health', finSection: 'health' },
   { id: 'church', label: 'Church Report', finSection: 'church' },
+  { id: 'balance', label: 'Balance Sheet', finSection: 'balance' },
   { id: 'daycare', label: 'Daycare Report', finSection: 'daycare' },
   { id: 'property', label: 'Commercial Property', finSection: 'property' },
   { id: 'planning', label: 'Budget', finSection: 'planning' },

@@ -24,6 +24,63 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.225.0 — Balance Sheet & Financial Position is its own tab (2026-09-04)
+
+Two asks in one message: "give me a tab for Balance Sheet & Financial Position... graphs of
+data... show the change over the years of growth or loss of money, like compared to our bank
+accounts over the years," followed shortly by "i need a report that can compare last years to
+this year." Balance Sheet already existed — as a third mode inside Church Report's This
+year/Multi-year toggle, with a multi-year Assets/Liabilities/Equity chart and a tie-out against
+the income statement (FIN60) — but had no dedicated tab, no cash-specific trend, no CSV export,
+and no account-level year-over-year comparison.
+
+- **Moved out of Church Report into its own top-level Finance sub-nav tab** (`FIN_TOPNAV_ITEMS`,
+  right after Church Report). Church Report's mode pills drop from three to two (This year /
+  Multi-year); the balance-sheet DOM mount, state, and functions relocate from
+  `#fin-church-balances-view` (nested inside Church Report's panel) to a single `#fin-balance-root`
+  mount in its own `#fin-panel-balance` panel, matching the Property/Planning tabs' one-root-mount
+  pattern. Every reading-side identifier renamed accordingly (`finLoadChurchBalances` →
+  `finLoadBalanceSheetTab`, `finRenderChurchBalances` → `finRenderBalanceSheetTab`, etc.) — the
+  Data & Imports upload-flow state (`_finChurchBalanceImportPreview`, etc.) is untouched and stays
+  on Data & Imports, per FIN57's own reasoning that a file-upload control has no business on a
+  reading page.
+- **"Cash & Bank Accounts Over Time" trend chart** (new). Two series: the one pinned operating
+  checking account (Data & Imports → Classification & policy → Operating cash account code — the
+  same figure the Financial Health runway card reads, via the shared
+  `operatingCashFromBalanceSheet()`, so the two can never quote different numbers for the same
+  year) and a broader "All Cash & Bank Accounts" figure sweeping in every other
+  checking/savings/money-market/petty-cash-named account, since a church with more than one bank
+  account (a daycare's own checking, say) would otherwise have that second account invisible.
+  Backend: new `computeYearCashSummary()` in `api-finance.js`, wired into the existing
+  `GET /admin/api/finance/church/balances/multi-year` response as `cashByYear`/`cashAccountCode` —
+  no new route.
+- **"Net Worth Growth by Year" table** (new) — a plain signed $ and % change table between every
+  consecutive pair of years already in the multi-year Equity series, so "did we grow or lose
+  ground" reads as a number with a sign on it, not just a bar chart to eyeball.
+- **"This Year vs. Last Year" account-by-account comparison** (new) — directly answers "i need a
+  report that can compare last years to this year." Every account on the current year's balance
+  sheet, walked against the same account's prior-year total (`finBalanceTotalsByPath()`), with $
+  and % change per line; an account with nothing on the books last year reads "new this year"
+  rather than a misleading $0.00 prior figure. Needed a third fetch (`finLoadBalanceSheetTab` now
+  also requests `year - 1`'s single-year snapshot) alongside the existing current-year and
+  multi-year-trend calls.
+- **CSV export** (new) — `finExportBalanceCsv()`, the full loaded multi-year Assets/Liabilities/
+  Equity/Cash series, not just the on-screen snapshot year.
+- `npm test` (2127/2127, 30 new/updated across `test/finance-balance-pnl-recon.test.js` — the real
+  backend route against real in-memory SQLite, including a new `computeYearCashSummary` unit-test
+  block — and `test/finance-balance-recon-ui.test.js` — the real render functions driven out of
+  the real assembled bundles via the established vm-behind-a-stub-DOM technique). **Every new/
+  dependent test verified non-vacuous** by stashing all four touched source files and confirming
+  28 of 40 tests in the two files fail against the pre-change code (the other 12 correctly still
+  pass, since they don't depend on this change). One pre-existing test file
+  (`finance-balance-pnl-recon.test.js`) needed a `chms_config` table added to its minimal
+  in-memory schema, since the multi-year route now also calls `readCashPolicy()`. `node --check`
+  on `api-finance.js` and all three assembled bundles; div-balance on the assembled `CHMS_HTML`
+  (1123/1123). DEPLOY_VERSION bumped to 1.225.0. **Not verified**: a live browser.
+  (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+  `src/frontend/html-tabs.js`, `test/finance-balance-pnl-recon.test.js`,
+  `test/finance-balance-recon-ui.test.js`)
+
 ### v1.224.0 — Budget tab: Worship & Music and District & Synod Support are now their own board categories (2026-09-04)
 
 Reported live: "we lost the categories of 'Worship & Music' and 'District & Synod Support'." Real,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { computeBalanceVsPnlReconciliation, computeBalanceSummary, handleFinanceApi } from '../src/api-finance.js';
+import { computeBalanceVsPnlReconciliation, computeBalanceSummary, computeYearCashSummary, handleFinanceApi } from '../src/api-finance.js';
 
 // A year's summary as computeBalanceSummary() really produces it — including the detail that
 // matters most here: a year with NO imported rows returns a fully zeroed summary with an EMPTY
@@ -100,6 +100,9 @@ function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(readFileSync(new URL('../migrations/0018_finance_church_entries.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0019_finance_church_balances.sql', import.meta.url), 'utf8'));
+  // The multi-year balances route now also reads the cash policy (Balance Sheet's new "Cash &
+  // Bank Accounts Over Time" trend, 2026-09-04) via readCashPolicy(), which queries this table.
+  sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   return {
     prepare(sql) {
       return {
@@ -172,5 +175,68 @@ describe('GET finance/church/balances/multi-year — tie-out against the income 
     const d = await getMultiYear(makeTestDb(), [2025, 2026]);
     expect(d.reconciliation.rows).toEqual([]);
     expect(d.reconciliation.checked).toBe(0);
+  });
+
+  // "Cash & Bank Accounts Over Time" trend (Balance Sheet tab, 2026-09-04) — cashByYear/
+  // cashAccountCode added alongside the existing tie-out, from the same rows already fetched.
+  it('includes a per-year cash summary, reading the pinned operating cash account code', async () => {
+    const db = makeTestDb();
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_cash_policy',?)`
+    ).bind(JSON.stringify({ cash_account_code: '11027' })).run();
+    insertBalance(db, 2025, 'Equity', 500000);
+    db._raw.prepare(`INSERT INTO finance_church_balances
+      (fiscal_year, as_of_date, classification, category_path, account_name, depth, has_children, own_balance_cents, source, synced_at)
+      VALUES (2025,'FY2025','Assets','Assets:Checking','11027 Lindell Checking xx9105',1,0,300000,'import','2026-01-01')`).run();
+    db._raw.prepare(`INSERT INTO finance_church_balances
+      (fiscal_year, as_of_date, classification, category_path, account_name, depth, has_children, own_balance_cents, source, synced_at)
+      VALUES (2025,'FY2025','Assets','Assets:Savings','Daycare Savings',1,0,50000,'import','2026-01-01')`).run();
+    const d = await getMultiYear(db, [2025]);
+    expect(d.cashAccountCode).toBe('11027');
+    expect(d.cashByYear[2025].operatingCents).toBe(300000);
+    expect(d.cashByYear[2025].allCashCents).toBe(350000); // checking + savings, the pinned account doesn't narrow the broader sweep
+  });
+
+  it('reports null cash figures for a year with no matching account, rather than a misleading $0', async () => {
+    const db = makeTestDb();
+    insertBalance(db, 2025, 'Assets', 100000);
+    insertBalance(db, 2025, 'Equity', 100000);
+    const d = await getMultiYear(db, [2025]);
+    expect(d.cashByYear[2025].operatingCents).toBeNull();
+    expect(d.cashByYear[2025].allCashCents).toBeNull();
+  });
+});
+
+describe('computeYearCashSummary', () => {
+  const rows = [
+    { classification: 'Assets', has_children: 0, account_name: '11027 Lindell Checking xx9105', own_balance_cents: 300000 },
+    { classification: 'Assets', has_children: 0, account_name: 'Daycare Savings Account', own_balance_cents: 50000 },
+    { classification: 'Assets', has_children: 0, account_name: 'Petty Cash Drawer', own_balance_cents: 5000 },
+    { classification: 'Assets', has_children: 1, account_name: 'Cash and Bank Accounts', own_balance_cents: 0 }, // rollup, must not double-count
+    { classification: 'Assets', has_children: 0, account_name: 'Accounts Receivable', own_balance_cents: 900000 }, // not cash
+    { classification: 'Liabilities', has_children: 0, account_name: 'Checking Loan Payable', own_balance_cents: 20000 }, // not Assets
+  ];
+
+  it('sums every non-rollup Assets account that reads as a bank account, ignoring the group row', () => {
+    const s = computeYearCashSummary(rows, '');
+    expect(s.allCashCents).toBe(355000); // checking + savings + petty cash, not the rollup or the liability
+    expect(s.allCashAccounts).toEqual(['11027 Lindell Checking xx9105', 'Daycare Savings Account', 'Petty Cash Drawer']);
+  });
+
+  it('the pinned operating account narrows to exactly that one account', () => {
+    const s = computeYearCashSummary(rows, '11027');
+    expect(s.operatingCents).toBe(300000);
+    expect(s.operatingAccounts).toEqual(['11027 Lindell Checking xx9105']);
+  });
+
+  it('falls back to a name match on "checking" with no code pinned', () => {
+    const s = computeYearCashSummary(rows, '');
+    expect(s.operatingCents).toBe(300000);
+  });
+
+  it('returns null, not $0, when nothing matches', () => {
+    const s = computeYearCashSummary([{ classification: 'Assets', has_children: 0, account_name: 'Land', own_balance_cents: 100 }], '');
+    expect(s.operatingCents).toBeNull();
+    expect(s.allCashCents).toBeNull();
   });
 });

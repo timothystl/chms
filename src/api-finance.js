@@ -2301,6 +2301,30 @@ export function operatingCashFromBalanceSheet(rows, accountCode) {
     asOfDate: String(matches[0].as_of_date || ''),
   };
 }
+// The Balance Sheet & Financial Position tab's "Cash & Bank Accounts Over Time" trend, one call
+// per year in the multi-year window. Reuses operatingCashFromBalanceSheet() rather than a second
+// name-matching heuristic for the single pinned operating account — the two must never quote
+// different operating-cash figures for the same year, since the Financial Health cash-runway card
+// reads the same function. "All Cash & Bank Accounts" is a broader, separate figure: every
+// non-rollup Assets account whose name reads as a bank account (checking/savings/money market/
+// petty cash), which on a church with more than one bank account (e.g. a daycare's own checking)
+// is deliberately wider than the one pinned operating account — the trend line is allowed to name
+// which accounts it swept in, same reasoning as the operating-cash figure already does.
+const ALL_CASH_ACCOUNT_MATCH_RE = /checking|saving|money\s*market|petty\s*cash|cash\s*on\s*hand|^cash\b|cash\s*-\s*/i;
+export function computeYearCashSummary(rows, accountCode) {
+  const operating = operatingCashFromBalanceSheet(rows, accountCode);
+  const matches = (rows || []).filter(r => {
+    if (r.classification !== 'Assets') return false;
+    if (r.has_children) return false;
+    return ALL_CASH_ACCOUNT_MATCH_RE.test(String(r.account_name || '').trim());
+  });
+  return {
+    operatingCents: operating ? operating.cents : null,
+    operatingAccounts: operating ? operating.accounts : [],
+    allCashCents: matches.length ? matches.reduce((s, r) => s + (r.own_balance_cents || 0), 0) : null,
+    allCashAccounts: matches.map(r => String(r.account_name || '').trim()),
+  };
+}
 export function operatingCashFromAccounts(accountsPayload) {
   const list = accountsPayload?.QueryResponse?.Account || [];
   let cents = 0, matched = 0;
@@ -4094,12 +4118,17 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const balanceYears = years.includes(openingYear) ? years : [...years, openingYear];
     const placeholders = balanceYears.map(() => '?').join(',');
     const allRows = (await db.prepare(`SELECT * FROM finance_church_balances WHERE fiscal_year IN (${placeholders})`).bind(...balanceYears).all()).results || [];
+    const cashPolicy = await readCashPolicy(db);
     const byYear = {};
     const equityReclassByYear = {};
+    const cashByYear = {};
     balanceYears.forEach(y => {
       const yearRows = allRows.filter(r => r.fiscal_year === y);
       byYear[y] = computeBalanceSummary(yearRows);
-      if (years.includes(y)) equityReclassByYear[y] = yearRows.length ? computeEquityReclassification(yearRows) : null;
+      if (years.includes(y)) {
+        equityReclassByYear[y] = yearRows.length ? computeEquityReclassification(yearRows) : null;
+        cashByYear[y] = yearRows.length ? computeYearCashSummary(yearRows, cashPolicy.cash_account_code) : null;
+      }
     });
     // Net income for the same years, from the income-statement table — same precedence resolution
     // and same period_month=0 filter the Multi-Year income view uses, so the figure quoted in the
@@ -4113,7 +4142,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       const yearRows = resolvedPnl.filter(r => r.fiscal_year === y);
       netIncomeByYear[y] = yearRows.length ? computeYearSummary(yearRows).netIncome.actualCents : null;
     });
-    return json({ years, byYear, equityReclassByYear, netIncomeByYear,
+    return json({ years, byYear, equityReclassByYear, cashByYear, cashAccountCode: cashPolicy.cash_account_code || '', netIncomeByYear,
       reconciliation: computeBalanceVsPnlReconciliation(years, byYear, netIncomeByYear) });
   }
 
