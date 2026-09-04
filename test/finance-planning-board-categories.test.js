@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { handleFinanceApi, REVENUE_STREAMS, FLOW_EXPENSE_KEYS } from '../src/api-finance.js';
+import { handleFinanceApi, REVENUE_STREAMS, BOARD_EXPENSE_KEYS } from '../src/api-finance.js';
 
 // Chart of Accounts: which board category a real fund/account reads under (display only —
 // finance_church_entries and QuickBooks itself are never touched by any of this), and what each
@@ -67,7 +67,7 @@ describe('finance/planning/board-categories', () => {
     expect(got.revenue).toEqual({}); // the bad write never landed
   });
 
-  it('rejects an expense category not in FLOW_EXPENSE_KEYS', async () => {
+  it('rejects an expense category not in BOARD_EXPENSE_KEYS', async () => {
     const db = makeTestDb();
     const res = await PUT(db, { expense: { 'Expenses:X': 'not-a-real-category' } }, true);
     expect(res.status).toBe(400);
@@ -76,12 +76,26 @@ describe('finance/planning/board-categories', () => {
   it('accepts every real key from both allowlists', async () => {
     const db = makeTestDb();
     const revenue = {}; REVENUE_STREAMS.forEach((k, i) => { revenue['Income:acct' + i] = k; });
-    const expense = {}; FLOW_EXPENSE_KEYS.forEach((k, i) => { expense['Expenses:acct' + i] = k; });
+    const expense = {}; BOARD_EXPENSE_KEYS.forEach((k, i) => { expense['Expenses:acct' + i] = k; });
     const res = await PUT(db, { revenue, expense }, true);
     expect(res.status).toBe(200);
     const got = await (await GET(db, true)).json();
     expect(got.revenue).toEqual(revenue);
     expect(got.expense).toEqual(expense);
+  });
+
+  // BOARD_EXPENSE_KEYS is a superset of the money-flow Sankey's own five-key FLOW_EXPENSE_KEYS,
+  // not the same list — worship/district_synod are board-only categories, added 2026-09-04 at the
+  // user's request, and must never reshape the Sankey's own separate five-category diagram.
+  it('accepts the board-only worship and district_synod categories, not part of the Sankey\'s five', async () => {
+    const db = makeTestDb();
+    expect(BOARD_EXPENSE_KEYS).toContain('worship');
+    expect(BOARD_EXPENSE_KEYS).toContain('district_synod');
+    const res = await PUT(db, { expense: { 'Expenses:54010 Worship & Music': 'worship', 'Expenses:58200 District & Synod Support': 'district_synod' } }, true);
+    expect(res.status).toBe(200);
+    const got = await (await GET(db, true)).json();
+    expect(got.expense['Expenses:54010 Worship & Music']).toBe('worship');
+    expect(got.expense['Expenses:58200 District & Synod Support']).toBe('district_synod');
   });
 
   it('a second PUT merges into the first — a save made from Planning and one made from Chart of Accounts land in the same store', async () => {

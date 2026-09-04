@@ -2884,12 +2884,18 @@ var FIN_BOARD_REV_RULES = [
   { key: 'earned', re: /mdo|mother'?s day out|daycare|tuition|rental|rent\b|lease|fundrais|facility|program fee|earned/i },
   { key: 'donor', re: /offering|contribution|donor|donation|gift|pledge|tithe|memorial/i },
 ];
+// worship/district_synod were split out of the old "programs" catch-all 2026-09-04, by the
+// user's own explicit choice — the board reads them as their own peer categories, not as a
+// subset of general Programs. Order matters: both must be tested BEFORE the (now narrower)
+// programs fallback, since programs no longer carries worship|music itself.
 var FIN_BOARD_EXP_RULES = [
   { key: 'mdo', re: /mdo|mother'?s day out/i },
   { key: 'salaries', re: /salar|payroll|wage|benefit|compensation|pension|fica|health insurance|disability/i },
+  { key: 'worship', re: /worship|music|choir|organist|liturg|hymn/i },
   { key: 'education', re: /educat|school|lutheran high|scholarship|tuition aid|seminar/i },
   { key: 'property', re: /propert|facilit|utilit|maintenance|building|grounds|janitor|custodial|repair|mortgage|insuranc/i },
-  { key: 'programs', re: /program|worship|music|youth|children|mission|outreach|fellowship|evangel/i },
+  { key: 'district_synod', re: /district|synod/i },
+  { key: 'programs', re: /program|youth|children|mission|outreach|fellowship|evangel/i },
 ];
 function finBoardDefaultRevCat(label) {
   for (var i = 0; i < FIN_BOARD_REV_RULES.length; i++) if (FIN_BOARD_REV_RULES[i].re.test(label || '')) return FIN_BOARD_REV_RULES[i].key;
@@ -2904,8 +2910,14 @@ function finBoardDefaultExpCat(label) {
 }
 var FIN_BOARD_REV_ORDER = ['donor', 'earned', 'passive', 'restricted'];
 var FIN_BOARD_REV_DEFAULT_LABEL = { donor: 'Unrestricted Gifts', earned: 'Earned Income', passive: 'Passive Income', restricted: 'Restricted Gifts' };
-var FIN_BOARD_EXP_ORDER = ['mdo', 'salaries', 'property', 'education', 'programs'];
-var FIN_BOARD_EXP_DEFAULT_LABEL = { mdo: 'MDO', salaries: 'Salaries & Benefits', property: 'Property & Operations', education: 'Lutheran Education', programs: 'Programs' };
+// Seven categories, not the money-flow Sankey's five (FLOW_EXPENSE_KEYS in api-finance.js,
+// deliberately untouched) — the two systems are independent by design (see the header comment on
+// readPlanningBoardCategories in api-finance.js), so this list is free to carry more categories
+// than the Sankey's own without reshaping that heavily-tested, board-facing diagram too. The
+// backend validates against its own BOARD_EXPENSE_KEYS, kept in exact sync with this array by
+// hand — there is no shared module between this String.raw-served bundle and api-finance.js.
+var FIN_BOARD_EXP_ORDER = ['mdo', 'salaries', 'worship', 'property', 'education', 'district_synod', 'programs'];
+var FIN_BOARD_EXP_DEFAULT_LABEL = { mdo: 'MDO', salaries: 'Salaries & Benefits', worship: 'Worship & Music', property: 'Property & Operations', education: 'Lutheran Education', district_synod: 'District & Synod Support', programs: 'Programs' };
 // Empty until finLoadPlanning()'s fetch resolves — every reader below tolerates that (an unset
 // map just means "everything is on its regex default"), so a page opened mid-load never throws.
 var _finPlanBoardCats = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' };
@@ -2932,7 +2944,7 @@ function finBoardBucket(leaves, key, isRev) {
     .map(function(l) { var c = JSON.parse(JSON.stringify(l)); c.children = []; return c; });
   if (!members.length) return null;
   var g = finMakeGroupNode(finBoardLabelFor(key, isRev), isRev ? 'Income' : 'Expenses', members);
-  // Which of the four/five category keys this group renames to — read by groupHeaderRow() in
+  // Which of the four/seven category keys this group renames to — read by groupHeaderRow() in
   // finRenderPlanning so the same rename control Chart of Accounts offers also works right here.
   g.boardCatKey = key;
   g.boardCatIsRev = isRev;
@@ -7537,7 +7549,7 @@ function finRenderChartOfAccounts() {
     + finCoaBuildCard(revLeaves, true, FIN_BOARD_REV_ORDER, 'Revenue',
         'Restricted giving reads as the second half of donor income, so both sit inside Donor Income on the budget. Tick several accounts to move them together.')
     + finCoaBuildCard(expLeaves, false, FIN_BOARD_EXP_ORDER, 'Expenses',
-        'The five categories the board reads spending against &mdash; the same ones the money-flow chart is drawn from.')
+        'The categories the board reads spending against here on the Budget tab. Separate from the fewer, broader categories the money-flow chart on Financial Health is drawn from.')
     + '<div style="font-size:12px;color:var(--warm-meta);line-height:1.55;max-width:90ch;padding-bottom:24px;">'
     + 'Fund numbers, names and QuickBooks groups are untouched by anything on this page &mdash; the next export lands in exactly the same accounts. Only Connect&rsquo;s reading of them changes, on the Budget tab, the Church Report and Financial Health alike.'
     + '</div>';

@@ -85,7 +85,8 @@ function fixtureTree() {
     node('Expenses:52010 Utilities', '52010 Utilities', 'Expenses', 0, 400000, 420000), // -> property
     node('Expenses:53010 Lutheran High Support', '53010 Lutheran High Support', 'Expenses', 0, 200000, 200000), // -> education
     node('Expenses:57160 MDO - Supplies', '57160 MDO - Supplies', 'Expenses', 0, 176414, 150000), // -> mdo
-    node('Expenses:54010 Worship & Music', '54010 Worship & Music', 'Expenses', 0, 90000, 90000), // -> programs
+    node('Expenses:54010 Worship & Music', '54010 Worship & Music', 'Expenses', 0, 90000, 90000), // -> worship
+    node('Expenses:58200 District & Synod Support', '58200 District & Synod Support', 'Expenses', 0, 60000, 60000), // -> district_synod
     node('Expenses:59999 Something Else Exp', '59999 Something Else Exp', 'Expenses', 0, 5000, 0), // matches nothing -> programs (default)
   ];
 }
@@ -143,6 +144,26 @@ describe('finBuildBoardTree — regrouping the SAME leaves by Chart of Accounts 
     expect(programsGroup.children.map(n => n.label)).toContain('59999 Something Else Exp');
   });
 
+  // Worship & Music and District & Synod Support are their own peer board categories, added
+  // 2026-09-04 at the user's request after they reported "we lost" these — they used to be visible
+  // headings under QuickBooks-order view but the flattened Board view (now the default) swept them
+  // both into an undifferentiated "Programs" bucket with no heading of their own.
+  it('Worship & Music and District & Synod Support are their own board categories, not folded into Programs', () => {
+    const fin = loadBundle();
+    const out = fin.finBuildBoardTree(fixtureTree());
+    const expChildren = out.find(n => n.label === 'Expenses').children;
+    const worshipGroup = expChildren.find(n => n.label === 'Worship & Music');
+    const districtGroup = expChildren.find(n => n.label === 'District & Synod Support');
+    expect(worshipGroup).toBeTruthy();
+    expect(worshipGroup.children.map(n => n.label)).toContain('54010 Worship & Music');
+    expect(districtGroup).toBeTruthy();
+    expect(districtGroup.children.map(n => n.label)).toContain('58200 District & Synod Support');
+    // Programs no longer catches either — only the genuinely-unmatched leaf still falls there.
+    const programsGroup = expChildren.find(n => n.label === 'Programs');
+    expect(programsGroup.children.map(n => n.label)).not.toContain('54010 Worship & Music');
+    expect(programsGroup.children.map(n => n.label)).not.toContain('58200 District & Synod Support');
+  });
+
   it('a saved override in _finPlanBoardCats wins over the regex default', () => {
     const fin = loadBundle();
     fin._finPlanBoardCats = { revenue: { 'Income:49999 Something Else': 'passive' }, expense: {}, revenueLabels: {}, expenseLabels: {} };
@@ -160,7 +181,7 @@ describe('finBuildBoardTree — regrouping the SAME leaves by Chart of Accounts 
     const wantRevenue = 5000000 + 1200000 + 300000 + 90000 + 15000;
     expect(revenueRoot.totalActualCents).toBe(wantRevenue);
     const expenseRoot = out.find(n => n.label === 'Expenses');
-    const wantExpense = 8000000 + 400000 + 200000 + 176414 + 90000 + 5000;
+    const wantExpense = 8000000 + 400000 + 200000 + 176414 + 90000 + 60000 + 5000;
     expect(expenseRoot.totalActualCents).toBe(wantExpense);
   });
 

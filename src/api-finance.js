@@ -2706,6 +2706,26 @@ async function readFlowExpenseOverrides(db) {
 // differently than a sibling in the same QuickBooks group), which those two aggregations were
 // never built to honor. Keyed by each leaf's own category_path, not its account name — an
 // account name alone isn't unique across the chart of accounts, category_path is.
+//
+// The Board Category system's own expense taxonomy — its own allowlist (BOARD_EXPENSE_KEYS,
+// below), deliberately SEPARATE from FLOW_EXPENSE_KEYS above. It started out holding the same
+// five keys as FLOW_EXPENSE_KEYS by coincidence, not by design, and diverged 2026-09-04 when the
+// user asked for Worship & Music and District & Synod Support as their own peer categories on the
+// Budget tab — reusing FLOW_EXPENSE_KEYS for that would have silently grown the money-flow
+// Sankey diagram from five categories to seven too, which nobody asked for and this session has
+// no live browser to re-verify. Mirrored in FIN_BOARD_EXP_ORDER/FIN_BOARD_EXP_DEFAULT_LABEL in
+// js-finance.js — the two lists must be kept in exact sync by hand, since there is no shared
+// module between this backend file and that String.raw-served frontend bundle.
+export const BOARD_EXPENSE_CATEGORIES = [
+  { key: 'mdo', label: 'MDO' },
+  { key: 'salaries', label: 'Salaries & Benefits' },
+  { key: 'worship', label: 'Worship & Music' },
+  { key: 'property', label: 'Property & Operations' },
+  { key: 'education', label: 'Lutheran Education' },
+  { key: 'district_synod', label: 'District & Synod Support' },
+  { key: 'programs', label: 'Programs' },
+];
+export const BOARD_EXPENSE_KEYS = BOARD_EXPENSE_CATEGORIES.map(c => c.key);
 async function readPlanningBoardCategories(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_planning_board_categories'").first();
   const empty = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' };
@@ -4342,7 +4362,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       for (const [path, key] of Object.entries(b.expense)) {
         if (!path) continue;
         if (key === '' || key == null) { delete merged.expense[path]; continue; }
-        if (!FLOW_EXPENSE_KEYS.includes(key)) return json({ error: `Invalid expense category "${key}"` }, 400);
+        if (!BOARD_EXPENSE_KEYS.includes(key)) return json({ error: `Invalid expense category "${key}"` }, 400);
         merged.expense[path] = key;
       }
     }
@@ -4355,7 +4375,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     }
     if (b.expenseLabels && typeof b.expenseLabels === 'object') {
       for (const [key, label] of Object.entries(b.expenseLabels)) {
-        if (!FLOW_EXPENSE_KEYS.includes(key)) continue;
+        if (!BOARD_EXPENSE_KEYS.includes(key)) continue;
         const clean = String(label || '').trim();
         if (clean) merged.expenseLabels[key] = clean; else delete merged.expenseLabels[key];
       }

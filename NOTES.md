@@ -24,6 +24,54 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.224.0 — Budget tab: Worship & Music and District & Synod Support are now their own board categories (2026-09-04)
+
+Reported live: "we lost the categories of 'Worship & Music' and 'District & Synod Support'." Real,
+predictable consequence of v1.222.0's Board view becoming the Budget tab's default — before that,
+the tab only ever showed the raw QuickBooks-order tree, which preserves whatever group headings
+the real chart of accounts carries; Board view's fixed 5-category system (MDO / Salaries &
+Benefits / Property & Operations / Lutheran Education / Programs) has no room for a category that
+isn't one of those five, so any expense account matching neither MDO nor Salaries nor Property nor
+Education fell into one undifferentiated "Programs" bucket — the dollar figure was still there,
+just with no heading of its own calling it out. Asked the user how they wanted it resolved
+(`AskUserQuestion`, since this is a real board-taxonomy decision, not a display nicety) rather than
+guess between "add sub-headings within Programs" and "give them their own top-level category" —
+**user chose the latter.**
+
+- **Two new board expense categories**, worship (`Worship & Music`) and district_synod
+  (`District & Synod Support`), inserted into `FIN_BOARD_EXP_ORDER`
+  (`mdo, salaries, worship, property, education, district_synod, programs`) alongside new default
+  regexes in `FIN_BOARD_EXP_RULES` (`worship|music|choir|organist|liturg|hymn` and
+  `district|synod`, both tested before the now-narrower `programs` catch-all, which no longer
+  matches `worship|music` itself). Chart of Accounts and the Budget tab's Board view both read
+  `FIN_BOARD_EXP_ORDER` generically, so no other frontend rendering code needed to change — the
+  two new categories just appear as two more cards/headings, same as the existing five.
+- **⚠ The backend validation for this store used to reuse `FLOW_EXPENSE_KEYS`** — the money-flow
+  Sankey diagram's OWN, separate 5-category allowlist (Financial Health page, FIN58) — purely
+  because the two systems happened to share the same 5 keys since FIN70 shipped. Growing Board's
+  categories to 7 while still validating against `FLOW_EXPENSE_KEYS` would have either rejected
+  every attempt to assign an account to `worship`/`district_synod` (400 Invalid expense category),
+  or, if `FLOW_EXPENSE_KEYS` had been extended instead, silently grown the Sankey diagram from 5
+  categories to 7 too — a heavily-tested, board-facing chart nobody asked to change, with no live
+  browser here to re-verify a shape change against. Fixed by giving the Board Category system its
+  own independent allowlist, `BOARD_EXPENSE_CATEGORIES`/`BOARD_EXPENSE_KEYS` (`src/api-finance.js`)
+  — `FLOW_EXPENSE_CATEGORIES`/`FLOW_EXPENSE_KEYS`/`classifyFlowExpense()` (the Sankey's own system)
+  are completely untouched, confirmed by grep still gating only its own routes.
+  `BOARD_EXPENSE_KEYS`/`FIN_BOARD_EXP_ORDER` are two independent lists (backend/frontend) kept in
+  sync by hand, same as `FIN_BOARD_REV_ORDER`/`REVENUE_STREAMS` already were.
+- Fixed one piece of now-inaccurate copy on the Chart of Accounts page — its Expenses card
+  subtitle used to say "the same ones the money-flow chart is drawn from," which stops being true
+  the moment the two systems' category counts diverge.
+- `npm test` (2104/2104, 4 new: a board-only-categories acceptance test in
+  `test/finance-planning-board-categories.test.js`, and a dedicated `finBuildBoardTree` test in
+  `test/finance-planning-chart-of-accounts.test.js` confirming both new categories render as their
+  own top-level heading and Programs no longer catches either). **Every new test verified
+  non-vacuous** by stashing the two source files and confirming all 3 dependent tests fail against
+  the pre-change code, then restoring. `node --check` on `api-finance.js` and all three assembled
+  bundles (`app-core.js`/`app-ext.js`/`app-finance.js`). DEPLOY_VERSION bumped to 1.224.0.
+  **Not verified**: a live browser. (`src/api-finance.js`, `src/frontend/js-finance.js`,
+  `test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`)
+
 ### v1.220.0 — Chart of Accounts page; Board view / QuickBooks order toggle on Planning (2026-09-04)
 
 Built from a Claude Design canvas handoff (`design_handoff_budget_planning_categorization`,
