@@ -37,7 +37,7 @@ describe('finance/planning/board-categories', () => {
     const res = await GET(db, false);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {} });
+    expect(body).toEqual({ revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' });
   });
 
   it('a non-admin can read but not write', async () => {
@@ -130,5 +130,42 @@ describe('finance/planning/board-categories', () => {
     await PUT(db, { revenueLabels: { earned: '  Earned Income  ' } }, true);
     const got = await (await GET(db, true)).json();
     expect(got.revenueLabels.earned).toBe('Earned Income');
+  });
+
+  // donorWrapperLabel — the "Donor Income" wrapper that nests Unrestricted + Restricted together
+  // on the Budget tab's Board view. Not one of the four REVENUE_STREAMS keys, so it gets its own
+  // plain-string field rather than living inside revenueLabels.
+  it('sets and reads back a custom donorWrapperLabel, trimmed', async () => {
+    const db = makeTestDb();
+    const res = await PUT(db, { donorWrapperLabel: '  Giving  ' }, true);
+    expect(res.status).toBe(200);
+    const got = await (await GET(db, true)).json();
+    expect(got.donorWrapperLabel).toBe('Giving');
+  });
+
+  it('a blank donorWrapperLabel clears back to the default ("")', async () => {
+    const db = makeTestDb();
+    await PUT(db, { donorWrapperLabel: 'Giving' }, true);
+    const res = await PUT(db, { donorWrapperLabel: '   ' }, true);
+    expect(res.status).toBe(200);
+    const got = await (await GET(db, true)).json();
+    expect(got.donorWrapperLabel).toBe('');
+  });
+
+  it('a non-admin cannot set donorWrapperLabel', async () => {
+    const db = makeTestDb();
+    const res = await PUT(db, { donorWrapperLabel: 'Giving' }, false);
+    expect(res.status).toBe(403);
+    const got = await (await GET(db, false)).json();
+    expect(got.donorWrapperLabel).toBe('');
+  });
+
+  it('setting donorWrapperLabel does not disturb an already-saved revenue/expense assignment', async () => {
+    const db = makeTestDb();
+    await PUT(db, { revenue: { 'Income:A': 'donor' } }, true);
+    await PUT(db, { donorWrapperLabel: 'Giving' }, true);
+    const got = await (await GET(db, true)).json();
+    expect(got.revenue).toEqual({ 'Income:A': 'donor' });
+    expect(got.donorWrapperLabel).toBe('Giving');
   });
 });

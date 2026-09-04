@@ -849,8 +849,9 @@ Planning's own "Category by category" table that reads those assignments.
   (`body.printing-plan`, same contract as `.printing-comp`/`.printing-board`), and a per-leaf
   category picker directly on Planning** (Board view, admin only) sharing the same save path Chart
   of Accounts uses.
-- **Deliberately not built**: a "moved" indicator badge, inline category-header renaming on
-  Planning itself (Chart of Accounts only), a batched Chart-of-Accounts save step.
+- **Deliberately not built**: a "moved" indicator badge, ~~inline category-header renaming on
+  Planning itself (Chart of Accounts only)~~ (reversed by the FIN70 follow-up below — Planning's
+  own headings are renameable in place too, as of 1.223.0), a batched Chart-of-Accounts save step.
 - `npm test` (2056/2056, 43 new: `test/finance-planning-board-categories.test.js` — real backend
   route against real in-memory SQLite — and `test/finance-planning-chart-of-accounts.test.js` — the
   real assembled bundle run in a `vm`); **every new test verified non-vacuous** by injecting the
@@ -870,6 +871,26 @@ Planning's own "Category by category" table that reads those assignments.
   `src/frontend/html-tabs.js`, `src/frontend/html-head.js`,
   `test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`,
   `test/finance-qb-order.test.js`)
+
+**Follow-up, 2026-09-04 (v1.223.0), DONE — three live-screenshot corrections.** (1) The tab is
+renamed **"Budget"** everywhere a user sees it (sidebar label, page header, every sentence naming
+it) — `id`/`finSection`/route/function names (`planning`, `finRenderPlanning`, etc.) untouched, a
+display-string rename only. (2) The category headings on the Budget tab's own Board view
+("Unrestricted Gifts," "Donor Income," etc.) are now renameable in place — the exact reversal the
+"Deliberately not built" line above used to record — via the same `finCoaRename` Chart of Accounts
+uses, saving to the same store. **The "Donor Income" wrapper needed a schema addition to be
+renameable at all**: it's not one of the four `REVENUE_STREAMS` keys the store already validates,
+so it got its own plain-string `donorWrapperLabel` field (trimmed, blank clears to the default).
+(3) **The per-leaf category `<select>` on the Budget table itself was removed** — it was a second
+copy of the same control Chart of Accounts already offers, and the user's own framing was that
+reassignment is Chart of Accounts' job alone; `finPlanSetBoardCategory()` is untouched and still
+backs Chart of Accounts' own per-leaf picker, only the Budget table's copy of the call site is
+gone. `npm test` (2102/2102, 12 new/updated); every changed assertion verified non-vacuous by
+stashing the `js-finance.js` change and confirming all 5 dependent tests fail against the
+pre-change code. `node --check` on the assembled bundle, div-balance on the assembled `CHMS_HTML`
+(1122/1122), spelling check clean. DEPLOY_VERSION bumped to 1.223.0. **Not verified**: a live
+browser. (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+`test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`)
 
 ### FIN69 — Planning: FY{base} Actual editable per line; dead $0.00/$0.00 accounts hidden (2026-08-30, DONE)
 Two asks off a live Planning screenshot. **(1)** "Could we edit one individual line [of FY{base}

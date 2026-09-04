@@ -2708,7 +2708,7 @@ async function readFlowExpenseOverrides(db) {
 // account name alone isn't unique across the chart of accounts, category_path is.
 async function readPlanningBoardCategories(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_planning_board_categories'").first();
-  const empty = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {} };
+  const empty = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' };
   if (!row) return empty;
   try {
     const v = JSON.parse(row.value) || {};
@@ -2717,6 +2717,11 @@ async function readPlanningBoardCategories(db) {
       expense: v.expense && typeof v.expense === 'object' ? v.expense : {},
       revenueLabels: v.revenueLabels && typeof v.revenueLabels === 'object' ? v.revenueLabels : {},
       expenseLabels: v.expenseLabels && typeof v.expenseLabels === 'object' ? v.expenseLabels : {},
+      // The "Donor Income" wrapper that nests Unrestricted + Restricted together on the Budget
+      // tab's Board view (see finBuildBoardTree in js-finance.js) — not one of the four revenue
+      // category keys REVENUE_STREAMS validates below, so it gets its own plain-string field
+      // rather than trying to squeeze it into revenueLabels' key allowlist.
+      donorWrapperLabel: typeof v.donorWrapperLabel === 'string' ? v.donorWrapperLabel : '',
     };
   } catch { return empty; }
 }
@@ -4323,6 +4328,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const merged = {
       revenue: { ...current.revenue }, expense: { ...current.expense },
       revenueLabels: { ...current.revenueLabels }, expenseLabels: { ...current.expenseLabels },
+      donorWrapperLabel: current.donorWrapperLabel,
     };
     if (b.revenue && typeof b.revenue === 'object') {
       for (const [path, key] of Object.entries(b.revenue)) {
@@ -4353,6 +4359,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
         const clean = String(label || '').trim();
         if (clean) merged.expenseLabels[key] = clean; else delete merged.expenseLabels[key];
       }
+    }
+    if (typeof b.donorWrapperLabel === 'string') {
+      merged.donorWrapperLabel = b.donorWrapperLabel.trim();
     }
     await db.prepare(
       `INSERT INTO chms_config (key,value) VALUES ('finance_planning_board_categories',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
