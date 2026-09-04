@@ -892,6 +892,31 @@ pre-change code. `node --check` on the assembled bundle, div-balance on the asse
 browser. (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
 `test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`)
 
+**Follow-up, 2026-09-04 (v1.224.0), DONE — Worship & Music / District & Synod Support restored as
+their own board categories.** Reported live: "we lost the categories of 'Worship & Music' and
+'District & Synod Support'" — a real, predictable consequence of Board view becoming this tab's
+default: any expense that isn't MDO/Salaries/Property/Education fell into one undifferentiated
+"Programs" bucket, so those two group names no longer had a heading of their own (the dollar
+figures were still there, just nested with nothing calling them out). Asked the user how they
+wanted it resolved (`AskUserQuestion`, since this is a real board-taxonomy call, not a display
+nicety) — **user chose to make them full peer categories**, not just restore a sub-heading inside
+Programs. `FIN_BOARD_EXP_ORDER` grew from 5 to 7 keys (`mdo, salaries, worship, property,
+education, district_synod, programs`), with new default-matching regexes for both, tested before
+the now-narrower `programs` catch-all. **The Board Category system's own backend validation used
+to reuse `FLOW_EXPENSE_KEYS` — the money-flow Sankey diagram's separate 5-category allowlist —
+purely by coincidence of the two systems once sharing the same 5 keys.** Growing to 7 categories
+while still validating against that constant would have either rejected every attempt to use the
+two new categories, or silently grown the Sankey diagram too (a heavily-tested, board-facing chart
+nobody asked to change). Fixed with a new, independent `BOARD_EXPENSE_CATEGORIES`/
+`BOARD_EXPENSE_KEYS` in `src/api-finance.js` — `FLOW_EXPENSE_KEYS`/`classifyFlowExpense()` (the
+Sankey's own system) are completely untouched. Also corrected one piece of now-stale Chart of
+Accounts copy claiming the two systems draw from "the same" categories. `npm test` (2104/2104, 4
+new); every new/dependent test verified non-vacuous by stashing both source files and confirming
+all 3 fail against the pre-change code, then restoring. `node --check` on `api-finance.js` and all
+three assembled bundles. DEPLOY_VERSION bumped to 1.224.0. **Not verified**: a live browser.
+(`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+`test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`)
+
 ### FIN69 — Planning: FY{base} Actual editable per line; dead $0.00/$0.00 accounts hidden (2026-08-30, DONE)
 Two asks off a live Planning screenshot. **(1)** "Could we edit one individual line [of FY{base}
 Actual] without having to reupload a file?" New `PUT /admin/api/finance/church/actual-override`
