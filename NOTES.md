@@ -175,6 +175,122 @@ reasoning as MKT1: no frontend change, `DEPLOY_VERSION` not bumped.
   that repo's own CLAUDE.md for the caller side of this.
   (`src/api-scheduler.js`, `tlc-volunteer-worker.js`, `test/market-signup-summary.test.js`)
 
+### v1.222.0 — Chart of Accounts page; Board view / QuickBooks order toggle on Planning (2026-09-04)
+
+Built from a Claude Design canvas handoff (`design_handoff_budget_planning_categorization`,
+mockups for `Chart of Accounts.dc.html` and `Budget Planning.dc.html`, recreated from this repo's
+own shipped source) — the ask was to add per-account category assignment and a new Chart of
+Accounts page to the Planning tab. A new independent classification system, deliberately NOT the
+existing group-label-only `finance_revenue_streams`/`finance_flow_expense_map` stores that
+Financial Health's revenue mix bar and the money-flow Sankey diagram already read (those are
+heavily tested and board-facing with no live browser to re-verify a shared-store regression
+against) — new `finance_planning_board_categories` chms_config blob, keyed by each real leaf
+account's own `category_path` rather than a QuickBooks GROUP label, so two funds sharing a group
+can land in different board categories.
+
+- **New `GET`/`PUT /admin/api/finance/planning/board-categories`** (`src/api-finance.js`). GET
+  returns `{revenue, expense, revenueLabels, expenseLabels}` (all four default to `{}` on a fresh
+  install, so every reader tolerates an unset map as "everything is on its regex default"). PUT
+  (admin-only, read is open to any finance-gated caller) MERGES whatever's sent into what's already
+  saved, so a per-leaf pick made from Planning's own inline picker and a bulk "Move to" made from
+  Chart of Accounts land in the same store without one clobbering the other's unrelated entries.
+  Every revenue value is checked against `REVENUE_STREAMS`, every expense value against
+  `FLOW_EXPENSE_KEYS` — an unrecognized key 400s rather than silently storing garbage a renderer
+  would then guess at. An empty-string value clears that one entry back to the computed default,
+  and a blank rename clears a custom category label the same way.
+- **New Chart of Accounts page** (`src/frontend/js-finance.js` `finRenderChartOfAccounts()`, new
+  sub-nav item between Planning and Compensation, mounted at `#fin-panel-accounts`/`#fin-coa-root`
+  in `html-tabs.js`) — two cards (Revenue / Expenses), each account grouped under its current
+  category with a per-account checkbox + picker, a group-level "select all in this category"
+  checkbox, a renameable (contenteditable) category heading, and a bulk "Move to" bar that appears
+  once anything is selected on that card. Every write saves immediately (a checkbox tick, a picker
+  change, a bulk move, a rename) — deliberately not a batched "Save changes" button; every other
+  admin-editable control already on this tab (Planning's own per-leaf picker, Settings' Fund
+  Categories card) already saves on change with no separate commit step, and a page whose entire
+  job is "reassign a few accounts" gains nothing from a save queue someone could navigate away from
+  and lose. Footer states plainly that nothing here touches `category_path`, fund numbers, or
+  QuickBooks itself — the next sync/import lands in exactly the same accounts regardless.
+- **Board view / QuickBooks order toggle on Planning's "Category by category" table.** New
+  `finBuildBoardTree(_finPlanBaseTree)` flattens the real QuickBooks tree to leaves
+  (`finFlattenLeaves`) and re-buckets them fresh by the Chart of Accounts categories — a genuinely
+  new capability for EXPENSES, which had zero categorization before this; revenue already had a
+  partial version of this via `finReorganizeChurchTree`'s Earned/Restricted extraction, now folded
+  into the same mechanism. Restricted giving nests under one "Donor Income" wrapper alongside
+  Unrestricted, matching `displayStreamOf()`'s convention everywhere else in this app that restricted
+  reads as the second half of donor income, not a fourth stream beside it — that wrapper title is a
+  fixed organizational header, never one of the four renameable category keys. **Board view is the
+  new default**; "QuickBooks order" is the tree exactly as it rendered before this shipped
+  (`finReorganizeChurchTree`'s own grouping over the raw QuickBooks hierarchy), unchanged, so
+  flipping the toggle back always shows what the page looked like before Chart of Accounts existed.
+  An unmatched account defaults to Earned Income (revenue) or Programs (expense) — never
+  Unrestricted Gifts — same reasoning as `REVENUE_STREAM_RULES` in `api-finance.js`: overstating
+  donor revenue overstates how much of the budget the board can actually redirect, which is the one
+  thing this page exists to get right.
+- **Column show/hide chips** (FY Bud / FY Actual / FY Projected / FY Plan / Δ%) — a hidden column's
+  chip stays visible, struck through, so it can be turned back on; only its `<th>`/`<td>`s actually
+  leave the table.
+- **"Choose rows"** — an admin can exclude individual lines from the table; **a total (group,
+  section, or Net) always reads the exclusion-filtered tree whether or not picking is currently
+  open**, so a printed sheet or export built from the same state can never disagree with what's on
+  screen. While picking is open, an excluded leaf still renders (dimmed, checkbox unchecked, so it
+  can be put back) — showing its own real value, never zeroed — but is never counted in a total.
+  Not persisted server-side: a print/export exclusion is a "leave this off THIS sheet" choice, not a
+  standing Chart of Accounts decision, so it resets on reload rather than following the church into
+  next year's plan.
+- **Export CSV** — `finPlanExportCsv()` downloads `_finPlanCsvRows`, a table built alongside the
+  HTML on every render (not a second computation) so the export can never drift from what's on
+  screen — respects the current column visibility and row exclusion exactly.
+- **Print** — `finPlanPrint()` sets `body.printing-plan` (same `body.printing-<feature>` contract as
+  `.printing-comp`/`.printing-board`), showing only `#fin-plan-print-card` (the table itself) — the
+  navy summary strip, the year-input/commit header actions, and the five-year outlook chart below
+  the table are working-session controls, not part of a sheet handed to a board member. No separate
+  print-only layout to build, unlike the Council report — the table already lives on the page.
+- **Per-leaf category picker directly on Planning** (Board view, admin only) — reassigns one
+  account's category from the row it's actually sitting in, via the same
+  `finPlanSetBoardCategory()`/`finCoaSaveCategories()` save path Chart of Accounts uses, so the two
+  surfaces can never disagree about which store wins.
+- **Deliberately not built this pass** (scope kept to what the handoff's core ask needed): a
+  "moved" indicator badge on a reassigned account, inline category-header renaming on Planning
+  itself (kept on Chart of Accounts only), and a batched "Save changes" step on Chart of Accounts
+  (immediate-save-per-action instead, per the reasoning above).
+- **A real bug in my own draft, caught by the build, not by reading**: a backtick inside a comment
+  ("… category_path is in `excluded`") closed the outer `String.raw` literal and broke the entire
+  served script — the SC3-BUG1/FIN15/TAP2-BUG class this file has hit repeatedly. Caught by running
+  the actual assembled bundle through Node, not by `node --check` on the module file alone (which
+  only validates the outer template literal's own delimiters, not the served text inside it).
+- `npm test` (2056/2056, 43 new across `test/finance-planning-board-categories.test.js` — the real
+  backend route against real in-memory SQLite — and `test/finance-planning-chart-of-accounts.test.js`
+  — the real assembled `CHMS_APP_CORE_JS`+`CHMS_APP_EXT_JS`+`CHMS_APP_FINANCE_JS` bundles run in a
+  `vm`, driving `finBuildBoardTree`, the Board-view/QuickBooks-order toggle, column visibility, row
+  exclusion/totals-consistency, CSV export, every Chart of Accounts handler including the real
+  fetch-backed saves, and `finPlanPrint`). **Every new test verified non-vacuous** by injecting the
+  exact regression it guards directly into the production code and confirming the right test (and
+  only that test) failed — 8 injections across both files, 8 correct failure sets. One injection
+  (removing `finRecomputeTreeTotals()` from `finPlanFilterExcluded`) caused **no** test failure —
+  traced to `finPlanComputeMaps()` never actually reading a group node's own stale
+  `totalActualCents`/`totalBudgetCents` fields, only ever summing from its own bottom-up maps; left
+  the call in place as harmless defensive code (matches the surrounding comment's stated intent) but
+  didn't write a test claiming to cover it, since nothing currently observable depends on it. Two of
+  my own test assertions were wrong on the first pass and were corrected against the real rendered
+  output rather than forced: a toolbar CHIP for a hidden column stays in the DOM (struck through, so
+  it can toggle the column back on) rather than disappearing, which I'd initially asserted backwards;
+  and an admin's Actual cell renders as an editable `value="50000"` input, not the comma-formatted
+  text a non-admin sees. Three pre-existing tests in `test/finance-qb-order.test.js` needed updating,
+  not the production code — they render the Planning table directly and never set
+  `_finPlanViewMode`, so once Board view became the default they were silently exercising the wrong
+  tree; fixed by having those two helpers explicitly force `_finPlanViewMode = 'qb'`, matching what
+  their own describe block ("Planning budget builder — QuickBooks order") already says they're
+  testing. Plus `node --check` on all four touched source files and both extracted bundle scripts,
+  and a div/tag-balance scan of the fully assembled `CHMS_HTML` (1122/1122) and its extracted CSS
+  bundle (1373/1373 braces). One pre-existing, unrelated test failure
+  (`test/finance-property-funds-itself.test.js`'s "deducts mortgage principal") was confirmed present
+  on the branch before this session's changes too (a date-sensitive amortization fixture, not
+  touched by anything here) — not fixed, out of scope. **Not verified**: a live browser.
+  (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+  `src/frontend/html-tabs.js`, `src/frontend/html-head.js`,
+  `test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`,
+  `test/finance-qb-order.test.js`)
+
 ### v1.219.0 — Planning: FY{base} Actual is editable per line; dead $0.00/$0.00 accounts hidden (2026-08-30)
 
 Two asks off a live Planning ("Category by category") screenshot. **(1)** FY{base} Actual was

@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.221.7';
+export const DEPLOY_VERSION = '1.222.1';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
