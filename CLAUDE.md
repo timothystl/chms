@@ -917,6 +917,46 @@ three assembled bundles. DEPLOY_VERSION bumped to 1.224.0. **Not verified**: a l
 (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
 `test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`)
 
+### FIN71 — Balance Sheet & Financial Position: its own tab (2026-09-04, DONE)
+Two asks in one message: "give me a tab for Balance Sheet & Financial Position... graphs of
+data... show the change over the years of growth or loss of money, like compared to our bank
+accounts over the years," followed by "i need a report that can compare last years to this year."
+Balance Sheet already existed (FIN60) as a third mode inside Church Report's This year/Multi-year
+toggle — a multi-year Assets/Liabilities/Equity chart and a tie-out against the income statement —
+but had no dedicated tab, no cash-specific trend, no CSV export, and no account-level
+year-over-year comparison.
+- **Relocated, not duplicated.** Moved out of Church Report into its own top-level Finance
+  sub-nav tab (`FIN_TOPNAV_ITEMS`); Church Report's mode pills drop from three to two. Every
+  reading-side identifier renamed to match (`finLoadChurchBalances` → `finLoadBalanceSheetTab`,
+  `finRenderChurchBalances` → `finRenderBalanceSheetTab`, the DOM mount moves from
+  `#fin-church-balances-view` nested in Church Report to its own `#fin-panel-balance` /
+  `#fin-balance-root`) — the Data & Imports upload-flow state and functions are untouched and stay
+  where they were, per FIN57's own reasoning that a file-upload control has no business on a
+  reading page.
+- **"Cash & Bank Accounts Over Time" trend** (new). Two series: the one pinned operating checking
+  account (reusing `operatingCashFromBalanceSheet()` — the exact function the Financial Health
+  runway card already reads, so the two can never disagree for the same year) and a broader "All
+  Cash & Bank Accounts" figure sweeping in every other checking/savings/money-market/petty-cash
+  account by name, since a church with more than one bank account would otherwise have the second
+  one invisible. New `computeYearCashSummary()` wired into the existing multi-year balances route
+  as `cashByYear`/`cashAccountCode` — no new route.
+- **"Net Worth Growth by Year"** (new) — a plain signed $ and % change table between consecutive
+  years, off the same Equity series the existing chart already draws from.
+- **"This Year vs. Last Year"** (new) — directly answers the second ask. Every current-year
+  account walked against its own prior-year total by path; an account with nothing on the books
+  last year reads "new this year," not a misleading $0.00. Needed a third fetch (the prior year's
+  single-year snapshot) alongside the existing current-year and multi-year-trend calls.
+- **CSV export** (new) — the full loaded multi-year Assets/Liabilities/Equity/Cash series.
+- `npm test` (2127/2127, 30 new/updated); **every new/dependent test verified non-vacuous** by
+  stashing all four touched source files and confirming 28 of 40 tests in the two affected files
+  fail against the pre-change code. One pre-existing test file needed a `chms_config` table added
+  to its minimal schema, since the route now also calls `readCashPolicy()`. `node --check` on
+  `api-finance.js` and all three assembled bundles; div-balance on the assembled `CHMS_HTML`
+  (1123/1123). DEPLOY_VERSION bumped to 1.225.0. **Not verified**: a live browser.
+  (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+  `src/frontend/html-tabs.js`, `test/finance-balance-pnl-recon.test.js`,
+  `test/finance-balance-recon-ui.test.js`)
+
 ### FIN69 — Planning: FY{base} Actual editable per line; dead $0.00/$0.00 accounts hidden (2026-08-30, DONE)
 Two asks off a live Planning screenshot. **(1)** "Could we edit one individual line [of FY{base}
 Actual] without having to reupload a file?" New `PUT /admin/api/finance/church/actual-override`

@@ -1720,7 +1720,13 @@ export const HTML_TABS_2 = String.raw`
         <div id="fin-church-header"></div>
         <div id="fin-church-year-view"></div>
         <div id="fin-church-multiyear-view" style="display:none;"></div>
-        <div id="fin-church-balances-view" style="display:none;"></div>
+      </div>
+
+      <!-- Balance Sheet & Financial Position — assets/liabilities/equity, its own tab (was a
+           third mode inside Church Report until 2026-09-04). Rendered by finRenderBalanceSheetTab()
+           into one root mount, same as Property/Planning above. -->
+      <div id="fin-panel-balance" class="fin-printable" style="display:none;">
+        <div id="fin-balance-root">Loading&hellip;</div>
       </div>
 
       <div id="fin-panel-daycare" class="fin-printable" style="display:none;">

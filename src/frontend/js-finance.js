@@ -29,6 +29,7 @@ function loadFinance() {
     // finRenderDataImports() mounts those containers and then calls them itself.
     finRenderDataImports();
     finRenderChurchReport();
+    finLoadBalanceSheetTab();
     finRenderDaycareReport();
     finLoadDaycareRooms();
     finLoadProperty();
@@ -44,7 +45,7 @@ function loadFinance() {
 // Button active-state is handled by the shared renderFinanceSubnav() (js-core.js) re-render,
 // driven by showTab()'s _finActiveNavId — this only toggles panel visibility.
 function finShowSection(section) {
-  ['health', 'church', 'daycare', 'property', 'planning', 'accounts', 'compensation', 'data'].forEach(function(s) {
+  ['health', 'church', 'balance', 'daycare', 'property', 'planning', 'accounts', 'compensation', 'data'].forEach(function(s) {
     var panel = document.getElementById('fin-panel-' + s);
     if (panel) panel.style.display = (s === section) ? '' : 'none';
   });
@@ -3146,8 +3147,8 @@ function finChurchAsOfDate(entries) {
 var _finChurchMode = 'year';
 var _finChurchThisYearData = null;
 var _finChurchMultiYearData = null;
-var _finChurchBalancesData = null;
-var _finChurchBalancesMultiYearData = null;
+var _finBalanceData = null;
+var _finBalanceMultiYearData = null;
 
 // Shared palette for the category pie charts below (Income sources / Expense categories /
 // Asset composition) — cycles by category rank (largest first) rather than a fixed per-category
@@ -3169,7 +3170,9 @@ function finPieItemsFromTree(tree, classification, totalField) {
     .map(function(c, i) { return { label: c.label, value: c[totalField], color: CHURCH_PIE_PALETTE[i % CHURCH_PIE_PALETTE.length] }; });
 }
 
-// The three modes are a pill group, not three buttons — one control that reads as one choice.
+// Two modes now, not three — Balance sheet moved out to its own tab 2026-09-04 (see
+// finRenderBalanceSheetTab below). The pill group stays a pill group even at two options, matching
+// every other mode-switch in this file, rather than special-casing down to a plain toggle.
 // The seven import buttons that used to sit in this toolbar are gone; the functions that back
 // them are untouched and are now invoked from the Data & Imports tab.
 function finRenderChurchHeader() {
@@ -3182,7 +3185,6 @@ function finRenderChurchHeader() {
   var actions = finPills([
     { key: 'year', label: 'This year' },
     { key: 'multiyear', label: 'Multi-year' },
-    { key: 'balances', label: 'Balance sheet' },
   ], _finChurchMode, 'finSetChurchReportMode')
     + '<button class="btn-secondary" onclick="finExportChurchCsv()">Export CSV</button>'
     + '<button class="btn-secondary" onclick="window.print()">Print</button>';
@@ -3192,14 +3194,11 @@ function finSetChurchReportMode(mode) {
   _finChurchMode = mode;
   var yearEl = document.getElementById('fin-church-year-view');
   var multiEl = document.getElementById('fin-church-multiyear-view');
-  var balEl = document.getElementById('fin-church-balances-view');
   if (yearEl) yearEl.style.display = mode === 'year' ? '' : 'none';
   if (multiEl) multiEl.style.display = mode === 'multiyear' ? '' : 'none';
-  if (balEl) balEl.style.display = mode === 'balances' ? '' : 'none';
   finRenderChurchHeader();
   if (mode === 'year' && !_finChurchThisYearData) finLoadChurchThisYear();
   if (mode === 'multiyear' && !_finChurchMultiYearData) finLoadChurchMultiYear();
-  if (mode === 'balances' && !_finChurchBalancesData) finLoadChurchBalances();
 }
 
 // Called from loadFinance() on every tab load AND after every "Sync Now" — always invalidates
@@ -3210,8 +3209,6 @@ function finSetChurchReportMode(mode) {
 function finRenderChurchReport() {
   _finChurchThisYearData = null;
   _finChurchMultiYearData = null;
-  _finChurchBalancesData = null;
-  _finChurchBalancesMultiYearData = null;
   finSetChurchReportMode(_finChurchMode);
 }
 
@@ -3688,27 +3685,96 @@ function finRenderBalanceTreeRows(nodes, html) {
   });
   return html;
 }
+// ── This Year vs. Last Year — account-by-account comparison ─────────────────────────────────
+// "i need a report that can compare last years to this year." A path -> total-balance map, built
+// from the same tree finBuildBalanceTreeFromFlatRows already produces — totalBalanceCents so a
+// group row compares like-for-like against its own prior-year rollup, not just its own direct
+// postings.
+function finBalanceTotalsByPath(rows) {
+  var map = {};
+  (function walk(nodes) {
+    (nodes || []).forEach(function(n) { map[n.path] = n.totalBalanceCents; walk(n.children); });
+  })(finBuildBalanceTreeFromFlatRows(rows));
+  return map;
+}
+// Walks the CURRENT year's tree (its structure is the reading — a discontinued account from last
+// year with nothing on the books this year is not shown as a line item, same as it wouldn't be on
+// a printed balance sheet) and looks up each node's prior-year total by path. A path with no prior
+// entry at all reads "new" rather than a misleading $0.00 prior figure — an account genuinely
+// opened this year is a different fact than one that existed at $0.
+function finRenderBalanceYoyRows(nodes, priorMap, html) {
+  html = html || [];
+  (nodes || []).forEach(function(n) {
+    var cur = n.totalBalanceCents;
+    var hasPrior = Object.prototype.hasOwnProperty.call(priorMap, n.path);
+    var prior = hasPrior ? priorMap[n.path] : null;
+    var bold = n.children.length > 0;
+    var deltaHtml, pctHtml;
+    if (!hasPrior) {
+      deltaHtml = '<span style="color:var(--warm-gray);">new this year</span>';
+      pctHtml = '&mdash;';
+    } else {
+      var delta = cur - prior;
+      var color = delta > 0 ? 'var(--sage)' : (delta < 0 ? 'var(--danger)' : 'var(--warm-gray)');
+      deltaHtml = '<span style="color:' + color + ';font-weight:' + (bold ? '700' : '400') + ';">'
+        + (delta > 0 ? '+' : (delta < 0 ? '&minus;' : '')) + '$' + finFmtMoney(Math.abs(delta) / 100) + '</span>';
+      var pct = prior !== 0 ? (delta / Math.abs(prior) * 100) : null;
+      pctHtml = pct == null ? '&mdash;' : '<span style="color:' + color + ';">' + (delta >= 0 ? '+' : '') + pct.toFixed(1) + '%</span>';
+    }
+    html.push('<tr' + (bold ? ' style="font-weight:600;"' : '') + '>'
+      + '<td style="padding:5px 8px 5px ' + (10 + n.depth * 16) + 'px;">' + esc(n.label) + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(cur / 100) + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">' + (hasPrior ? '$' + finFmtMoney(prior / 100) : '<span style="color:var(--warm-gray);">&mdash;</span>') + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">' + deltaHtml + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">' + pctHtml + '</td>'
+      + '</tr>');
+    finRenderBalanceYoyRows(n.children, priorMap, html);
+  });
+  return html;
+}
+function finRenderBalanceYoyCard(currentRows, priorData, currentYear) {
+  if (!currentRows || !currentRows.length) return '';
+  var priorRows = (priorData && priorData.rows) || [];
+  var priorYear = currentYear - 1;
+  if (!priorRows.length) {
+    return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 4px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">' + currentYear + ' vs. ' + priorYear + '</h4>'
+      + '<p style="font-size:.8rem;color:var(--warm-gray);">No ' + priorYear + ' balance sheet on file yet &mdash; upload one from Data &amp; Imports to see a year-over-year comparison here.</p></div>';
+  }
+  var tree = finBuildBalanceTreeFromFlatRows(currentRows);
+  var priorMap = finBalanceTotalsByPath(priorRows);
+  var th = function(label, right) {
+    return '<th style="text-align:' + (right ? 'right' : 'left') + ';padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">' + label + '</th>';
+  };
+  return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 4px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">' + currentYear + ' vs. ' + priorYear + '</h4>'
+    + '<p style="font-size:.74rem;color:var(--warm-gray);margin:0 0 8px;">Every account on the ' + currentYear + ' balance sheet, compared line by line against the same account’s ' + priorYear + ' total.</p>'
+    + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead><tr style="background:var(--warm-surface-header);">' + th('Account') + th(String(currentYear), true) + th(String(priorYear), true) + th('Change', true) + th('%', true) + '</tr></thead>'
+    + '<tbody>' + finRenderBalanceYoyRows(tree, priorMap).join('') + '</tbody></table></div></div>';
+}
 // The snapshot year and the trend window are both explicit state, not fixed to "now": a church
 // uploading several years of history needs to look at a past year's balance sheet, and the
 // server's default trend window is only the rolling last five years — an older import (2019, say)
 // saves fine but would otherwise never appear on any screen. Same reasoning, and same From/To
 // control, as the Multi-Year income view's range picker.
-var _finChurchBalanceYear = null;
-var _finChurchBalanceYears = null;
-function finLoadChurchBalances(year, explicitYears) {
-  year = year || _finChurchBalanceYear || new Date().getFullYear();
-  _finChurchBalanceYear = year;
-  if (explicitYears) _finChurchBalanceYears = explicitYears;
-  var el = document.getElementById('fin-church-balances-view');
+var _finBalanceYear = null;
+var _finBalanceYears = null;
+var _finBalancePriorYearData = null; // the year immediately before the snapshot year — only for the This Year vs Last Year card
+function finLoadBalanceSheetTab(year, explicitYears) {
+  year = year || _finBalanceYear || new Date().getFullYear();
+  _finBalanceYear = year;
+  if (explicitYears) _finBalanceYears = explicitYears;
+  var el = document.getElementById('fin-balance-root');
   if (!el) return;
   el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
   Promise.all([
     api('/admin/api/finance/church/balances?year=' + year),
-    api('/admin/api/finance/church/balances/multi-year' + (_finChurchBalanceYears ? '?years=' + _finChurchBalanceYears.join(',') : '')),
+    api('/admin/api/finance/church/balances/multi-year' + (_finBalanceYears ? '?years=' + _finBalanceYears.join(',') : '')),
+    api('/admin/api/finance/church/balances?year=' + (year - 1)),
   ]).then(function(results) {
-    _finChurchBalancesData = results[0];
-    _finChurchBalancesMultiYearData = results[1];
-    finRenderChurchBalances(_finChurchBalancesData, _finChurchBalancesMultiYearData);
+    _finBalanceData = results[0];
+    _finBalanceMultiYearData = results[1];
+    _finBalancePriorYearData = results[2];
+    finRenderBalanceSheetTab(_finBalanceData, _finBalanceMultiYearData);
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load balance sheet data.</p>';
@@ -3743,6 +3809,77 @@ function finRenderBalanceMultiYearChart(multiYear) {
     barLabel: function(v) { return '$' + Math.round(v / 1000) + 'k'; },
   });
   return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Multi-Year Trend</h4>' + chart + '</div>';
+}
+// "Compared to our bank accounts over the years" — a real user request, distinct from the
+// Assets/Liabilities/Equity trend above (which includes every asset, receivables and fixed
+// property included, not just cash). Two series: the one pinned operating account (Data & Imports
+// → Classification & policy → Operating cash account code — the same figure the Financial Health
+// runway card reads, via the shared operatingCashFromBalanceSheet()) and a broader "All Cash &
+// Bank Accounts" figure that also sweeps in any other checking/savings/money-market/petty-cash
+// account by name — a church with more than one bank account (e.g. a daycare's own checking) would
+// otherwise have that second account invisible on this chart. Either series can be entirely absent
+// for a year with no matching account — rendered as 0, same convention as the chart above.
+function finRenderCashTrendChart(multiYear) {
+  if (!multiYear || !multiYear.years || !multiYear.years.length || !multiYear.cashByYear) return '';
+  var years = multiYear.years;
+  var anyData = years.some(function(y) { var c = multiYear.cashByYear[y]; return c && (c.operatingCents || c.allCashCents); });
+  if (!anyData) return '';
+  var hasOperating = years.some(function(y) { var c = multiYear.cashByYear[y]; return c && c.operatingCents != null; });
+  var series = [{ key: 'allCash', label: 'All Cash & Bank Accounts', color: '#2E7EA6' }];
+  if (hasOperating) series.unshift({ key: 'operating', label: 'Operating Checking', color: '#5A9E6F' });
+  var chart = renderGroupedBarChart({
+    chartH: 200,
+    groups: years.map(function(y) { return { key: y, label: String(y) }; }),
+    series: series,
+    value: function(y, s) {
+      var c = multiYear.cashByYear[y] || {};
+      var cents = s === 'operating' ? (c.operatingCents || 0) : (c.allCashCents || 0);
+      return cents / 100;
+    },
+    tooltip: function(y, s, v) {
+      var sLbl = s === 'operating' ? 'Operating Checking' : 'All Cash & Bank Accounts';
+      return sLbl + ' ' + y + ': $' + finFmtMoney(v);
+    },
+    barLabel: function(v) { return '$' + Math.round(v / 1000) + 'k'; },
+  });
+  var accountNote = '';
+  var latestYear = years[years.length - 1];
+  var latest = multiYear.cashByYear[latestYear];
+  if (latest && latest.allCashAccounts && latest.allCashAccounts.length) {
+    accountNote = '<p style="font-size:.72rem;color:var(--warm-gray);margin:6px 0 0;">' + latestYear + ': ' + latest.allCashAccounts.map(esc).join(', ') + '</p>';
+  }
+  return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Cash &amp; Bank Accounts Over Time</h4>' + chart + accountNote + '</div>';
+}
+// The Equity series above IS net worth, but a board reads "growth or loss of money" as a table with
+// a sign on it, not a bar chart alone — a plain year-over-year $ and % change table, computed from
+// the same multi-year equity figures the chart already draws from (so the two can never disagree).
+function finRenderNetWorthGrowthTable(multiYear) {
+  if (!multiYear || !multiYear.years || multiYear.years.length < 2) return '';
+  var years = multiYear.years;
+  var rows = [];
+  for (var i = 1; i < years.length; i++) {
+    var y = years[i], py = years[i - 1];
+    var cur = (multiYear.byYear[y] || {}).equityCents;
+    var prior = (multiYear.byYear[py] || {}).equityCents;
+    if (cur == null || prior == null) continue;
+    var delta = cur - prior;
+    var pct = prior !== 0 ? (delta / Math.abs(prior) * 100) : null;
+    var sign = delta > 0 ? '+' : (delta < 0 ? '' : '');
+    var color = delta > 0 ? 'var(--sage)' : (delta < 0 ? 'var(--danger)' : 'var(--warm-gray)');
+    rows.push('<tr><td style="padding:5px 8px;">' + py + ' &rarr; ' + y + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(cur / 100) + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;color:' + color + ';font-weight:600;">' + sign + '$' + finFmtMoney(Math.abs(delta) / 100) + '</td>'
+      + '<td style="text-align:right;padding:5px 8px;color:' + color + ';">' + (pct == null ? '&mdash;' : (delta >= 0 ? '+' : '') + pct.toFixed(1) + '%') + '</td></tr>');
+  }
+  if (!rows.length) return '';
+  return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 4px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Net Worth Growth by Year</h4>'
+    + '<p style="font-size:.74rem;color:var(--warm-gray);margin:0 0 8px;">Change in total equity (assets minus liabilities) year over year &mdash; the plainest single measure of whether the church grew or lost ground.</p>'
+    + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead><tr style="background:var(--warm-surface-header);"><th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Period</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Equity</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Change</th>'
+    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">%</th></tr></thead>'
+    + '<tbody>' + rows.join('') + '</tbody></table></div></div>';
 }
 // ── Net Assets — Donor-Restricted vs. Without Donor Restrictions ────────────────────────────
 // Per Timothy_Equity_Reclassification_Spec.md: replaces QuickBooks' four-way equity split with
@@ -3804,30 +3941,30 @@ function finRenderBalanceRangePicker(d, multiYear) {
   var rangeFrom = years.length ? years[0] : (curYear - 4);
   var rangeTo = years.length ? years[years.length - 1] : curYear;
   return '<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-size:.8rem;">'
-    + '<label>Balance sheet for <input type="number" id="fin-church-bal-year" value="' + ((d && d.year) || curYear) + '" style="width:80px;"></label>'
-    + '<button class="btn-secondary" style="padding:3px 10px;font-size:.78rem;" onclick="finChurchBalanceLoadYear()">Show Year</button>'
+    + '<label>Balance sheet for <input type="number" id="fin-bal-year" value="' + ((d && d.year) || curYear) + '" style="width:80px;"></label>'
+    + '<button class="btn-secondary" style="padding:3px 10px;font-size:.78rem;" onclick="finBalanceLoadYear()">Show Year</button>'
     + '<span style="color:var(--border);">|</span>'
-    + '<label>Trend from <input type="number" id="fin-church-bal-from" value="' + rangeFrom + '" style="width:80px;"></label>'
-    + '<label>to <input type="number" id="fin-church-bal-to" value="' + rangeTo + '" style="width:80px;"></label>'
-    + '<button class="btn-secondary" style="padding:3px 10px;font-size:.78rem;" onclick="finChurchBalanceLoadRange()">Load Range</button>'
+    + '<label>Trend from <input type="number" id="fin-bal-from" value="' + rangeFrom + '" style="width:80px;"></label>'
+    + '<label>to <input type="number" id="fin-bal-to" value="' + rangeTo + '" style="width:80px;"></label>'
+    + '<button class="btn-secondary" style="padding:3px 10px;font-size:.78rem;" onclick="finBalanceLoadRange()">Load Range</button>'
     + '</div>';
 }
-function finChurchBalanceLoadYear() {
-  var el = document.getElementById('fin-church-bal-year');
+function finBalanceLoadYear() {
+  var el = document.getElementById('fin-bal-year');
   var year = parseInt(el && el.value, 10);
   if (!Number.isFinite(year)) { finToast('Enter a valid year.'); return; }
-  finLoadChurchBalances(year);
+  finLoadBalanceSheetTab(year);
 }
-function finChurchBalanceLoadRange() {
-  var fromEl = document.getElementById('fin-church-bal-from');
-  var toEl = document.getElementById('fin-church-bal-to');
+function finBalanceLoadRange() {
+  var fromEl = document.getElementById('fin-bal-from');
+  var toEl = document.getElementById('fin-bal-to');
   var from = parseInt(fromEl && fromEl.value, 10);
   var to = parseInt(toEl && toEl.value, 10);
   if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) { finToast('Enter a valid From/To year range.'); return; }
   if (to - from > 20) { finToast('Please request 20 years or fewer at a time.'); return; }
   var years = [];
   for (var y = from; y <= to; y++) years.push(y);
-  finLoadChurchBalances(null, years);
+  finLoadBalanceSheetTab(null, years);
 }
 // ── Balance sheet ↔ P&L tie-out ─────────────────────────────────────────────────────────────
 // Server-computed (computeBalanceVsPnlReconciliation, api-finance.js). Deliberately worded as a
@@ -3867,14 +4004,20 @@ function finRenderBalanceReconciliation(multiYear) {
     + th('Change', true) + th('Net Income (P&amp;L)', true) + th('Check') + '</tr></thead>'
     + '<tbody>' + body + '</tbody></table></div></div>';
 }
-function finRenderChurchBalances(d, multiYear) {
-  var el = document.getElementById('fin-church-balances-view');
+function finRenderBalanceSheetTab(d, multiYear) {
+  var el = document.getElementById('fin-balance-root');
   if (!el) return;
+  var header = finPageHeader('Balance Sheet &amp; Financial Position',
+    'Assets, liabilities and equity &mdash; a point-in-time snapshot, trended and compared year over year.',
+    '<button class="btn-secondary" onclick="finExportBalanceCsv()">Export CSV</button>'
+      + '<button class="btn-secondary" onclick="window.print()">Print</button>');
   var picker = finRenderBalanceRangePicker(d, multiYear);
   if (!d || !d.rows || !d.rows.length) {
-    el.innerHTML = picker
+    el.innerHTML = header + picker
       + '<p style="font-size:.85rem;color:var(--warm-gray);">No balance sheet imported yet for ' + ((d && d.year) || '') + '. Upload one from <b>Data &amp; Imports</b> (Balance Sheet, or Financial Position for a file covering several years), or pick another year above.</p>'
       + finRenderBalanceMultiYearChart(multiYear)
+      + finRenderCashTrendChart(multiYear)
+      + finRenderNetWorthGrowthTable(multiYear)
       + finRenderBalanceReconciliation(multiYear);
     return;
   }
@@ -3883,7 +4026,7 @@ function finRenderChurchBalances(d, multiYear) {
   var checkHtml = Math.abs(offCents) < 1
     ? '<span style="color:var(--sage);">✓ Balances (Assets = Liabilities + Equity)</span>'
     : '<span style="color:var(--danger);">⚠ Off by $' + finFmtMoney(Math.abs(offCents) / 100) + ' — check the import for a missing or misclassified account.</span>';
-  var html = picker
+  var html = header + picker
     + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:12px;">As of ' + esc(d.asOfDate || d.year) + '</div>'
     + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;">'
     + '<div style="flex:1;min-width:170px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">'
@@ -3904,6 +4047,9 @@ function finRenderChurchBalances(d, multiYear) {
     html += '<div style="margin-bottom:18px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Asset Composition</h4>' + renderPieChart(assetPie, 170) + '</div>';
   }
   html += finRenderBalanceMultiYearChart(multiYear);
+  html += finRenderCashTrendChart(multiYear);
+  html += finRenderNetWorthGrowthTable(multiYear);
+  html += finRenderBalanceYoyCard(d.rows, _finBalancePriorYearData, d.year);
   html += finRenderBalanceReconciliation(multiYear);
   html += finRenderEquityReclassMultiYearTable(multiYear);
   html += '<details open><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
@@ -3911,6 +4057,20 @@ function finRenderChurchBalances(d, multiYear) {
     + '<thead><tr style="background:var(--warm-surface-header);"><th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Account</th><th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Balance</th></tr></thead>'
     + '<tbody>' + finRenderBalanceTreeRows(tree).join('') + '</tbody></table></div></details>';
   el.innerHTML = html;
+}
+// CSV export — the full multi-year Assets/Liabilities/Equity/Cash trend, not just the on-screen
+// snapshot year, since that's the "more useful format" a spreadsheet-side follow-up would want.
+function finExportBalanceCsv() {
+  var multiYear = _finBalanceMultiYearData;
+  if (!multiYear || !multiYear.years || !multiYear.years.length) { finToast('No balance sheet data loaded to export.'); return; }
+  var rows = [['Year', 'Assets', 'Liabilities', 'Equity', 'Operating Checking', 'All Cash & Bank Accounts']];
+  multiYear.years.forEach(function(y) {
+    var b = multiYear.byYear[y] || {};
+    var c = (multiYear.cashByYear && multiYear.cashByYear[y]) || {};
+    rows.push([y, (b.assetsCents || 0) / 100, (b.liabilitiesCents || 0) / 100, (b.equityCents || 0) / 100,
+      c.operatingCents == null ? '' : c.operatingCents / 100, c.allCashCents == null ? '' : c.allCashCents / 100]);
+  });
+  finDownloadCsv('balance-sheet-multi-year.csv', rows);
 }
 // Year-by-year Donor-Restricted vs. Without Donor Restrictions, from the multi-year balances
 // route's equityReclassByYear (one computeEquityReclassification() result per year with data).
@@ -4029,8 +4189,8 @@ function finChurchConfirmBalanceImport() {
     if (d && d.error) { finToast('Import failed: ' + d.error); return; }
     closeModal('fin-church-balance-import-modal');
     finToast('Imported ' + d.imported + ' account row(s) as of ' + _finChurchBalanceImportPreview.asOfDate + '.');
-    _finChurchBalancesData = null;
-    if (_finChurchMode === 'balances') finLoadChurchBalances();
+    _finBalanceData = null;
+    if (_finActiveNavId === 'balance') finLoadBalanceSheetTab();
     finRefreshImportStatus();
   }).catch(function(err) {
     btn.disabled = false;
@@ -4658,6 +4818,9 @@ function finChurchConfirmBalanceMultiImport() {
     closeModal('fin-church-balance-multi-import-modal');
     finToast('Imported ' + d.imported + ' row(s) across ' + d.years.length + ' year(s).');
     finRenderChurchReport();
+    _finBalanceData = null;
+    _finBalanceMultiYearData = null;
+    if (_finActiveNavId === 'balance') finLoadBalanceSheetTab();
     finRefreshImportStatus();
   }).catch(function(err) {
     btn.disabled = false;
