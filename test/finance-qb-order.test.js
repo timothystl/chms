@@ -127,6 +127,11 @@ describe('Planning budget builder — QuickBooks order', () => {
     fin._finPlanBaseProjEdits = {};
     fin._finPlanBaseProjOverrides = {};
     fin._userRole = 'admin';
+    // These tests are specifically about the QuickBooks-order tree shape (finReorganizeChurchTree's
+    // own grouping) — "Board view" is now the default and reads a completely different grouping
+    // (Chart of Accounts categories, via finBuildBoardTree), so it has to be opted out of here or
+    // every group/label assertion below would be checking the wrong tree.
+    fin._finPlanViewMode = 'qb';
     fin.finRenderPlanning();
     return root.innerHTML;
   }
@@ -190,6 +195,9 @@ describe('Planning budget builder — FY{base} Actual is editable', () => {
     fin._finPlanBaseProjOverrides = {};
     fin._finPlanActualEdits = actualEdits || {};
     fin._userRole = role || 'admin';
+    // See the identical note in the "QuickBooks order" describe block above — these assertions are
+    // about the QB-order group shape specifically, not Board view (the new default).
+    fin._finPlanViewMode = 'qb';
     fin.finRenderPlanning();
     return { html: root.innerHTML, fin: fin };
   }

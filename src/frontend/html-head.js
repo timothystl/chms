@@ -1587,6 +1587,18 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
   .fin-comp-rpt .kt{break-inside:avoid;orphans:3;widows:3;}
   .fin-comp-rpt-table thead{display:table-header-group;}
   @page{margin:0.7in;}
+  /* Planning: "Print" shows only the "Category by category" table (#fin-plan-print-card, set by
+     finPlanPrint() in js-finance.js) — the navy summary strip, the year-input/commit header
+     actions, and the five-year outlook chart below the table are working-session controls, not
+     part of the sheet a board member gets handed. .fin-plan-noprint (the column-visibility chips,
+     Choose rows, Export CSV/Print buttons, and the admin growth-assumption/Save row) hides within
+     it too — same body.printing-<feature> contract as .printing-comp/.printing-board above. */
+  body.printing-plan .tab-panel:not(#tab-finance){display:none!important;}
+  body.printing-plan #tab-finance{display:block!important;}
+  body.printing-plan #tab-finance > div > div > div:not(#fin-panel-planning){display:none!important;}
+  body.printing-plan #fin-panel-planning > *:not(#fin-plan-print-card){display:none!important;}
+  body.printing-plan .fin-plan-noprint{display:none!important;}
+  body.printing-plan #fin-plan-print-card{box-shadow:none!important;padding:0!important;}
 }
 /* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
    left-side navy menu column matching the design mockup's inner "TLC Admin"

@@ -2696,6 +2696,30 @@ async function readFlowExpenseOverrides(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_flow_expense_map'").first();
   try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
 }
+// ── Chart of Accounts: per-account board-category assignment + renameable category headings,
+// read by both that page and Planning's "Board view" toggle. A NEW, independent config
+// (finance_planning_board_categories) — deliberately NOT layered onto finance_revenue_streams/
+// finance_flow_expense_map above. Those two classify at GROUP granularity (one decision for a
+// whole QuickBooks group, e.g. "48 Other Income") and drive Financial Health's revenue mix and
+// the money-flow Sankey — both heavily tested, board-facing figures this session has no live
+// browser to re-verify. Chart of Accounts assigns per ACCOUNT (so "48001 Altar Guild" can read
+// differently than a sibling in the same QuickBooks group), which those two aggregations were
+// never built to honor. Keyed by each leaf's own category_path, not its account name — an
+// account name alone isn't unique across the chart of accounts, category_path is.
+async function readPlanningBoardCategories(db) {
+  const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_planning_board_categories'").first();
+  const empty = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {} };
+  if (!row) return empty;
+  try {
+    const v = JSON.parse(row.value) || {};
+    return {
+      revenue: v.revenue && typeof v.revenue === 'object' ? v.revenue : {},
+      expense: v.expense && typeof v.expense === 'object' ? v.expense : {},
+      revenueLabels: v.revenueLabels && typeof v.revenueLabels === 'object' ? v.revenueLabels : {},
+      expenseLabels: v.expenseLabels && typeof v.expenseLabels === 'object' ? v.expenseLabels : {},
+    };
+  } catch { return empty; }
+}
 const DEFAULT_CASH_POLICY = { policy_floor_months: 3, cash_on_hand_cents: null, cash_account_code: '', general_fund_budget_code: '' };
 async function readCashPolicy(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_cash_policy'").first();
@@ -4279,6 +4303,61 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     }
     await db.batch(ops);
     return json({ ok: true, year, saved });
+  }
+
+  // Chart of Accounts — which board category a fund reads under on Planning's "Board view", and
+  // what each category is called. Display only: nothing here touches finance_church_entries, so
+  // the next QuickBooks sync/import lands in exactly the same accounts regardless of what's
+  // assigned here. GET is read-only for any finance-gated caller; PUT (admin-only, matching every
+  // other Planning-adjacent write) MERGES the rows/labels sent into whatever is already saved —
+  // a category assignment/rename made from Planning's own inline picker and a bulk move made from
+  // Chart of Accounts both land in the same store without one clobbering the other's unrelated
+  // entries. An empty-string value clears that one entry back to the computed default.
+  if (seg === 'finance/planning/board-categories' && method === 'GET') {
+    return json(await readPlanningBoardCategories(db));
+  }
+  if (seg === 'finance/planning/board-categories' && method === 'PUT') {
+    if (!isAdmin) return json({ error: 'Access denied: editing the chart of accounts requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const current = await readPlanningBoardCategories(db);
+    const merged = {
+      revenue: { ...current.revenue }, expense: { ...current.expense },
+      revenueLabels: { ...current.revenueLabels }, expenseLabels: { ...current.expenseLabels },
+    };
+    if (b.revenue && typeof b.revenue === 'object') {
+      for (const [path, key] of Object.entries(b.revenue)) {
+        if (!path) continue;
+        if (key === '' || key == null) { delete merged.revenue[path]; continue; }
+        if (!REVENUE_STREAMS.includes(key)) return json({ error: `Invalid revenue category "${key}"` }, 400);
+        merged.revenue[path] = key;
+      }
+    }
+    if (b.expense && typeof b.expense === 'object') {
+      for (const [path, key] of Object.entries(b.expense)) {
+        if (!path) continue;
+        if (key === '' || key == null) { delete merged.expense[path]; continue; }
+        if (!FLOW_EXPENSE_KEYS.includes(key)) return json({ error: `Invalid expense category "${key}"` }, 400);
+        merged.expense[path] = key;
+      }
+    }
+    if (b.revenueLabels && typeof b.revenueLabels === 'object') {
+      for (const [key, label] of Object.entries(b.revenueLabels)) {
+        if (!REVENUE_STREAMS.includes(key)) continue;
+        const clean = String(label || '').trim();
+        if (clean) merged.revenueLabels[key] = clean; else delete merged.revenueLabels[key];
+      }
+    }
+    if (b.expenseLabels && typeof b.expenseLabels === 'object') {
+      for (const [key, label] of Object.entries(b.expenseLabels)) {
+        if (!FLOW_EXPENSE_KEYS.includes(key)) continue;
+        const clean = String(label || '').trim();
+        if (clean) merged.expenseLabels[key] = clean; else delete merged.expenseLabels[key];
+      }
+    }
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_planning_board_categories',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(JSON.stringify(merged)).run();
+    return json({ ok: true, ...merged });
   }
 
   // Generates a compounding multi-year projection from a base dollar amount + a flat growth
