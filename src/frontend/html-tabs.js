@@ -1736,6 +1736,16 @@ export const HTML_TABS_2 = String.raw`
         <div id="fin-plan-root"></div>
       </div>
 
+      <!-- Chart of Accounts — which board category each account reads under and what each
+           category is called, purely a display-time regrouping (finance_planning_board_categories,
+           see api-finance.js). Rendered by finRenderChartOfAccounts(), called once
+           finLoadPlanning() has the fiscal year's account tree loaded — no separate fetch of its
+           own. Distinct from #fin-accounts above, which is a Data & Imports mount for an
+           unrelated import tool. -->
+      <div id="fin-panel-accounts" style="display:none;">
+        <div id="fin-coa-root"><p style="font-size:.85rem;color:var(--warm-gray);">Loading&hellip;</p></div>
+      </div>
+
       <!-- Data & Imports — every connection, importer, hand-entered adjustment and destructive
            control that used to sit underneath the reports. Rendered by finRenderDataImports(),
            which also mounts the containers the pre-existing renderers write into
