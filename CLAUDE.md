@@ -752,6 +752,66 @@ it just reflects how much outside aid they happen to have (Daniel Dinger: $6,900
   dependent tests fail (81%/100% instead of 0%), then restored. `node --check` on the touched file.
   **Not verified**: a live browser. (`src/frontend/js-tuition-aid.js`,
   `test/tuition-family-share-display.test.js`)
+
+### FIN70 — Chart of Accounts page; Board view / QuickBooks order toggle on Planning (2026-09-04, DONE)
+Built from a Claude Design canvas handoff (`design_handoff_budget_planning_categorization` —
+`Chart of Accounts.dc.html` + `Budget Planning.dc.html`, recreated from this repo's own shipped
+source, per the bundle's own `github.md` Design Sync manifest). Two deliverables: an admin-editable
+Chart of Accounts assigning every real fund/account to one of four board revenue categories
+(Unrestricted Gifts / Restricted Gifts / Earned Income / Passive Income) or five board expense
+categories (MDO / Salaries & Benefits / Property & Operations / Lutheran Education / Programs) —
+**display only, QuickBooks is never renumbered** — and a Board view / QuickBooks order toggle on
+Planning's own "Category by category" table that reads those assignments.
+- **New, independent classification store** — `finance_planning_board_categories` (chms_config
+  blob, keyed by leaf `category_path`) via new `GET`/`PUT /admin/api/finance/planning/board-categories`
+  (`src/api-finance.js`; PUT admin-only, GET open to any finance-gated caller; merges into what's
+  already saved rather than replacing it, so a per-leaf pick from Planning and a bulk move from
+  Chart of Accounts land in the same store; validates every value against `REVENUE_STREAMS`/
+  `FLOW_EXPENSE_KEYS`). **Deliberately NOT the existing `finance_revenue_streams`/
+  `finance_flow_expense_map` group-label-keyed stores** that Financial Health's revenue mix bar and
+  the money-flow Sankey diagram already read — those are heavily tested and board-facing with no
+  live browser here to re-verify a shared-store regression against, and this new one is keyed at
+  ACCOUNT granularity (a group can hold accounts in different categories), not group-label.
+- **New Chart of Accounts sub-nav page** (`finRenderChartOfAccounts()`, `src/frontend/js-finance.js`,
+  between Planning and Compensation) — Revenue/Expenses cards, per-account checkbox + picker,
+  group-level select-all, renameable (contenteditable) category headings, a bulk "Move to" bar.
+  Saves immediately per action (no batched "Save changes" step) — matches every other
+  admin-editable control already on this tab.
+- **`finBuildBoardTree()`** flattens the real QuickBooks tree to leaves and re-buckets them fresh —
+  the first time EXPENSES get any categorization on Planning at all (revenue already had a partial
+  version via `finReorganizeChurchTree`'s Earned/Restricted split, now folded into the same
+  mechanism). Restricted giving nests under one fixed "Donor Income" wrapper with Unrestricted,
+  matching `displayStreamOf()`'s convention everywhere else in this app. Board view is the new
+  default; QuickBooks order is the unchanged pre-existing tree. An unmatched account defaults to
+  Earned Income / Programs, never Unrestricted Gifts — same reasoning as `REVENUE_STREAM_RULES`.
+- **Column show/hide chips, "Choose rows" (a total always reflects current exclusions whether or
+  not picking is open — a print/export can never disagree with what's on screen), Export CSV
+  (reads the exact rows/columns just rendered, never a second computation), Print
+  (`body.printing-plan`, same contract as `.printing-comp`/`.printing-board`), and a per-leaf
+  category picker directly on Planning** (Board view, admin only) sharing the same save path Chart
+  of Accounts uses.
+- **Deliberately not built**: a "moved" indicator badge, inline category-header renaming on
+  Planning itself (Chart of Accounts only), a batched Chart-of-Accounts save step.
+- `npm test` (2056/2056, 43 new: `test/finance-planning-board-categories.test.js` — real backend
+  route against real in-memory SQLite — and `test/finance-planning-chart-of-accounts.test.js` — the
+  real assembled bundle run in a `vm`); **every new test verified non-vacuous** by injecting the
+  exact regression it guards into the production code (8 injections, 8 correct failure sets — one
+  injection caused no failure, traced to a harmless-but-currently-unobservable `finRecomputeTreeTotals`
+  call, left in place but not claimed as tested). Three pre-existing `finance-qb-order.test.js`
+  tests needed their render helper updated (force `_finPlanViewMode='qb'`, matching what their own
+  describe block already says they test) once Board view became the default — not a production bug.
+  **A backtick in one of my own comments closed the outer `String.raw` literal** — the SC3-BUG1/
+  FIN15/TAP2-BUG class, caught by running the assembled bundle through Node, not by `node --check`
+  on the module file alone. `node --check` on all touched files and both extracted bundles,
+  div/tag-balance on the assembled `CHMS_HTML` (1122/1122) and its CSS bundle (1373/1373 braces).
+  One pre-existing, unrelated test failure (`finance-property-funds-itself.test.js`, a
+  date-sensitive amortization fixture) confirmed present before this session's changes too — not
+  fixed, out of scope. DEPLOY_VERSION bumped to 1.222.0. **Not verified**: a live browser.
+  (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+  `src/frontend/html-tabs.js`, `src/frontend/html-head.js`,
+  `test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`,
+  `test/finance-qb-order.test.js`)
+
 ### FIN69 — Planning: FY{base} Actual editable per line; dead $0.00/$0.00 accounts hidden (2026-08-30, DONE)
 Two asks off a live Planning screenshot. **(1)** "Could we edit one individual line [of FY{base}
 Actual] without having to reupload a file?" New `PUT /admin/api/finance/church/actual-override`
