@@ -535,6 +535,15 @@ Every ordinary caller reads the small `funds` table only. `test/funds-stats-opt-
 the backend and caller. DEPLOY_VERSION 1.228.1. Focused change and access tests 20/20; GitHub's
 release suite passed. See NOTES.md v1.228.1.
 
+### PERF9 — Finance import-status fallback uses a covering index (2026-09-05, DONE)
+The first post-PERF8 production window confirmed its target query was gone, then exposed the next
+hotspot: four `MAX(synced_at)` checks for `source='import_activity'` read 47,520 rows (11,880 per
+call) to return one timestamp. Migration 0043 and the runtime schema initializer now create
+`idx_church_entries_source_synced` on `(source, synced_at)`. That lets SQLite satisfy the exact
+query from the covering index instead of walking every imported account/year row. An `EXPLAIN
+QUERY PLAN` regression test pins the index choice. Backend/schema only; no DEPLOY_VERSION bump.
+See NOTES.md v1.228.2.
+
 ### FIN73 — Balance Sheet trend defaulted to a rolling 5-year window, hiding real history (2026-09-05, DONE)
 Reported off the Balance Sheet tab's Multi-Year Trend: 2022-2025 flat, only 2026 with bars.
 **Checked production D1 before touching anything, and the first answer was that the data genuinely

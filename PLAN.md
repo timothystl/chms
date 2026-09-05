@@ -132,6 +132,10 @@ naming what was not exercised (a live browser, a real phone, real D1, a real sen
 longer run the lifetime giving-history aggregation; only Manage Funds opts in. See CLAUDE.md PERF8
 and NOTES.md v1.225.1. This was a measured D1 incident fix, not a new queue item.
 
+**PERF9 follow-up closed 2026-09-05:** the Finance Data & Imports legacy timestamp fallback now
+uses a covering `(source, synced_at)` index instead of scanning every imported account/year row.
+See CLAUDE.md PERF9 and NOTES.md v1.228.2.
+
 ---
 
 ## Phase 21 — Authorization emergency ✅ COMPLETE 2026-08-19 (v1.191.0)
