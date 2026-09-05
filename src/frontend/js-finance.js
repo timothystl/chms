@@ -3631,9 +3631,11 @@ function finRenderChurchThisYear(d) {
 }
 
 
-// The server defaults to a rolling 5-year window (currentYear-4..currentYear) when no years
-// param is given — an older import (e.g. 2018) saves fine but is otherwise never visible on any
-// screen, since nothing ever asks for it. This picker lets an admin explicitly widen the range.
+// With no years param the server defaults to every year that has real reported figures (FIN73),
+// not a rolling window — so an older import is on the chart the moment it lands, and this picker
+// is for narrowing to a span or deliberately asking for a gap year to see what is missing. The
+// From/To boxes below are filled from the years the server actually returned, so they always
+// describe what is on screen rather than a window guessed independently of it.
 function finLoadChurchMultiYear(explicitYears) {
   var el = document.getElementById('fin-church-multiyear-view');
   if (!el) return;
