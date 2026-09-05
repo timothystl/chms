@@ -1,6 +1,7 @@
 // ── Giving Entries, Batches, Quick Entry API handlers ──────────────────────
 import { json } from './auth.js';
 import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeDepositTotals, batchDepositStatus, batchDepositStatusFromCounts } from './api-utils.js';
+import { ensureGivingYearRollups } from './giving-rollups.js';
 
 // Shared by the desktop `giving/quick-entry` route and the mobile Giving quick-entry screen —
 // one insert path so the two can't drift on the find-or-create-batch logic (the SW17 lesson:
@@ -152,26 +153,21 @@ if (seg === 'giving/offerings-summary' && method === 'GET') {
 // ── Giving tab overview stat tiles (This Week / This Month / YTD / Givers) ──
 if (seg === 'giving/stats' && method === 'GET') {
   const weekStart  = isoWeekKey();
-  const monthStart = new Date().toISOString().slice(0, 7) + '-01';
-  const yearStart  = new Date().toISOString().slice(0, 4) + '-01-01';
+  const month = new Date().toISOString().slice(0, 7);
+  const year = parseInt(month.slice(0, 4));
+  const annual = await ensureGivingYearRollups(db, year);
   const row = await db.prepare(`
     SELECT
-      COALESCE(SUM(CASE WHEN d>=? THEN amount END),0) as week_total,
-      COALESCE(SUM(CASE WHEN d>=? THEN amount END),0) as month_total,
-      COALESCE(SUM(CASE WHEN d>=? THEN amount END),0) as ytd_total,
-      COUNT(DISTINCT CASE WHEN d>=? AND person_id IS NOT NULL THEN person_id END) as givers
-    FROM (
-      SELECT ge.amount as amount, ge.person_id as person_id,
-             COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) as d
-      FROM giving_entries ge JOIN giving_batches gb ON ge.batch_id=gb.id
-    )
-    WHERE d>=?`
-  ).bind(weekStart, monthStart, yearStart, yearStart, yearStart).first();
+      (SELECT COALESCE(SUM(amount),0) FROM giving_entries WHERE contribution_date>=?) week_total,
+      COALESCE(SUM(CASE WHEN month=? THEN total_cents ELSE 0 END),0) month_total,
+      COALESCE(SUM(total_cents),0) ytd_total
+    FROM giving_monthly_fund_totals WHERE month BETWEEN ? AND ?`
+  ).bind(weekStart, month, `${year}-01`, `${year}-12`).first();
   return json({
     weekTotal: row?.week_total || 0,
     monthTotal: row?.month_total || 0,
     ytdTotal: row?.ytd_total || 0,
-    givers: row?.givers || 0
+    givers: annual.giver_count || 0
   });
 }
 
@@ -291,7 +287,7 @@ if (entriesMatch) {
     return json({ entries });
   }
   if (method === 'POST') {
-    const batch = await db.prepare('SELECT closed FROM giving_batches WHERE id=?').bind(bid).first();
+    const batch = await db.prepare('SELECT closed, batch_date FROM giving_batches WHERE id=?').bind(bid).first();
     if (!batch) return json({ error: 'Batch not found' }, 404);
     if (batch.closed) return json({ error: 'Batch is closed.' }, 409);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
@@ -299,9 +295,9 @@ if (entriesMatch) {
     if (!b.fund_id) return json({ error: 'fund_id required' }, 400);
     if (amtCents <= 0) return json({ error: 'Amount must be positive' }, 400);
     const r = await db.prepare(
-      `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes)
-       VALUES (?,?,?,?,?,?,?)`
-    ).bind(bid,b.person_id||null,parseInt(b.fund_id),amtCents,b.method||'cash',b.check_number||'',b.notes||'').run();
+      `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,contribution_date)
+       VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(bid,b.person_id||null,parseInt(b.fund_id),amtCents,b.method||'cash',b.check_number||'',b.notes||'',batch.batch_date||'').run();
     return json({ ok: true, id: r.meta?.last_row_id });
   }
 }

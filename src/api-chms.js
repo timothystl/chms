@@ -9,6 +9,68 @@ import { handleGivingApi } from './api-giving.js';
 import { handleTuitionAidApi } from './api-tuition-aid.js';
 import { handleFinanceApi } from './api-finance.js';
 
+// The Home Dashboard used to aggregate the lifetime giving_entries table three times per load.
+// Completed months now come from one materialized fund/month row (maintained by D1 triggers in
+// migration 0044). Only the matching partial month from last year still reads individual gifts,
+// because "last year YTD" must stop on the same month/day rather than include the entire month.
+export const DASHBOARD_GIVING_TOTALS_SQL = `
+  WITH general_months AS (
+    SELECT m.month, m.total_cents
+      FROM giving_monthly_fund_totals m
+      JOIN funds f ON f.id=m.fund_id
+     WHERE f.name LIKE '40085%'
+  ), rollup AS (
+    SELECT
+      COALESCE(SUM(CASE WHEN month BETWEEN ? AND ? THEN total_cents ELSE 0 END),0) AS ytd,
+      COALESCE(SUM(CASE WHEN month BETWEEN ? AND ? THEN total_cents ELSE 0 END),0) AS last_total,
+      COALESCE(SUM(CASE WHEN month >= ? AND month < ? THEN total_cents ELSE 0 END),0) AS last_complete_months
+      FROM general_months
+  ), partial AS (
+    SELECT COALESCE(SUM(ge.amount),0) AS cents
+      FROM giving_entries ge INDEXED BY idx_giving_date_fund
+      JOIN funds f ON f.id=ge.fund_id
+     WHERE ge.contribution_date BETWEEN ? AND ?
+       AND f.name LIKE '40085%'
+  )
+  SELECT rollup.ytd AS gf_ytd,
+         rollup.last_total AS gf_last_year_total,
+         rollup.last_complete_months + partial.cents AS gf_last_year_ytd
+    FROM rollup CROSS JOIN partial`;
+
+export async function loadDashboardGivingTotals(db, asOf = new Date()) {
+  const iso = asOf.toISOString().slice(0, 10);
+  const year = parseInt(iso.slice(0, 4));
+  const monthDay = iso.slice(5);
+  const month = iso.slice(5, 7);
+  const prior = year - 1;
+  const row = await db.prepare(DASHBOARD_GIVING_TOTALS_SQL).bind(
+    `${year}-01`, `${year}-12`,
+    `${prior}-01`, `${prior}-12`,
+    `${prior}-01`, `${prior}-${month}`,
+    `${prior}-${month}-01`, `${prior}-${monthDay}`,
+  ).first();
+  return {
+    gfYtd: row?.gf_ytd || 0,
+    gfLastYearYtd: row?.gf_last_year_ytd || 0,
+    gfLastYearTotal: row?.gf_last_year_total || 0,
+  };
+}
+
+export const DASHBOARD_FIRST_GIVERS_SQL = `
+  SELECT p.id, p.first_name, p.last_name, MIN(ge.contribution_date) AS first_gift_date
+    FROM giving_entries ge
+    JOIN people p ON p.id=ge.person_id
+   WHERE ge.contribution_date >= date('now','-60 days')
+     AND p.first_gift_noted=0
+     AND NOT EXISTS (
+       SELECT 1 FROM giving_entries older
+        WHERE older.person_id=ge.person_id
+          AND older.contribution_date < date('now','-60 days')
+     )
+   GROUP BY ge.person_id
+   ORDER BY first_gift_date DESC
+   LIMIT 20`;
+
 export async function handleChmsApi(req, env, url, method, seg, role = 'admin') {
   const db = env.DB;
 
@@ -156,7 +218,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const [
       mtCfgRowDash, typeCountsRes, totalHouseholdsRow, memberCountRow, memberHHCountRow,
       confirmedCountRow, baptizedCountRow, addedThisMonthRow, addedThisYearRow,
-      gfYtdRow, gfLastYearYtdRow, gfLastYearTotalRow,
+      dashboardGivingTotals,
       birthdaysRes, annRowsRes, baptismAnniversariesRes, annIssueCandidatesRes,
     ] = await Promise.all([
       // Membership counts by type — GROUP BY LOWER() to merge case variants (e.g. "member" vs "Member")
@@ -189,30 +251,9 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       db.prepare(
         `SELECT COUNT(*) as n FROM people WHERE active=1 AND created_at >= date('now','start of year')`
       ).first(),
-      // Giving dashboard stats — General Fund only (funds whose name starts with '40085')
-      db.prepare(
-        `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
-         JOIN giving_batches gb ON ge.batch_id=gb.id
-         JOIN funds f ON ge.fund_id=f.id
-         WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=strftime('%Y','now')
-           AND f.name LIKE '40085%'`
-      ).first(),
-      db.prepare(
-        `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
-         JOIN giving_batches gb ON ge.batch_id=gb.id
-         JOIN funds f ON ge.fund_id=f.id
-         WHERE COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date)
-                 BETWEEN strftime('%Y','now','-1 year')||'-01-01'
-                     AND strftime('%Y-%m-%d','now','-1 year')
-           AND f.name LIKE '40085%'`
-      ).first(),
-      db.prepare(
-        `SELECT COALESCE(SUM(ge.amount),0) as total FROM giving_entries ge
-         JOIN giving_batches gb ON ge.batch_id=gb.id
-         JOIN funds f ON ge.fund_id=f.id
-         WHERE substr(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date),1,4)=cast(strftime('%Y','now')-1 as text)
-           AND f.name LIKE '40085%'`
-      ).first(),
+      // General Fund totals come from fund/month summary rows; only one prior-year partial month
+      // reads individual gifts for an exact same-day YTD comparison.
+      loadDashboardGivingTotals(db),
       db.prepare(
         `SELECT id, first_name, last_name, dob FROM people
          WHERE active=1 AND (status IS NULL OR status='active')
@@ -275,9 +316,7 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     const baptizedCount = baptizedCountRow?.n || 0;
     const addedThisMonth = addedThisMonthRow?.n || 0;
     const addedThisYear = addedThisYearRow?.n || 0;
-    const gfYtd = gfYtdRow?.total || 0;
-    const gfLastYearYtd = gfLastYearYtdRow?.total || 0;
-    const gfLastYearTotal = gfLastYearTotalRow?.total || 0;
+    const { gfYtd, gfLastYearYtd, gfLastYearTotal } = dashboardGivingTotals;
     // Group same-household + same-date pairs into one entry ("Bob & Alice Johnson")
     const _annRoleOrder = { head: 0, spouse: 1, child: 2, other: 3 };
     const annGroupMap = new Map();
@@ -392,16 +431,9 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
          WHERE f.completed=0 ORDER BY f.created_at DESC LIMIT 50`
       ).all(),
       // First-time givers in the last 60 days (exclude dismissed records)
-      db.prepare(
-        `SELECT p.id, p.first_name, p.last_name, MIN(COALESCE(NULLIF(ge.contribution_date,''),gb.batch_date)) as first_gift_date
-         FROM giving_entries ge
-         JOIN giving_batches gb ON ge.batch_id=gb.id
-         JOIN people p ON p.id=ge.person_id
-         WHERE p.first_gift_noted = 0
-         GROUP BY ge.person_id
-         HAVING first_gift_date >= date('now','-60 days')
-         ORDER BY first_gift_date DESC LIMIT 20`
-      ).all(),
+      // Start with the indexed 60-day gift slice and prove no older gift exists through the
+      // covering person/date index, rather than grouping every historical gift first.
+      db.prepare(DASHBOARD_FIRST_GIVERS_SQL).all(),
       // People not seen recently (last_seen_date set more than 8 weeks ago, or never seen but added 8+ weeks ago)
       db.prepare(
         `SELECT id, first_name, last_name, member_type, last_seen_date, created_at FROM people
