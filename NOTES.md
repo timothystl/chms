@@ -24,6 +24,41 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.226.0 — Purpose tags: a second, optional lens over Compensation workers and accounts (2026-09-05)
+
+Asked as an exploratory question, not a build request: "What about having tagging budget lines in
+a secondary way? So that we could also view it based on youth, mission, internal. So I could tag
+the DCE for youth and music director for music and it would show how much resources are going each
+way not just categories." Scoped it first (a recommendation + the main tradeoff, per this session's
+own convention), confirmed with the user: single-tag-only for now, split by percentage deferred.
+
+- **Two tag surfaces, because "the DCE"/"the music director" names a person, not a GL line.**
+  Compensation Planner roster workers get a `purposeTag` field stored directly on the roster row
+  (saved through the existing salary-planner endpoint — no new backend plumbing for that half);
+  Chart of Accounts leaf accounts get an entry in a new `categories` map. Deliberately NOT a
+  server-side map keyed by a worker's `accountCode` — a worker can have no budget line entered at
+  all, and keying by account code either leaves them untaggable or tags every blank-code worker
+  identically.
+- **New `finance_planning_purpose_tags` chms_config store** (`GET`/`PUT
+  /admin/api/finance/planning/purpose-tags`) holding the shared, admin-managed tag list (add/
+  rename/delete, ids minted from the label) plus the Chart of Accounts assignments — independent
+  of `finance_planning_board_categories`, whose category set is a fixed 7-key allowlist rather than
+  an open-ended managed list.
+- **Deleting a tag cleans up both stores**: the backend drops any stale `categories` entry, and the
+  frontend separately clears the field off any roster worker still carrying it, then schedules the
+  existing roster autosave.
+- **New UI**: a "Purpose Tags" card + a per-leaf picker on Chart of Accounts (shown only once a
+  tag exists), a matching picker on the Compensation drawer, and a "Resources by Purpose" report
+  card summing each tag's tagged workers' full church cost plus tagged accounts' actual dollars —
+  with a double-count guard so tagging both a worker and the exact GL line their salary posts to
+  never counts the same dollars twice.
+- `npm test` (2155/2155, 28 new); every new test verified non-vacuous (27 of 28 fail against the
+  pre-change code). A backtick in a new comment closed the outer `String.raw` literal — caught by
+  the test suite's parse failure. `node --check` on all five bundles; div-balance unchanged
+  (1123/1123 — no new static markup). DEPLOY_VERSION → 1.226.0. **Not verified**: a live browser.
+  (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+  `test/finance-planning-purpose-tags.test.js`)
+
 ### v1.225.0 — Balance Sheet & Financial Position is its own tab (2026-09-04)
 
 Two asks in one message: "give me a tab for Balance Sheet & Financial Position... graphs of
