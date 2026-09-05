@@ -243,6 +243,14 @@ describe('batch ↔ deposit links', () => {
     expect(aggregateGiftReads).toHaveLength(1);
     expect(aggregateGiftReads[0]).toContain('ge.deposit_id=d.id');
     expect(db.sql_log.some(sql => /giving_batch_totals/.test(sql))).toBe(true);
+
+    const depositCoverageReads = db.sql_log.filter(sql => /FROM giving_deposit_lines/.test(sql));
+    const batchListSql = depositCoverageReads.find(sql => /SELECT gb\.\*/.test(sql));
+    const awaitingSql = depositCoverageReads.find(sql => / AS gap/.test(sql));
+    expect(batchListSql.match(/FROM giving_deposit_lines/g)).toHaveLength(1);
+    expect(batchListSql).toContain('GROUP BY dl.batch_id');
+    expect(awaitingSql.match(/FROM giving_deposit_lines/g)).toHaveLength(1);
+    expect(awaitingSql).toContain('GROUP BY batch_id');
   });
 
   it('keeps batch totals exact when a gift is edited, moved, and deleted', () => {
