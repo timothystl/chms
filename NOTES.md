@@ -24,6 +24,19 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.229.5 — Deposit coverage is aggregated once per request (2026-09-05)
+
+Production D1 metrics showed the optimized 100-row batch list still billing about 6,300 rows per
+request. Its three correlated deposit-line subqueries each repeated an indexed lookup for every
+batch. The batch list now summarizes the small deposit-line table once and joins that result; the
+Offerings awaiting-deposit calculation uses the same bounded pattern.
+
+- Preserves split deposits, multi-batch deposits, missing deposit records, and unreconciled status.
+- Requires no new stored rollup or synchronization triggers; deposit lines are already the compact
+  summary of individual gifts.
+- Regression coverage pins one deposit-line aggregate per endpoint so correlated scans cannot
+  silently return.
+
 ### v1.229.4 — Offerings reads maintained batch totals (2026-09-05)
 
 The Finance batch list and Offerings queue previously recomputed each batch by joining and grouping
