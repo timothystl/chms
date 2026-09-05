@@ -24,6 +24,16 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.226.1 — Budget tab print was completely blank (2026-09-05)
+Reported live: printing the Budget tab produced a fully empty page. Root cause: `#fin-plan-root`
+(which `finRenderPlanning()` rebuilds and which actually holds `#fin-plan-print-card` inside it)
+sits between `#fin-panel-planning` and the print card, but the `body.printing-plan` CSS rule only
+carved the print card out of `#fin-panel-planning`'s DIRECT children — so `#fin-plan-root` itself
+got `display:none!important`'d, taking the print card down with it as a descendant. Fixed by
+naming both nesting levels in the CSS. Full detail, including the non-vacuous test verification,
+is in CLAUDE.md under FIN73. `npm test` (2158/2158, 3 new). **Not verified**: a live browser or a
+real print dialog. (`src/frontend/html-head.js`, `src/frontend/js-core.js`,
+`test/finance-planning-print-empty.test.js`)
 ### v1.229.7 — Budget annualization uses calendar-day arithmetic (2026-09-05)
 
 Elapsed weeks no longer lose a day after the spring daylight-saving transition. Backend and

@@ -1592,13 +1592,20 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
      actions, and the five-year outlook chart below the table are working-session controls, not
      part of the sheet a board member gets handed. .fin-plan-noprint (the column-visibility chips,
      Choose rows, Export CSV/Print buttons, and the admin growth-assumption/Save row) hides within
-     it too — same body.printing-<feature> contract as .printing-comp/.printing-board above. */
+     it too — same body.printing-<feature> contract as .printing-comp/.printing-board above.
+     ⚠ #fin-plan-print-card is NOT a direct child of #fin-panel-planning — finRenderPlanning()
+     rebuilds #fin-plan-root's innerHTML (see js-finance.js), so the print card is a grandchild:
+     #fin-panel-planning > #fin-plan-root > #fin-plan-print-card. A rule of the shape
+     "#fin-panel-planning > *:not(#fin-plan-print-card)" therefore matches #fin-plan-root itself
+     (it isn't #fin-plan-print-card) and hides it outright, taking the print card down with it —
+     a blank print. Both levels have to be named explicitly. */
   body.printing-plan .tab-panel:not(#tab-finance){display:none!important;}
   body.printing-plan #tab-finance{display:block!important;}
   body.printing-plan #tab-finance > div > div > div:not(#fin-panel-planning){display:none!important;}
-  body.printing-plan #fin-panel-planning > *:not(#fin-plan-print-card){display:none!important;}
+  body.printing-plan #fin-panel-planning > *:not(#fin-plan-root){display:none!important;}
+  body.printing-plan #fin-plan-root > *:not(#fin-plan-print-card){display:none!important;}
   body.printing-plan .fin-plan-noprint{display:none!important;}
-  body.printing-plan #fin-plan-print-card{box-shadow:none!important;padding:0!important;}
+  body.printing-plan #fin-plan-print-card{display:block!important;box-shadow:none!important;padding:0!important;}
 }
 /* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
    left-side navy menu column matching the design mockup's inner "TLC Admin"
