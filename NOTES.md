@@ -24,6 +24,21 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.228.2 — Finance import-status lookup no longer scans imported account rows (2026-09-05)
+
+After PERF8 deployed, a measured 30-minute Finance session showed the old lifetime fund scan was
+gone. The remaining top read was the Data & Imports legacy fallback query:
+`MAX(synced_at)` for `source='import_activity'`. Four calls read 47,520 rows (11,880 per call),
+over half the window's read cost, to return one timestamp.
+
+- Added covering index `finance_church_entries(source, synced_at)` in migration 0043 and the
+  runtime schema initializer, so existing production databases and fresh databases both get it.
+- Added an `EXPLAIN QUERY PLAN` regression test requiring SQLite to answer the exact production
+  query with that covering index.
+- Backend/schema only; no frontend files changed, so `DEPLOY_VERSION` is deliberately unchanged.
+
+**Not yet verified:** production D1 metrics after deployment.
+
 ### v1.228.1 — Ordinary fund reads no longer scan all giving history (2026-09-05)
 
 Cloudflare D1 metrics after a short Finance session showed 436,000 rows read; one
