@@ -66,15 +66,24 @@ if (seg === 'giving' && method === 'GET') {
 // ── Giving Batches ───────────────────────────────────────────────
 if (seg === 'giving/batches' && method === 'GET') {
   const status = url.searchParams.get('status') || 'all';
-  // Gift count/total is maintained once per batch. Deposit coverage remains in correlated
-  // subqueries so several deposit lines cannot multiply any batch-level figures.
+  // Gift count/total is maintained once per batch. Deposit coverage is aggregated once before
+  // joining; three correlated subqueries here made D1 repeatedly seek the line index for every
+  // returned batch (about 6,300 billed row reads for a 100-row page in production).
   let sql = `SELECT gb.*, COALESCE(bt.entry_count,0) AS entry_count,
              COALESCE(bt.total_cents,0) AS total_cents,
-             (SELECT COALESCE(SUM(dl.amount_cents),0) FROM giving_deposit_lines dl WHERE dl.batch_id=gb.id) as linked_cents,
-             (SELECT COUNT(*) FROM giving_deposit_lines dl WHERE dl.batch_id=gb.id) as deposit_count,
-             (SELECT COUNT(*) FROM giving_deposit_lines dl JOIN giving_deposits d ON d.id=dl.deposit_id
-               WHERE dl.batch_id=gb.id AND d.bank_cents IS NULL) as unreconciled_count
-             FROM giving_batches gb LEFT JOIN giving_batch_totals bt ON bt.batch_id=gb.id`;
+             COALESCE(dc.linked_cents,0) AS linked_cents,
+             COALESCE(dc.deposit_count,0) AS deposit_count,
+             COALESCE(dc.unreconciled_count,0) AS unreconciled_count
+             FROM giving_batches gb
+             LEFT JOIN giving_batch_totals bt ON bt.batch_id=gb.id
+             LEFT JOIN (
+               SELECT dl.batch_id, SUM(dl.amount_cents) AS linked_cents,
+                      COUNT(*) AS deposit_count,
+                      SUM(CASE WHEN d.id IS NOT NULL AND d.bank_cents IS NULL THEN 1 ELSE 0 END) AS unreconciled_count
+                 FROM giving_deposit_lines dl
+                 LEFT JOIN giving_deposits d ON d.id=dl.deposit_id
+                GROUP BY dl.batch_id
+             ) dc ON dc.batch_id=gb.id`;
   const binds = [];
   if (status === 'open') { sql += ' WHERE gb.closed=0'; }
   else if (status === 'closed') { sql += ' WHERE gb.closed=1'; }
@@ -110,10 +119,13 @@ if (seg === 'giving/offerings-summary' && method === 'GET') {
     // cover the batch total — a partial bank run leaves the remainder here too).
     db.prepare(
       `SELECT COUNT(*) AS n, COALESCE(SUM(t.gap),0) AS cents FROM (
-         SELECT gb.id,
-                COALESCE(bt.total_cents,0)
-                - COALESCE((SELECT SUM(dl.amount_cents) FROM giving_deposit_lines dl WHERE dl.batch_id=gb.id),0) AS gap
-           FROM giving_batches gb LEFT JOIN giving_batch_totals bt ON bt.batch_id=gb.id
+         SELECT gb.id, COALESCE(bt.total_cents,0) - COALESCE(dc.linked_cents,0) AS gap
+           FROM giving_batches gb
+           LEFT JOIN giving_batch_totals bt ON bt.batch_id=gb.id
+           LEFT JOIN (
+             SELECT batch_id, SUM(amount_cents) AS linked_cents
+               FROM giving_deposit_lines GROUP BY batch_id
+           ) dc ON dc.batch_id=gb.id
           WHERE gb.batch_date >= ?) t
         WHERE t.gap > 50`
     ).bind(awaitingSince).first(),
