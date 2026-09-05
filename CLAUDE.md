@@ -525,6 +525,120 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### PERF8 — Ordinary fund reads no longer scan all giving history (2026-09-05, DONE)
+Live Cloudflare D1 measurement after a short Finance session found 436,000 rows read, with
+406,440 caused by one unrestricted fund-history aggregation. `GET /admin/api/funds` served both
+plain fund pickers and the Manage Funds history screen, so every Finance load paid for the latter's
+`COUNT(*)`/`SUM(amount)` across all `giving_entries`. History is now explicit:
+`?include_stats=1`, accepted only for an administrator; only `loadManageFunds()` requests it.
+Every ordinary caller reads the small `funds` table only. `test/funds-stats-opt-in.test.js` guards
+the backend and caller. DEPLOY_VERSION 1.228.1. Focused change and access tests 20/20; GitHub's
+release suite passed. See NOTES.md v1.228.1.
+
+### FIN73 — Balance Sheet trend defaulted to a rolling 5-year window, hiding real history (2026-09-05, DONE)
+Reported off the Balance Sheet tab's Multi-Year Trend: 2022-2025 flat, only 2026 with bars.
+**Checked production D1 before touching anything, and the first answer was that the data genuinely
+isn't there**: `finance_church_balances` holds exactly one year (2026, 52 rows, imported
+2026-09-04) while `finance_church_entries` holds 2019-2026. So the multi-year upload the user
+remembered was the **Statement of Activity** (income statement, FIN36/FIN37), not the **Statement
+of Financial Position** (balance sheet) — that one was parsed and reconciled in a harness during
+FIN37/FIN38 but, per those entries' own "Not verified: a live browser" caveat, apparently never
+actually run against production. **⚠ Worth carrying forward: a FIN-series entry claiming a file
+"reconciles exactly" means the parser was verified, NOT that the data is in production D1.** Query
+the table before concluding an import happened.
+- **The range default was a second, independent defect underneath it**, and would have kept the
+  history invisible even once uploaded. `GET finance/church/balances/multi-year` defaulted to
+  `[currentYear-4 … currentYear]` whenever `?years=` was absent — which is every entry point, since
+  `finLoadBalanceSheetTab()` sends no range on first load. Now defaults to the distinct years
+  actually present, falling back to the rolling window only when the table is empty (the range
+  picker renders above the empty state and would otherwise show a blank/NaN From/To).
+- **⚠ Deliberately the years PRESENT, not the contiguous span between earliest and latest.** A year
+  with no rows still gets a fully zeroed summary from `computeBalanceSummary()`, which the chart
+  draws as a real $0 Assets/Liabilities/Equity bar — "the church had nothing" rather than "nothing
+  was uploaded", which is precisely the confusion being reported. The tie-out loses nothing:
+  `computeBalanceVsPnlReconciliation` already skips a no-rows year outright (its own
+  `if (!hasBalance(year)) continue`), so a gap year never produced a row either way. An explicit
+  `?years=` is still honored verbatim, gaps included — that's how you find what's missing.
+- **Both import handlers now clear `_finBalanceYears`.** A range pinned by hand (Load Range)
+  persists for the session and is sent as `?years=`, overriding the new default — so the year just
+  uploaded would stay off the chart until a full reload. FIN59-BUG2's staleness class exactly; both
+  handlers already cleared `_finBalanceData`/`_finBalanceMultiYearData` but not the pinned range.
+- `npm test` (2178/2178, 9 new). **Verified non-vacuous** by reverting each source file: 4 of 6
+  backend tests and both wiring tests fail against the pre-change code; the other 3 are deliberate
+  regression guards on preserved paths. One of my own tests initially passed either way (its
+  fixture years fell inside the old rolling window) and was rewritten around 2019/2020. `node
+  --check` on `api-finance.js` and all five assembled bundles; div balance on `CHMS_HTML`
+  (1123/1123); spelling clean. DEPLOY_VERSION 1.228.0. **Not verified**: a live browser.
+- **⚠ Not changed, flagged for a decision**: `GET finance/church/multi-year` — the *income
+  statement* Multi-Year view — carries the identical rolling-five-year default, and unlike the
+  balance sheet it has real 2019-2021 data behind it today, so the Church Report is hiding history
+  right now. Same one-line fix, but it changes a different screen's default and is the user's call.
+  (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+  `test/finance-balance-pnl-recon.test.js`, `test/finance-balance-recon-ui.test.js`)
+
+### PERF-FIN1 — Finance tab query amplification took D1 past its row-read ceiling (2026-09-05, DONE)
+Reported from a Cloudflare investigation, not a hunch: on 2026-09-04 `tlc-volunteer-db` passed the
+D1 free-tier row-read ceiling and **unrelated church APIs started failing account-wide**. The
+trailing-window top four queries were all one year of `giving_entries` — household giving bands
+(106 executions / 2.15M rows), fund totals (75 / 1.53M), monthly giving by fund (74 / 1.39M),
+distinct giving households (60 / 1.12M), ~6.2M rows between them. Verified against this repo
+before changing anything: all four live in `finance/church/this-year`, and the execution counts
+are **three multipliers stacked**, 3 × 4 = twelve full-year giving aggregations per sub-nav click.
+- **⚠ The one that is easy to miss: switching Finance sub-nav sections goes through
+  `showTab('finance', …)`, which called `loadFinance()`, which called all SEVEN section loaders.**
+  So a *click* — not just a tab entry — re-ran Balance Sheet, Daycare, Property, Budget and the
+  rest, whether or not the reader could see them. Only the visible section loads now
+  (`finEnsureSection` / `FIN_SECTION_LOADERS`); `loadFinance()` bootstraps once (status, QB
+  snapshot, daycare entries — none touch giving) and hands off.
+- **⚠ Three real cross-screen data dependencies had to be untangled BEFORE lazy loading was safe**,
+  or screens would have silently emptied: Financial Health reads the Ivanhoe property payload
+  (entity/lever/decision cards) and the daycare year aggregate; Budget's Ivanhoe forecast card
+  reads the same property payload. Both used to arrive as a *side effect* of another tab having
+  been eagerly rendered. Property is now a shared promise-cached prerequisite
+  (`finEnsurePropertyData`); the daycare aggregate is a real computation (`finEnsureDaycareAgg`)
+  rather than a side effect of `finRenderDaycareReport()` having run. **Anything added to Health,
+  Budget or Daycare that reads another screen's state needs the same treatment.**
+- **One request per year across screens** (`finFetchChurchYear`) — Health, Church Report and Budget
+  shared nothing before. Deliberately a per-year memo, NOT a session cache with a TTL:
+  `finRenderChurchReport()` (which is also the after-an-import refresh path) clears it and marks
+  Health and Budget stale, so no screen shows a figure a completed import superseded.
+  **⚠ The church SECTION loader is `finSetChurchReportMode`, not `finRenderChurchReport`** — the
+  latter invalidates by design, and opening a tab is not a reason to discard a payload another
+  screen already fetched for the same year.
+- **Two giving scans per request, not four** (`buildChurchThisYear`, extracted from its route so it
+  is a plain function of `(db, year)` and can be memoized). Per-fund annual totals are summed in JS
+  from the month-by-fund rows already read — **skipping a `fund_id` with no row in `funds`, which
+  is what preserves the INNER JOIN the separate query did** — and the giving-household count is the
+  row count of the same per-household aggregate the donor bands are bucketed from.
+- **Concurrent identical requests share one computation** (`coalesceChurchYear`). The map holds
+  only genuinely in-flight promises, deleted the moment each settles — coalescing, never a cache.
+- **Two covering indexes on `contribution_date`** (migration `0042`). `giving_entries` had no index
+  on that column at all. **⚠ They belong in `src/db.js`'s runtime `migrations` array and NOT in
+  `DB_INIT`**: `contribution_date` is itself added by an `ALTER` in that array, so `DB_INIT` runs
+  before the column exists and index creation fails with "no such column: contribution_date" on a
+  fresh database. Caught by `test/migration-error-visibility.test.js`, not by reading.
+- **Measured, not assumed** — `EXPLAIN QUERY PLAN` against a realistic 8-year ~42k-row fixture, on
+  the exact SQL as shipped: both remaining queries went `SCAN ge` → `SEARCH ge USING COVERING
+  INDEX`, no table lookup at all. One year is an eighth of that table, so ~8× per report on top of
+  4→2 scans and 3→1 requests.
+- `npm test` (2169/2169, 14 new in `test/finance-query-amplification.test.js` — the real route
+  against real in-memory SQLite with a query-counting DB stub, plus the real assembled bundles in a
+  `vm`). **⚠ `api()` is defined inside `js-core.js` and therefore cannot be stubbed from a `vm`
+  sandbox — `fetch` is the seam**, and the honest one, since what these tests measure is requests.
+  **Every new test verified non-vacuous** (6 injections, 6 correct failure sets). Two of my own
+  assertions were wrong and were corrected rather than forced. `node --check` on all touched files
+  and all three bundles; div balance on `CHMS_HTML` (1123/1123), CSS braces (1373/1373); spelling
+  clean. DEPLOY_VERSION bumped to 1.227.0. **Not verified**: a live browser, or the live D1
+  counters — the acceptance check is Cloudflare's own trailing-window numbers for
+  `tlc-volunteer-db` once this deploys.
+- **Deliberately NOT built, flagged rather than guessed**: a persisted annual/monthly giving
+  aggregate table with change-driven invalidation. It is the right answer if these reports stay
+  hot, but it is a real schema-plus-invalidation design (which writes invalidate which years) and
+  wants its own session, not a tail-end addition to a fix already touching three multipliers.
+  (`src/api-finance.js`, `src/db.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+  `migrations/0042_giving_contribution_date_indexes.sql`,
+  `test/finance-query-amplification.test.js`)
+
 ### FIN70 — Chart of Accounts page; Board view / QuickBooks order toggle on Planning (2026-09-04, DONE)
 Built from a Claude Design canvas handoff (`design_handoff_budget_planning_categorization` —
 `Chart of Accounts.dc.html` + `Budget Planning.dc.html`, recreated from this repo's own shipped
@@ -917,18 +1031,53 @@ three assembled bundles. DEPLOY_VERSION bumped to 1.224.0. **Not verified**: a l
 (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
 `test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`)
 
-### PERF8 — Ordinary fund reads no longer scan all giving history (2026-09-04, DONE)
-Live Cloudflare D1 measurement after a short Finance session found 436,000 rows read, with
-406,440 caused by one unrestricted fund-history aggregation. `GET /admin/api/funds` served both
-plain fund pickers and the Manage Funds history screen, so every Finance load paid for the latter's
-`COUNT(*)`/`SUM(amount)` across all `giving_entries`. History is now explicit:
-`?include_stats=1`, accepted only for an administrator; only `loadManageFunds()` requests it.
-Every ordinary caller reads the small
-`funds` table only. `test/funds-stats-opt-in.test.js` guards both halves. DEPLOY_VERSION 1.225.1.
-Focused change and access tests 20/20; full suite before the final caller assertions had 2,128
-passing and 5 skipped, with the unrelated pre-existing
-`finance-budget-plan.test.js` Aug-5 week-count assertion still failing. Not deployed or remeasured
-in production. See NOTES.md v1.225.1.
+### FIN72 — Purpose tags: a second, optional lens over Compensation workers and accounts (2026-09-05, DONE)
+Asked as an exploratory question: "What about having tagging budget lines in a secondary way? So
+that we could also view it based on youth, mission, internal. So I could tag the DCE for youth and
+music director for music and it would show how much resources are going each way not just
+categories." Scoped first (per this session's own convention for a design fork — recommendation +
+tradeoff, not a guess) and confirmed with the user: **single-tag-only for now** — a percentage
+split for a worker whose role spans two purposes was raised and deliberately deferred.
+- **Two tag surfaces, because the user's own example named a PERSON, not a GL line.** "Tag the
+  DCE"/"tag the music director" means a Compensation Planner roster worker; Chart of Accounts leaf
+  accounts (Youth Group Supplies, Mission Trip Support, etc.) are the non-payroll half. A worker's
+  own tag is deliberately **not** a second server-side map keyed by `accountCode` — a worker can be
+  entered with no budget line at all (a real, already-supported state), and keying by account code
+  would either leave such a worker untaggable or silently tag every other blank-account-code worker
+  identically. It lives instead as a plain `purposeTag` field directly on the roster row, saved
+  through the existing salary-planner blob like every other per-worker field — no new endpoint
+  needed for that half at all.
+- **New, independent `finance_planning_purpose_tags` store** (chms_config blob; `GET`/`PUT
+  /admin/api/finance/planning/purpose-tags`, PUT admin-only) holding only the shared, admin-managed
+  tag list (add/rename/delete, ids minted from a slugified label) and the Chart of Accounts
+  leaf-path assignments. Deliberately separate from `finance_planning_board_categories` — that
+  store's category set is a fixed 7-key allowlist; purpose tags are open-ended. `tags` is a full
+  replace (so omitting a row from the array is how delete works); `categories` merges, the same
+  reasoning as the board-category store's own maps.
+- **Deleting a tag cleans up both stores.** The backend drops any `categories` entry pointing at a
+  removed id; the frontend (`finPurposeTagsSaveList`) separately walks `_finSalaryRoster` and clears
+  any worker's now-invalid `purposeTag`, then schedules the existing roster autosave — otherwise a
+  deleted tag would keep showing on a worker's drawer forever with no UI left to clear it.
+- **New "Purpose Tags" management card + a per-leaf picker, both on Chart of Accounts** (only
+  rendered once at least one tag exists, so the page is unchanged for anyone who hasn't used this
+  yet), a matching picker on the Compensation drawer next to Budget line, and a new **"Resources by
+  Purpose"** report card summing, per tag: every counted, non-externally-funded worker's full
+  church cost (salary + benefits — the same figure the Compensation tab totals) plus every tagged
+  leaf's own actual dollars. **A leaf whose account code matches an already-tagged worker's own
+  `accountCode` is excluded from the account side**, so tagging both a worker and the exact GL line
+  their salary posts to can never double-count it — an untagged worker's own linked leaf can still
+  be tagged and counted on its own, since nothing already counted that money.
+- `npm test` (2155/2155, 28 new in `test/finance-planning-purpose-tags.test.js` — real backend
+  route against real in-memory SQLite, plus the vm-behind-a-stub-DOM technique against the real
+  assembled bundle for the frontend half); **every new test verified non-vacuous** by stashing both
+  source files and confirming 27 of 28 fail against the pre-change code (the one that still passes
+  is a `typeof === 'function'` guard that's correctly true either way). **A backtick in one of my
+  own new comments closed the outer `String.raw` literal** — the SC3-BUG1/FIN15/TAP2-BUG class,
+  caught by the test suite's own parse failure, not by reading. `node --check` on `api-finance.js`
+  and all five assembled bundles; div-balance on the assembled `CHMS_HTML` (1123/1123, unchanged —
+  no new static markup, everything renders at runtime). DEPLOY_VERSION bumped to 1.226.0. **Not
+  verified**: a live browser. (`src/api-finance.js`, `src/frontend/js-finance.js`,
+  `src/frontend/js-core.js`, `test/finance-planning-purpose-tags.test.js`)
 
 ### FIN71 — Balance Sheet & Financial Position: its own tab (2026-09-04, DONE)
 Two asks in one message: "give me a tab for Balance Sheet & Financial Position... graphs of
