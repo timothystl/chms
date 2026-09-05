@@ -41,6 +41,21 @@ function makeTestDb() {
   };
 }
 
+describe('finance import-status fallback index', () => {
+  it('answers the source-specific latest timestamp from a covering index', () => {
+    const sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(readFileSync(new URL('../migrations/0018_finance_church_entries.sql', import.meta.url), 'utf8'));
+    sqlite.exec(readFileSync(new URL('../migrations/0043_finance_import_status_index.sql', import.meta.url), 'utf8'));
+
+    const plan = sqlite.prepare(
+      `EXPLAIN QUERY PLAN SELECT MAX(synced_at) AS t
+       FROM finance_church_entries WHERE source='import_activity' AND synced_at != ''`
+    ).all().map(row => row.detail).join('\n');
+
+    expect(plan).toContain('USING COVERING INDEX idx_church_entries_source_synced');
+  });
+});
+
 const YEAR = 2026;
 function seed(db) {
   db._raw.exec(`INSERT INTO funds (id,name,category) VALUES

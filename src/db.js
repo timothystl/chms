@@ -1592,6 +1592,10 @@ async function _doInitDb(db) {
     `CREATE INDEX IF NOT EXISTS idx_church_entries_year       ON finance_church_entries(fiscal_year)`,
     `CREATE INDEX IF NOT EXISTS idx_church_entries_year_class ON finance_church_entries(fiscal_year, classification)`,
     `CREATE INDEX IF NOT EXISTS idx_church_entries_path        ON finance_church_entries(category_path)`,
+    // The Data & Imports legacy fallback asks for MAX(synced_at) within one source. This covering
+    // index changes that from a scan of every imported account/year row into an index lookup.
+    // See migrations/0043_finance_import_status_index.sql for the production measurement.
+    `CREATE INDEX IF NOT EXISTS idx_church_entries_source_synced ON finance_church_entries(source, synced_at)`,
     // Point-in-time Balance Sheet snapshots (see migrations/0019_finance_church_balances.sql).
     `CREATE TABLE IF NOT EXISTS finance_church_balances (
       id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1924,4 +1928,3 @@ async function _doInitDb(db) {
      ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   ).bind(fingerprint).run().catch(() => {});
 }
-
