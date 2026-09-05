@@ -12,6 +12,10 @@ a dirty year once. Do not reintroduce full-year `giving_entries` scans into ordi
 Finance overview reads; reserve raw gift reads for transaction detail or explicitly individual
 analysis.
 
+`deploy.yml` does not apply numbered D1 migrations. The runtime initializer therefore contains an
+empty-table-guarded backfill for `giving_monthly_fund_totals`. Keep the guard: it performs the
+historical scan once on rollout and skips `giving_entries` after any summary row exists.
+
 > ## ⚠ The work plan is in `PLAN.md`, not in this file
 >
 > **`PLAN.md` (repo root) opens with a priority-ordered work queue** — everything still open,
