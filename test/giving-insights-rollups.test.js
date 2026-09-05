@@ -18,6 +18,7 @@ function setup() {
   `);
   sqlite.exec(readFileSync(new URL('../migrations/0044_giving_monthly_fund_totals.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0045_giving_year_person_totals.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0047_giving_rollup_claims.sql', import.meta.url), 'utf8'));
   const insert = sqlite.prepare(
     'INSERT INTO giving_entries(batch_id,person_id,fund_id,amount,contribution_date) VALUES(1,?,?,?,?)'
   );
