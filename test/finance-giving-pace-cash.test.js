@@ -51,6 +51,7 @@ function makeTestDb() {
   sqlite.exec(`CREATE TABLE giving_entries (id INTEGER PRIMARY KEY, batch_id INTEGER, person_id INTEGER, fund_id INTEGER, amount INTEGER NOT NULL DEFAULT 0, method TEXT DEFAULT 'check', contribution_date TEXT NOT NULL DEFAULT '')`);
   sqlite.exec(readFileSync(new URL('../migrations/0044_giving_monthly_fund_totals.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0045_giving_year_person_totals.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0047_giving_rollup_claims.sql', import.meta.url), 'utf8'));
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   sqlite.exec(`CREATE TABLE finance_qb_snapshot (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   sqlite.exec(`CREATE TABLE finance_daycare_entries (id INTEGER PRIMARY KEY, period TEXT, category TEXT, entry_type TEXT, amount_cents INTEGER, notes TEXT, source TEXT)`);
