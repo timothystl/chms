@@ -33,13 +33,55 @@ export const REFRESH_GIVING_YEAR_STATS_SQL = `
     band_high=excluded.band_high, band_mid=excluded.band_mid, band_low=excluded.band_low,
     refreshed_at=excluded.refreshed_at`;
 
+const EMPTY_YEAR_STATS = { giving_households: 0, giver_count: 0, band_high: 0, band_mid: 0, band_low: 0 };
+
+async function readYearState(db, year) {
+  const [dirty, stats, peopleReady] = await Promise.all([
+    db.prepare('SELECT year FROM giving_rollup_dirty WHERE year=?').bind(year).first(),
+    db.prepare('SELECT * FROM giving_year_stats WHERE year=?').bind(year).first(),
+    db.prepare('SELECT 1 AS ready FROM giving_year_person_rollup_ready WHERE year=?').bind(year).first(),
+  ]);
+  return { dirty, stats, peopleReady };
+}
+
 export async function ensureGivingYearRollups(db, year) {
-  const dirty = await db.prepare('SELECT year FROM giving_rollup_dirty WHERE year=?').bind(year).first();
-  let stats = await db.prepare('SELECT * FROM giving_year_stats WHERE year=?').bind(year).first();
-  const peopleReady = await db.prepare(
-    'SELECT 1 AS ready FROM giving_year_person_rollup_ready WHERE year=?'
-  ).bind(year).first();
-  if (dirty || !stats || !peopleReady) {
+  let { dirty, stats, peopleReady } = await readYearState(db, year);
+  if (!dirty && stats && peopleReady) return stats;
+
+  // A crashed request must not block this year forever. INSERT OR IGNORE + RETURNING is the
+  // database-level mutex: only one Worker isolate receives a row and scans the gift ledger.
+  await db.prepare(
+    `DELETE FROM giving_year_rollup_claims
+      WHERE year=? AND claimed_at < datetime('now','-2 minutes')`
+  ).bind(year).run();
+  const token = `${Date.now()}-${Math.random()}`;
+  const claim = await db.prepare(
+    `INSERT OR IGNORE INTO giving_year_rollup_claims(year,token,claimed_at)
+     VALUES(?,?,datetime('now')) RETURNING token`
+  ).bind(year, token).first();
+
+  if (!claim) {
+    // Existing complete summaries are safe to serve briefly while another request refreshes.
+    if (stats && peopleReady) return stats;
+    // The first-ever materialization has no safe fallback. Wait briefly for its owner rather
+    // than returning an empty chart or attempting the same expensive rebuild concurrently.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+      const active = await db.prepare(
+        'SELECT 1 AS active FROM giving_year_rollup_claims WHERE year=?'
+      ).bind(year).first();
+      if (!active) {
+        ({ dirty, stats, peopleReady } = await readYearState(db, year));
+        if (!dirty && stats && peopleReady) return stats;
+        return ensureGivingYearRollups(db, year);
+      }
+    }
+    ({ stats } = await readYearState(db, year));
+    return stats || EMPTY_YEAR_STATS;
+  }
+
+  let rebuilt = false;
+  try {
     const start = `${year}-01-01`, end = `${year}-12-31`;
     await db.batch([
       db.prepare('DELETE FROM giving_year_person_totals WHERE year=?').bind(year),
@@ -51,11 +93,24 @@ export async function ensureGivingYearRollups(db, year) {
         `INSERT INTO giving_year_person_rollup_ready(year,refreshed_at) VALUES(?,datetime('now'))
          ON CONFLICT(year) DO UPDATE SET refreshed_at=excluded.refreshed_at`
       ).bind(year),
-      db.prepare('DELETE FROM giving_rollup_dirty WHERE year=?').bind(year),
     ]);
     stats = await db.prepare('SELECT * FROM giving_year_stats WHERE year=?').bind(year).first();
+    rebuilt = true;
+  } finally {
+    // The claim trigger cleared the old dirty marker atomically. If a gift changed during the
+    // rebuild, its new marker remains for the next request. A failed rebuild explicitly restores
+    // a marker before releasing the claim so it is always retryable.
+    if (!rebuilt) {
+      await db.prepare(
+        `INSERT INTO giving_rollup_dirty(year,dirtied_at) VALUES(?,datetime('now'))
+         ON CONFLICT(year) DO UPDATE SET dirtied_at=excluded.dirtied_at`
+      ).bind(year).run();
+    }
+    await db.prepare(
+      'DELETE FROM giving_year_rollup_claims WHERE year=? AND token=?'
+    ).bind(year, token).run();
   }
-  return stats || { giving_households: 0, giver_count: 0, band_high: 0, band_mid: 0, band_low: 0 };
+  return stats || EMPTY_YEAR_STATS;
 }
 
 export async function loadGivingYearTrendRows(db, years) {

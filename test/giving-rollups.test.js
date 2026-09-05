@@ -21,6 +21,7 @@ function setup() {
   raw.exec('CREATE INDEX idx_giving_date_fund ON giving_entries(contribution_date,fund_id,amount)');
   raw.exec(readFileSync(new URL('../migrations/0044_giving_monthly_fund_totals.sql', import.meta.url), 'utf8'));
   raw.exec(readFileSync(new URL('../migrations/0045_giving_year_person_totals.sql', import.meta.url), 'utf8'));
+  raw.exec(readFileSync(new URL('../migrations/0047_giving_rollup_claims.sql', import.meta.url), 'utf8'));
   const queries = [];
   const db = {
     prepare(sql) {
@@ -74,6 +75,52 @@ describe('giving rollups', () => {
     queries.length = 0;
     await ensureGivingYearRollups(db, 2026);
     expect(queries.filter(q => /FROM giving_entries/.test(q))).toHaveLength(0);
+  });
+
+  it('allows only one ledger scan during concurrent first-time rebuilds', async () => {
+    const { raw, db, queries } = setup();
+    raw.exec('DELETE FROM giving_year_stats; DELETE FROM giving_year_person_rollup_ready;');
+    raw.exec("INSERT INTO giving_rollup_dirty(year,dirtied_at) VALUES(2026,datetime('now')) ON CONFLICT(year) DO UPDATE SET dirtied_at=excluded.dirtied_at");
+    queries.length = 0;
+
+    const results = await Promise.all(Array.from({ length: 10 }, () => ensureGivingYearRollups(db, 2026)));
+
+    expect(queries.filter(q => /FROM giving_entries ge/.test(q))).toHaveLength(1);
+    expect(results.every(row => row.giver_count === 3)).toBe(true);
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM giving_year_rollup_claims').get().n).toBe(0);
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM giving_rollup_dirty').get().n).toBe(0);
+  });
+
+  it('releases a failed rebuild claim and leaves the year retryable', async () => {
+    const { raw, db } = setup();
+    raw.exec("INSERT INTO giving_entries VALUES(4,1,3,8,50000,'2026-04-01')");
+    db.batch = async () => { throw new Error('simulated rebuild failure'); };
+
+    await expect(ensureGivingYearRollups(db, 2026)).rejects.toThrow('simulated rebuild failure');
+
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM giving_year_rollup_claims').get().n).toBe(0);
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM giving_rollup_dirty WHERE year=2026').get().n).toBe(1);
+  });
+
+  it('preserves a dirty marker created while a rebuild is running', async () => {
+    const { raw, db, queries } = setup();
+    raw.exec("INSERT INTO giving_entries VALUES(4,1,3,8,50000,'2026-04-01')");
+    const runBatch = db.batch;
+    let changedDuringRebuild = false;
+    db.batch = async statements => {
+      if (!changedDuringRebuild) {
+        changedDuringRebuild = true;
+        raw.exec("INSERT INTO giving_entries VALUES(5,1,3,8,1000,'2026-05-01')");
+      }
+      return runBatch(statements);
+    };
+
+    await ensureGivingYearRollups(db, 2026);
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM giving_rollup_dirty WHERE year=2026').get().n).toBe(1);
+    queries.length = 0;
+    await ensureGivingYearRollups(db, 2026);
+    expect(queries.filter(q => /FROM giving_entries ge/.test(q))).toHaveLength(1);
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM giving_rollup_dirty').get().n).toBe(0);
   });
 
   it('marks the affected year dirty when a person moves households', () => {
