@@ -4306,6 +4306,10 @@ function finChurchConfirmBalanceImport() {
     closeModal('fin-church-balance-import-modal');
     finToast('Imported ' + d.imported + ' account row(s) as of ' + _finChurchBalanceImportPreview.asOfDate + '.');
     _finBalanceData = null;
+    // Drop any range the reader pinned by hand this session: an import changes which years exist,
+    // and a pinned range would keep the trend on the old window so the year just uploaded would
+    // not appear. Cleared here, the reload falls back to the server's all-available-years default.
+    _finBalanceYears = null;
     if (_finActiveNavId === 'balance') finLoadBalanceSheetTab();
     finRefreshImportStatus();
   }).catch(function(err) {
@@ -4936,6 +4940,8 @@ function finChurchConfirmBalanceMultiImport() {
     finRenderChurchReport();
     _finBalanceData = null;
     _finBalanceMultiYearData = null;
+    // Same reason as the single-year import: a hand-pinned range would hide the years just added.
+    _finBalanceYears = null;
     if (_finActiveNavId === 'balance') finLoadBalanceSheetTab();
     finRefreshImportStatus();
   }).catch(function(err) {
