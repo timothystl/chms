@@ -24,6 +24,35 @@ Phases 21 and 22 are ordered by risk; 23 onward by dependency, not urgency.
   reads return to zero full gift scans. Raw gifts remain reserved for transaction detail and
   explicitly individual-level analysis.
 
+## Cross-app design-system workstream (added 2026-09-05)
+
+**Goal:** make visual consistency a maintained part of the codebase instead of allowing each page
+or AI editing session to inherit whichever local pattern it encounters first. This begins with an
+evidence-gathering audit, not a redesign or a palette substitution.
+
+- [ ] **DS1 — Surface inventory and evidence.** List every church and MDO app, identify ownership
+  and shared code, and capture representative desktop/mobile screens and important states.
+- [ ] **DS2 — Pattern audit.** Catalog colors, typography, spacing, layout, navigation, cards,
+  buttons, forms, tables, dialogs, status treatments, responsiveness, and accessibility. Mark each
+  difference as intentional, accidental, or unresolved before changing it.
+- [ ] **DS3 — Shared Timothy foundation.** Define common semantic tokens and interaction rules for
+  spacing, breakpoints, focus, motion, validation, accessibility, and component behavior.
+- [ ] **DS4 — Church visual system.** Define the calm, pastoral, mature expression used across the
+  church website, Connect/ChMS, Scheduler, Serve, and church administration.
+- [ ] **DS5 — MDO visual system.** Define a related but distinct child-centered expression for the
+  MDO website, childcare portal, and future family/teacher tools: warmer color, softer form, and
+  friendlier imagery without losing Timothy identity or accessibility.
+- [ ] **DS6 — Canonical components.** Establish the approved component APIs and variants for each
+  family; centralize implementation as code ownership is refactored rather than duplicating CSS.
+- [ ] **DS7 — Reference screens and usage rules.** Build representative screens and document when
+  to use each pattern, including examples of intentional Church/MDO differences.
+- [ ] **DS8 — Anti-drift guardrails for AI work.** Require agents to inspect the tokens, component
+  rules, and reference screens before UI edits; add screenshot/visual-regression checks and lint or
+  build checks where objective rules can be enforced.
+- [ ] **DS9 — Staged adoption.** Refactor one app at a time, preserve behavior, verify accessibility
+  and responsive states, and record approved exceptions. Do not attempt a family-wide visual
+  rewrite in one release.
+
 ## The work queue — priority order (rebuilt 2026-08-20)
 
 **Read this table, not the phase numbers.** The phases below were written 2026-08-19 when authorization
