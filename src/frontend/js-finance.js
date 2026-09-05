@@ -2922,6 +2922,13 @@ var FIN_BOARD_EXP_DEFAULT_LABEL = { mdo: 'MDO', salaries: 'Salaries & Benefits',
 // Empty until finLoadPlanning()'s fetch resolves — every reader below tolerates that (an unset
 // map just means "everything is on its regex default"), so a page opened mid-load never throws.
 var _finPlanBoardCats = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' };
+// Purpose tags — a second, optional lens over the same accounts/workers above (Youth, Mission,
+// Internal, etc.), scoped and shipped 2026-09-05. See readPurposeTags in api-finance.js for why
+// this is its own store rather than folded into _finPlanBoardCats, and why a Compensation worker's
+// own tag lives as a plain purposeTag field on the roster row (js-finance.js only, not here) —
+// categories below is Chart of Accounts leaf path -> tag id, one tag per key, single-tag-only
+// (no split), per the user's own choice.
+var _finPurposeTags = { tags: [], categories: {} };
 function finBoardCatFor(leafPath, leafLabel, isRev) {
   var saved = isRev ? _finPlanBoardCats.revenue[leafPath] : _finPlanBoardCats.expense[leafPath];
   if (saved) return saved;
@@ -6886,6 +6893,7 @@ function finLoadPlanning() {
     api('/admin/api/finance/church/this-year?year=' + _finPlanBaseYear),
     api('/admin/api/finance/planning/base-projection'),
     api('/admin/api/finance/planning/board-categories'),
+    api('/admin/api/finance/planning/purpose-tags'),
   ]).then(function(results) {
     _finPlanRows = (results[0] && results[0].rows) || [];
     finRememberStreamMap(results[1]);
@@ -6898,6 +6906,9 @@ function finLoadPlanning() {
     _finPlanBoardCats = results[3] && typeof results[3] === 'object'
       ? { revenue: results[3].revenue || {}, expense: results[3].expense || {}, revenueLabels: results[3].revenueLabels || {}, expenseLabels: results[3].expenseLabels || {}, donorWrapperLabel: results[3].donorWrapperLabel || '' }
       : { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' };
+    _finPurposeTags = results[4] && typeof results[4] === 'object'
+      ? { tags: Array.isArray(results[4].tags) ? results[4].tags : [], categories: results[4].categories || {} }
+      : { tags: [], categories: {} };
     _finPlanEdits = {};
     _finPlanBaseProjEdits = {};
     _finPlanActualEdits = {};
@@ -7665,7 +7676,7 @@ function finCoaBuildCard(leaves, isRev, order, title, sub) {
             + '<span style="font-size:.85rem;color:var(--warm-ink-dark);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(l.label) + '</span>'
             + '<select onchange="finPlanSetBoardCategory(' + jsAttr(l.path) + ',' + (isRev ? 'true' : 'false') + ',this.value)" style="font-size:11.5px;font-weight:600;padding:4px 7px;border-radius:8px;border:1px solid var(--warm-border);background:var(--warm-surface-page);color:var(--warm-ink-label);width:190px;flex-shrink:0;">'
               + cats.map(function(c) { return '<option value="' + c.key + '"' + (c.key === k ? ' selected' : '') + '>' + esc(c.label) + '</option>'; }).join('')
-            + '</select></div>';
+            + '</select>' + finPurposeTagSelectHtml(l.path) + '</div>';
         }).join('') + '</div>'
       : '<div style="font-size:12.5px;color:var(--warm-gray);padding:9px 0 0 24px;">No accounts read under this category yet.</div>';
     return '<div>'
@@ -7696,6 +7707,136 @@ function finCoaBuildCard(leaves, isRev, order, title, sub) {
     + '<div style="margin-top:14px;display:flex;flex-direction:column;gap:18px;">' + groupsHtml + '</div>'
     + '</div>';
 }
+// ── Purpose tags: a second, optional lens (Youth/Mission/Internal/etc.) over the same accounts
+// and Compensation Planner workers the Board Category cards above already classify. Scoped and
+// shipped 2026-09-05 (single-tag-only — see the header comment on readPurposeTags in
+// api-finance.js for the full reasoning and what was deliberately left out of v1).
+function finPurposeTagSelectHtml(path) {
+  if (!_finPurposeTags.tags.length) return '';
+  var current = _finPurposeTags.categories[path] || '';
+  var opts = '<option value="">No tag</option>' + _finPurposeTags.tags.map(function(t) {
+    return '<option value="' + esc(t.id) + '"' + (t.id === current ? ' selected' : '') + '>' + esc(t.label) + '</option>';
+  }).join('');
+  return '<select onchange="finPurposeTagSetCategory(' + jsAttr(path) + ',this.value)" title="Purpose tag &mdash; a second, optional lens alongside the category" style="font-size:11px;font-weight:600;padding:4px 6px;border-radius:8px;border:1px dashed var(--warm-border);background:var(--warm-surface-page);color:var(--warm-ink-label);width:110px;flex-shrink:0;">' + opts + '</select>';
+}
+function finPurposeTagsSaveList(tagsArray) {
+  return api('/admin/api/finance/planning/purpose-tags', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tags: tagsArray }) }).then(function(d) {
+    if (d && d.error) { finToast(d.error); return; }
+    _finPurposeTags = { tags: (d && d.tags) || [], categories: (d && d.categories) || {} };
+    // A tag left off the array (a delete) is gone server-side already; a worker's OWN purposeTag
+    // field lives in the salary-planner blob, not this store, so it has to be cleared here or a
+    // deleted tag keeps showing up on that worker forever with no way to see or fix it.
+    var validIds = {};
+    _finPurposeTags.tags.forEach(function(t) { validIds[t.id] = true; });
+    var rosterChanged = false;
+    (_finSalaryRoster || []).forEach(function(w) {
+      if (w.purposeTag && !validIds[w.purposeTag]) { w.purposeTag = ''; rosterChanged = true; }
+    });
+    if (rosterChanged) finSalaryScheduleAutoSave();
+    finRenderChartOfAccounts();
+    if (document.getElementById('fin-panel-compensation')) finRenderCompensation();
+  }).catch(function(err) { if (err && err.message !== 'Unauthorized') finToast(err && err.message || 'Save failed.'); });
+}
+function finPurposeTagAdd() {
+  var input = document.getElementById('fin-purpose-tag-new');
+  var label = input ? String(input.value || '').trim() : '';
+  if (!label) return;
+  finPurposeTagsSaveList(_finPurposeTags.tags.concat([{ label: label }]));
+}
+function finPurposeTagRename(id, textEl) {
+  var clean = String((textEl && textEl.textContent) || '').replace(/\s+/g, ' ').trim();
+  if (!clean) { finRenderChartOfAccounts(); return; }
+  finPurposeTagsSaveList(_finPurposeTags.tags.map(function(t) { return t.id === id ? { id: id, label: clean } : t; }));
+}
+function finPurposeTagDelete(id) {
+  if (!confirm('Delete this purpose tag? It will be removed from every account and worker currently tagged with it.')) return;
+  finPurposeTagsSaveList(_finPurposeTags.tags.filter(function(t) { return t.id !== id; }));
+}
+function finPurposeTagSetCategory(path, tagId) {
+  var patch = { categories: {} };
+  patch.categories[path] = tagId;
+  return api('/admin/api/finance/planning/purpose-tags', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(patch) }).then(function(d) {
+    if (d && d.error) { finToast(d.error); return; }
+    _finPurposeTags = { tags: (d && d.tags) || [], categories: (d && d.categories) || {} };
+    finRenderChartOfAccounts();
+  }).catch(function(err) { if (err && err.message !== 'Unauthorized') finToast(err && err.message || 'Save failed.'); });
+}
+function finPurposeTagsCardHtml() {
+  var chips = _finPurposeTags.tags.map(function(t) {
+    return '<span style="display:inline-flex;align-items:center;gap:6px;background:var(--warm-surface-page);border:1px solid var(--warm-border);border-radius:999px;padding:5px 6px 5px 12px;font-size:12.5px;font-weight:600;color:var(--warm-ink-dark);">'
+      + '<span contenteditable="true" onblur="finPurposeTagRename(' + jsAttr(t.id) + ',this)" title="Click to rename" style="outline:none;cursor:text;">' + esc(t.label) + '</span>'
+      + '<button onclick="finPurposeTagDelete(' + jsAttr(t.id) + ')" title="Delete this tag" style="background:none;border:none;padding:0 3px;font-size:14px;line-height:1;color:var(--warm-gray);cursor:pointer;">&times;</button>'
+      + '</span>';
+  }).join('');
+  return '<div class="fin-card" style="padding:18px 24px;margin-bottom:16px;">'
+    + '<div class="fin-card-title" style="font-size:18px;">Purpose Tags</div>'
+    + '<div class="fin-card-sub" style="max-width:80ch;">A second, optional lens over the categories below &mdash; tag a Compensation worker or an account with Youth, Mission, Internal, or anything else, and the totals roll up in Resources by Purpose. One tag per line for now.</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;">'
+    + chips
+    + '<input type="text" id="fin-purpose-tag-new" placeholder="New tag" style="font-size:12.5px;padding:6px 12px;border-radius:999px;border:1px dashed var(--warm-border);width:120px;">'
+    + '<button onclick="finPurposeTagAdd()" class="btn-secondary" style="padding:5px 12px;font-size:12px;">+ Add tag</button>'
+    + '</div></div>';
+}
+// One tag's total = every counted, non-externally-funded Compensation worker tagged with it
+// (their full church cost — salary + benefits, same figure the Compensation tab totals) plus
+// every tagged Chart of Accounts leaf's own actual dollars. A leaf whose leading account code
+// matches a tagged worker's own accountCode is skipped from the account side, so tagging both a
+// worker AND the exact GL line their salary posts to can never double it.
+function finPurposeTagTotals() {
+  var totals = {};
+  _finPurposeTags.tags.forEach(function(t) { totals[t.id] = { label: t.label, payrollCents: 0, accountCents: 0, workers: [], accounts: [] }; });
+  var computed = typeof finCompComputeAll === 'function' ? finCompComputeAll() : [];
+  var payrollCodes = {};
+  (_finSalaryRoster || []).forEach(function(w, i) {
+    if (finCompIsExternallyFunded(w)) return;
+    var code = String(w.accountCode || '').trim();
+    var tagId = w.purposeTag || '';
+    if (tagId && totals[tagId]) {
+      totals[tagId].payrollCents += (computed[i] ? computed[i].churchCostCents : 0);
+      totals[tagId].workers.push(w.name || '(unnamed)');
+      if (code) payrollCodes[code] = true;
+    }
+  });
+  if (_finPlanBaseTree && _finPlanBaseTree.length) {
+    finFlattenLeaves(_finPlanBaseTree).forEach(function(l) {
+      var tagId = _finPurposeTags.categories[l.path];
+      if (!tagId || !totals[tagId]) return;
+      var m = String(l.label || '').match(/^\s*(\d{3,8})/);
+      if (m && payrollCodes[m[1]]) return;
+      totals[tagId].accountCents += (l.totalActualCents || 0);
+      totals[tagId].accounts.push(l.label);
+    });
+  }
+  return totals;
+}
+function finRenderPurposeReport() {
+  if (!_finPurposeTags.tags.length) return '';
+  var totals = finPurposeTagTotals();
+  var rows = _finPurposeTags.tags.map(function(t) {
+    var d = totals[t.id];
+    return { label: t.label, cents: d.payrollCents + d.accountCents, workers: d.workers, accounts: d.accounts };
+  });
+  var maxCents = Math.max(1, Math.max.apply(null, rows.map(function(r) { return r.cents; })));
+  var rowsHtml = rows.map(function(r) {
+    var pct = Math.round((r.cents / maxCents) * 100);
+    var detail = [];
+    if (r.workers.length) detail.push(r.workers.length + (r.workers.length === 1 ? ' worker' : ' workers') + ': ' + r.workers.map(esc).join(', '));
+    if (r.accounts.length) detail.push(r.accounts.length + (r.accounts.length === 1 ? ' account' : ' accounts') + ': ' + r.accounts.map(esc).join(', '));
+    return '<div style="margin-bottom:14px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">'
+      + '<span style="font-size:13.5px;font-weight:700;color:var(--warm-ink-dark);">' + esc(r.label) + '</span>'
+      + '<span style="font-size:13.5px;font-weight:700;color:var(--color-navy);">' + finCompMoney(r.cents) + '</span>'
+      + '</div>'
+      + '<div style="height:9px;border-radius:5px;background:var(--warm-surface-page);overflow:hidden;"><div style="height:100%;width:' + pct + '%;background:var(--color-teal);border-radius:5px;"></div></div>'
+      + (detail.length ? '<div style="font-size:11px;color:var(--warm-meta);margin-top:3px;">' + detail.join(' &middot; ') + '</div>' : '<div style="font-size:11px;color:var(--warm-meta);margin-top:3px;">Nothing tagged yet.</div>')
+      + '</div>';
+  }).join('');
+  return '<div class="fin-card" style="padding:20px 24px;margin-bottom:16px;">'
+    + '<div class="fin-card-title" style="font-size:18px;">Resources by Purpose</div>'
+    + '<div class="fin-card-sub" style="max-width:80ch;">FY' + _finPlanBaseYear + ' Compensation workers and accounts tagged above, rolled up by purpose &mdash; a second view of the same dollars, alongside the board categories. An untagged worker or account simply doesn&rsquo;t appear here.</div>'
+    + '<div style="margin-top:14px;">' + rowsHtml + '</div>'
+    + '</div>';
+}
 function finRenderChartOfAccounts() {
   var el = document.getElementById('fin-coa-root');
   if (!el) return;
@@ -7709,10 +7850,12 @@ function finRenderChartOfAccounts() {
   var header = finPageHeader('Chart of Accounts',
     'Which category each account is read under, and what each category is called &middot; display only, QuickBooks is never renumbered', '');
   el.innerHTML = header
+    + finPurposeTagsCardHtml()
     + finCoaBuildCard(revLeaves, true, FIN_BOARD_REV_ORDER, 'Revenue',
         'Restricted giving reads as the second half of donor income, so both sit inside Donor Income on the budget. Tick several accounts to move them together.')
     + finCoaBuildCard(expLeaves, false, FIN_BOARD_EXP_ORDER, 'Expenses',
         'The categories the board reads spending against here on the Budget tab. Separate from the fewer, broader categories the money-flow chart on Financial Health is drawn from.')
+    + finRenderPurposeReport()
     + '<div style="font-size:12px;color:var(--warm-meta);line-height:1.55;max-width:90ch;padding-bottom:24px;">'
     + 'Fund numbers, names and QuickBooks groups are untouched by anything on this page &mdash; the next export lands in exactly the same accounts. Only Connect&rsquo;s reading of them changes, on the Budget tab, the Church Report and Financial Health alike.'
     + '</div>';
@@ -9159,6 +9302,12 @@ function finCompRenderDrawer(computed) {
     + '<label class="fin-comp-field">Name<input type="text" id="fin-comp-name-' + i + '" value="' + esc(w.name || '') + '" oninput="finCompWorkerChange(' + i + ',&quot;name&quot;,this.value)"></label>'
     + '<label class="fin-comp-field">Position<input type="text" id="fin-comp-position-' + i + '" value="' + esc(w.position || '') + '" oninput="finCompWorkerChange(' + i + ',&quot;position&quot;,this.value)"></label>'
     + '<label class="fin-comp-field" style="grid-column:1/-1;">Budget line<select onchange="finCompWorkerChange(' + i + ',&quot;accountCode&quot;,this.value)">' + acctOptions + '</select></label>'
+    + (_finPurposeTags.tags.length
+        ? '<label class="fin-comp-field" style="grid-column:1/-1;">Purpose tag<select onchange="finCompWorkerChange(' + i + ',&quot;purposeTag&quot;,this.value)">'
+          + '<option value="">No tag</option>'
+          + _finPurposeTags.tags.map(function(t) { return '<option value="' + esc(t.id) + '"' + (t.id === (w.purposeTag || '') ? ' selected' : '') + '>' + esc(t.label) + '</option>'; }).join('')
+          + '</select></label>'
+        : '')
     + '<label class="fin-comp-field" style="grid-column:1/-1;">FY' + _finPlanBaseYear + ' current pay'
     + '<span style="display:inline-flex;align-items:center;gap:8px;">'
     + '<input type="text" inputmode="decimal" id="fin-comp-curpay-' + i + '" value="' + (payEntered ? Math.round(w.actualSalaryCents / 100) : '') + '" placeholder="' + (acctPayCents != null ? Math.round(acctPayCents / 100) : 'not set') + '" oninput="finCompCurrentPayChange(' + i + ',finPlanSanitizeWholeDollarInput(this))" style="width:120px;text-align:right;' + (payEntered ? 'background:var(--warm-surface-header);border:1.5px solid var(--color-gold);font-weight:700;' : '') + '">'

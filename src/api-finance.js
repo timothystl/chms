@@ -4418,6 +4418,94 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ ok: true, ...merged });
   }
 
+  // Purpose tags — a SECOND, independent axis over the same accounts and Compensation Planner
+  // workers the Board Category system above already classifies, so one line can carry a board
+  // category ("Salaries & Benefits") AND a free-form purpose ("Youth") at once. Its own
+  // chms_config key, deliberately not layered onto finance_planning_board_categories — that
+  // store's category set is a fixed 7-key allowlist (BOARD_EXPENSE_KEYS); purpose tags are
+  // admin-defined and open-ended (add/rename/delete at will), which needs a different shape
+  // entirely (a managed list, not a fixed enum). Only `categories` (keyed by Chart of Accounts
+  // leaf category_path — a path is unique across the whole chart of accounts regardless of
+  // revenue/expense, so one flat map covers both) is stored server-side. A Compensation Planner
+  // worker's own tag is deliberately NOT a second server-side map keyed by accountCode — a worker
+  // can be entered with no budget line at all (a real, supported state, see finCompRenderDrawer),
+  // and keying by accountCode would either leave such a worker untaggable or silently tag every
+  // other blank-accountCode worker identically. It lives instead as a plain `purposeTag` field on
+  // the roster row itself (js-finance.js, saved through the existing salary-planner blob, same as
+  // every other per-worker field), read here only to know which tag ids are still valid. v1 is
+  // single-tag-only per line (scoped and confirmed with the user 2026-09-05) — a percentage split
+  // for a worker whose role spans two purposes was raised and deliberately deferred, not built.
+  async function readPurposeTags(db) {
+    const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_planning_purpose_tags'").first();
+    const empty = { tags: [], categories: {} };
+    if (!row) return empty;
+    try {
+      const v = JSON.parse(row.value) || {};
+      return {
+        tags: Array.isArray(v.tags) ? v.tags.filter(t => t && typeof t.id === 'string' && t.id && typeof t.label === 'string') : [],
+        categories: v.categories && typeof v.categories === 'object' ? v.categories : {},
+      };
+    } catch { return empty; }
+  }
+  function finSlugifyPurposeTag(label, taken) {
+    const base = String(label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'tag';
+    let id = base, n = 2;
+    while (taken.has(id)) { id = base + '_' + n; n++; }
+    taken.add(id);
+    return id;
+  }
+  if (seg === 'finance/planning/purpose-tags' && method === 'GET') {
+    return json(await readPurposeTags(db));
+  }
+  if (seg === 'finance/planning/purpose-tags' && method === 'PUT') {
+    if (!isAdmin) return json({ error: 'Access denied: editing purpose tags requires admin access' }, 403);
+    const b = await req.json().catch(() => ({}));
+    const current = await readPurposeTags(db);
+    let tags = current.tags;
+    // A full replace, not a merge — this is what makes delete work by omission: rename keeps a
+    // sent row's own id, add is a row with no id (a fresh slug is minted), and a tag left off the
+    // array entirely is gone. `categories` below still merges, the same reasoning as the board
+    // categories store: it comes from many different per-leaf pickers, none of which should be
+    // able to wipe every other leaf's assignment just by saving its own one change.
+    if (Array.isArray(b.tags)) {
+      const takenIds = new Set();
+      const existingById = new Map(current.tags.map(t => [t.id, t]));
+      tags = [];
+      for (const t of b.tags) {
+        const label = String((t && t.label) || '').trim();
+        if (!label) return json({ error: 'Every tag needs a label' }, 400);
+        let id = t && typeof t.id === 'string' ? t.id.trim() : '';
+        if (id && existingById.has(id) && !takenIds.has(id)) {
+          takenIds.add(id);
+        } else {
+          id = finSlugifyPurposeTag(label, takenIds);
+        }
+        tags.push({ id, label });
+      }
+    }
+    const finalIds = new Set(tags.map(t => t.id));
+    const categories = { ...current.categories };
+    if (b.categories && typeof b.categories === 'object') {
+      for (const [path, tagId] of Object.entries(b.categories)) {
+        if (!path) continue;
+        if (tagId === '' || tagId == null) { delete categories[path]; continue; }
+        if (!finalIds.has(tagId)) return json({ error: `Unknown purpose tag "${tagId}"` }, 400);
+        categories[path] = tagId;
+      }
+    }
+    // A deleted tag (omitted from b.tags) can leave a stale category assignment pointing at an id
+    // that no longer exists — drop those rather than let a "ghost" tag keep showing up in the
+    // by-purpose report with no way to see or clear it from the UI. (A worker's own purposeTag
+    // field lives in the salary-planner blob, not here, and is cleaned up client-side — see
+    // finPurposeTagsSaveList in js-finance.js.)
+    for (const path of Object.keys(categories)) if (!finalIds.has(categories[path])) delete categories[path];
+    const merged = { tags, categories };
+    await db.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_planning_purpose_tags',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(JSON.stringify(merged)).run();
+    return json({ ok: true, ...merged });
+  }
+
   // Generates a compounding multi-year projection from a base dollar amount + a flat growth
   // rate, upserting one row per target year (basis='grown'). A later manual override on any of
   // those years replaces just that year's row (basis='manual') without touching the others.

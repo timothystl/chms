@@ -917,6 +917,54 @@ three assembled bundles. DEPLOY_VERSION bumped to 1.224.0. **Not verified**: a l
 (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
 `test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`)
 
+### FIN72 — Purpose tags: a second, optional lens over Compensation workers and accounts (2026-09-05, DONE)
+Asked as an exploratory question: "What about having tagging budget lines in a secondary way? So
+that we could also view it based on youth, mission, internal. So I could tag the DCE for youth and
+music director for music and it would show how much resources are going each way not just
+categories." Scoped first (per this session's own convention for a design fork — recommendation +
+tradeoff, not a guess) and confirmed with the user: **single-tag-only for now** — a percentage
+split for a worker whose role spans two purposes was raised and deliberately deferred.
+- **Two tag surfaces, because the user's own example named a PERSON, not a GL line.** "Tag the
+  DCE"/"tag the music director" means a Compensation Planner roster worker; Chart of Accounts leaf
+  accounts (Youth Group Supplies, Mission Trip Support, etc.) are the non-payroll half. A worker's
+  own tag is deliberately **not** a second server-side map keyed by `accountCode` — a worker can be
+  entered with no budget line at all (a real, already-supported state), and keying by account code
+  would either leave such a worker untaggable or silently tag every other blank-account-code worker
+  identically. It lives instead as a plain `purposeTag` field directly on the roster row, saved
+  through the existing salary-planner blob like every other per-worker field — no new endpoint
+  needed for that half at all.
+- **New, independent `finance_planning_purpose_tags` store** (chms_config blob; `GET`/`PUT
+  /admin/api/finance/planning/purpose-tags`, PUT admin-only) holding only the shared, admin-managed
+  tag list (add/rename/delete, ids minted from a slugified label) and the Chart of Accounts
+  leaf-path assignments. Deliberately separate from `finance_planning_board_categories` — that
+  store's category set is a fixed 7-key allowlist; purpose tags are open-ended. `tags` is a full
+  replace (so omitting a row from the array is how delete works); `categories` merges, the same
+  reasoning as the board-category store's own maps.
+- **Deleting a tag cleans up both stores.** The backend drops any `categories` entry pointing at a
+  removed id; the frontend (`finPurposeTagsSaveList`) separately walks `_finSalaryRoster` and clears
+  any worker's now-invalid `purposeTag`, then schedules the existing roster autosave — otherwise a
+  deleted tag would keep showing on a worker's drawer forever with no UI left to clear it.
+- **New "Purpose Tags" management card + a per-leaf picker, both on Chart of Accounts** (only
+  rendered once at least one tag exists, so the page is unchanged for anyone who hasn't used this
+  yet), a matching picker on the Compensation drawer next to Budget line, and a new **"Resources by
+  Purpose"** report card summing, per tag: every counted, non-externally-funded worker's full
+  church cost (salary + benefits — the same figure the Compensation tab totals) plus every tagged
+  leaf's own actual dollars. **A leaf whose account code matches an already-tagged worker's own
+  `accountCode` is excluded from the account side**, so tagging both a worker and the exact GL line
+  their salary posts to can never double-count it — an untagged worker's own linked leaf can still
+  be tagged and counted on its own, since nothing already counted that money.
+- `npm test` (2155/2155, 28 new in `test/finance-planning-purpose-tags.test.js` — real backend
+  route against real in-memory SQLite, plus the vm-behind-a-stub-DOM technique against the real
+  assembled bundle for the frontend half); **every new test verified non-vacuous** by stashing both
+  source files and confirming 27 of 28 fail against the pre-change code (the one that still passes
+  is a `typeof === 'function'` guard that's correctly true either way). **A backtick in one of my
+  own new comments closed the outer `String.raw` literal** — the SC3-BUG1/FIN15/TAP2-BUG class,
+  caught by the test suite's own parse failure, not by reading. `node --check` on `api-finance.js`
+  and all five assembled bundles; div-balance on the assembled `CHMS_HTML` (1123/1123, unchanged —
+  no new static markup, everything renders at runtime). DEPLOY_VERSION bumped to 1.226.0. **Not
+  verified**: a live browser. (`src/api-finance.js`, `src/frontend/js-finance.js`,
+  `src/frontend/js-core.js`, `test/finance-planning-purpose-tags.test.js`)
+
 ### FIN71 — Balance Sheet & Financial Position: its own tab (2026-09-04, DONE)
 Two asks in one message: "give me a tab for Balance Sheet & Financial Position... graphs of
 data... show the change over the years of growth or loss of money, like compared to our bank
