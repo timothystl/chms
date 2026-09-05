@@ -1401,10 +1401,10 @@ if (seg === 'giving/send-statement' && method === 'POST') {
 if (seg === 'import/breeze-fund-list' && method === 'GET') {
   const rows = (await db.prepare(
     `SELECT f.id, f.name, f.breeze_id,
-            COUNT(ge.id) as gifts,
-            COALESCE(SUM(ge.amount),0) as total_cents
+            COALESCE(SUM(mt.gift_count),0) as gifts,
+            COALESCE(SUM(mt.total_cents),0) as total_cents
      FROM funds f
-     LEFT JOIN giving_entries ge ON ge.fund_id=f.id
+     LEFT JOIN giving_monthly_fund_totals mt ON mt.fund_id=f.id
      WHERE f.breeze_id != ''
      GROUP BY f.id ORDER BY total_cents DESC`
   ).all()).results || [];
@@ -1762,22 +1762,14 @@ if (seg === 'import/breeze-giving' && method === 'POST') { try {
     return m ? m[3] + '-' + m[1].padStart(2,'0') + '-' + m[2].padStart(2,'0') : (s || start).slice(0,10);
   };
 
-  // ── Deduplicate any existing rows caused by prior double-imports ────
-  // Keeps the lowest-id row for each (breeze_id, fund_id) pair.
-  const dupeResult = await db.prepare(
-    `DELETE FROM giving_entries
-     WHERE breeze_id != '' AND id NOT IN (
-       SELECT MIN(id) FROM giving_entries WHERE breeze_id != '' GROUP BY breeze_id, fund_id
-     )`
-  ).run();
-  const dupesRemoved = dupeResult.meta?.changes || 0;
-
   // ── Pre-load caches to avoid per-row DB round trips ──────────────
-  // Existing contribution IDs → skip set (also tracks IDs seen this run)
-  const seenIds = new Set(
-    ((await db.prepare("SELECT breeze_id FROM giving_entries WHERE breeze_id != ''").all()).results || [])
-      .map(r => r.breeze_id)
-  );
+  // Existing contribution IDs → skip set (also tracks IDs seen this run). Ask only for IDs in
+  // this Breeze response; idx_giving_breeze answers them without reading the lifetime ledger.
+  const candidateContributionIds = allEntries.map(entry => String(entry.object_json || entry.id));
+  const seenIds = await loadExistingGivingIds(db, candidateContributionIds);
+  // Historical duplicates are cleaned once during schema initialization. Each insert below also
+  // uses an indexed payment/fund guard. Kept in the response for API compatibility.
+  const dupesRemoved = 0;
   // People: breeze_id → local id
   const personByBreezeId = {};
   for (const p of (await db.prepare('SELECT id, breeze_id FROM people WHERE breeze_id != ""').all()).results || [])
@@ -2062,8 +2054,11 @@ if (seg === 'import/breeze-giving' && method === 'POST') { try {
         entryInserts.push(
           db.prepare(
             `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,breeze_id,contribution_date)
-             VALUES (?,?,?,?,?,?,?,?,?)`
-          ).bind(batchId, personId, fundId, cents, method, checkNum, notes, contribId, date)
+             SELECT ?,?,?,?,?,?,?,?,?
+              WHERE NOT EXISTS (
+                SELECT 1 FROM giving_entries WHERE breeze_id=? AND fund_id=?
+              )`
+          ).bind(batchId, personId, fundId, cents, method, checkNum, notes, contribId, date, contribId, fundId)
         );
       }
       if (date < start) lateImported++; else imported++;
