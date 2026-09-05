@@ -3,6 +3,7 @@ import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
 import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, resolveGeneralFundIds, resolveGeneralFundBudget, buildBoardCategoryBlock, SACRAMENT_YES, csvRow, safeFilenamePart} from './api-utils.js';
 import { resolveChurchYearPrecedence } from './api-finance.js';
+import { loadGivingYearTrendRows } from './giving-rollups.js';
 
 // `isFinance` here means "may see an individual's giving". `givingAnon` is the weaker grant
 // held by the Council role: aggregate giving figures only, and only on the segments
@@ -586,56 +587,42 @@ if (seg === 'reports/giving-insights' && method === 'GET') {
   const year   = parseInt(url.searchParams.get('year') || '', 10);
   if (!year || isNaN(year)) return json({ error: 'year required' }, 400);
   const topN   = Math.min(parseInt(url.searchParams.get('top') || '25', 10) || 25, 100);
-  const start  = year + '-01-01';
-  const end    = year + '-12-31';
-  const pStart = (year - 1) + '-01-01';
-  const pEnd   = (year - 1) + '-12-31';
-
-  // Canonical effective date: contribution_date falls back to batch_date
-  const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
+  const trendYears = [];
+  for (let y = year - 4; y <= year; y++) trendYears.push(y);
+  // This call also lazily refreshes any dirty/missing yearly person summaries.
+  const trendBase = await loadGivingYearTrendRows(db, trendYears);
 
   // Top givers in `year`
   const topGivers = (await db.prepare(
     `SELECT p.id, p.first_name, p.last_name, p.member_type,
-            COUNT(*) AS gifts, SUM(ge.amount) AS total_cents
-     FROM giving_entries ge
-     JOIN giving_batches gb ON gb.id = ge.batch_id
-     JOIN people p ON p.id = ge.person_id
-     WHERE ${effDate} >= ? AND ${effDate} <= ?
-     GROUP BY p.id
+            yp.gift_count AS gifts, yp.total_cents AS total_cents
+     FROM giving_year_person_totals yp
+     JOIN people p ON p.id = yp.person_id
+     WHERE yp.year = ?
      ORDER BY total_cents DESC
      LIMIT ?`
-  ).bind(start, end, topN).all()).results || [];
+  ).bind(year, topN).all()).results || [];
 
   // Lapsed givers: gave in prior year, nothing in this year
   const lapsed = (await db.prepare(
     `SELECT p.id, p.first_name, p.last_name, p.member_type,
-            SUM(ge.amount)       AS prior_total_cents,
-            COUNT(*)             AS prior_gifts,
-            MAX(${effDate})      AS last_gift_date
-     FROM giving_entries ge
-     JOIN giving_batches gb ON gb.id = ge.batch_id
-     JOIN people p ON p.id = ge.person_id
-     WHERE ${effDate} >= ? AND ${effDate} <= ?
+            yp.total_cents       AS prior_total_cents,
+            yp.gift_count        AS prior_gifts,
+            yp.last_gift_date    AS last_gift_date
+     FROM giving_year_person_totals yp
+     JOIN people p ON p.id = yp.person_id
+     WHERE yp.year = ?
        AND p.id NOT IN (
-         SELECT DISTINCT ge2.person_id
-         FROM giving_entries ge2
-         JOIN giving_batches gb2 ON gb2.id = ge2.batch_id
-         WHERE COALESCE(NULLIF(ge2.contribution_date,''), gb2.batch_date) >= ?
-           AND COALESCE(NULLIF(ge2.contribution_date,''), gb2.batch_date) <= ?
+         SELECT person_id FROM giving_year_person_totals WHERE year = ?
        )
-     GROUP BY p.id
      ORDER BY prior_total_cents DESC`
-  ).bind(pStart, pEnd, start, end).all()).results || [];
+  ).bind(year - 1, year).all()).results || [];
 
   // Frequency distribution — bucket each giver by # of gifts this year
   const freqRaw = (await db.prepare(
-    `SELECT person_id, COUNT(*) AS gifts
-     FROM giving_entries ge
-     JOIN giving_batches gb ON gb.id = ge.batch_id
-     WHERE ${effDate} >= ? AND ${effDate} <= ?
-     GROUP BY person_id`
-  ).bind(start, end).all()).results || [];
+    `SELECT person_id, gift_count AS gifts
+       FROM giving_year_person_totals WHERE year=?`
+  ).bind(year).all()).results || [];
   const buckets = [
     { label: '1 gift',       min: 1,  max: 1,   n: 0 },
     { label: '2–5 gifts',    min: 2,  max: 5,   n: 0 },
@@ -649,16 +636,8 @@ if (seg === 'reports/giving-insights' && method === 'GET') {
   }
 
   // Average-gift trend — last 5 years ending in `year`
-  const trendYears = [];
-  for (let y = year - 4; y <= year; y++) trendYears.push(y);
-  const trendRows = await Promise.all(trendYears.map(async y => {
-    const s = y + '-01-01', e = y + '-12-31';
-    const r = await db.prepare(
-      `SELECT COUNT(*) AS gifts, COUNT(DISTINCT ge.person_id) AS givers, SUM(ge.amount) AS total_cents
-       FROM giving_entries ge
-       JOIN giving_batches gb ON gb.id = ge.batch_id
-       WHERE ${effDate} >= ? AND ${effDate} <= ?`
-    ).bind(s, e).first();
+  const trendRows = trendBase.map(r => {
+    const y = r.year;
     const gifts  = r?.gifts  || 0;
     const givers = r?.givers || 0;
     const tot    = r?.total_cents || 0;
@@ -669,7 +648,7 @@ if (seg === 'reports/giving-insights' && method === 'GET') {
       avg_gift_cents:  gifts  > 0 ? Math.round(tot / gifts)  : 0,
       avg_giver_cents: givers > 0 ? Math.round(tot / givers) : 0,
     };
-  }));
+  });
 
   return json({
     year,
@@ -848,16 +827,11 @@ if (seg === 'reports/giving-multiyear' && method === 'GET') {
   const now = new Date();
   const endYear = parseInt(url.searchParams.get('end') || '', 10) || now.getUTCFullYear();
   const nYears  = Math.max(2, Math.min(10, parseInt(url.searchParams.get('years') || '5', 10) || 5));
-  const effDate = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
   const years = [];
   for (let y = endYear - (nYears - 1); y <= endYear; y++) years.push(y);
-  const rows = await Promise.all(years.map(async y => {
-    const s = y + '-01-01', e = y + '-12-31';
-    const r = await db.prepare(
-      `SELECT COUNT(*) AS gifts, COUNT(DISTINCT ge.person_id) AS givers, SUM(ge.amount) AS total_cents
-       FROM giving_entries ge JOIN giving_batches gb ON gb.id = ge.batch_id
-       WHERE ${effDate} >= ? AND ${effDate} <= ?`
-    ).bind(s, e).first();
+  const trendBase = await loadGivingYearTrendRows(db, years);
+  const rows = trendBase.map(r => {
+    const y = r.year;
     const gifts = r?.gifts || 0, givers = r?.givers || 0, tot = r?.total_cents || 0;
     return {
       year: y, gifts, givers, total_cents: tot,
@@ -866,7 +840,7 @@ if (seg === 'reports/giving-multiyear' && method === 'GET') {
       adjusted_cents:  inflationAdjustCents(tot, y, endYear),
       cpi_estimated:   !CPI_U_ANNUAL[y] || y >= 2025,
     };
-  }));
+  });
   return json({ end_year: endYear, base_year: endYear, years: rows });
 }
 
@@ -1663,12 +1637,10 @@ if (seg === 'reports/giving-trend' && method === 'GET') {
   if (!years.length) return json({ error: 'No valid years' }, 400);
   const placeholders = years.map(() => '?').join(',');
   const rows = (await db.prepare(
-    `SELECT substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4) as yr,
-            substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),6,2) as mo,
-            SUM(ge.amount) as total_cents
-     FROM giving_entries ge
-     JOIN giving_batches gb ON ge.batch_id=gb.id
-     WHERE substr(COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date),1,4) IN (${placeholders})
+    `SELECT substr(month,1,4) AS yr, substr(month,6,2) AS mo,
+            SUM(total_cents) AS total_cents
+     FROM giving_monthly_fund_totals
+     WHERE substr(month,1,4) IN (${placeholders})
      GROUP BY yr, mo ORDER BY yr, mo`
   ).bind(...years).all()).results || [];
   const monthly = {};
