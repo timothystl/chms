@@ -2286,11 +2286,25 @@ export function computeCashRunway({ onHandCents, expensesYtdCents, monthsElapsed
 // figure so the card can name them, because an unpinned name match could just as easily pick up a
 // daycare checking account. Rollup rows (has_children) are skipped so a parent and its children
 // are never both counted.
+// ⚠ A row with children is skipped ONLY when it carries $0.00 of its own. Every balance-sheet
+// parser in
+// this file stores each account's OWN, non-cumulative balance — never a "Total for X" subtotal
+// (FIN6's founding rule) — which is exactly why computeBalanceSummary() can sum every row,
+// parents included, and still reconcile Assets = Liabilities + Equity to the cent. So a parent's
+// own_balance_cents is that account's own money, not a rollup of the rows beneath it, and
+// skipping parents silently deletes real cash: this church's real operating account, "11027
+// Lindell Checking xx9105", has one $0.00 child ("11030 Cash on hand") nested under it in the
+// multi-year Financial Position export, which made it a parent and dropped $116,693.30 of 2026
+// operating cash — the whole balance read as ~$0 on the Cash & Bank Accounts trend. A pure
+// grouping header (11000 Cash and Equivalents, 11002 Cash and Equiv - TLC) carries $0.00 of its
+// own, so dropping those costs no money and keeps them out of the "accounts swept in" list the
+// card prints — a header named there reads as an account that exists, which it is not.
+const isEmptyGroupRow = r => !!r.has_children && !(r.own_balance_cents || 0);
 export function operatingCashFromBalanceSheet(rows, accountCode) {
   const code = String(accountCode || '').trim();
   const matches = (rows || []).filter(r => {
     if (r.classification !== 'Assets') return false;
-    if (r.has_children) return false;
+    if (isEmptyGroupRow(r)) return false;
     const name = String(r.account_name || '').trim();
     return code ? name.startsWith(code) : /checking/i.test(name);
   });
@@ -2315,7 +2329,9 @@ export function computeYearCashSummary(rows, accountCode) {
   const operating = operatingCashFromBalanceSheet(rows, accountCode);
   const matches = (rows || []).filter(r => {
     if (r.classification !== 'Assets') return false;
-    if (r.has_children) return false;
+    // A parent holding real money is counted, for the reason given above
+    // operatingCashFromBalanceSheet(); only an empty grouping header is dropped.
+    if (isEmptyGroupRow(r)) return false;
     return ALL_CASH_ACCOUNT_MATCH_RE.test(String(r.account_name || '').trim());
   });
   return {
@@ -3546,9 +3562,30 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/church/multi-year' && method === 'GET') {
     const yearsParam = url.searchParams.get('years');
     const currentYear = new Date().getFullYear();
-    const years = yearsParam
-      ? yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite)
-      : [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
+    // Default is EVERY year that has real reported figures, not a rolling five-year window — the
+    // same fix made for the Balance Sheet trend, and this table is the one that actually had the
+    // hidden history: this church's income statement runs back to 2019 while the default started
+    // at currentYear-4, so 2019-2021 were on file and invisible until someone widened From/To.
+    //
+    // ⚠ `plan_committed` is EXCLUDED from what sets the default, deliberately. That source is a
+    // future year's committed budget plan (see the Planning tab's commit action), and this view is
+    // a historical actuals-and-budget trend — letting a forecast year in by default would put a
+    // projection on the chart beside real years with nothing saying which is which. It still
+    // resolves normally when a range explicitly names it, and `resolveChurchYearPrecedence` is
+    // untouched. `manual_actual_override` is NOT excluded: it is a correction to a real actual.
+    let years;
+    if (yearsParam) {
+      years = yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite);
+    } else {
+      const yearRows = (await db.prepare(
+        `SELECT DISTINCT fiscal_year FROM finance_church_entries
+          WHERE period_month=0 AND source != 'plan_committed' ORDER BY fiscal_year`
+      ).all()).results || [];
+      years = yearRows.map(r => Number(r.fiscal_year)).filter(Number.isFinite);
+      // Nothing imported or synced yet: fall back to the rolling window, so the From/To picker
+      // rendered above the empty state still shows a sensible pair rather than a blank or NaN.
+      if (!years.length) years = [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
+    }
     if (!years.length) return json({ error: 'No valid years requested' }, 400);
     const placeholders = years.map(() => '?').join(',');
     const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders}) AND period_month=0`).bind(...years).all()).results || [];
