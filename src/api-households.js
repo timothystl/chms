@@ -397,16 +397,16 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
   // ── Funds ────────────────────────────────────────────────────────
   if (seg === 'funds' && method === 'GET') {
     const rows = (await db.prepare('SELECT * FROM funds ORDER BY sort_order,name').all()).results || [];
-    // The ordinary fund picker needs only this small table. The history aggregation scans every
-    // giving_entries row (406k rows in one measured production request), so run it only for the
-    // explicit Manage Funds screen that actually displays those two fields.
-    // Manage Funds is admin-only. Keep the expensive opt-in admin-only too, so a lower-trust
-    // fund-picker user cannot manufacture a lifetime scan by adding the query parameter.
+    // The ordinary fund picker needs only this small table. Manage Funds explicitly asks for
+    // lifetime statistics, which are summed from the maintained month/fund read model rather
+    // than rescanning every individual gift.
     const includeStats = isAdmin && url.searchParams.get('include_stats') === '1';
     let statMap = null;
     if (includeStats) {
       const stats = (await db.prepare(
-        `SELECT fund_id, COUNT(*) cnt, COALESCE(SUM(amount),0) total_cents FROM giving_entries GROUP BY fund_id`
+        `SELECT fund_id, COALESCE(SUM(gift_count),0) cnt,
+                COALESCE(SUM(total_cents),0) total_cents
+           FROM giving_monthly_fund_totals GROUP BY fund_id`
       ).all()).results || [];
       statMap = new Map(stats.map(s => [s.fund_id, s]));
     }
@@ -489,8 +489,9 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
     if (!isAdmin) return json({ error: 'Access denied' }, 403);
     const funds = (await db.prepare('SELECT * FROM funds ORDER BY name,id').all()).results || [];
     const stats = (await db.prepare(
-      `SELECT fund_id, COUNT(*) cnt, COALESCE(SUM(amount),0) total_cents
-       FROM giving_entries GROUP BY fund_id`
+      `SELECT fund_id, COALESCE(SUM(gift_count),0) cnt,
+              COALESCE(SUM(total_cents),0) total_cents
+         FROM giving_monthly_fund_totals GROUP BY fund_id`
     ).all()).results || [];
     const statMap = new Map(stats.map(s => [s.fund_id, s]));
     const groups = new Map();
