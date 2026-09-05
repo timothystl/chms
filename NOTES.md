@@ -90,6 +90,9 @@ only the compact summaries (typically around 100 month/fund rows and one annual 
 - Individual gifts remain the source only for transaction detail, recent-week totals, exact
   partial-month comparisons, and reports explicitly analyzing individual giving behavior.
 - Added migration, mutation, household-reclassification, and scan-count regression coverage.
+- Because the deployment workflow does not invoke D1 migrations, runtime initialization includes
+  an empty-table-guarded monthly backfill: one historical scan on rollout, then a one-row sentinel
+  check on subsequent Worker cold starts.
 - Backend/schema only; `DEPLOY_VERSION` is deliberately unchanged.
 
 ### v1.228.2 — Finance import-status lookup no longer scans imported account rows (2026-09-05)

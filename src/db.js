@@ -1378,6 +1378,16 @@ async function _doInitDb(db) {
       total_cents INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (month, fund_id)
     )`,
+    // deploy.yml deploys the Worker but does not run `wrangler d1 migrations apply`. Production
+    // therefore needs this guarded safety net for the first request after rollout. The empty-table
+    // predicate is evaluated once: it permits one historical scan, then every later cold start
+    // reads one summary row and skips giving_entries entirely.
+    `INSERT INTO giving_monthly_fund_totals(month,fund_id,gift_count,total_cents)
+     SELECT substr(contribution_date,1,7),fund_id,COUNT(*),COALESCE(SUM(amount),0)
+       FROM giving_entries
+      WHERE contribution_date!=''
+        AND NOT EXISTS (SELECT 1 FROM giving_monthly_fund_totals LIMIT 1)
+      GROUP BY substr(contribution_date,1,7),fund_id`,
     `CREATE TRIGGER IF NOT EXISTS trg_giving_monthly_totals_insert
      AFTER INSERT ON giving_entries
      WHEN COALESCE(NULLIF(NEW.contribution_date,''),(SELECT batch_date FROM giving_batches WHERE id=NEW.batch_id),'')!=''
