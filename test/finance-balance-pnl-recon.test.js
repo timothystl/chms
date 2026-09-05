@@ -315,3 +315,123 @@ describe('GET finance/church/balances/multi-year — default year range', () => 
     expect(d.years).toEqual([2024, 2025, 2026]);
   });
 });
+
+// ── Cash accounts: a bank account that happens to have a child is still a bank account ────────
+// Reported live: the "Cash & Bank Accounts Over Time" trend read ~$0 for every year but 2019.
+// Cause was not missing data — it was that both cash helpers skipped any row with has_children,
+// and in this church's multi-year Financial Position export "11030 Cash on hand" ($0.00) is
+// nested UNDER "11027 Lindell Checking xx9105", making the real operating account a parent.
+// Every balance-sheet parser stores each account's OWN, non-cumulative balance (FIN6's rule) —
+// which is why computeBalanceSummary() sums every row, parents included, and still reconciles
+// Assets = Liabilities + Equity — so skipping parents deleted real money rather than avoiding a
+// double count.
+function cashRow(name, cents, hasChildren) {
+  return {
+    classification: 'Assets', account_name: name, own_balance_cents: cents,
+    has_children: hasChildren ? 1 : 0, as_of_date: 'FY2026',
+  };
+}
+
+describe('computeYearCashSummary — bank accounts carrying their own balance', () => {
+  it('counts the pinned operating account even when a child is nested under it', () => {
+    // The exact reported shape: a $0.00 "Cash on hand" child makes 11027 a parent.
+    const rows = [
+      cashRow('11027 Lindell Checking xx9105', 11669330, true),
+      cashRow('11030 Cash on hand', 0, false),
+    ];
+    const d = computeYearCashSummary(rows, '11027');
+    expect(d.operatingCents).toBe(11669330);
+    expect(d.operatingAccounts).toContain('11027 Lindell Checking xx9105');
+  });
+
+  it('counts it in the broader all-cash figure too, without double-counting the child', () => {
+    const rows = [
+      cashRow('11027 Lindell Checking xx9105', 11669330, true),
+      cashRow('11030 Cash on hand', 500, false),
+      cashRow('11025 Petty Cash', 20000, false),
+    ];
+    const d = computeYearCashSummary(rows, '11027');
+    // Each row contributes its OWN balance once: 116,693.30 + 5.00 + 200.00.
+    expect(d.allCashCents).toBe(11669330 + 500 + 20000);
+    expect(d.allCashAccounts).toHaveLength(3);
+  });
+
+  it('adds nothing for a pure grouping header, which carries $0.00 of its own', () => {
+    const rows = [
+      cashRow('11000 Cash and Equivalents- TLC', 0, true),
+      cashRow('11002 Cash and Equiv - TLC', 0, true),
+      cashRow('11011 Commerce - Checking 9513', 6890420, false),
+    ];
+    const d = computeYearCashSummary(rows, '');
+    expect(d.operatingCents).toBe(6890420);
+    expect(d.allCashCents).toBe(6890420);
+  });
+
+  it('still ignores an account that is not a bank account at all', () => {
+    const rows = [
+      cashRow('11011 Commerce - Checking 9513', 100000, false),
+      cashRow('15015 3283 Ivanhoe (Comm. Building)', 50031513, true),
+      { classification: 'Liabilities', account_name: '26002 LCEF Checking-like name', own_balance_cents: 999, has_children: 0 },
+    ];
+    const d = computeYearCashSummary(rows, '');
+    expect(d.allCashCents).toBe(100000);
+    expect(d.allCashAccounts).toEqual(['11011 Commerce - Checking 9513']);
+  });
+});
+
+// ── Income statement multi-year: same default-range fix as the balance sheet ──────────────────
+async function getIncomeMultiYearDefault(db) {
+  const url = new URL('https://x/admin/api/finance/church/multi-year');
+  const res = await handleFinanceApi({}, {}, url, 'GET', 'finance/church/multi-year', db, true, true);
+  return await res.json();
+}
+function insertEntrySource(db, year, classification, actualCents, source) {
+  db._raw.prepare(`INSERT INTO finance_church_entries
+    (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+    VALUES (?,0,?,?,?,0,0,?,NULL,?,'2026-01-01')`)
+    .run(year, classification, `${classification}:${year}`, classification, actualCents, source);
+}
+
+describe('GET finance/church/multi-year — default year range', () => {
+  it('includes years older than the rolling five-year window', async () => {
+    const db = makeTestDb();
+    insertEntrySource(db, 2019, 'Income', 100000, 'import_activity');
+    insertEntrySource(db, 2026, 'Income', 120000, 'import_activity');
+    const d = await getIncomeMultiYearDefault(db);
+    expect(d.years).toContain(2019);
+    expect(d.years).toContain(2026);
+  });
+
+  it('leaves a committed future plan out of the historical default', async () => {
+    const db = makeTestDb();
+    insertEntrySource(db, 2025, 'Income', 100000, 'import_activity');
+    insertEntrySource(db, 2027, 'Income', 130000, 'plan_committed');
+    const d = await getIncomeMultiYearDefault(db);
+    expect(d.years).toEqual([2025]);
+    expect(d.years).not.toContain(2027);
+  });
+
+  it('keeps a year whose only rows are a hand-typed actual correction', async () => {
+    // manual_actual_override is a correction to a real actual, not a forecast.
+    const db = makeTestDb();
+    insertEntrySource(db, 2023, 'Income', 100000, 'manual_actual_override');
+    const d = await getIncomeMultiYearDefault(db);
+    expect(d.years).toEqual([2023]);
+  });
+
+  it('falls back to the rolling window when nothing has been imported', async () => {
+    const cur = new Date().getFullYear();
+    const d = await getIncomeMultiYearDefault(makeTestDb());
+    expect(d.years).toEqual([cur - 4, cur - 3, cur - 2, cur - 1, cur]);
+  });
+
+  it('still honors an explicit range, committed plan years included', async () => {
+    const db = makeTestDb();
+    insertEntrySource(db, 2026, 'Income', 100000, 'import_activity');
+    insertEntrySource(db, 2027, 'Income', 130000, 'plan_committed');
+    const url = new URL('https://x/admin/api/finance/church/multi-year?years=2026,2027');
+    const res = await handleFinanceApi({}, {}, url, 'GET', 'finance/church/multi-year', db, true, true);
+    const d = await res.json();
+    expect(d.years).toEqual([2026, 2027]);
+  });
+});

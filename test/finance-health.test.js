@@ -298,12 +298,34 @@ describe('operatingCashFromBalanceSheet', () => {
     expect(operatingCashFromBalanceSheet(rows, '').accounts.join(' ')).not.toMatch(/Endowment/);
   });
 
-  it('skips rollup rows so a parent and its children are never both counted', () => {
+  // Rewritten 2026-09-05. The previous fixture gave a parent the SAME own_balance_cents as its
+  // only child and asserted the parent was skipped — but that shape is one no balance-sheet
+  // parser in this app produces. Every stored row holds its OWN non-cumulative amount, never a
+  // "Total for X" subtotal (FIN6's rule, restated at extractMdoDaycareEntries and
+  // computeRevenueStreams), which is why computeBalanceSummary() sums every row — parents
+  // included — and still reconciles Assets = Liabilities + Equity to the cent, as it does for all
+  // eight of this church's imported years. Skipping parents outright was therefore deleting real
+  // money: "11027 Lindell Checking xx9105" has a $0.00 "11030 Cash on hand" nested under it in
+  // the multi-year Financial Position export, so $116,693.30 of 2026 operating cash read as ~$0.
+  // What is still guarded, and is the real risk, is an empty grouping header being swept in.
+  it('counts a parent account that holds money of its own, once, alongside its child', () => {
     const withParent = [
-      { classification: 'Assets', account_name: '11000 Checking Accounts', has_children: 1, own_balance_cents: 18450000, as_of_date: '' },
+      { classification: 'Assets', account_name: '11027 Lindell Checking xx9105', has_children: 1, own_balance_cents: 11669330, as_of_date: '' },
+      { classification: 'Assets', account_name: '11030 Checking - petty', has_children: 0, own_balance_cents: 500, as_of_date: '' },
+    ];
+    const got = operatingCashFromBalanceSheet(withParent, '');
+    expect(got.cents).toBe(11669330 + 500);
+    expect(got.accounts).toHaveLength(2);
+  });
+
+  it('drops an empty grouping header, so it is neither summed nor named as an account', () => {
+    const withHeader = [
+      { classification: 'Assets', account_name: '11000 Checking Accounts', has_children: 1, own_balance_cents: 0, as_of_date: '' },
       { classification: 'Assets', account_name: '11027 Lindell Checking', has_children: 0, own_balance_cents: 18450000, as_of_date: '' },
     ];
-    expect(operatingCashFromBalanceSheet(withParent, '').cents).toBe(18450000);
+    const got = operatingCashFromBalanceSheet(withHeader, '');
+    expect(got.cents).toBe(18450000);
+    expect(got.accounts).toEqual(['11027 Lindell Checking']);
   });
 
   it('returns null when nothing matches, so the card can say the source is unknown', () => {
