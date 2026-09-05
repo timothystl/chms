@@ -75,6 +75,22 @@ flat Assets bar per year, and total assets are the wrong number to read growth o
   (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-attendance.js`,
   `src/frontend/js-core.js`, `test/finance-balance-pnl-recon.test.js`,
   `test/finance-balance-recon-ui.test.js`)
+### v1.229.1 — Giving aggregate reads use materialized month and household totals (2026-09-05)
+
+The common Dashboard, Giving overview, and Finance “This Year” paths no longer repeatedly sum
+roughly 20,000 individual gifts. Migration 0044 backfills and maintains one row per fund/month,
+plus one total per household/year and one final annual-stat row. Normal Finance reads now touch
+only the compact summaries (typically around 100 month/fund rows and one annual row).
+
+- Gift insert/update/delete triggers keep month/fund totals exact and mark only affected years
+  dirty. Moving a person between households or changing organization status also dirties the
+  relevant years.
+- The first read after a relevant write performs one indexed yearly household aggregation;
+  subsequent reads perform zero `giving_entries` scans until another change.
+- Individual gifts remain the source only for transaction detail, recent-week totals, exact
+  partial-month comparisons, and reports explicitly analyzing individual giving behavior.
+- Added migration, mutation, household-reclassification, and scan-count regression coverage.
+- Backend/schema only; `DEPLOY_VERSION` is deliberately unchanged.
 
 ### v1.228.2 — Finance import-status lookup no longer scans imported account rows (2026-09-05)
 
