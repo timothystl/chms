@@ -24,6 +24,43 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.229.4 — Offerings reads maintained batch totals (2026-09-05)
+
+The Finance batch list and Offerings queue previously recomputed each batch by joining and grouping
+every individual gift. They now read one trigger-maintained total row per batch, keeping routine reads
+proportional to the number of batches rather than the number of gifts.
+
+- Added `giving_batch_totals` with exact entry-count and cent-total maintenance on gift inserts,
+  amount edits, moves between batches, and deletions.
+- Existing gifts are summarized once when the migration initializes; ordinary page loads never
+  repeat that historical scan.
+- Batch detail and household/person views still read individual gifts where their detail is needed.
+- Added a 20,000-gift regression guard plus mutation tests for edits, moves, and deletions.
+
+### v1.229.3 — Giving Insights reads yearly person summaries (2026-09-05)
+
+The remaining measured Finance hotspot (`COUNT(*)`, `COUNT(DISTINCT person_id)`, and `SUM(amount)`
+over individual gifts) read roughly 271,000 rows across eight executions in one ordinary session.
+Giving Insights, inflation-adjusted multi-year giving, and the month-by-month Giving Trend tile now
+read materialized monthly/yearly summaries instead.
+
+- Added one yearly row per giver containing their total, gift count, and last gift date. Top givers,
+  lapsed givers, frequency buckets, and giver counts now use this compact read model.
+- A dirty year scans its gifts once to rebuild person summaries; household summaries are then
+  derived from those person rows instead of independently scanning the gift ledger. Normal reads
+  perform zero `giving_entries` queries.
+- A separate readiness marker distinguishes a genuinely empty year from a year that has not been
+  materialized, preventing empty historical years from being rescanned on every request.
+- Annual gift counts and dollar totals continue to come from the trigger-maintained monthly table,
+  preserving anonymous gifts; distinct-giver counts preserve the prior non-null-person semantics.
+- Regression coverage includes named/lapsed/frequency correctness, organizations, anonymous gifts,
+  empty years, and a 20,000-gift ledger. Focused tests: 60/60. Full suite: 2,218 passed with the same
+  unrelated existing Aug. 5 elapsed-week assertion failing.
+
+Backend/schema only; `DEPLOY_VERSION` is deliberately unchanged.
+(`migrations/0045_giving_year_person_totals.sql`, `src/giving-rollups.js`, `src/api-reports.js`,
+`src/db.js`, `test/giving-insights-rollups.test.js`)
+
 ### v1.229.0 — Balance Sheet: assets split into Current/Fixed/Other, and an asset growth table (2026-09-05)
 
 **Asked for as a push-back on the Cash & Bank Accounts trend, and it was right**: "is this going to

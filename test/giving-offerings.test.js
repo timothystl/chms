@@ -65,11 +65,14 @@ describe('batchDepositStatus', () => {
 // ── Linking against a real database ──────────────────────────────────────────
 function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
-  for (const f of ['0001_baseline', '0031_giving_deposits', '0032_giving_deposit_lines']) {
+  for (const f of ['0001_baseline', '0031_giving_deposits', '0032_giving_deposit_lines', '0046_giving_batch_totals']) {
     sqlite.exec(readFileSync(new URL(`../migrations/${f}.sql`, import.meta.url), 'utf8'));
   }
+  const sql_log = [];
   return {
+    sql_log,
     prepare(sql) {
+      sql_log.push(sql);
       const stmt = { _b: [] };
       const run = (args) => sqlite.prepare(sql).run(...args);
       return {
@@ -221,6 +224,40 @@ describe('batch ↔ deposit links', () => {
     expect(byDesc['Banked'].deposit_status.key).toBe('deposited');
     expect(byDesc['Still in the safe'].deposit_status.key).toBe('needs_deposit');
     expect(byDesc['Still in the safe'].id).toBe(b2);
+  });
+
+  it('does not scan individual gifts for batch lists or the offerings queue', async () => {
+    const db = makeTestDb();
+    const amounts = Array.from({ length: 20000 }, () => 100);
+    seedBatch(db, { date: new Date().getFullYear() + '-08-09', description: 'Production-sized', amounts });
+    db.sql_log.length = 0;
+
+    await call(db, { seg: 'giving/batches', query: '?status=all' });
+    await call(db, { seg: 'giving/offerings-summary' });
+
+    const aggregateGiftReads = db.sql_log.filter(sql =>
+      /FROM giving_entries/.test(sql) && /SUM\(|COUNT\(/.test(sql)
+    );
+    // The fees card retains its legacy per-gift-deposit fallback for old deposits; it is an
+    // indexed existence/sum path, not the batch aggregation this regression protects.
+    expect(aggregateGiftReads).toHaveLength(1);
+    expect(aggregateGiftReads[0]).toContain('ge.deposit_id=d.id');
+    expect(db.sql_log.some(sql => /giving_batch_totals/.test(sql))).toBe(true);
+  });
+
+  it('keeps batch totals exact when a gift is edited, moved, and deleted', () => {
+    const db = makeTestDb();
+    const source = seedBatch(db, { date: '2026-08-09', description: 'Source', amounts: [10000] });
+    const target = seedBatch(db, { date: '2026-08-10', description: 'Target', amounts: [] });
+    const giftId = db._raw.prepare('SELECT id FROM giving_entries WHERE batch_id=?').get(source).id;
+
+    db._raw.prepare('UPDATE giving_entries SET amount=?, batch_id=? WHERE id=?').run(15000, target, giftId);
+    expect(db._raw.prepare('SELECT entry_count,total_cents FROM giving_batch_totals WHERE batch_id=?').get(source)).toBeUndefined();
+    expect(db._raw.prepare('SELECT entry_count,total_cents FROM giving_batch_totals WHERE batch_id=?').get(target))
+      .toEqual({ entry_count: 1, total_cents: 15000 });
+
+    db._raw.prepare('DELETE FROM giving_entries WHERE id=?').run(giftId);
+    expect(db._raw.prepare('SELECT entry_count,total_cents FROM giving_batch_totals WHERE batch_id=?').get(target)).toBeUndefined();
   });
 });
 

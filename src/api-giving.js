@@ -66,19 +66,19 @@ if (seg === 'giving' && method === 'GET') {
 // ── Giving Batches ───────────────────────────────────────────────
 if (seg === 'giving/batches' && method === 'GET') {
   const status = url.searchParams.get('status') || 'all';
-  // Deposit coverage comes in as correlated subqueries rather than a second LEFT JOIN — joining
-  // both giving_entries and giving_deposit_lines in one GROUP BY would multiply the rows and
-  // silently inflate every batch's total (n entries x m deposit lines).
-  let sql = `SELECT gb.*, COUNT(ge.id) as entry_count, COALESCE(SUM(ge.amount),0) as total_cents,
+  // Gift count/total is maintained once per batch. Deposit coverage remains in correlated
+  // subqueries so several deposit lines cannot multiply any batch-level figures.
+  let sql = `SELECT gb.*, COALESCE(bt.entry_count,0) AS entry_count,
+             COALESCE(bt.total_cents,0) AS total_cents,
              (SELECT COALESCE(SUM(dl.amount_cents),0) FROM giving_deposit_lines dl WHERE dl.batch_id=gb.id) as linked_cents,
              (SELECT COUNT(*) FROM giving_deposit_lines dl WHERE dl.batch_id=gb.id) as deposit_count,
              (SELECT COUNT(*) FROM giving_deposit_lines dl JOIN giving_deposits d ON d.id=dl.deposit_id
                WHERE dl.batch_id=gb.id AND d.bank_cents IS NULL) as unreconciled_count
-             FROM giving_batches gb LEFT JOIN giving_entries ge ON ge.batch_id=gb.id`;
+             FROM giving_batches gb LEFT JOIN giving_batch_totals bt ON bt.batch_id=gb.id`;
   const binds = [];
   if (status === 'open') { sql += ' WHERE gb.closed=0'; }
   else if (status === 'closed') { sql += ' WHERE gb.closed=1'; }
-  sql += ' GROUP BY gb.id ORDER BY gb.batch_date DESC, gb.id DESC LIMIT 100';
+  sql += ' ORDER BY gb.batch_date DESC, gb.id DESC LIMIT 100';
   const rows = (await db.prepare(sql).bind(...binds).all()).results || [];
   const batches = rows.map(b => ({
     ...b,
@@ -102,18 +102,19 @@ if (seg === 'giving/offerings-summary' && method === 'GET') {
     // Counted but not posted — batches still open.
     db.prepare(
       `SELECT COUNT(*) AS n, COALESCE(SUM(t.cents),0) AS cents FROM (
-         SELECT gb.id, COALESCE(SUM(ge.amount),0) AS cents
-           FROM giving_batches gb LEFT JOIN giving_entries ge ON ge.batch_id=gb.id
-          WHERE gb.closed=0 GROUP BY gb.id) t`
+         SELECT gb.id, COALESCE(bt.total_cents,0) AS cents
+           FROM giving_batches gb LEFT JOIN giving_batch_totals bt ON bt.batch_id=gb.id
+          WHERE gb.closed=0) t`
     ).first(),
     // Counted, but not all of it has reached a deposit yet (no line at all, or lines that don't
     // cover the batch total — a partial bank run leaves the remainder here too).
     db.prepare(
       `SELECT COUNT(*) AS n, COALESCE(SUM(t.gap),0) AS cents FROM (
          SELECT gb.id,
-                COALESCE((SELECT SUM(ge.amount) FROM giving_entries ge WHERE ge.batch_id=gb.id),0)
+                COALESCE(bt.total_cents,0)
                 - COALESCE((SELECT SUM(dl.amount_cents) FROM giving_deposit_lines dl WHERE dl.batch_id=gb.id),0) AS gap
-           FROM giving_batches gb WHERE gb.batch_date >= ?) t
+           FROM giving_batches gb LEFT JOIN giving_batch_totals bt ON bt.batch_id=gb.id
+          WHERE gb.batch_date >= ?) t
         WHERE t.gap > 50`
     ).bind(awaitingSince).first(),
     // At the bank, but nobody has entered what the bank actually received. Windowed like
