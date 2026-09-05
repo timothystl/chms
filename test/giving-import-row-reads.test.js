@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { loadExistingGivingIds } from '../src/api-import.js';
 
 describe('giving import duplicate lookup', () => {
@@ -43,5 +44,15 @@ describe('giving import duplicate lookup', () => {
     await loadExistingGivingIds(db, Array.from({ length: 205 }, (_, i) => `gift-${i}`));
 
     expect(sizes).toEqual([90, 90, 25]);
+  });
+
+  it('the Breeze sync uses the targeted helper instead of loading every stored ID', () => {
+    const source = readFileSync(new URL('../src/api-import.js', import.meta.url), 'utf8');
+    const syncStart = source.indexOf("if (seg === 'import/breeze-giving'");
+    const syncEnd = source.indexOf("if (seg === 'import/breeze-giving-csv'", syncStart);
+    const sync = source.slice(syncStart, syncEnd);
+    expect(sync).toContain('loadExistingGivingIds(db, candidateContributionIds)');
+    expect(sync).not.toContain("SELECT breeze_id FROM giving_entries WHERE breeze_id != ''");
+    expect(sync).not.toContain('SELECT MIN(id) FROM giving_entries');
   });
 });

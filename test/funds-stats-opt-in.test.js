@@ -10,7 +10,7 @@ function testDb() {
       sql.push(statement);
       return {
         async all() {
-          if (statement.includes('FROM giving_entries')) {
+          if (statement.includes('FROM giving_monthly_fund_totals')) {
             return { results: [{ fund_id: 1, cnt: 3, total_cents: 12500 }] };
           }
           return { results: [{ id: 1, name: 'General Fund', category: 'general' }] };
@@ -40,7 +40,8 @@ describe('GET funds history statistics', () => {
   it('returns history statistics only when the Manage Funds screen opts in', async () => {
     const { db, body } = await getFunds('https://x/admin/api/funds?include_stats=1');
     expect(db.sql).toHaveLength(2);
-    expect(db.sql[1]).toContain('FROM giving_entries');
+    expect(db.sql[1]).toContain('FROM giving_monthly_fund_totals');
+    expect(db.sql[1]).not.toContain('giving_entries');
     expect(body.funds[0]).toMatchObject({ entry_count: 3, total_cents: 12500 });
   });
 

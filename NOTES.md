@@ -24,6 +24,20 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.229.8 — Finance/Giving routine reads use compact summaries (2026-09-05)
+
+The last routine lifetime gift scans have been removed. Fund statistics, duplicate-fund review,
+Breeze's fund list, and yearly board-packet totals now read trigger-maintained monthly fund totals.
+The Breeze sync fetches only candidate payment IDs and uses an indexed insertion guard instead of
+loading and de-duplicating the complete gift ledger on every import.
+
+- Existing Breeze payment/fund duplicates are cleaned once; a config marker prevents later schema
+  deployments from repeating that historical scan.
+- Balance-sheet import activity now has the same covering source/date index as income statements.
+- Gift-detail screens and arbitrary-range reports still read individual gifts intentionally because
+  those views require transaction, household, payment-method, or partial-month detail.
+- Regression tests pin the compact-read architecture and the import-date query plan.
+
 ### v1.226.1 — Budget tab print was completely blank (2026-09-05)
 Reported live: printing the Budget tab produced a fully empty page. Root cause: `#fin-plan-root`
 (which `finRenderPlanning()` rebuilds and which actually holds `#fin-plan-print-card` inside it)
@@ -34,6 +48,7 @@ naming both nesting levels in the CSS. Full detail, including the non-vacuous te
 is in CLAUDE.md under FIN73. `npm test` (2158/2158, 3 new). **Not verified**: a live browser or a
 real print dialog. (`src/frontend/html-head.js`, `src/frontend/js-core.js`,
 `test/finance-planning-print-empty.test.js`)
+
 ### v1.229.7 — Budget annualization uses calendar-day arithmetic (2026-09-05)
 
 Elapsed weeks no longer lose a day after the spring daylight-saving transition. Backend and

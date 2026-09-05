@@ -4483,11 +4483,11 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const thisYearEntries = resolveChurchYearPrecedence(thisYearEntriesRaw);
     const thisYearSummary = computeYearSummary(thisYearEntries);
     const givingByFundRows = (await db.prepare(
-      `SELECT f.name AS fund_name, COALESCE(SUM(ge.amount),0) AS total
-       FROM giving_entries ge JOIN funds f ON f.id = ge.fund_id
-       WHERE ge.contribution_date BETWEEN ? AND ?
-       GROUP BY ge.fund_id ORDER BY total DESC`
-    ).bind(`${year}-01-01`, `${year}-12-31`).all()).results || [];
+      `SELECT f.name AS fund_name, COALESCE(SUM(mt.total_cents),0) AS total
+         FROM giving_monthly_fund_totals mt JOIN funds f ON f.id=mt.fund_id
+        WHERE mt.month BETWEEN ? AND ?
+        GROUP BY mt.fund_id ORDER BY total DESC`
+    ).bind(`${year}-01`, `${year}-12`).all()).results || [];
     const givingByFund = givingByFundRows.map(r => ({ fundName: r.fund_name, cents: r.total || 0 }));
     const givingCents = givingByFund.reduce((sum, r) => sum + r.cents, 0);
 

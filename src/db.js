@@ -1596,6 +1596,19 @@ async function _doInitDb(db) {
     )`,
     // Speed up giving sync dedup, orphan cleanup, and reconcile-diagnose lookups.
     'CREATE INDEX IF NOT EXISTS idx_giving_breeze ON giving_entries(breeze_id)',
+    // The sync once performed this lifetime de-duplication on every run. Do it once for existing
+    // data; subsequent imports use an idx_giving_breeze-backed NOT EXISTS insertion guard. The
+    // marker prevents later schema-fingerprint changes from repeating the lifetime scan.
+    `DELETE FROM giving_entries
+      WHERE breeze_id != ''
+        AND NOT EXISTS (
+          SELECT 1 FROM chms_config WHERE key = 'giving_breeze_dedupe_v1'
+        )
+        AND id NOT IN (
+          SELECT MIN(id) FROM giving_entries WHERE breeze_id != '' GROUP BY breeze_id,fund_id
+        )`,
+    `INSERT OR IGNORE INTO chms_config (key, value)
+      VALUES ('giving_breeze_dedupe_v1', datetime('now'))`,
     // AU1: email column on app_users for password reset flow.
     'ALTER TABLE app_users ADD COLUMN email TEXT NOT NULL DEFAULT ""',
     // Ministry Roles: standing volunteer roles per ministry category
@@ -1762,6 +1775,7 @@ async function _doInitDb(db) {
       UNIQUE(fiscal_year, category_path, source)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_church_balances_year ON finance_church_balances(fiscal_year)`,
+    `CREATE INDEX IF NOT EXISTS idx_church_balances_source_synced ON finance_church_balances(source, synced_at)`,
     // SC6 Phase 1: relationalize Scheduler volunteers onto real people rows (see
     // migrations/0020_scheduler_volunteers.sql for the full rationale).
     `CREATE TABLE IF NOT EXISTS scheduler_volunteers (
