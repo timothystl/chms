@@ -24,6 +24,79 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.227.0 — Finance tab query amplification: 12 giving scans per click down to 2 per year (2026-09-05)
+
+Reported after a Cloudflare investigation: `tlc-volunteer-db` passed the D1 free-tier row-read
+ceiling on 2026-09-04 and unrelated church APIs started returning errors. The trailing-window
+top-four queries were all one year of `giving_entries`, roughly 6.2M row reads between them:
+household giving bands (106 executions / 2.15M rows), fund totals (75 / 1.53M), monthly giving by
+fund (74 / 1.39M), distinct giving households (60 / 1.12M). Verified against this repo before
+changing anything — every one of those four is a query in `finance/church/this-year`, and the
+execution counts are the product of three multipliers stacked on each other:
+
+1. **Every section click reloaded every section.** Switching Finance sub-nav goes through
+   `showTab('finance', …)`, which called `loadFinance()`, which called all seven section loaders
+   unconditionally — Balance Sheet, Daycare, Property, Budget and the rest, whether or not the
+   reader could see them.
+2. **Three of those loaders each fetched `finance/church/this-year` independently** — Financial
+   Health, Church Report and Budget — so one click was three requests for the same year.
+3. **That one payload scanned `giving_entries` four times**, and `giving_entries` had no index on
+   `contribution_date` at all (only `batch_id`, `person_id`, `breeze_id`, `deposit_id`), so each
+   scan read every year of giving ever recorded in order to report one.
+
+3 × 4 = twelve full-table giving aggregations per sub-nav click. All three multipliers are fixed:
+
+- **Only the visible section loads** (`finEnsureSection` / `FIN_SECTION_LOADERS`,
+  `src/frontend/js-finance.js`). `loadFinance()` now does one cheap bootstrap (status, QuickBooks
+  snapshot, daycare entries — none touch giving) and hands off to the active section; re-entering
+  the tab reuses it. Budget, Compensation and Chart of Accounts share one entry because they share
+  one fetch. **Three real cross-screen data dependencies had to be untangled first**, or lazy
+  loading would have silently emptied screens that used to be filled as a side effect of a tab the
+  reader never opened: Financial Health reads the Ivanhoe property payload (entity/lever/decision
+  cards) and the daycare year aggregate, and Budget's Ivanhoe forecast card reads the same property
+  payload. Property is now a shared promise-cached prerequisite (`finEnsurePropertyData`), and the
+  daycare aggregate is a computation (`finEnsureDaycareAgg`) rather than a side effect of the
+  Daycare panel having rendered.
+- **One request per year across screens** (`finFetchChurchYear`). Deliberately a per-year memo and
+  not a session cache with a TTL — `finRenderChurchReport()`, which is the after-an-import refresh
+  path, clears it and marks Health and Budget for reload, so no screen shows a figure a completed
+  import has already superseded.
+- **Two giving scans per request, not four** (`buildChurchThisYear`, `src/api-finance.js`). The
+  per-fund annual totals are summed in JS from the month-by-fund rows already read (skipping a
+  `fund_id` with no row in `funds`, which preserves the INNER JOIN the separate query did), and the
+  giving-household count is the row count of the same per-household aggregate the donor bands are
+  bucketed from.
+- **Concurrent identical requests share one computation** (`coalesceChurchYear`). The map holds
+  only genuinely in-flight promises — each entry is deleted the moment its computation settles —
+  so this is request coalescing, never a cache: a read starting after a write has finished always
+  recomputes. A test pins that distinction.
+- **Two covering indexes on `contribution_date`** (migration `0042`, plus the runtime migrations
+  array in `src/db.js`). ⚠ These belong in that array and **not** in `DB_INIT`: `contribution_date`
+  is itself added by an `ALTER` in the migrations array, so `DB_INIT` runs before the column exists
+  and index creation fails with "no such column: contribution_date" on a fresh database. Caught by
+  `test/migration-error-visibility.test.js`, not by reading.
+
+**Measured, not assumed.** `EXPLAIN QUERY PLAN` against a realistic 8-year, ~42k-row fixture, on
+the exact SQL as shipped: both remaining queries went from `SCAN ge` to
+`SEARCH ge USING COVERING INDEX` — the index range, not the table, and no table lookup at all. On
+that shape one year is an eighth of the table, so per report that is roughly an 8× cut on top of
+the 4→2 scan reduction and the 3→1 request reduction.
+
+`npm test` (2169/2169, 14 new in `test/finance-query-amplification.test.js` — the real route
+against real in-memory SQLite with a query-counting DB stub, and the real assembled bundles run in
+a `vm` with `fetch` stubbed, since `api()` is defined inside `js-core.js` and cannot be stubbed
+from the sandbox). **Every new test verified non-vacuous** by injecting the exact regression it
+guards — 6 injections, 6 correct failure sets. Two of my own assertions were wrong and were
+corrected rather than forced: the expected per-fund ordering, and an assertion that reopening
+Financial Health after an import must issue a new request (it must not — the import's own refresh
+already fetched that year, and Health correctly rebuilds from it). `node --check` on all touched
+files and all three assembled bundles; div balance on `CHMS_HTML` (1123/1123) and brace balance on
+the CSS bundle (1373/1373); spelling check clean. DEPLOY_VERSION bumped to 1.227.0.
+**Not verified**: a live browser, or the live D1 row-read counters after deploy — the acceptance
+check is Cloudflare's own trailing-window numbers for `tlc-volunteer-db` once this ships.
+(`src/api-finance.js`, `src/db.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+`migrations/0042_giving_contribution_date_indexes.sql`, `test/finance-query-amplification.test.js`)
+
 ### v1.226.0 — Purpose tags: a second, optional lens over Compensation workers and accounts (2026-09-05)
 
 Asked as an exploratory question, not a build request: "What about having tagging budget lines in
