@@ -9,6 +9,7 @@ import { json } from './auth.js';
 import { resolveGeneralFundIds, resolveGeneralFundBudget } from './api-utils.js';
 import { getAuthorizeUrl, exchangeCodeForTokens, refreshTokens, revokeToken, makeQboClient, qboConfigured } from './quickbooks.js';
 import { makeDaycareClient, daycareConfigured } from './daycare.js';
+import { ensureGivingYearRollups } from './giving-rollups.js';
 
 const CALLBACK_PATH = '/admin/api/finance/qb/callback';
 
@@ -4525,23 +4526,20 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
 
 // ── Church Report "This Year": the payload builder, extracted from its route ───────────────
 // This one payload feeds THREE screens (Financial Health, Church Report, Budget/Planning), so
-// it is the most-requested computation in the app and the only one that scans giving_entries.
-// Two things follow from that and are load-bearing:
+// it is the most-requested computation in the app. Two things follow from that and are
+// load-bearing:
 //
 //   1. It is a plain function of (db, year) — no req/env/url — so it can be memoized. Concurrent
 //      callers asking for the same year share ONE computation via _churchYearInflight below,
 //      rather than each running the giving scans again.
-//   2. It reads giving_entries exactly TWICE, not four times. The per-fund annual totals are
-//      summed in JS from the month-by-fund rows, and the giving-household COUNT is the row count
-//      of the same per-household aggregate the donor bands are bucketed from. Four separate
-//      aggregates over one year of giving were roughly 6.2M D1 row reads in a single trailing
-//      window on 2026-09-04 and took the account past the free-tier ceiling, which then broke
-//      unrelated church APIs. Adding a third scan here is not a local cost.
+//   2. Normal reads never scan giving_entries. Fund figures come from month/fund rows and donor
+//      cards from one annual stats row. A relevant write marks its year dirty; the next reader
+//      performs one household aggregation and locks that compact result in again.
 async function buildChurchThisYear(db, year) {
   const allRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
   const entries = resolveChurchYearPrecedence(allRows);
   const summary = computeYearSummary(entries);
-  // ── Giving scan 1 of 2: month by fund ──────────────────────────────────────
+  // One compact row per fund/month; maintained when gifts are written.
   // Every per-fund figure in this payload comes from these rows. The annual total per fund used
   // to be its own `GROUP BY fund_id` scan over the same year of the same table; it is now summed
   // in JS from the rows already read here. Skipping a fund_id with no row in `funds` preserves
@@ -4550,12 +4548,9 @@ async function buildChurchThisYear(db, year) {
   const fundRows = (await db.prepare('SELECT id, name, category FROM funds').all()).results || [];
   const fundNameById = new Map(fundRows.map(f => [f.id, f.name]));
   const givingMonthlyRows = (await db.prepare(
-    `SELECT CAST(substr(ge.contribution_date,6,2) AS INTEGER) AS m, ge.fund_id AS fund_id,
-            COALESCE(SUM(ge.amount),0) AS cents
-     FROM giving_entries ge
-     WHERE ge.contribution_date BETWEEN ? AND ?
-     GROUP BY m, ge.fund_id ORDER BY m`
-  ).bind(`${year}-01-01`, `${year}-12-31`).all()).results || [];
+    `SELECT CAST(substr(month,6,2) AS INTEGER) AS m, fund_id, total_cents AS cents
+       FROM giving_monthly_fund_totals WHERE month BETWEEN ? AND ? ORDER BY month`
+  ).bind(`${year}-01`, `${year}-12`).all()).results || [];
   const fundTotals = new Map();
   for (const r of givingMonthlyRows) {
     if (!fundNameById.has(r.fund_id)) continue;
@@ -4585,7 +4580,8 @@ async function buildChurchThisYear(db, year) {
     'SELECT account_name, own_balance_cents, has_children, as_of_date FROM finance_church_balances WHERE fiscal_year=?'
   ).bind(desigBalYearRow.y).all()).results || []);
   const designatedFunds = computeDesignatedFunds(givingByFund, desigBalRows);
-  // ── Giving scan 2 of 2: per-household annual totals ─────────────────────────────
+  // One annual row supplies household count and donor bands. The underlying household-total
+  // rows are rebuilt only after a relevant write and are also the source for donor drill-downs.
   // The giving-household count and the appeal card's donor bands are the same aggregate read two
   // ways — the count is how many households gave, the bands are those same households bucketed —
   // so they are one scan, counted and bucketed in JS. They were two separate scans of a full
@@ -4598,22 +4594,11 @@ async function buildChurchThisYear(db, year) {
   //
   // A giver with no household counts as their own, matching how reports/giving-bands scopes a
   // household giver. One row per distinct household key, so the row count IS the distinct count.
-  const householdTotalRows = (await db.prepare(
-    `SELECT SUM(ge.amount) AS t
-     FROM giving_entries ge JOIN people p ON p.id = ge.person_id
-     WHERE ge.contribution_date BETWEEN ? AND ? AND ge.person_id IS NOT NULL
-       AND LOWER(COALESCE(p.member_type,'')) != 'organization'
-     GROUP BY CASE WHEN p.household_id IS NOT NULL AND p.household_id != 0
-                   THEN 'h:' || p.household_id ELSE 'p:' || p.id END`
-  ).bind(`${year}-01-01`, `${year}-12-31`).all()).results || [];
-  const givingHouseholds = householdTotalRows.length;
-  let bandHigh = 0, bandMid = 0, bandLow = 0;
-  for (const r of householdTotalRows) {
-    const t = r.t || 0;
-    if (t >= 200000) bandHigh++;
-    else if (t >= 50000) bandMid++;
-    else if (t > 0) bandLow++;
-  }
+  const givingStats = await ensureGivingYearRollups(db, year);
+  const givingHouseholds = givingStats.giving_households || 0;
+  const bandHigh = givingStats.band_high || 0;
+  const bandMid = givingStats.band_mid || 0;
+  const bandLow = givingStats.band_low || 0;
   const donorBands = [
     { label: '$2,000+ / yr', households: bandHigh },
     { label: '$500–$2,000', households: bandMid },

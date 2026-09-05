@@ -2,6 +2,16 @@
 
 Read this at the start of every session. Update NOTES.md (and this file if needed) as items are discovered, fixed, or queued.
 
+## 2026-09-05 giving rollup architecture
+
+Migration 0044 makes `giving_monthly_fund_totals` the source for organization-wide monthly/fund
+figures and `giving_year_household_totals` / `giving_year_stats` the source for household bands
+and counts. Gift mutations update monthly totals and dirty the affected annual rollup; household
+or member-type changes dirty years in which that person gave. `ensureGivingYearRollups()` rebuilds
+a dirty year once. Do not reintroduce full-year `giving_entries` scans into ordinary Dashboard or
+Finance overview reads; reserve raw gift reads for transaction detail or explicitly individual
+analysis.
+
 > ## ⚠ The work plan is in `PLAN.md`, not in this file
 >
 > **`PLAN.md` (repo root) opens with a priority-ordered work queue** — everything still open,

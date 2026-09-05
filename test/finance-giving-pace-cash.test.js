@@ -47,7 +47,9 @@ function makeTestDb() {
   sqlite.exec(readFileSync(new URL('../migrations/0019_finance_church_balances.sql', import.meta.url), 'utf8'));
   sqlite.exec(`CREATE TABLE funds (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', active INTEGER DEFAULT 1)`);
   sqlite.exec(`CREATE TABLE people (id INTEGER PRIMARY KEY, household_id INTEGER, member_type TEXT NOT NULL DEFAULT 'member')`);
-  sqlite.exec(`CREATE TABLE giving_entries (id INTEGER PRIMARY KEY, person_id INTEGER, fund_id INTEGER, amount INTEGER NOT NULL DEFAULT 0, method TEXT DEFAULT 'check', contribution_date TEXT NOT NULL DEFAULT '')`);
+  sqlite.exec(`CREATE TABLE giving_batches (id INTEGER PRIMARY KEY, batch_date TEXT NOT NULL DEFAULT '')`);
+  sqlite.exec(`CREATE TABLE giving_entries (id INTEGER PRIMARY KEY, batch_id INTEGER, person_id INTEGER, fund_id INTEGER, amount INTEGER NOT NULL DEFAULT 0, method TEXT DEFAULT 'check', contribution_date TEXT NOT NULL DEFAULT '')`);
+  sqlite.exec(readFileSync(new URL('../migrations/0044_giving_monthly_fund_totals.sql', import.meta.url), 'utf8'));
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   sqlite.exec(`CREATE TABLE finance_qb_snapshot (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   sqlite.exec(`CREATE TABLE finance_daycare_entries (id INTEGER PRIMARY KEY, period TEXT, category TEXT, entry_type TEXT, amount_cents INTEGER, notes TEXT, source TEXT)`);

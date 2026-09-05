@@ -21,7 +21,9 @@ function makeTestDb() {
   sqlite.exec(readFileSync(new URL('../migrations/0019_finance_church_balances.sql', import.meta.url), 'utf8'));
   sqlite.exec(`CREATE TABLE funds (id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', active INTEGER DEFAULT 1)`);
   sqlite.exec(`CREATE TABLE people (id INTEGER PRIMARY KEY, household_id INTEGER, member_type TEXT NOT NULL DEFAULT 'member')`);
-  sqlite.exec(`CREATE TABLE giving_entries (id INTEGER PRIMARY KEY, person_id INTEGER, fund_id INTEGER, amount INTEGER NOT NULL DEFAULT 0, contribution_date TEXT NOT NULL DEFAULT '')`);
+  sqlite.exec(`CREATE TABLE giving_batches (id INTEGER PRIMARY KEY, batch_date TEXT NOT NULL DEFAULT '')`);
+  sqlite.exec(`CREATE TABLE giving_entries (id INTEGER PRIMARY KEY, batch_id INTEGER, person_id INTEGER, fund_id INTEGER, amount INTEGER NOT NULL DEFAULT 0, contribution_date TEXT NOT NULL DEFAULT '')`);
+  sqlite.exec(readFileSync(new URL('../migrations/0044_giving_monthly_fund_totals.sql', import.meta.url), 'utf8'));
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   sqlite.exec(`CREATE TABLE finance_qb_snapshot (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const sql_log = [];
@@ -84,11 +86,14 @@ async function getPayload(db, year = YEAR) {
 const givingScans = (db) => db.sql_log.filter((q) => /FROM giving_entries/.test(q)).length;
 
 describe('finance/church/this-year — how often it reads giving_entries', () => {
-  it('scans giving_entries twice per request, not four times', async () => {
+  it('scans gifts once to refresh a dirty year, then zero times on normal reads', async () => {
     const db = makeTestDb();
     seed(db);
     await getPayload(db);
-    expect(givingScans(db)).toBe(2);
+    expect(givingScans(db)).toBe(1); // one household rollup refresh
+    db.sql_log.length = 0;
+    await getPayload(db);
+    expect(givingScans(db)).toBe(0);
   });
 
   it('still reports the same per-fund totals it did when they were their own scan', async () => {
@@ -136,7 +141,7 @@ describe('finance/church/this-year — concurrent requests share one computation
     const db = makeTestDb();
     seed(db);
     const [a, b, c] = await Promise.all([getPayload(db), getPayload(db), getPayload(db)]);
-    expect(givingScans(db)).toBe(2);
+    expect(givingScans(db)).toBe(1);
     expect(a.givingCents).toBe(b.givingCents);
     expect(b.givingCents).toBe(c.givingCents);
   });
@@ -148,7 +153,7 @@ describe('finance/church/this-year — concurrent requests share one computation
     const afterFirst = givingScans(db);
     db._raw.exec(`INSERT INTO giving_entries (person_id,fund_id,amount,contribution_date) VALUES (3,1,500000,'${YEAR}-07-04')`);
     const d = await getPayload(db);
-    expect(givingScans(db)).toBe(afterFirst + 2);
+    expect(givingScans(db)).toBe(afterFirst + 1);
     expect(d.givingCents).toBe(250000 + 900000 + 60000 + 10000 + 500000);
   });
 

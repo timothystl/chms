@@ -17,6 +17,13 @@ Phases 21 and 22 are ordered by risk; 23 onward by dependency, not urgency.
 
 ---
 
+## Operational performance follow-up (2026-09-05)
+
+- [x] Materialize giving totals by fund/month and household/year. Dashboard and Finance aggregate
+  views now read compact rollups; a relevant write causes one indexed yearly refresh, then normal
+  reads return to zero full gift scans. Raw gifts remain reserved for transaction detail and
+  explicitly individual-level analysis.
+
 ## The work queue — priority order (rebuilt 2026-08-20)
 
 **Read this table, not the phase numbers.** The phases below were written 2026-08-19 when authorization
