@@ -240,3 +240,78 @@ describe('computeYearCashSummary', () => {
     expect(s.allCashCents).toBeNull();
   });
 });
+
+// ── The default trend range: every year with a balance sheet, not a rolling window ──────────
+// Before this, the default was [currentYear-4 … currentYear]. This church's income statement runs
+// back to 2019, so an imported 2019 balance sheet was invisible on the trend chart until someone
+// widened the From/To range by hand — and the in-window years with nothing uploaded drew as real
+// $0 Assets/Liabilities/Equity bars, reading as "the church had nothing" rather than "nothing was
+// uploaded here".
+async function getMultiYearDefault(db) {
+  const url = new URL('https://x/admin/api/finance/church/balances/multi-year');
+  const res = await handleFinanceApi({}, {}, url, 'GET', 'finance/church/balances/multi-year', db, true, true);
+  return await res.json();
+}
+
+describe('GET finance/church/balances/multi-year — default year range', () => {
+  it('includes a year older than the rolling five-year window', async () => {
+    const db = makeTestDb();
+    // 2019 sits well outside [currentYear-4 … currentYear] and used to be unreachable by default.
+    insertBalance(db, 2019, 'Assets', 500000); insertBalance(db, 2019, 'Equity', 500000);
+    insertBalance(db, 2026, 'Assets', 818000); insertBalance(db, 2026, 'Equity', 741000);
+    const d = await getMultiYearDefault(db);
+    expect(d.years).toContain(2019);
+    expect(d.years).toContain(2026);
+    expect(d.byYear[2019].equityCents).toBe(500000);
+  });
+
+  it('omits a year with no balance sheet rather than drawing it as $0', async () => {
+    const db = makeTestDb();
+    insertBalance(db, 2024, 'Equity', 100000);
+    insertBalance(db, 2026, 'Equity', 120000);
+    const d = await getMultiYearDefault(db);
+    expect(d.years).toEqual([2024, 2026]);
+    // The gap year is absent entirely — not present carrying a zeroed summary a chart would draw
+    // as a real $0 bar.
+    expect(d.years).not.toContain(2025);
+    expect(d.byYear[2025]).toBeUndefined();
+  });
+
+  it('returns the years in ascending order, so the chart reads left to right', async () => {
+    const db = makeTestDb();
+    insertBalance(db, 2026, 'Equity', 3);
+    insertBalance(db, 2019, 'Equity', 1);
+    insertBalance(db, 2022, 'Equity', 2);
+    const d = await getMultiYearDefault(db);
+    expect(d.years).toEqual([2019, 2022, 2026]);
+  });
+
+  it('reports the earliest year as having no prior balance sheet, not a phantom tie-out', async () => {
+    const db = makeTestDb();
+    // Deliberately outside the old rolling window, so this exercises the new default rather than
+    // passing on years that happened to fall inside it anyway.
+    insertBalance(db, 2019, 'Equity', 100000);
+    insertBalance(db, 2020, 'Equity', 110000);
+    insertEntry(db, 2020, 'Income', 210000);
+    insertEntry(db, 2020, 'Expenses', 200000);
+    const d = await getMultiYearDefault(db);
+    expect(d.reconciliation.rows.find(r => r.year === 2019).status).toBe('no_prior_balance');
+    expect(d.reconciliation.rows.find(r => r.year === 2020).status).toBe('ok');
+  });
+
+  it('falls back to the rolling window when nothing has been imported at all', async () => {
+    // The range picker renders above the empty state, so From/To still need real numbers in it.
+    const cur = new Date().getFullYear();
+    const d = await getMultiYearDefault(makeTestDb());
+    expect(d.years).toEqual([cur - 4, cur - 3, cur - 2, cur - 1, cur]);
+  });
+
+  it('still honors an explicit range verbatim, gaps included', async () => {
+    const db = makeTestDb();
+    insertBalance(db, 2024, 'Equity', 100000);
+    insertBalance(db, 2026, 'Equity', 120000);
+    // Asking for the span on purpose is how you go looking for which year is still missing.
+    const d = await getMultiYear(db, [2024, 2025, 2026]);
+    expect(d.years).toEqual([2024, 2025, 2026]);
+  });
+});

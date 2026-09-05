@@ -24,6 +24,59 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.228.0 — Balance Sheet trend defaults to every year with data, not a rolling window (2026-09-05)
+
+Reported from the Balance Sheet tab's Multi-Year Trend: 2022-2025 drew as flat lines with only
+2026 carrying bars. Checked production D1 before changing anything —
+`finance_church_balances` holds exactly one year (2026, 52 rows, imported 2026-09-04), while
+`finance_church_entries` holds 2019-2026. So the multi-year upload the user remembered doing was
+the **Statement of Activity** (income statement), not the **Statement of Financial Position**
+(balance sheet); the latter only ever got a single-year file into production. The flat lines were
+real missing data, not a rendering bug.
+
+The range default was a second, independent problem sitting underneath it, and it would have
+hidden the history even once uploaded. `GET finance/church/balances/multi-year` defaulted to
+`[currentYear-4 … currentYear]` when no `?years=` was given — which is every entry point to this
+tab, since `finLoadBalanceSheetTab()` sends no range on first load. A 2019 balance sheet would
+have imported cleanly and still been invisible until someone widened the From/To picker by hand.
+The chart's own header comment already claimed it drew "every year with an imported balance
+sheet"; the default just never delivered that.
+
+- **The default is now the distinct years actually present** (`SELECT DISTINCT fiscal_year …`),
+  falling back to the rolling window only when the table is empty, so the range picker rendered
+  above the empty state still shows a sensible From/To rather than a blank or NaN pair.
+- **Deliberately the years PRESENT, not the contiguous span between earliest and latest.** A year
+  with no rows still gets a fully zeroed summary from `computeBalanceSummary()`, which the chart
+  draws as a real $0 Assets/Liabilities/Equity bar — reading as "the church had nothing" rather
+  than "nothing was uploaded here". That is exactly the confusion in the original report.
+- **The tie-out loses nothing by their absence**: `computeBalanceVsPnlReconciliation` already
+  skips a year with no rows outright (its own `if (!hasBalance(year)) continue`), so a gap year
+  never produced a row either way. Verified by reading, then pinned by test.
+- **An explicit `?years=` range is still honored verbatim, gaps included** — that is how you go
+  looking for which year is still missing.
+- **Both balance-sheet import handlers now clear `_finBalanceYears`.** A range pinned by hand
+  (Load Range) persists for the session and is sent as `?years=`, overriding the new default — so
+  without this, the year just uploaded would stay off the chart until a full page reload. Same
+  staleness class as FIN59-BUG2's import-status cache; the two handlers already cleared
+  `_finBalanceData`/`_finBalanceMultiYearData` but not the pinned range.
+
+`npm test` (2178/2178, 9 new — 6 backend against real in-memory SQLite via the existing
+`makeTestDb` harness, 3 structural against the real built `CHMS_APP_FINANCE_JS`). **Verified
+non-vacuous** by reverting each source file in turn: 4 of the 6 backend tests and both wiring
+tests fail against the pre-change code. The remaining 3 are deliberate regression guards on paths
+this change preserves (the empty-table fallback, an explicit range, and that Load Range still pins
+a range at all — without which the two invalidation assertions would guard nothing). One of my own
+tests initially passed either way because its fixture years happened to fall inside the old rolling
+window; rewritten around 2019/2020 so it actually exercises the new default. `node --check` on
+`api-finance.js` and all five assembled bundles; div balance on the assembled `CHMS_HTML`
+(1123/1123); spelling clean. DEPLOY_VERSION bumped to 1.228.0.
+
+**Not verified**: a live browser. **Not changed, flagged instead**: `GET
+finance/church/multi-year` — the *income statement* Multi-Year view — carries the identical
+rolling-five-year default, and that table genuinely has 2019-2021 data behind it today. Same
+one-line shape of fix, but it changes what the Church Report shows by default on a different
+screen, so it is the user's call rather than a silent widening.
+
 ### v1.227.0 — Finance tab query amplification: 12 giving scans per click down to 2 per year (2026-09-05)
 
 Reported after a Cloudflare investigation: `tlc-volunteer-db` passed the D1 free-tier row-read

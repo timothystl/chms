@@ -352,3 +352,40 @@ describe('finExportBalanceCsv', () => {
     expect(toasted).toContain('No balance sheet data');
   });
 });
+
+// ── Post-import cache invalidation for the pinned trend range ───────────────────────────────
+// The trend range now defaults, server-side, to every year that has a balance sheet. But a range
+// the reader pinned by hand (Trend from/to → Load Range) is remembered in _finBalanceYears for the
+// rest of the session and sent as ?years=, which overrides that default — so after an import the
+// year just uploaded would stay off the chart until a full page reload. Same staleness class as
+// FIN59-BUG2's import-status cache.
+//
+// This asserts the WIRING out of the real built bundle, not the running behavior: it proves each
+// confirm handler still contains the reset, not that a real import round-trip clears it.
+describe('balance sheet imports clear a hand-pinned trend range', () => {
+  function bodyOf(fnName) {
+    const src = CHMS_APP_FINANCE_JS;
+    const start = src.indexOf('function ' + fnName + '(');
+    expect(start, fnName + ' not found in the built bundle').toBeGreaterThan(-1);
+    const next = src.indexOf('\nfunction ', start + 1);
+    return src.slice(start, next === -1 ? src.length : next);
+  }
+
+  it('the single-year Balance Sheet import resets _finBalanceYears', () => {
+    const body = bodyOf('finChurchConfirmBalanceImport');
+    expect(body).toContain('_finBalanceYears = null');
+    expect(body).toContain('finLoadBalanceSheetTab()');
+  });
+
+  it('the multi-year Financial Position import resets _finBalanceYears', () => {
+    const body = bodyOf('finChurchConfirmBalanceMultiImport');
+    expect(body).toContain('_finBalanceYears = null');
+    expect(body).toContain('finLoadBalanceSheetTab()');
+  });
+
+  it('loading a range by hand still pins it, so the reset is a real invalidation', () => {
+    // If Load Range stopped writing _finBalanceYears there would be nothing to invalidate and the
+    // two assertions above would pass while guarding nothing.
+    expect(bodyOf('finBalanceLoadRange')).toContain('finLoadBalanceSheetTab(null, years)');
+  });
+});

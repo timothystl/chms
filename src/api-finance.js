@@ -3894,9 +3894,29 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/church/balances/multi-year' && method === 'GET') {
     const yearsParam = url.searchParams.get('years');
     const currentYear = new Date().getFullYear();
-    const years = yearsParam
-      ? yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite)
-      : [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
+    // Default is EVERY year that actually has a balance sheet, not a rolling five-year window.
+    // That window silently hid real history: this church's income statement runs back to 2019
+    // while the default trend started at currentYear-4, so an imported 2019 balance sheet would
+    // never appear until someone widened the range by hand. Deliberately the distinct years
+    // PRESENT rather than the contiguous span between earliest and latest — a year with no rows
+    // still gets a zeroed summary from computeBalanceSummary(), which draws as a real $0
+    // Assets/Liabilities/Equity bar and reads as "the church had nothing" rather than "nothing was
+    // uploaded". The tie-out loses nothing by their absence: computeBalanceVsPnlReconciliation
+    // already skips a year with no rows outright (its own `if (!hasBalance(year)) continue`), so a
+    // gap year never produced a row either way. An explicit ?years= range still requests exactly
+    // what it names, gaps included — which is how you go looking for what is missing.
+    let years;
+    if (yearsParam) {
+      years = yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite);
+    } else {
+      const yearRows = (await db.prepare(
+        'SELECT DISTINCT fiscal_year FROM finance_church_balances ORDER BY fiscal_year'
+      ).all()).results || [];
+      years = yearRows.map(r => Number(r.fiscal_year)).filter(Number.isFinite);
+      // Nothing imported at all: fall back to the rolling window, so the range picker rendered
+      // above the empty state still shows a sensible From/To rather than a blank or NaN pair.
+      if (!years.length) years = [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
+    }
     if (!years.length) return json({ error: 'No valid years requested' }, 400);
     // One year BEFORE the requested window is fetched too: the tie-out below needs the opening
     // equity of the earliest requested year, and without it that year would always report "no

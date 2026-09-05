@@ -525,6 +525,47 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### FIN73 — Balance Sheet trend defaulted to a rolling 5-year window, hiding real history (2026-09-05, DONE)
+Reported off the Balance Sheet tab's Multi-Year Trend: 2022-2025 flat, only 2026 with bars.
+**Checked production D1 before touching anything, and the first answer was that the data genuinely
+isn't there**: `finance_church_balances` holds exactly one year (2026, 52 rows, imported
+2026-09-04) while `finance_church_entries` holds 2019-2026. So the multi-year upload the user
+remembered was the **Statement of Activity** (income statement, FIN36/FIN37), not the **Statement
+of Financial Position** (balance sheet) — that one was parsed and reconciled in a harness during
+FIN37/FIN38 but, per those entries' own "Not verified: a live browser" caveat, apparently never
+actually run against production. **⚠ Worth carrying forward: a FIN-series entry claiming a file
+"reconciles exactly" means the parser was verified, NOT that the data is in production D1.** Query
+the table before concluding an import happened.
+- **The range default was a second, independent defect underneath it**, and would have kept the
+  history invisible even once uploaded. `GET finance/church/balances/multi-year` defaulted to
+  `[currentYear-4 … currentYear]` whenever `?years=` was absent — which is every entry point, since
+  `finLoadBalanceSheetTab()` sends no range on first load. Now defaults to the distinct years
+  actually present, falling back to the rolling window only when the table is empty (the range
+  picker renders above the empty state and would otherwise show a blank/NaN From/To).
+- **⚠ Deliberately the years PRESENT, not the contiguous span between earliest and latest.** A year
+  with no rows still gets a fully zeroed summary from `computeBalanceSummary()`, which the chart
+  draws as a real $0 Assets/Liabilities/Equity bar — "the church had nothing" rather than "nothing
+  was uploaded", which is precisely the confusion being reported. The tie-out loses nothing:
+  `computeBalanceVsPnlReconciliation` already skips a no-rows year outright (its own
+  `if (!hasBalance(year)) continue`), so a gap year never produced a row either way. An explicit
+  `?years=` is still honored verbatim, gaps included — that's how you find what's missing.
+- **Both import handlers now clear `_finBalanceYears`.** A range pinned by hand (Load Range)
+  persists for the session and is sent as `?years=`, overriding the new default — so the year just
+  uploaded would stay off the chart until a full reload. FIN59-BUG2's staleness class exactly; both
+  handlers already cleared `_finBalanceData`/`_finBalanceMultiYearData` but not the pinned range.
+- `npm test` (2178/2178, 9 new). **Verified non-vacuous** by reverting each source file: 4 of 6
+  backend tests and both wiring tests fail against the pre-change code; the other 3 are deliberate
+  regression guards on preserved paths. One of my own tests initially passed either way (its
+  fixture years fell inside the old rolling window) and was rewritten around 2019/2020. `node
+  --check` on `api-finance.js` and all five assembled bundles; div balance on `CHMS_HTML`
+  (1123/1123); spelling clean. DEPLOY_VERSION 1.228.0. **Not verified**: a live browser.
+- **⚠ Not changed, flagged for a decision**: `GET finance/church/multi-year` — the *income
+  statement* Multi-Year view — carries the identical rolling-five-year default, and unlike the
+  balance sheet it has real 2019-2021 data behind it today, so the Church Report is hiding history
+  right now. Same one-line fix, but it changes a different screen's default and is the user's call.
+  (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+  `test/finance-balance-pnl-recon.test.js`, `test/finance-balance-recon-ui.test.js`)
+
 ### PERF-FIN1 — Finance tab query amplification took D1 past its row-read ceiling (2026-09-05, DONE)
 Reported from a Cloudflare investigation, not a hunch: on 2026-09-04 `tlc-volunteer-db` passed the
 D1 free-tier row-read ceiling and **unrelated church APIs started failing account-wide**. The
