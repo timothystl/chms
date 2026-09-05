@@ -128,6 +128,10 @@ one phase per PR · `npm test` green before and after · `DEPLOY_VERSION` bumped
 every new test checked for vacuity by injecting the exact regression it guards · a `Not verified` line
 naming what was not exercised (a live browser, a real phone, real D1, a real sent email).
 
+**Out-of-plan production remediation:** PERF8 closed 2026-09-04. Ordinary `GET /funds` calls no
+longer run the lifetime giving-history aggregation; only Manage Funds opts in. See CLAUDE.md PERF8
+and NOTES.md v1.225.1. This was a measured D1 incident fix, not a new queue item.
+
 ---
 
 ## Phase 21 — Authorization emergency ✅ COMPLETE 2026-08-19 (v1.191.0)
