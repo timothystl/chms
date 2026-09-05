@@ -917,6 +917,37 @@ three assembled bundles. DEPLOY_VERSION bumped to 1.224.0. **Not verified**: a l
 (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
 `test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`)
 
+### FIN73 — Budget tab print was completely blank (2026-09-05, DONE)
+Reported live, with a screenshot: Chrome's print preview for `#finance` (the Budget/Planning
+sub-tab) showed a fully empty page — no content at all, just the page footer/timestamp Chrome
+itself injects. **Root cause: a DOM-nesting mismatch in the `body.printing-plan` CSS contract, not
+`finPlanPrint()` itself** — that function correctly toggles the body class (already covered by
+`test/finance-planning-chart-of-accounts.test.js`). `finRenderPlanning()` fully rebuilds
+`#fin-plan-root`'s own innerHTML (`document.getElementById('fin-plan-root')`), so
+`#fin-plan-print-card` actually nests **two levels** under `#fin-panel-planning`:
+`#fin-panel-planning > #fin-plan-root > #fin-plan-print-card` — but the print CSS rule was
+`#fin-panel-planning > *:not(#fin-plan-print-card){display:none!important;}`, a `:not()` that only
+ever inspects DIRECT children. `#fin-plan-root` is a direct child and is not
+`#fin-plan-print-card`, so that rule hid `#fin-plan-root` outright — taking the print card, and
+everything else on the tab, down with it as a descendant. Nothing was left to print, on any
+device, every time. Fixed by naming both nesting levels explicitly (`#fin-panel-planning >
+*:not(#fin-plan-root)` then `#fin-plan-root > *:not(#fin-plan-print-card)`), plus a defensive
+`#fin-plan-print-card{display:block!important;...}` (matching `.printing-comp`'s own
+`.fin-comp-print-root{display:block!important;}` convention) in case any future ambient rule ever
+sets it `display:none`. **This exact bug was invisible to the div-balance/`node --check`
+verification this file has always run on print CSS** — the markup is completely well-formed; the
+defect is purely in which elements a `:not()` selector reaches, a class of bug this codebase has
+hit before under CSS specificity/collision cases (SC19-FIX1, DSN1) but not previously as a wrong
+nesting depth. `npm test` (2158/2158, 3 new in `test/finance-planning-print-empty.test.js`, a
+static-source verification — same technique as `test/scheduler-grid-empty-cell-column.test.js`,
+since this environment has no browser/jsdom CSSOM to render the real cascade). **Verified
+non-vacuous**: reverted the CSS fix and confirmed 2 of 3 new tests fail, reproducing the exact
+selector shape that caused the report, then restored. `node --check`-equivalent (ESM import) on
+`html-head.js`, brace-balance on the assembled `<style>` block (1374/1374, +1 for the new
+defensive rule). DEPLOY_VERSION bumped to 1.226.1. **Not verified**: a live browser or a real
+print dialog — same standing caveat as every prior CSS/print fix in this file.
+(`src/frontend/html-head.js`, `src/frontend/js-core.js`, `test/finance-planning-print-empty.test.js`)
+
 ### FIN72 — Purpose tags: a second, optional lens over Compensation workers and accounts (2026-09-05, DONE)
 Asked as an exploratory question: "What about having tagging budget lines in a secondary way? So
 that we could also view it based on youth, mission, internal. So I could tag the DCE for youth and
