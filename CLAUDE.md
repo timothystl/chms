@@ -544,6 +544,47 @@ query from the covering index instead of walking every imported account/year row
 QUERY PLAN` regression test pins the index choice. Backend/schema only; no DEPLOY_VERSION bump.
 See NOTES.md v1.228.2.
 
+### FIN74 — Balance Sheet: assets stacked by group, and an asset growth table (2026-09-05, DONE)
+Push-back on FIN71's Cash & Bank Accounts trend, and correct: "is this going to check total assets
+over time? not just checking account. wouldn't the thing be to see how much total assets grow,
+checking accounts on December each year isn't the only tracker." The Multi-Year Trend drew one flat
+Assets bar per year, and **total assets are the wrong number to read growth off for this church** —
+measured against production D1 before building anything: fixed assets are the building at book value,
+unchanged at $500,315 since 2021, while current assets fell $942,696 → $646,204 over eight years, a
+**31% drawdown** that averages down to 25% once a constant third of the total is mixed in.
+- **Three new fields on `computeBalanceSummary()`** (`currentAssetsCents`/`fixedAssetsCents`/
+  `otherAssetsCents`) via a new exported `assetGroupOf(categoryPath)`, matched on the **group
+  heading directly under "Assets"** (the line a human reads on the report), never on account names —
+  a bank account nested under Current Assets lands right regardless of what it is called.
+- **⚠ "Other" is DERIVED BY SUBTRACTION (total − current − fixed), never matched by a third
+  pattern.** That is what makes the three segments add back to the Assets total by construction, so
+  a stacked bar can never come up short of the figure printed beside it. This church really has a
+  third group (Assets:Other Assets, an Employee Retention Credit, 2020-2022) and a future export
+  could invent a fourth. Hiding a dollar a total on the same screen still counts is the FIN58b
+  defect. All eight real years reconcile exactly.
+- **`renderGroupedBarChart()` (`js-attendance.js`) gained stacking** — the shared helper Attendance,
+  Church Report and Daycare also use. A series may carry a `stack` key; series sharing one draw as
+  a single column, and **the axis scales against column TOTALS**, or a stack runs off the top.
+  **Every existing caller passes no stack key and is untouched** — proven by rendering old vs new
+  across four cases and diffing: byte-identical.
+- **New "Asset Growth by Year" table**, beside the existing Net Worth one and deliberately not
+  folded into it: equity nets out debt, so a year that paid down a mortgage out of savings reads as
+  growth in the net-worth table while the church holds less. Both tables now share one
+  `finGrowthCellsHtml()`; that refactor was verified byte-identical on the net-worth table's own
+  output first, so the shared cell is provably the cell already shipping. CSV export carries the
+  same split, so a spreadsheet can never disagree with the screen.
+- `npm test` (2210/2210, 18 new). **Verified non-vacuous** by stashing all three source files: 16 of
+  18 fail against pre-change code; the two that pass either way guard the unchanged unstacked path —
+  **one of those was written as a real assertion, found to pass vacuously, and rewritten** (it now
+  asserts one x-coordinate where the old renderer produced two). One pre-existing CSV test needed
+  its column list widened. **A backtick in one of my own new comments closed the outer `String.raw`
+  literal** — SC3-BUG1/FIN15 class, caught by running the assembled bundle, not by reading.
+  `node --check` on `api-finance.js` and all four bundles; div balance (1123/1123); CSS braces
+  (1373/1373); spelling clean. DEPLOY_VERSION 1.229.0. **Not verified**: a live browser.
+  (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-attendance.js`,
+  `src/frontend/js-core.js`, `test/finance-balance-pnl-recon.test.js`,
+  `test/finance-balance-recon-ui.test.js`)
+
 ### FIN73 — Balance Sheet trend defaulted to a rolling 5-year window, hiding real history (2026-09-05, DONE)
 Reported off the Balance Sheet tab's Multi-Year Trend: 2022-2025 flat, only 2026 with bars.
 **Checked production D1 before touching anything, and the first answer was that the data genuinely

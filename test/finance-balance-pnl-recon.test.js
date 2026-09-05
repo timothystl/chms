@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { computeBalanceVsPnlReconciliation, computeBalanceSummary, computeYearCashSummary, handleFinanceApi } from '../src/api-finance.js';
+import { computeBalanceVsPnlReconciliation, computeBalanceSummary, computeYearCashSummary, assetGroupOf, handleFinanceApi } from '../src/api-finance.js';
 
 // A year's summary as computeBalanceSummary() really produces it — including the detail that
 // matters most here: a year with NO imported rows returns a fully zeroed summary with an EMPTY
@@ -433,5 +433,89 @@ describe('GET finance/church/multi-year — default year range', () => {
     const res = await handleFinanceApi({}, {}, url, 'GET', 'finance/church/multi-year', db, true, true);
     const d = await res.json();
     expect(d.years).toEqual([2026, 2027]);
+  });
+});
+
+// ── Assets split into their balance-sheet groups ───────────────────────────────────────────
+// Total assets alone hides what is moving: this church's fixed assets are the building at book
+// value, unchanged since 2021, so an eight-year 31% drawdown of CURRENT assets averages away
+// against a frozen $500,315. The whole point of the split is that the three segments must always
+// add back to the Assets total, which is why "other" is derived by subtraction rather than
+// matched by a third pattern.
+function assetRow(path, cents, opts) {
+  return Object.assign({ classification: 'Assets', category_path: path, own_balance_cents: cents }, opts || {});
+}
+
+describe('assetGroupOf', () => {
+  it('reads the group heading directly under Assets, not the account name', () => {
+    expect(assetGroupOf('Assets:Current Assets:Accounts Receivable:11001 Accounts Receivable')).toBe('current');
+    expect(assetGroupOf('Assets:Fixed Assets:15000 Building')).toBe('fixed');
+    expect(assetGroupOf('Assets:Other Assets:19000 Employee Retention Credit')).toBe('other');
+  });
+
+  it('a bank account nested under Current Assets is current, even though its own name says nothing about it', () => {
+    // The account this church's operating-cash figure comes from. Matching on account name would
+    // put it nowhere.
+    expect(assetGroupOf('Assets:Current Assets:Bank Accounts:11027 Lindell Checking xx9105')).toBe('current');
+  });
+
+  it('anything unrecognized falls to other rather than being dropped', () => {
+    expect(assetGroupOf('Assets')).toBe('other');
+    expect(assetGroupOf('Assets:Something A Future Export Invents')).toBe('other');
+    expect(assetGroupOf('')).toBe('other');
+    expect(assetGroupOf(null)).toBe('other');
+  });
+});
+
+describe('computeBalanceSummary — asset groups', () => {
+  it('splits current and fixed and still reconciles to the Assets total', () => {
+    const s = computeBalanceSummary([
+      assetRow('Assets:Current Assets:11027 Checking', 646204),
+      assetRow('Assets:Fixed Assets:15000 Building', 500315),
+      { classification: 'Liabilities', category_path: 'Liabilities:20000 AP', own_balance_cents: 146519 },
+      { classification: 'Equity', category_path: 'Equity:32000 Net Assets', own_balance_cents: 1000000 },
+    ]);
+    expect(s.assetsCents).toBe(1146519);
+    expect(s.currentAssetsCents).toBe(646204);
+    expect(s.fixedAssetsCents).toBe(500315);
+    expect(s.otherAssetsCents).toBe(0);
+    expect(s.currentAssetsCents + s.fixedAssetsCents + s.otherAssetsCents).toBe(s.assetsCents);
+    expect(s.balancedCents).toBe(0);
+  });
+
+  it('a third group nobody anticipated still lands in the total, via other', () => {
+    // This church really does have one (Assets:Other Assets — an Employee Retention Credit,
+    // 2020-2022). Deriving "other" by subtraction is what guarantees a stacked bar can never come
+    // up short of the total printed beside it, whatever a future export decides to call a group.
+    const s = computeBalanceSummary([
+      assetRow('Assets:Current Assets:11027 Checking', 100),
+      assetRow('Assets:Fixed Assets:15000 Building', 200),
+      assetRow('Assets:Deferred Outflows Of Resources:19500 Something New', 55),
+    ]);
+    expect(s.assetsCents).toBe(355);
+    expect(s.otherAssetsCents).toBe(55);
+    expect(s.currentAssetsCents + s.fixedAssetsCents + s.otherAssetsCents).toBe(s.assetsCents);
+  });
+
+  it('counts every Assets row, parents included, exactly as the Assets total does', () => {
+    // FIN6's invariant: a stored row holds its OWN, non-cumulative amount, never a "Total for X"
+    // subtotal. So a parent that carries money is summed alongside its children on both sides of
+    // the split — skipping parents here would silently break the reconciliation above.
+    const s = computeBalanceSummary([
+      assetRow('Assets:Current Assets:Bank Accounts:11027 Lindell Checking', 500, { has_children: 1 }),
+      assetRow('Assets:Current Assets:Bank Accounts:11027 Lindell Checking:11030 Cash on hand', 300),
+    ]);
+    expect(s.assetsCents).toBe(800);
+    expect(s.currentAssetsCents).toBe(800);
+  });
+
+  it('a liability or equity row never leaks into an asset group', () => {
+    const s = computeBalanceSummary([
+      { classification: 'Liabilities', category_path: 'Liabilities:Current Liabilities:20000 AP', own_balance_cents: 700 },
+      { classification: 'Equity', category_path: 'Equity:Fixed Something:32000', own_balance_cents: 900 },
+    ]);
+    expect(s.currentAssetsCents).toBe(0);
+    expect(s.fixedAssetsCents).toBe(0);
+    expect(s.otherAssetsCents).toBe(0);
   });
 });
