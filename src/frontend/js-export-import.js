@@ -713,7 +713,7 @@ function loadManageFunds() {
   var area = document.getElementById('manage-funds-area');
   status.textContent = 'Loading…'; status.className = 'import-status';
   area.innerHTML = '';
-  api('/admin/api/funds').then(function(d) {
+  api('/admin/api/funds?include_stats=1').then(function(d) {
     if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
     _manageFunds = d.funds || [];
     renderManageFunds();
