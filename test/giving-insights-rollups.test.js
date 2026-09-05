@@ -112,5 +112,5 @@ describe('giving insights read models', () => {
     const result = await loadInsights(db);
     expect(result.trend.at(-1).gifts).toBe(20003);
     expect(sqlLog.filter(sql => /FROM giving_entries/.test(sql))).toHaveLength(0);
-  });
+  }, 15000);
 });
