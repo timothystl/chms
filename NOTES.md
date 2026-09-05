@@ -24,6 +24,19 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.229.6 — Yearly giving rebuilds have an atomic lease (2026-09-05)
+
+Ten requests arriving together after a deployment each observed the same dirty year and repeated
+its gift-ledger rebuild, producing about 57,000 unnecessary reads. A D1-backed per-year claim now
+allows exactly one Worker isolate to rebuild while concurrent requests use the last complete
+summary or briefly await a first-time materialization.
+
+- Claim acquisition and clearing the pre-existing dirty marker are one atomic SQLite statement.
+- Gifts changed after acquisition create a fresh dirty marker that the active rebuild cannot erase.
+- Failed or abandoned rebuilds are retryable through explicit failure marking and a two-minute
+  stale-claim lease.
+- Ten-request concurrency coverage verifies one ledger scan and an empty claim table afterward.
+
 ### v1.229.5 — Deposit coverage is aggregated once per request (2026-09-05)
 
 Production D1 metrics showed the optimized 100-row batch list still billing about 6,300 rows per
