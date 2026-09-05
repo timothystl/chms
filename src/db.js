@@ -1477,6 +1477,15 @@ async function _doInitDb(db) {
       year INTEGER PRIMARY KEY,
       dirtied_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
+    `CREATE TABLE IF NOT EXISTS giving_year_rollup_claims (
+      year INTEGER PRIMARY KEY,
+      token TEXT NOT NULL,
+      claimed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE TRIGGER IF NOT EXISTS trg_giving_year_rollup_claim_begin
+     AFTER INSERT ON giving_year_rollup_claims BEGIN
+       DELETE FROM giving_rollup_dirty WHERE year=NEW.year;
+     END`,
     `CREATE TRIGGER IF NOT EXISTS trg_giving_year_dirty_insert
      AFTER INSERT ON giving_entries WHEN NEW.contribution_date!=''
      BEGIN
