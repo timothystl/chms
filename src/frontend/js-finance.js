@@ -6,13 +6,25 @@ var _finDaycare = [];
 var _finOverview = {};
 var _finDaycareAgg = null; // last computed finAggregateDaycareByYear() result, cached for CSV export
 
-function loadFinance() {
+// ⚠ This used to load EVERY finance screen on every entry to the tab — and because switching
+// sub-nav sections goes through showTab('finance', …), which calls this, that meant every section
+// CLICK re-ran all seven loaders too. Three of them fetch finance/church/this-year, the one
+// payload in this app that scans giving_entries, so a single click cost three full-year giving
+// aggregations for screens the user could not even see. On 2026-09-04 that amplification pushed
+// tlc-volunteer-db past the D1 free-tier row-read ceiling and unrelated church APIs started
+// failing. Only the visible section loads now; see finEnsureSection below.
+var _finBootstrapped = false;
+function loadFinance(force) {
   finCheckOauthReturn();
   var loadingEl = document.getElementById('fin-loading');
   var rootEl = document.getElementById('fin-root');
+  if (_finBootstrapped && !force) { finEnsureSection(_finActiveNavId); return; }
+  if (force) finInvalidateFinanceCaches();
   loadingEl.style.display = '';
   loadingEl.textContent = 'Loading…';
   rootEl.style.display = 'none';
+  // The only three payloads every screen needs whatever section is open, and none of them touch
+  // giving_entries: connection status, the QuickBooks snapshot blob and the daycare entries.
   Promise.all([
     api('/admin/api/finance/status'),
     api('/admin/api/finance/overview'),
@@ -22,24 +34,106 @@ function loadFinance() {
     var overview = results[1] || {};
     _finDaycare = (results[2] && results[2].entries) || [];
     _finOverview = overview;
+    _finBootstrapped = true;
     loadingEl.style.display = 'none';
     rootEl.style.display = '';
-    // The Data & Imports tab owns the DOM that finRenderConnection/finRenderBudget/
-    // finRenderAccounts/finRenderDaycare write into, so it has to be built before they run —
-    // finRenderDataImports() mounts those containers and then calls them itself.
-    finRenderDataImports();
-    finRenderChurchReport();
-    finLoadBalanceSheetTab();
-    finRenderDaycareReport();
-    finLoadDaycareRooms();
-    finLoadProperty();
-    finLoadPlanning();
-    finLoadHealth();
+    finEnsureSection(_finActiveNavId);
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     loadingEl.textContent = 'Could not load finance data.';
   });
 }
+
+// ── One request per (screen-payload, year), shared by every screen that reads it ────────────
+// finance/church/this-year is read by Financial Health, Church Report and Budget. Each used to
+// fetch it independently, so opening the tab ran the same year's giving aggregations three times
+// over. They now share one in-flight promise per year; the backend coalesces further still (see
+// coalesceChurchYear in src/api-finance.js) for genuinely concurrent callers.
+//
+// This is a per-year memo, not a session cache with a TTL: anything that changes the underlying
+// ledger clears it through finInvalidateChurchYear, so a reader never sees a figure a completed
+// import has already superseded. A failed fetch drops its own entry so the next caller retries.
+var _finChurchYearFetches = {};
+function finFetchChurchYear(year) {
+  var key = String(year);
+  if (!_finChurchYearFetches[key]) {
+    _finChurchYearFetches[key] = api('/admin/api/finance/church/this-year?year=' + year)
+      .then(function(d) { return finRememberStreamMap(d); })
+      .catch(function(err) { delete _finChurchYearFetches[key]; throw err; });
+  }
+  return _finChurchYearFetches[key];
+}
+function finInvalidateChurchYear() { _finChurchYearFetches = {}; }
+
+// The Ivanhoe payload is read by Financial Health (entity cards, levers, decisions), by the
+// Daycare tab's MDO utility note and by Budget's forecast card — not only by the Property tab.
+// Fetched once and shared, so lazy-loading a section can never leave one of those three on
+// "Loading property forecast…" forever waiting for a tab the reader never opened.
+var _finPropertyFetch = null;
+function finEnsurePropertyData(force) {
+  if (force) _finPropertyFetch = null;
+  if (!_finPropertyFetch) {
+    _finPropertyFetch = api('/admin/api/finance/property/' + FIN_PROPERTY_KEY)
+      .then(function(d) { _finProperty = d; return d; })
+      .catch(function(err) { _finPropertyFetch = null; throw err; });
+  }
+  return _finPropertyFetch;
+}
+
+// The daycare year aggregate is a pure computation over _finDaycare (already loaded above) plus
+// the allocation percentages. Financial Health reads it, and used to get it only as a side effect
+// of the Daycare panel having been rendered — which stops being true the moment that panel is
+// lazy. Computing it here keeps Health's entity cards correct without rendering a hidden tab.
+function finEnsureDaycareAgg() {
+  var allocationByYear = _finDaycareAllocation ? _finDaycareAllocation.allocation : null;
+  _finDaycareAgg = finAggregateDaycareByYear(_finDaycare, allocationByYear);
+  if (!_finDaycareAllocation && !_finDaycareAllocationLoading && _finDaycareAgg.years.length) {
+    finLoadDaycareAllocation(_finDaycareAgg.years);
+  }
+  return _finDaycareAgg;
+}
+
+// ── Lazy sections ───────────────────────────────────────────────────────────────────────────
+// Budget, Compensation and Chart of Accounts are one entry because they are one fetch:
+// finLoadPlanning() populates the state all three render from.
+var _finSectionLoaded = {};
+var FIN_SECTION_LOADERS = {
+  health:       { key: 'health',   load: function() { finLoadHealth(); } },
+  // NOT finRenderChurchReport(): that one deliberately invalidates, because it is also the
+  // after-an-import refresh path. Opening the section is not a reason to throw away a payload
+  // another screen has already fetched for the same year.
+  church:       { key: 'church',   load: function() { finSetChurchReportMode(_finChurchMode); } },
+  balance:      { key: 'balance',  load: function() { finLoadBalanceSheetTab(); } },
+  daycare:      { key: 'daycare',  load: function() { finRenderDaycareReport(); finLoadDaycareRooms(); } },
+  property:     { key: 'property', load: function() { finLoadProperty(); } },
+  planning:     { key: 'planning', load: function() { finLoadPlanning(); } },
+  accounts:     { key: 'planning', load: function() { finLoadPlanning(); } },
+  compensation: { key: 'planning', load: function() { finLoadPlanning(); } },
+  data:         { key: 'data',     load: function() { finRenderDataImports(); } },
+};
+function finEnsureSection(section) {
+  var entry = FIN_SECTION_LOADERS[section];
+  if (!entry || !_finBootstrapped || _finSectionLoaded[entry.key]) return;
+  _finSectionLoaded[entry.key] = true;
+  entry.load();
+}
+// Anything that changes the ledger underneath these screens marks them for reload rather than
+// re-rendering them from data an import has just superseded.
+function finMarkSectionsStale(keys) {
+  keys.forEach(function(k) { delete _finSectionLoaded[k]; });
+}
+function finInvalidateFinanceCaches() {
+  finInvalidateChurchYear();
+  _finPropertyFetch = null;
+  _finHealthData = null;
+  _finChurchThisYearData = null;
+  _finChurchMultiYearData = null;
+  _finSectionLoaded = {};
+}
+// Property and daycare figures appear on the Health page too. Re-render it when they change, but
+// never FETCH it from here — Health may be a tab the reader has not opened, and pulling its
+// payload in the background is exactly the amplification this file just stopped doing.
+function finRefreshHealthIfLoaded() { if (_finHealthData) finRenderHealth(); }
 
 // ── Sub-nav: Financial Health / Church / Daycare / Property / Planning / Compensation / Data ──
 // Button active-state is handled by the shared renderFinanceSubnav() (js-core.js) re-render,
@@ -49,6 +143,7 @@ function finShowSection(section) {
     var panel = document.getElementById('fin-panel-' + s);
     if (panel) panel.style.display = (s === section) ? '' : 'none';
   });
+  finEnsureSection(section);
 }
 
 // ── Shared building blocks for the redesigned pages ─────────────────────────────────────────
@@ -252,7 +347,7 @@ function finRenderKpiGrid(kpis) {
 // which is the whole reason it exists — a report page should read, not offer twelve upload
 // buttons. This renderer also MOUNTS the containers the pre-existing renderers write into
 // (#fin-connection, #fin-budget, #fin-accounts, #fin-daycare-sync, #fin-daycare-body), so it must
-// run before them; loadFinance() calls it first and it calls them itself at the end.
+// run before them; finRenderDataImports() mounts those containers and calls them itself.
 var _finImportStatus = null;
 var _finAdjustKind = 'daycare';
 // Mirrors REVENUE_STREAMS in api-finance.js (kept as a duplicate, not a shared import — this file
@@ -672,9 +767,18 @@ function finLoadHealth(force) {
   if (_finHealthData && !force) { finRenderHealth(); return; }
   if (_finHealthLoading) return;
   _finHealthLoading = true;
-  api('/admin/api/finance/church/this-year?year=' + new Date().getFullYear()).then(function(d) {
+  if (force) finInvalidateChurchYear();
+  // Health's entity/lever/decision cards read the Ivanhoe payload and the daycare year aggregate
+  // as well as the church year. Both are fetched here rather than inherited from whether the
+  // Property or Daycare tab happened to be rendered first — a property fetch that fails still
+  // leaves the rest of the page correct, so it resolves to null instead of rejecting.
+  Promise.all([
+    finFetchChurchYear(new Date().getFullYear()),
+    finEnsurePropertyData().catch(function() { return null; }),
+  ]).then(function(results) {
     _finHealthLoading = false;
-    _finHealthData = finRememberStreamMap(d);
+    _finHealthData = results[0];
+    finEnsureDaycareAgg();
     finRenderHealth();
   }).catch(function(err) {
     _finHealthLoading = false;
@@ -1843,7 +1947,7 @@ function finSync(btn) {
     if (d && d.error) { finToast('Sync failed: ' + d.error); return; }
     if (d && d.warnings && d.warnings.length) finToast('Synced with warnings: ' + d.warnings.join(' '));
     else finToast('Synced successfully.');
-    loadFinance();
+    loadFinance(true);
   }).catch(function(err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Sync Now'; }
     finToast('Sync failed: ' + (err && err.message || 'Unknown error'));
@@ -1851,7 +1955,7 @@ function finSync(btn) {
 }
 function finDisconnect() {
   if (!confirm('Disconnect QuickBooks? You can reconnect later, but cached report data will be cleared.')) return;
-  api('/admin/api/finance/qb/disconnect', { method: 'POST' }).then(function() { loadFinance(); }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
+  api('/admin/api/finance/qb/disconnect', { method: 'POST' }).then(function() { loadFinance(true); }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 
 // Clears only finance_church_entries + finance_qb_snapshot (the church budget/actuals and their
@@ -1880,7 +1984,7 @@ function finConfirmClearData() {
     _finClearDataCounts = null;
     document.getElementById('fin-clear-data-panel').innerHTML = '<p style="font-size:.8rem;color:var(--sage);">Cleared. Sync QuickBooks or import a report to repopulate.</p>';
     finToast('Church budget/actuals data cleared.');
-    loadFinance();
+    loadFinance(true);
   }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
 }
 
@@ -2001,7 +2105,7 @@ function finSyncDaycare(btn) {
     if (btn) { btn.disabled = false; btn.textContent = 'Sync Daycare App'; }
     if (d && d.error) { finToast('Daycare sync failed: ' + d.error); return; }
     finToast('Daycare app synced (' + (d.imported || 0) + ' line items).');
-    loadFinance();
+    loadFinance(true);
   }).catch(function(err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Sync Daycare App'; }
     finToast('Daycare sync failed: ' + (err && err.message || 'Unknown error'));
@@ -2141,7 +2245,7 @@ function finDaycareChurchBudgetImport(year) {
       _finDaycare = d2.entries || [];
       finRenderDaycare();
       finRenderDaycareReport();
-      finLoadHealth();
+      finRefreshHealthIfLoaded();
     });
   }).catch(function(err) { finToast(err && err.message || 'Import failed.'); });
 }
@@ -2324,7 +2428,7 @@ function finLoadDaycareAllocation(years) {
     // old one until a full reload.
     var importsCard = document.getElementById('fin-imports-card');
     if (importsCard) importsCard.innerHTML = finRenderImportsCard();
-    finLoadHealth();
+    finRefreshHealthIfLoaded();
   }).catch(function() { _finDaycareAllocationLoading = false; });
 }
 function finDaycareAllocationConfigSave() {
@@ -2387,7 +2491,7 @@ function finLoadFinanceDaycareEntries() {
     _finDaycare = (d && d.entries) || [];
     finRenderDaycareStatus();
     finRenderDaycareReport();
-    finLoadHealth();
+    finRefreshHealthIfLoaded();
   });
 }
 // A visible warning (not a silent drop) when daycare-app-sync or one-off manual rows exist for a
@@ -2416,7 +2520,7 @@ function finLoadDaycareRooms() {
     _finDaycareRooms = d;
     _finDaycareRoomsAvailable = !!(d && d.available);
     finRenderDaycareReport();
-    finLoadHealth();
+    finRefreshHealthIfLoaded();
   }).catch(function() {
     _finDaycareRoomsAvailable = false;
   });
@@ -2578,15 +2682,12 @@ function finRenderDaycareReport() {
   var el = document.getElementById('fin-daycare-report');
   if (!el) return;
   finRenderDaycareHeader();
-  var allocationByYear = _finDaycareAllocation ? _finDaycareAllocation.allocation : null;
-  var agg = finAggregateDaycareByYear(_finDaycare, allocationByYear);
-  _finDaycareAgg = agg;
+  var agg = finEnsureDaycareAgg();
   var otherSourceWarning = finRenderDaycareOtherSourceWarning();
   if (!agg.years.length && !_finDaycareRoomsAvailable) {
     el.innerHTML = otherSourceWarning + '<div class="fin-card"><p style="font-size:.85rem;color:var(--warm-gray);margin:0;">No daycare data yet. Use "MDO accounts from an imported church budget" on the <b>Data &amp; Imports</b> tab.</p></div>';
     return;
   }
-  if (!_finDaycareAllocation && !_finDaycareAllocationLoading && agg.years.length) finLoadDaycareAllocation(agg.years);
   var isAdminUI = (_userRole === 'admin');
 
   function moneyCell(v, muted) {
@@ -3208,14 +3309,22 @@ function finSetChurchReportMode(mode) {
   if (mode === 'multiyear' && !_finChurchMultiYearData) finLoadChurchMultiYear();
 }
 
-// Called from loadFinance() on every tab load AND after every "Sync Now" — always invalidates
+// Called when the Church Report section is opened AND after every "Sync Now" — always invalidates
 // the cached church-report data first so a fresh sync's results actually show up, rather than
 // the stale data finSetChurchReportMode's cache-guard would otherwise keep serving (that guard
 // exists only to avoid a redundant re-fetch when the user merely clicks the This Year/Multi-Year
 // toggle back and forth, which calls finSetChurchReportMode directly, not through here).
+// Called when the Church Report section is first opened AND after every import or sync — always
+// invalidates, so the figures below always come from a fresh read. The shared year cache and the
+// other screens built on the same payload are dropped with it: after an import, Budget and
+// Financial Health are showing numbers the import has just superseded, so they reload on next
+// open rather than sitting on a stale render.
 function finRenderChurchReport() {
   _finChurchThisYearData = null;
   _finChurchMultiYearData = null;
+  _finHealthData = null;
+  finInvalidateChurchYear();
+  finMarkSectionsStale(['health', 'planning']);
   finSetChurchReportMode(_finChurchMode);
 }
 
@@ -3224,8 +3333,8 @@ function finLoadChurchThisYear(year) {
   var el = document.getElementById('fin-church-year-view');
   if (!el) return;
   el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
-  api('/admin/api/finance/church/this-year?year=' + year).then(function(d) {
-    _finChurchThisYearData = finRememberStreamMap(d);
+  finFetchChurchYear(year).then(function(d) {
+    _finChurchThisYearData = d;
     finRenderChurchThisYear(d);
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
@@ -4526,7 +4635,7 @@ function finChurchConfirmMonthlyImport() {
       + (doneYears.length > 1 ? '-' + doneYears[doneYears.length - 1] : '') + ').');
     finRenderChurchReport();
     finRefreshImportStatus();
-    finLoadHealth();
+    finRefreshHealthIfLoaded();
   }).catch(function(err) {
     btn.disabled = false;
     if (err && err.message === 'Unauthorized') return;
@@ -4877,7 +4986,7 @@ function finSyncYears(btn) {
     if (d && d.error) { if (msgEl) msgEl.textContent = 'Error: ' + d.error; return; }
     if (msgEl) msgEl.textContent = (d.warnings && d.warnings.length) ? 'Synced with warnings: ' + d.warnings.join(' ') : 'Synced ' + d.years.join(', ') + '.';
     finRenderChurchReport();
-    finLoadHealth();
+    finRefreshHealthIfLoaded();
   }).catch(function(err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Sync Selected Years'; }
     if (msgEl) msgEl.textContent = 'Error: ' + (err && err.message || 'Unknown error');
@@ -4963,16 +5072,16 @@ function finLoadProperty() {
   var el = document.getElementById('fin-property-root');
   if (!el) return;
   el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
-  api('/admin/api/finance/property/' + FIN_PROPERTY_KEY).then(function(d) {
-    _finProperty = d;
+  // force: this is also the refresh after an admin edits property data, so it must re-read
+  // rather than hand back the payload the edit just made stale.
+  finEnsurePropertyData(true).then(function(d) {
     finRenderProperty(d);
     finRenderPropertyAdminTools(d);
     finRenderDaycareMdoNote();
-    // finLoadProperty() and finLoadPlanning() race at finance-tab load, and Planning renders the
-    // Ivanhoe forecast from _finProperty. If the property fetch lands second, the card was left
-    // on "Loading property forecast…" until something else happened to re-render Planning.
+    // Budget renders the Ivanhoe forecast from _finProperty. Its card mounts inside the Budget
+    // page, so this is a no-op unless that page is already built.
     finRenderPropertyMultiYearForecast();
-    finLoadHealth();
+    finRefreshHealthIfLoaded();
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load property data.</p>';
@@ -6890,13 +6999,12 @@ function finLoadPlanning() {
   el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">Loading…</p>';
   Promise.all([
     api('/admin/api/finance/planning/church'),
-    api('/admin/api/finance/church/this-year?year=' + _finPlanBaseYear),
+    finFetchChurchYear(_finPlanBaseYear),
     api('/admin/api/finance/planning/base-projection'),
     api('/admin/api/finance/planning/board-categories'),
     api('/admin/api/finance/planning/purpose-tags'),
   ]).then(function(results) {
     _finPlanRows = (results[0] && results[0].rows) || [];
-    finRememberStreamMap(results[1]);
     _finPlanBaseTree = finReorganizeChurchTree(finBuildTreeFromFlatRows((results[1] && results[1].entries) || []));
     _finPlanBaseNet = (results[1] && results[1].netIncome) || { actualCents: 0, budgetCents: 0 };
     _finPlanBaseProjOverrides = (results[2] && results[2].overrides) || {};
@@ -6917,14 +7025,14 @@ function finLoadPlanning() {
       return finLoadSalaryPlannerData().then(function() {
         finRenderPlanning();
         finRenderCompensation();
-        finRenderPropertyMultiYearForecast();
         finRenderChartOfAccounts();
+        finLoadPlanningPropertyForecast();
       });
     }
     finRenderPlanning();
     finRenderCompensation();
-    finRenderPropertyMultiYearForecast();
     finRenderChartOfAccounts();
+    finLoadPlanningPropertyForecast();
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
     el.innerHTML = '<p style="font-size:.85rem;color:var(--danger);">Could not load budget plan.</p>';
@@ -10412,6 +10520,14 @@ function finCompCouncilReportHtml(computed, totals) {
 // has no "budget" concept to commit into, just actuals reported by AHRA; this is read-only and
 // entirely client-side, extending the single-year forecast already on the Commercial Property
 // tab into an adjustable growth-rate projection over several years). ──────────────────────────
+// Budget's Ivanhoe forecast card, and the property payload it needs. Kept apart from
+// finLoadPlanning()'s own Promise.all so a property fetch that fails leaves the rest of the
+// Budget page rendered rather than dropping it into the error branch.
+function finLoadPlanningPropertyForecast() {
+  finEnsurePropertyData()
+    .then(function() { finRenderPropertyMultiYearForecast(); })
+    .catch(function() { /* the card keeps its own "not loaded" state */ });
+}
 function finRenderPropertyMultiYearForecast() {
   // Mounts inside the Planning page's outlook row (see finRenderPlanningOutlook), so it is
   // rendered after finRenderPlanning() has rebuilt that container.

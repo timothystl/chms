@@ -1359,6 +1359,16 @@ async function _doInitDb(db) {
     'ALTER TABLE giving_entries ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
     // ChMS giving: per-gift date (more accurate than batch_date for Breeze imports)
     'ALTER TABLE giving_entries ADD COLUMN contribution_date TEXT NOT NULL DEFAULT ""',
+    // Covering indexes for the contribution_date range every finance and giving report filters
+    // on. Without them each of those reports is a full SCAN of every year of giving ever
+    // recorded in order to read one year; with them SQLite answers from the index alone. See
+    // migrations/0042_giving_contribution_date_indexes.sql for the EXPLAIN QUERY PLAN evidence.
+    //
+    // ⚠ These belong HERE and not in DB_INIT: contribution_date is added by the ALTER directly
+    // above, so DB_INIT runs before the column exists and the index creation fails with
+    // "no such column: contribution_date" on a fresh database.
+    'CREATE INDEX IF NOT EXISTS idx_giving_date_fund ON giving_entries(contribution_date, fund_id, amount)',
+    'CREATE INDEX IF NOT EXISTS idx_giving_date_person ON giving_entries(contribution_date, person_id, amount)',
     // ChMS tags: breeze_id to match Breeze tags on re-sync
     'ALTER TABLE tags ADD COLUMN breeze_id TEXT NOT NULL DEFAULT ""',
     // ChMS households: breeze_id to match Breeze family_id on re-sync

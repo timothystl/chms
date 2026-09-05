@@ -525,6 +525,69 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### PERF-FIN1 — Finance tab query amplification took D1 past its row-read ceiling (2026-09-05, DONE)
+Reported from a Cloudflare investigation, not a hunch: on 2026-09-04 `tlc-volunteer-db` passed the
+D1 free-tier row-read ceiling and **unrelated church APIs started failing account-wide**. The
+trailing-window top four queries were all one year of `giving_entries` — household giving bands
+(106 executions / 2.15M rows), fund totals (75 / 1.53M), monthly giving by fund (74 / 1.39M),
+distinct giving households (60 / 1.12M), ~6.2M rows between them. Verified against this repo
+before changing anything: all four live in `finance/church/this-year`, and the execution counts
+are **three multipliers stacked**, 3 × 4 = twelve full-year giving aggregations per sub-nav click.
+- **⚠ The one that is easy to miss: switching Finance sub-nav sections goes through
+  `showTab('finance', …)`, which called `loadFinance()`, which called all SEVEN section loaders.**
+  So a *click* — not just a tab entry — re-ran Balance Sheet, Daycare, Property, Budget and the
+  rest, whether or not the reader could see them. Only the visible section loads now
+  (`finEnsureSection` / `FIN_SECTION_LOADERS`); `loadFinance()` bootstraps once (status, QB
+  snapshot, daycare entries — none touch giving) and hands off.
+- **⚠ Three real cross-screen data dependencies had to be untangled BEFORE lazy loading was safe**,
+  or screens would have silently emptied: Financial Health reads the Ivanhoe property payload
+  (entity/lever/decision cards) and the daycare year aggregate; Budget's Ivanhoe forecast card
+  reads the same property payload. Both used to arrive as a *side effect* of another tab having
+  been eagerly rendered. Property is now a shared promise-cached prerequisite
+  (`finEnsurePropertyData`); the daycare aggregate is a real computation (`finEnsureDaycareAgg`)
+  rather than a side effect of `finRenderDaycareReport()` having run. **Anything added to Health,
+  Budget or Daycare that reads another screen's state needs the same treatment.**
+- **One request per year across screens** (`finFetchChurchYear`) — Health, Church Report and Budget
+  shared nothing before. Deliberately a per-year memo, NOT a session cache with a TTL:
+  `finRenderChurchReport()` (which is also the after-an-import refresh path) clears it and marks
+  Health and Budget stale, so no screen shows a figure a completed import superseded.
+  **⚠ The church SECTION loader is `finSetChurchReportMode`, not `finRenderChurchReport`** — the
+  latter invalidates by design, and opening a tab is not a reason to discard a payload another
+  screen already fetched for the same year.
+- **Two giving scans per request, not four** (`buildChurchThisYear`, extracted from its route so it
+  is a plain function of `(db, year)` and can be memoized). Per-fund annual totals are summed in JS
+  from the month-by-fund rows already read — **skipping a `fund_id` with no row in `funds`, which
+  is what preserves the INNER JOIN the separate query did** — and the giving-household count is the
+  row count of the same per-household aggregate the donor bands are bucketed from.
+- **Concurrent identical requests share one computation** (`coalesceChurchYear`). The map holds
+  only genuinely in-flight promises, deleted the moment each settles — coalescing, never a cache.
+- **Two covering indexes on `contribution_date`** (migration `0042`). `giving_entries` had no index
+  on that column at all. **⚠ They belong in `src/db.js`'s runtime `migrations` array and NOT in
+  `DB_INIT`**: `contribution_date` is itself added by an `ALTER` in that array, so `DB_INIT` runs
+  before the column exists and index creation fails with "no such column: contribution_date" on a
+  fresh database. Caught by `test/migration-error-visibility.test.js`, not by reading.
+- **Measured, not assumed** — `EXPLAIN QUERY PLAN` against a realistic 8-year ~42k-row fixture, on
+  the exact SQL as shipped: both remaining queries went `SCAN ge` → `SEARCH ge USING COVERING
+  INDEX`, no table lookup at all. One year is an eighth of that table, so ~8× per report on top of
+  4→2 scans and 3→1 requests.
+- `npm test` (2169/2169, 14 new in `test/finance-query-amplification.test.js` — the real route
+  against real in-memory SQLite with a query-counting DB stub, plus the real assembled bundles in a
+  `vm`). **⚠ `api()` is defined inside `js-core.js` and therefore cannot be stubbed from a `vm`
+  sandbox — `fetch` is the seam**, and the honest one, since what these tests measure is requests.
+  **Every new test verified non-vacuous** (6 injections, 6 correct failure sets). Two of my own
+  assertions were wrong and were corrected rather than forced. `node --check` on all touched files
+  and all three bundles; div balance on `CHMS_HTML` (1123/1123), CSS braces (1373/1373); spelling
+  clean. DEPLOY_VERSION bumped to 1.227.0. **Not verified**: a live browser, or the live D1
+  counters — the acceptance check is Cloudflare's own trailing-window numbers for
+  `tlc-volunteer-db` once this deploys.
+- **Deliberately NOT built, flagged rather than guessed**: a persisted annual/monthly giving
+  aggregate table with change-driven invalidation. It is the right answer if these reports stay
+  hot, but it is a real schema-plus-invalidation design (which writes invalidate which years) and
+  wants its own session, not a tail-end addition to a fix already touching three multipliers.
+  (`src/api-finance.js`, `src/db.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+  `migrations/0042_giving_contribution_date_indexes.sql`,
+  `test/finance-query-amplification.test.js`)
+
 ### FIN70 — Chart of Accounts page; Board view / QuickBooks order toggle on Planning (2026-09-04, DONE)
 Built from a Claude Design canvas handoff (`design_handoff_budget_planning_categorization` —
 `Chart of Accounts.dc.html` + `Budget Planning.dc.html`, recreated from this repo's own shipped
