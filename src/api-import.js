@@ -5,6 +5,25 @@ import { parseFundSplits, givingEntryId, isGivingDup, getRolePermissions, resolv
 import { validateImageUpload } from './api-people.js';
 import { sendBrevoTransactionalEmail } from './api-emails.js';
 
+// Load only the contribution IDs relevant to the current import payload. The
+// former import path selected every non-empty breeze_id once per uploaded CSV
+// chunk, so a small import repeatedly read the entire giving_entries table.
+// Keep batches below D1's bind-parameter limit and let idx_giving_breeze serve
+// each lookup directly.
+export async function loadExistingGivingIds(db, candidateIds) {
+  const ids = [...new Set(candidateIds.map(id => String(id || '').trim()).filter(Boolean))];
+  const existing = new Set();
+  for (let i = 0; i < ids.length; i += 90) {
+    const chunk = ids.slice(i, i + 90);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = (await db.prepare(
+      `SELECT breeze_id FROM giving_entries WHERE breeze_id IN (${placeholders})`
+    ).bind(...chunk).all()).results || [];
+    for (const row of rows) existing.add(String(row.breeze_id));
+  }
+  return existing;
+}
+
 // Cache a Breeze profile photo into our R2 bucket, returning a stable
 // /admin/r2photo/... URL. Mirrors the auth fallbacks in the /admin/photo-proxy
 // route — Breeze's CDN often needs the API key (header or query param) and
@@ -1031,11 +1050,21 @@ if (seg === 'import/giving-csv' && method === 'POST') { try {
     return 'other';
   };
 
-  // Pre-load caches
-  const existingIds = new Set(
-    ((await db.prepare("SELECT breeze_id FROM giving_entries WHERE breeze_id != ''").all()).results || [])
-      .map(r => String(r.breeze_id))
-  );
+  // Query only IDs this chunk could create. A payment can be represented as
+  // pid, pid-1, pid-2, etc. when Breeze exports split gifts on multiple rows.
+  const paymentOccurrences = {};
+  for (const row of dataRows) {
+    const pid = String(row[C.paymentId] || '').trim();
+    if (pid) paymentOccurrences[pid] = (paymentOccurrences[pid] || 0) + 1;
+  }
+  const candidateEntryIds = [];
+  for (const [pid, count] of Object.entries(paymentOccurrences)) {
+    candidateEntryIds.push(pid, pid + '-1');
+    for (let occurrence = 2; occurrence <= count; occurrence++) {
+      candidateEntryIds.push(pid + '-' + occurrence);
+    }
+  }
+  const existingIds = await loadExistingGivingIds(db, candidateEntryIds);
   const personByBreezeId = {};
   for (const p of (await db.prepare('SELECT id, breeze_id FROM people WHERE breeze_id != ""').all()).results || [])
     personByBreezeId[String(p.breeze_id)] = p.id;
@@ -2243,11 +2272,15 @@ if (seg === 'import/breeze-giving-csv' && method === 'POST') { try {
     return results;
   };
 
-  // Pre-load caches
-  const existingIds = new Set(
-    ((await db.prepare("SELECT breeze_id FROM giving_entries WHERE breeze_id != ''").all()).results || [])
-      .map(r => r.breeze_id)
-  );
+  // Payment IDs are unique in this Breeze export format, including rows that
+  // split one payment across funds. Check only IDs present in this file.
+  const incomingPaymentIds = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = delim === '\t' ? lines[i].split('\t') : lines[i].split(',');
+    const paymentId = (cols[iPaymentId] || '').replace(/['"]/g, '').trim();
+    if (paymentId) incomingPaymentIds.push(paymentId);
+  }
+  const existingIds = await loadExistingGivingIds(db, incomingPaymentIds);
   const personByBreezeId = {};
   for (const p of (await db.prepare('SELECT id, breeze_id FROM people WHERE breeze_id != ""').all()).results || [])
     personByBreezeId[p.breeze_id] = p.id;
