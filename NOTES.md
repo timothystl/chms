@@ -24,6 +24,12 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.229.7 — Budget annualization uses calendar-day arithmetic (2026-09-05)
+
+Elapsed weeks no longer lose a day after the spring daylight-saving transition. Backend and
+frontend now compare UTC-normalized calendar dates, so Aug. 5 correctly represents 217 elapsed
+days (31 weeks) in every local timezone while preserving the Jan. 1 floor and 52-week cap.
+
 ### v1.229.6 — Yearly giving rebuilds have an atomic lease (2026-09-05)
 
 Ten requests arriving together after a deployment each observed the same dirty year and repeated

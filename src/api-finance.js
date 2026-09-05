@@ -1828,10 +1828,15 @@ export function computeYearSummary(rows) {
 // Elapsed weeks since Jan 1 of `now`'s year, capped at 52 — used by Church Budget Planning's
 // base-year annualization (see the generate-all handler below) instead of calendar months, since
 // a partial month is ambiguous (is day 5 of month 8 "1 month elapsed" or "0"?) in a way a count of
-// full days ÷ 7 is not. Inclusive of today (Jan 1 itself = 1 day elapsed = week 0.14, not 0).
+// calendar days ÷ 7 is not. Convert the local calendar fields to UTC before subtraction: directly
+// subtracting local midnights crosses daylight-saving changes and can make August one hour short,
+// which Math.floor() incorrectly turns into one whole missing day. Inclusive of today (Jan 1
+// itself = 1 day elapsed = week 0.14, not 0).
 export function weeksElapsedInYear(now) {
-  const yearStart = new Date(now.getFullYear(), 0, 1);
-  const daysElapsed = Math.floor((now - yearStart) / 86400000) + 1;
+  const year = now.getFullYear();
+  const calendarDay = Date.UTC(year, now.getMonth(), now.getDate());
+  const yearStart = Date.UTC(year, 0, 1);
+  const daysElapsed = Math.floor((calendarDay - yearStart) / 86400000) + 1;
   return Math.min(52, Math.max(1, daysElapsed / 7));
 }
 

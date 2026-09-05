@@ -192,6 +192,11 @@ describe('handleFinanceApi — weeksElapsedInYear (used for base-year annualizat
     const { weeksElapsedInYear } = await import('../src/api-finance.js');
     expect(weeksElapsedInYear(new Date(2026, 7, 5))).toBe(31);
   });
+  it('counts calendar days across daylight-saving time without losing an hour or day', async () => {
+    const { weeksElapsedInYear } = await import('../src/api-finance.js');
+    // March 9 is day 68 in 2026, immediately after the US spring-forward transition.
+    expect(weeksElapsedInYear(new Date(2026, 2, 9))).toBe(68 / 7);
+  });
 });
 
 describe('handleFinanceApi — base-projection overrides (FY{base} Projected column)', () => {

@@ -7129,8 +7129,12 @@ function finPlanFindRow(categoryPath) {
 // api-finance.js (kept as a duplicate, not a shared import, since this file has no module system;
 // see the generate-all endpoint's comment for why weeks beat calendar months here).
 function finWeeksElapsedInYear(now) {
-  var yearStart = new Date(now.getFullYear(), 0, 1);
-  var daysElapsed = Math.floor((now - yearStart) / 86400000) + 1;
+  // UTC is used only for calendar arithmetic. Subtracting local midnights across the spring DST
+  // change is one hour short and Math.floor() would incorrectly discard a whole elapsed day.
+  var year = now.getFullYear();
+  var calendarDay = Date.UTC(year, now.getMonth(), now.getDate());
+  var yearStart = Date.UTC(year, 0, 1);
+  var daysElapsed = Math.floor((calendarDay - yearStart) / 86400000) + 1;
   return Math.min(52, Math.max(1, daysElapsed / 7));
 }
 // Stable DOM id for a category's editable cell, so a full re-render can find the input back and
