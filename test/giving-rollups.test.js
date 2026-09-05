@@ -20,6 +20,7 @@ function setup() {
   `);
   raw.exec('CREATE INDEX idx_giving_date_fund ON giving_entries(contribution_date,fund_id,amount)');
   raw.exec(readFileSync(new URL('../migrations/0044_giving_monthly_fund_totals.sql', import.meta.url), 'utf8'));
+  raw.exec(readFileSync(new URL('../migrations/0045_giving_year_person_totals.sql', import.meta.url), 'utf8'));
   const queries = [];
   const db = {
     prepare(sql) {
