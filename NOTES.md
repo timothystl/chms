@@ -24,6 +24,58 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.229.0 — Balance Sheet: assets split into Current/Fixed/Other, and an asset growth table (2026-09-05)
+
+**Asked for as a push-back on the Cash & Bank Accounts trend, and it was right**: "is this going to
+check total assets over time? not just checking account. wouldn't the thing be to see how much total
+assets grow, checking accounts on December each year isn't the only tracker." The chart drew one
+flat Assets bar per year, and total assets are the wrong number to read growth off for this church.
+
+- **Why the total hides it, measured against production D1, not assumed**: fixed assets are the
+  building at book value and have not moved since 2021 ($500,315 every year, $590,315 before that).
+  Current assets fell $942,696 → $646,204 across the same eight years — a **31% drawdown** — while
+  total assets fell only 25%, because a third of the total is a constant. On a bar chart at that
+  scale the slope reads as gentle.
+- **The Assets column is now stacked into its balance-sheet groups.** New `assetGroupOf()` and three
+  new fields on `computeBalanceSummary()` (`currentAssetsCents`, `fixedAssetsCents`,
+  `otherAssetsCents`), matched on the **group heading directly under "Assets"** — the line a human
+  reads on the report — not on account names, so a bank account nested under Current Assets lands
+  where it belongs regardless of what it is called.
+- **⚠ "Other" is DERIVED BY SUBTRACTION (total − current − fixed), never matched by a third
+  pattern.** That is what makes the three segments add back to the Assets total by construction, so
+  a stacked bar can never come up short of the figure printed beside it. This church really does
+  have a third group (Assets:Other Assets — an Employee Retention Credit, 2020-2022) and a future
+  export could invent a fourth. Hiding a dollar a total on the same screen still counts is the
+  FIN58b defect. Verified against all eight years of real production data: the three segments
+  reconcile to the Assets total exactly, every year.
+- **`renderGroupedBarChart()` gained stacking** — the shared helper in `js-attendance.js` that
+  Attendance, Church Report and Daycare also use. A series may carry a `stack` key; series sharing
+  one are drawn as a single column, and the axis is scaled against **column totals** rather than
+  the tallest single segment, or a stack would run off the top. **Every existing caller passes no
+  stack key and is untouched** — proven by rendering old and new side by side across four cases and
+  diffing: byte-identical.
+- **New "Asset Growth by Year" table**, alongside the existing Net Worth Growth one and
+  deliberately not folded into it: equity nets out debt, so a year that paid down a mortgage out of
+  savings reads as growth in the net-worth table while the church holds less. Total assets AND
+  current assets, each with a signed $ and %. The two tables now share one `finGrowthCellsHtml()` —
+  the refactor was verified byte-identical on the net-worth table's own output first, so the shared
+  cell is provably the cell that was already shipping.
+- **The CSV export carries the same split**, so a spreadsheet follow-up can never disagree with the
+  screen.
+- `npm test` (2210/2210, 18 new). **Verified non-vacuous** by stashing all three source files and
+  confirming 16 of the 18 fail against the pre-change code; the two that pass either way are
+  deliberate regression guards that the unstacked path is unchanged — **one of those was written as
+  a real assertion and was rewritten** after it turned out to pass against the pre-stacking
+  renderer, and now fails correctly. One pre-existing CSV test needed its expected column list
+  widened (the export really did gain three columns). **A backtick in one of my own new comments
+  closed the outer `String.raw` literal** — the SC3-BUG1/FIN15 class again, caught by running the
+  assembled bundle, not by reading. `node --check` on `api-finance.js` and all four assembled
+  bundles; div balance on `CHMS_HTML` (1123/1123); CSS braces (1373/1373); spelling clean.
+  DEPLOY_VERSION 1.229.0. **Not verified**: a live browser.
+  (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-attendance.js`,
+  `src/frontend/js-core.js`, `test/finance-balance-pnl-recon.test.js`,
+  `test/finance-balance-recon-ui.test.js`)
+
 ### v1.228.2 — Finance import-status lookup no longer scans imported account rows (2026-09-05)
 
 After PERF8 deployed, a measured 30-minute Finance session showed the old lifetime fund scan was

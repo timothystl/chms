@@ -3905,26 +3905,54 @@ function finRenderBalanceMultiYearChart(multiYear) {
   var years = multiYear.years;
   var anyData = years.some(function(y) { var s = multiYear.byYear[y]; return s && (s.assetsCents || s.liabilitiesCents || s.equityCents); });
   if (!anyData) return '';
+  // The Assets column is STACKED into its balance-sheet groups rather than drawn as one bar.
+  // Total assets alone hides what is moving: this church's fixed assets are the building at book
+  // value and have not changed since 2021, so an eight-year 31% drawdown of current assets is
+  // averaged against a frozen figure and reads as a gentle slope. Liabilities and Equity keep
+  // their own plain columns — only the Assets column stacks.
+  //
+  // ⚠ The "Other" segment is only OFFERED when some year actually has one (this church's is an
+  // Employee Retention Credit, 2020-2022) — but it is never dropped when it exists, because the
+  // three segments are what make the stack equal the Assets total. otherAssetsCents is derived
+  // server-side by subtraction for exactly that reason.
+  var anyOther = years.some(function(y) { return ((multiYear.byYear[y] || {}).otherAssetsCents || 0) !== 0; });
+  var assetSeries = [
+    { key: 'current', label: 'Current assets', color: '#2E7EA6', stack: 'assets' },
+    { key: 'fixed', label: 'Fixed assets', color: '#8FBBD1', stack: 'assets' },
+  ];
+  if (anyOther) assetSeries.push({ key: 'other', label: 'Other assets', color: '#C5DAE5', stack: 'assets' });
+  var seriesLabels = { current: 'Current assets', fixed: 'Fixed assets', other: 'Other assets',
+    liabilities: 'Liabilities', equity: 'Equity' };
   var chart = renderGroupedBarChart({
     chartH: 200,
     groups: years.map(function(y) { return { key: y, label: String(y) }; }),
-    series: [
-      { key: 'assets', label: 'Assets', color: '#2E7EA6' },
+    series: assetSeries.concat([
       { key: 'liabilities', label: 'Liabilities', color: '#C9973A' },
       { key: 'equity', label: 'Equity', color: '#5A9E6F' },
-    ],
+    ]),
     value: function(y, s) {
       var yd = multiYear.byYear[y] || {};
-      var cents = s === 'assets' ? (yd.assetsCents || 0) : s === 'liabilities' ? (yd.liabilitiesCents || 0) : (yd.equityCents || 0);
+      var cents = s === 'current' ? (yd.currentAssetsCents || 0)
+        : s === 'fixed' ? (yd.fixedAssetsCents || 0)
+        : s === 'other' ? (yd.otherAssetsCents || 0)
+        : s === 'liabilities' ? (yd.liabilitiesCents || 0)
+        : (yd.equityCents || 0);
       return cents / 100;
     },
     tooltip: function(y, s, v) {
-      var sLbl = s === 'assets' ? 'Assets' : s === 'liabilities' ? 'Liabilities' : 'Equity';
-      return sLbl + ' ' + y + ': $' + finFmtMoney(v);
+      var tip = (seriesLabels[s] || s) + ' ' + y + ': $' + finFmtMoney(v);
+      // A segment is only meaningful against the total it is part of, so the Assets segments
+      // name that total too rather than leaving the reader to add three tooltips together.
+      if (s === 'current' || s === 'fixed' || s === 'other') {
+        tip += '  (total assets $' + finFmtMoney(((multiYear.byYear[y] || {}).assetsCents || 0) / 100) + ')';
+      }
+      return tip;
     },
     barLabel: function(v) { return '$' + Math.round(v / 1000) + 'k'; },
   });
-  return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Multi-Year Trend</h4>' + chart + '</div>';
+  return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 4px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Multi-Year Trend</h4>'
+    + '<p style="font-size:.74rem;color:var(--warm-gray);margin:0 0 8px;">The Assets column is stacked into its balance-sheet groups. Fixed assets are property at book value and do not move with the market, so current assets are where growth or drawdown actually shows.</p>'
+    + chart + '</div>';
 }
 // "Compared to our bank accounts over the years" — a real user request, distinct from the
 // Assets/Liabilities/Equity trend above (which includes every asset, receivables and fixed
@@ -3969,6 +3997,21 @@ function finRenderCashTrendChart(multiYear) {
 // The Equity series above IS net worth, but a board reads "growth or loss of money" as a table with
 // a sign on it, not a bar chart alone — a plain year-over-year $ and % change table, computed from
 // the same multi-year equity figures the chart already draws from (so the two can never disagree).
+// One change + percentage cell pair, shared by both growth tables below so a figure is formatted
+// and colored identically in each — two hand-written copies of the same cell is exactly how they
+// come to disagree (SW17).
+function finGrowthCellsHtml(cur, prior) {
+  var delta = cur - prior;
+  var pct = prior !== 0 ? (delta / Math.abs(prior) * 100) : null;
+  var sign = delta > 0 ? '+' : '';
+  var color = delta > 0 ? 'var(--sage)' : (delta < 0 ? 'var(--danger)' : 'var(--warm-gray)');
+  return '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(cur / 100) + '</td>'
+    + '<td style="text-align:right;padding:5px 8px;color:' + color + ';font-weight:600;">' + sign + '$' + finFmtMoney(Math.abs(delta) / 100) + '</td>'
+    + '<td style="text-align:right;padding:5px 8px;color:' + color + ';">' + (pct == null ? '&mdash;' : (delta >= 0 ? '+' : '') + pct.toFixed(1) + '%') + '</td>';
+}
+function finGrowthThHtml(label, right) {
+  return '<th style="text-align:' + (right ? 'right' : 'left') + ';padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">' + label + '</th>';
+}
 function finRenderNetWorthGrowthTable(multiYear) {
   if (!multiYear || !multiYear.years || multiYear.years.length < 2) return '';
   var years = multiYear.years;
@@ -3978,25 +4021,47 @@ function finRenderNetWorthGrowthTable(multiYear) {
     var cur = (multiYear.byYear[y] || {}).equityCents;
     var prior = (multiYear.byYear[py] || {}).equityCents;
     if (cur == null || prior == null) continue;
-    var delta = cur - prior;
-    var pct = prior !== 0 ? (delta / Math.abs(prior) * 100) : null;
-    var sign = delta > 0 ? '+' : (delta < 0 ? '' : '');
-    var color = delta > 0 ? 'var(--sage)' : (delta < 0 ? 'var(--danger)' : 'var(--warm-gray)');
     rows.push('<tr><td style="padding:5px 8px;">' + py + ' &rarr; ' + y + '</td>'
-      + '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(cur / 100) + '</td>'
-      + '<td style="text-align:right;padding:5px 8px;color:' + color + ';font-weight:600;">' + sign + '$' + finFmtMoney(Math.abs(delta) / 100) + '</td>'
-      + '<td style="text-align:right;padding:5px 8px;color:' + color + ';">' + (pct == null ? '&mdash;' : (delta >= 0 ? '+' : '') + pct.toFixed(1) + '%') + '</td></tr>');
+      + finGrowthCellsHtml(cur, prior) + '</tr>');
   }
   if (!rows.length) return '';
   return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 4px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Net Worth Growth by Year</h4>'
     + '<p style="font-size:.74rem;color:var(--warm-gray);margin:0 0 8px;">Change in total equity (assets minus liabilities) year over year &mdash; the plainest single measure of whether the church grew or lost ground.</p>'
     + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
-    + '<thead><tr style="background:var(--warm-surface-header);"><th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Period</th>'
-    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Equity</th>'
-    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Change</th>'
-    + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">%</th></tr></thead>'
+    + '<thead><tr style="background:var(--warm-surface-header);">' + finGrowthThHtml('Period') + finGrowthThHtml('Equity', true)
+    + finGrowthThHtml('Change', true) + finGrowthThHtml('%', true) + '</tr></thead>'
     + '<tbody>' + rows.join('') + '</tbody></table></div></div>';
 }
+// Assets growth, alongside net worth above and deliberately NOT folded into it: equity nets out
+// debt, so a year that paid down a mortgage out of savings can read as growth in the net-worth
+// table while the church actually holds less. Total assets AND current assets are both shown,
+// because most of the total here is property carried at book value and does not move at all —
+// current assets are where a drawdown actually shows up.
+function finRenderAssetGrowthTable(multiYear) {
+  if (!multiYear || !multiYear.years || multiYear.years.length < 2) return '';
+  var years = multiYear.years;
+  var dashCells = '<td style="text-align:right;padding:5px 8px;">&mdash;</td><td style="text-align:right;padding:5px 8px;">&mdash;</td><td style="text-align:right;padding:5px 8px;">&mdash;</td>';
+  var rows = [];
+  for (var i = 1; i < years.length; i++) {
+    var y = years[i], py = years[i - 1];
+    var cur = multiYear.byYear[y] || {}, prior = multiYear.byYear[py] || {};
+    if (cur.assetsCents == null || prior.assetsCents == null) continue;
+    var currentCells = (cur.currentAssetsCents == null || prior.currentAssetsCents == null)
+      ? dashCells
+      : finGrowthCellsHtml(cur.currentAssetsCents, prior.currentAssetsCents);
+    rows.push('<tr><td style="padding:5px 8px;">' + py + ' &rarr; ' + y + '</td>'
+      + finGrowthCellsHtml(cur.assetsCents, prior.assetsCents) + currentCells + '</tr>');
+  }
+  if (!rows.length) return '';
+  return '<div style="margin-bottom:18px;"><h4 style="margin:0 0 4px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Asset Growth by Year</h4>'
+    + '<p style="font-size:.74rem;color:var(--warm-gray);margin:0 0 8px;">What the church actually holds, year over year. Total assets include property at book value, which does not move with the market &mdash; the current-assets columns are cash, receivables and investments, and are where growth or drawdown really shows.</p>'
+    + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead><tr style="background:var(--warm-surface-header);">' + finGrowthThHtml('Period') + finGrowthThHtml('Total assets', true)
+    + finGrowthThHtml('Change', true) + finGrowthThHtml('%', true)
+    + finGrowthThHtml('Current assets', true) + finGrowthThHtml('Change', true) + finGrowthThHtml('%', true) + '</tr></thead>'
+    + '<tbody>' + rows.join('') + '</tbody></table></div></div>';
+}
+
 // ── Net Assets — Donor-Restricted vs. Without Donor Restrictions ────────────────────────────
 // Per Timothy_Equity_Reclassification_Spec.md: replaces QuickBooks' four-way equity split with
 // the real post-ASU-2016-14 two-bucket model, computed bottom-up from real account balances
@@ -4134,6 +4199,7 @@ function finRenderBalanceSheetTab(d, multiYear) {
       + finRenderBalanceMultiYearChart(multiYear)
       + finRenderCashTrendChart(multiYear)
       + finRenderNetWorthGrowthTable(multiYear)
+      + finRenderAssetGrowthTable(multiYear)
       + finRenderBalanceReconciliation(multiYear);
     return;
   }
@@ -4165,6 +4231,7 @@ function finRenderBalanceSheetTab(d, multiYear) {
   html += finRenderBalanceMultiYearChart(multiYear);
   html += finRenderCashTrendChart(multiYear);
   html += finRenderNetWorthGrowthTable(multiYear);
+  html += finRenderAssetGrowthTable(multiYear);
   html += finRenderBalanceYoyCard(d.rows, _finBalancePriorYearData, d.year);
   html += finRenderBalanceReconciliation(multiYear);
   html += finRenderEquityReclassMultiYearTable(multiYear);
@@ -4179,11 +4246,12 @@ function finRenderBalanceSheetTab(d, multiYear) {
 function finExportBalanceCsv() {
   var multiYear = _finBalanceMultiYearData;
   if (!multiYear || !multiYear.years || !multiYear.years.length) { finToast('No balance sheet data loaded to export.'); return; }
-  var rows = [['Year', 'Assets', 'Liabilities', 'Equity', 'Operating Checking', 'All Cash & Bank Accounts']];
+  var rows = [['Year', 'Assets', 'Current Assets', 'Fixed Assets', 'Other Assets', 'Liabilities', 'Equity', 'Operating Checking', 'All Cash & Bank Accounts']];
   multiYear.years.forEach(function(y) {
     var b = multiYear.byYear[y] || {};
     var c = (multiYear.cashByYear && multiYear.cashByYear[y]) || {};
-    rows.push([y, (b.assetsCents || 0) / 100, (b.liabilitiesCents || 0) / 100, (b.equityCents || 0) / 100,
+    rows.push([y, (b.assetsCents || 0) / 100, (b.currentAssetsCents || 0) / 100, (b.fixedAssetsCents || 0) / 100,
+      (b.otherAssetsCents || 0) / 100, (b.liabilitiesCents || 0) / 100, (b.equityCents || 0) / 100,
       c.operatingCents == null ? '' : c.operatingCents / 100, c.allCashCents == null ? '' : c.allCashCents / 100]);
   });
   finDownloadCsv('balance-sheet-multi-year.csv', rows);

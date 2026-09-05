@@ -337,7 +337,9 @@ describe('finExportBalanceCsv', () => {
     ctx.finExportBalanceCsv();
     expect(captured[0].name).toBe('balance-sheet-multi-year.csv');
     const row2025 = captured[0].rows.find(r => r[0] === 2025);
-    expect(row2025).toEqual([2025, 5000, 0, 5000, 3000, 3500]);
+    // Assets, then its three groups (this fixture has no group split, so all three read 0 —
+    // the split's own coverage is in the asset-trend describe below), then liabilities/equity/cash.
+    expect(row2025).toEqual([2025, 5000, 0, 0, 0, 0, 5000, 3000, 3500]);
   });
 
   it('toasts rather than exporting nothing when no balance data is loaded', () => {
@@ -387,5 +389,148 @@ describe('balance sheet imports clear a hand-pinned trend range', () => {
     // If Load Range stopped writing _finBalanceYears there would be nothing to invalidate and the
     // two assertions above would pass while guarding nothing.
     expect(bodyOf('finBalanceLoadRange')).toContain('finLoadBalanceSheetTab(null, years)');
+  });
+});
+
+// ── Stacked Assets column + the assets growth table ────────────────────────────────────────
+// The Multi-Year Trend used to draw one flat Assets bar. Total assets are mostly the building at
+// book value, which does not move, so the current-asset drawdown that is the actual story was
+// invisible. Both the chart and the table below it are driven from the same multi-year payload,
+// so they cannot disagree.
+describe('Balance Sheet asset trend', () => {
+  const multiYear = {
+    years: [2019, 2020],
+    byYear: {
+      2019: { assetsCents: 153301079, liabilitiesCents: 10000000, equityCents: 143301079,
+        currentAssetsCents: 94269566, fixedAssetsCents: 59031513, otherAssetsCents: 0 },
+      2020: { assetsCents: 132018914, liabilitiesCents: 9000000, equityCents: 123018914,
+        currentAssetsCents: 72103587, fixedAssetsCents: 59031513, otherAssetsCents: 883814 },
+    },
+    cashByYear: {},
+  };
+
+  it('draws Current/Fixed/Other as one stacked Assets column beside Liabilities and Equity', () => {
+    const { ctx } = makeCtx();
+    const html = ctx.finRenderBalanceMultiYearChart(multiYear);
+    const rects = [...html.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)]
+      .map((m) => ({ x: +m[1], y: +m[2], h: +m[4] }));
+    // 2 years x (3 asset segments + liabilities + equity) = 10 bars, in 3 columns per year.
+    expect(rects.length).toBe(10);
+    const xs = [...new Set(rects.map((r) => r.x))];
+    expect(xs.length).toBe(6); // 3 columns x 2 years, not 5 columns
+    // The three asset segments of one year share an x and stack contiguously.
+    const first = rects.filter((r) => r.x === rects[0].x).sort((a, b) => b.y - a.y);
+    expect(first.length).toBe(3);
+    expect(Math.abs(first[0].y - (first[1].y + first[1].h))).toBeLessThan(0.15);
+    expect(Math.abs(first[1].y - (first[2].y + first[2].h))).toBeLessThan(0.15);
+  });
+
+  it('names the total in an asset segment tooltip, so a segment is never mistaken for all assets', () => {
+    const { ctx } = makeCtx();
+    const html = ctx.finRenderBalanceMultiYearChart(multiYear);
+    expect(html).toContain('total assets');
+    expect(html).toContain('Current assets');
+    expect(html).toContain('Fixed assets');
+  });
+
+  it('omits the Other segment entirely when no year has one', () => {
+    const { ctx } = makeCtx();
+    const noOther = { years: [2019], byYear: { 2019: Object.assign({}, multiYear.byYear[2019]) }, cashByYear: {} };
+    const html = ctx.finRenderBalanceMultiYearChart(noOther);
+    expect(html).not.toContain('Other assets');
+    expect(html).toContain('Fixed assets');
+  });
+
+  it('the growth table reports total AND current assets separately, each signed', () => {
+    const { ctx } = makeCtx();
+    const html = ctx.finRenderAssetGrowthTable(multiYear);
+    expect(html).toContain('Asset Growth by Year');
+    expect(html).toContain('Total assets');
+    expect(html).toContain('Current assets');
+    // Total assets fell 13.9%; current assets fell far harder at 23.5% — the whole reason both
+    // columns are shown rather than the total alone.
+    expect(html).toContain('-13.9%');
+    expect(html).toContain('-23.5%');
+    expect(html).toContain('var(--danger)');
+  });
+
+  it('renders nothing with fewer than two years to compare', () => {
+    const { ctx } = makeCtx();
+    expect(ctx.finRenderAssetGrowthTable({ years: [2020], byYear: multiYear.byYear })).toBe('');
+    expect(ctx.finRenderAssetGrowthTable(null)).toBe('');
+  });
+
+  it('shows dashes rather than a fabricated -100% when a year carries no asset-group split', () => {
+    const { ctx } = makeCtx();
+    const legacy = { years: [2019, 2020], byYear: {
+      2019: { assetsCents: 100, equityCents: 1 },
+      2020: { assetsCents: 200, equityCents: 2 },
+    } };
+    const html = ctx.finRenderAssetGrowthTable(legacy);
+    expect(html).toContain('&mdash;');
+    expect(html).not.toContain('-100.0%');
+  });
+
+  it('both growth tables are on the Balance Sheet render path', () => {
+    const src = CHMS_APP_FINANCE_JS;
+    const start = src.indexOf('function finRenderBalanceSheetTab(');
+    expect(start).toBeGreaterThan(-1);
+    const body = src.slice(start, src.indexOf('\nfunction ', start + 1));
+    expect(body).toContain('finRenderNetWorthGrowthTable(multiYear)');
+    expect(body).toContain('finRenderAssetGrowthTable(multiYear)');
+    // Present on the empty state too, since a year with no snapshot still has a trend to read.
+    expect((body.match(/finRenderAssetGrowthTable\(multiYear\)/g) || []).length).toBe(2);
+  });
+
+  it('the CSV export carries the same split the chart draws', () => {
+    const { ctx } = makeCtx();
+    const captured = [];
+    ctx.finDownloadCsv = (name, rows) => captured.push({ name, rows });
+    ctx._finBalanceMultiYearData = multiYear;
+    ctx.finExportBalanceCsv();
+    expect(captured.length).toBe(1);
+    expect(captured[0].rows[0]).toContain('Current Assets');
+    expect(captured[0].rows[0]).toContain('Fixed Assets');
+    const row2020 = captured[0].rows.find((r) => r[0] === 2020);
+    expect(row2020).toContain(721035.87);
+    expect(row2020).toContain(590315.13);
+  });
+});
+
+// The shared grouped-bar renderer gained stacking for the chart above. Every other caller of it
+// (Attendance, Church Report, Daycare) passes no stack key at all and must be untouched.
+describe('renderGroupedBarChart stacking is opt-in', () => {
+  it('a series with no stack key still gets its own column', () => {
+    const { ctx } = makeCtx();
+    const vals = { 'g|a': 10, 'g|b': 5 };
+    const html = ctx.renderGroupedBarChart({
+      groups: [{ key: 'g', label: 'G' }],
+      series: [{ key: 'a', label: 'A', color: '#111' }, { key: 'b', label: 'B', color: '#222' }],
+      value: (g, s) => vals[g + '|' + s],
+    });
+    const xs = [...html.matchAll(/<rect x="([\d.]+)"/g)].map((m) => m[1]);
+    expect(xs.length).toBe(2);
+    expect(xs[0]).not.toBe(xs[1]);
+  });
+
+  it('a column is scaled by its stacked total, so a stack is never clipped by the axis', () => {
+    const { ctx } = makeCtx();
+    const opts = (stack) => ({
+      groups: [{ key: 'g', label: 'G' }],
+      series: [{ key: 'a', label: 'A', color: '#111', stack }, { key: 'b', label: 'B', color: '#222', stack }],
+      value: (g, s) => (s === 'a' ? 60 : 40),
+    });
+    const stacked = ctx.renderGroupedBarChart(opts('assets'));
+    const rects = [...stacked.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="[\d.]+" height="([\d.]+)"/g)]
+      .map((m) => ({ x: m[1], y: +m[2], h: +m[3] }));
+    expect(new Set(rects.map((r) => r.x)).size).toBe(1); // one column, not two
+    // The top of the stack must stay inside the plot area (y is measured from the top edge), i.e.
+    // the axis was scaled against the stacked total of 100, not the tallest single segment of 60.
+    expect(Math.min(...rects.map((r) => r.y))).toBeGreaterThan(0);
+    expect(rects.reduce((a, r) => a + r.h, 0)).toBeLessThan(180);
+    // Unstacked, the same two values are two separate columns — the pre-existing behavior.
+    const flat = ctx.renderGroupedBarChart(opts(undefined));
+    const flatXs = [...new Set([...flat.matchAll(/<rect x="([\d.]+)"/g)].map((m) => m[1]))];
+    expect(flatXs.length).toBe(2);
   });
 });

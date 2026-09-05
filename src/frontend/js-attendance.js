@@ -939,23 +939,46 @@ function runAttendanceByTime() {
 //   opts.value(groupKey, seriesKey)              — returns the numeric value, or null/undefined to skip that bar
 //   opts.tooltip(groupKey, seriesKey, value)      — optional; defaults to "<seriesLabel> <groupLabel>: <value>"
 //   opts.chartH, opts.title, opts.barLabel(v)     — optional height/title/on-bar-label formatter
+//
+// A series may also carry a stack key (opts.series[i].stack). Series sharing a stack key are
+// drawn as ONE column, segments piled bottom-up in series order; a series without one keeps its
+// own column exactly as before. So a chart can mix the two — the Balance Sheet trend stacks
+// Current/Fixed/Other into a single Assets column beside plain Liabilities and Equity columns.
+// With no series carrying a stack key every series is its own column, which is the original
+// behavior unchanged: the columns list below is then just the series list, and every measurement
+// downstream is identical.
 function renderGroupedBarChart(opts) {
   var groups = opts.groups || [], series = opts.series || [];
   if (!groups.length || !series.length) return '';
   var W = 800, H = opts.chartH || 180, pL = 40, pR = 16, pT = 12, pB = 40;
   var cW = W - pL - pR, cH = H - pT - pB;
+  // One entry per drawn column, each listing the series stacked into it, in series order.
+  var columns = [], colByKey = {};
+  series.forEach(function(s) {
+    var ck = s.stack || s.key;
+    if (!colByKey[ck]) { colByKey[ck] = { key: ck, series: [] }; columns.push(colByKey[ck]); }
+    colByKey[ck].series.push(s);
+  });
+  var colTotal = function(gKey, col) {
+    var sum = 0, any = false;
+    col.series.forEach(function(s) {
+      var v = opts.value(gKey, s.key);
+      if (v != null) { sum += v; any = true; }
+    });
+    return any ? sum : null;
+  };
   var maxV = 0;
   groups.forEach(function(g) {
-    series.forEach(function(s) {
-      var v = opts.value(g.key, s.key);
+    columns.forEach(function(col) {
+      var v = colTotal(g.key, col);
       if (v != null && v > maxV) maxV = v;
     });
   });
   if (!maxV) return '';
   maxV = maxV * 1.15;
   var groupW = cW / groups.length;
-  var barW = Math.max(4, Math.min(30, (groupW * 0.8) / series.length));
-  var groupGap = (groupW - barW * series.length) / 2;
+  var barW = Math.max(4, Math.min(30, (groupW * 0.8) / columns.length));
+  var groupGap = (groupW - barW * columns.length) / 2;
   var pyV = function(v) { return pT + cH - (v / maxV) * cH; };
   var grid = '', ylbls = '', xlbls = '', bars = '';
   [0, Math.round(maxV * 0.5 / 1.15), Math.round(maxV / 1.15)].forEach(function(v) {
@@ -967,17 +990,23 @@ function renderGroupedBarChart(opts) {
     var cx = pL + gi * groupW + groupW / 2;
     xlbls += '<text x="'+cx.toFixed(1)+'" y="'+(H-5)+'" text-anchor="middle" fill="#9A8A78" font-size="10">'+g.label+'</text>';
   });
-  series.forEach(function(s, si) {
+  columns.forEach(function(col, ci) {
     groups.forEach(function(g, gi) {
-      var v = opts.value(g.key, s.key);
-      if (v == null) return;
-      var x = pL + gi * groupW + groupGap + si * barW;
-      var bH = Math.max(1, (v / maxV) * cH);
-      var barY = pT + cH - bH;
-      var tip = opts.tooltip ? opts.tooltip(g.key, s.key, v) : (s.label + ' ' + g.label + ': ' + v);
-      bars += '<rect x="'+x.toFixed(1)+'" y="'+barY.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bH.toFixed(1)+'" fill="'+s.color+'" rx="2"><title>'+tip+'</title></rect>';
-      var lbl = opts.barLabel ? opts.barLabel(v) : Math.round(v);
-      if (bH > 14) bars += '<text x="'+(x+barW/2).toFixed(1)+'" y="'+(barY+bH-3).toFixed(1)+'" text-anchor="middle" fill="#fff" font-size="8">'+lbl+'</text>';
+      var x = pL + gi * groupW + groupGap + ci * barW;
+      // Segments pile upward from the axis; a single-series column lands at exactly the same
+      // coordinates the pre-stacking renderer produced, since baseY starts at the axis.
+      var baseY = pT + cH;
+      col.series.forEach(function(s) {
+        var v = opts.value(g.key, s.key);
+        if (v == null) return;
+        var bH = Math.max(1, (v / maxV) * cH);
+        var barY = baseY - bH;
+        var tip = opts.tooltip ? opts.tooltip(g.key, s.key, v) : (s.label + ' ' + g.label + ': ' + v);
+        bars += '<rect x="'+x.toFixed(1)+'" y="'+barY.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bH.toFixed(1)+'" fill="'+s.color+'" rx="2"><title>'+tip+'</title></rect>';
+        var lbl = opts.barLabel ? opts.barLabel(v) : Math.round(v);
+        if (bH > 14) bars += '<text x="'+(x+barW/2).toFixed(1)+'" y="'+(barY+bH-3).toFixed(1)+'" text-anchor="middle" fill="#fff" font-size="8">'+lbl+'</text>';
+        baseY = barY;
+      });
     });
   });
   var legend = '<div style="display:flex;gap:12px;margin-top:6px;justify-content:center;flex-wrap:wrap;">';

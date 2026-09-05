@@ -1257,14 +1257,44 @@ export async function persistChurchBalancesMultiYearImport(db, rows, years, impo
 // mirrors computeYearSummary()'s shape for the Income Statement side, so the frontend can reuse
 // the same summary-card rendering pattern. Assets should equal Liabilities + Equity in a correct
 // export; this is exposed so the UI can show that check rather than silently trusting the import.
+// Assets split by the balance sheet's own top-level asset groups, so the multi-year trend can
+// show what is actually moving. Total assets alone hides it: this church's fixed assets are the
+// building at book value and have not changed since 2021, so an eight-year 31% drawdown of
+// CURRENT assets ($942,696 → $646,204) reads as a gentle slope once averaged against a frozen
+// $500,315. Matched on the path segment directly under "Assets" — the group heading a human
+// reads on the report — not on account names.
+//
+// ⚠ "Other" is deliberately DERIVED BY SUBTRACTION (total − current − fixed) rather than summed
+// from rows matching some third pattern. It is what makes the three segments add up to the
+// Assets total by construction, so a stacked bar can never quietly come up short of the total
+// printed beside it — this church really does have a third group ("Assets:Other Assets", an
+// Employee Retention Credit, 2020-2022), and a future export could introduce a fourth with a
+// name nothing here anticipates. Hiding a dollar the total on the same screen still counts is
+// the FIN58b defect.
+const ASSET_GROUP_CURRENT_RE = /current/i;
+const ASSET_GROUP_FIXED_RE = /fixed/i;
+export function assetGroupOf(categoryPath) {
+  const seg = String(categoryPath || '').split(':')[1] || '';
+  if (ASSET_GROUP_CURRENT_RE.test(seg)) return 'current';
+  if (ASSET_GROUP_FIXED_RE.test(seg)) return 'fixed';
+  return 'other';
+}
 export function computeBalanceSummary(rows) {
   const byClass = {};
+  let currentAssets = 0, fixedAssets = 0;
   for (const r of rows) {
     if (!byClass[r.classification]) byClass[r.classification] = 0;
     byClass[r.classification] += r.own_balance_cents;
+    if (r.classification === 'Assets') {
+      const g = assetGroupOf(r.category_path);
+      if (g === 'current') currentAssets += r.own_balance_cents;
+      else if (g === 'fixed') fixedAssets += r.own_balance_cents;
+    }
   }
   const assets = byClass.Assets || 0, liabilities = byClass.Liabilities || 0, equity = byClass.Equity || 0;
   return { classificationTotals: byClass, assetsCents: assets, liabilitiesCents: liabilities, equityCents: equity,
+    currentAssetsCents: currentAssets, fixedAssetsCents: fixedAssets,
+    otherAssetsCents: assets - currentAssets - fixedAssets,
     liabilitiesPlusEquityCents: liabilities + equity, balancedCents: assets - (liabilities + equity) };
 }
 
