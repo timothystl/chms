@@ -1435,6 +1435,18 @@ async function _doInitDb(db) {
       giver_count INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (year,household_key)
     )`,
+    `CREATE TABLE IF NOT EXISTS giving_year_person_totals (
+      year INTEGER NOT NULL,
+      person_id INTEGER NOT NULL,
+      total_cents INTEGER NOT NULL DEFAULT 0,
+      gift_count INTEGER NOT NULL DEFAULT 0,
+      last_gift_date TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (year,person_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS giving_year_person_rollup_ready (
+      year INTEGER PRIMARY KEY,
+      refreshed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
     `CREATE TABLE IF NOT EXISTS giving_rollup_dirty (
       year INTEGER PRIMARY KEY,
       dirtied_at TEXT NOT NULL DEFAULT (datetime('now'))
