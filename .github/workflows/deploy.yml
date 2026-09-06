@@ -1,16 +1,76 @@
 name: Deploy to Cloudflare Workers
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full main commit SHA approved for production
+        required: true
+        type: string
+      reason:
+        description: Reason for this production deployment
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    name: Deploy approved main commit
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: production
     steps:
-      - uses: actions/checkout@v4
-      - uses: cloudflare/wrangler-action@v3
+      - name: Check out the approved commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.expected_sha }}
+
+      - name: Verify the approved commit is on main
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git merge-base --is-ancestor "$EXPECTED_SHA" origin/main
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify built HTML scripts parse
+        run: node .github/scripts/check-built-scripts.js
+
+      - name: Deploy approved commit
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Record deployment summary
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RELEASE_REASON: ${{ inputs.reason }}
+        run: |
+          {
+            echo '## Production deployment'
+            echo
+            echo "- Commit: $EXPECTED_SHA"
+            echo "- Requested by: $GITHUB_ACTOR"
+            echo "- Reason: $RELEASE_REASON"
+          } >> "$GITHUB_STEP_SUMMARY"
