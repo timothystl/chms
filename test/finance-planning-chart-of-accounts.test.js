@@ -203,7 +203,7 @@ describe('Planning table — Board view / QuickBooks order toggle', () => {
     expect(fin._finPlanViewMode).toBe('board');
     fin.finRenderPlanning();
     expect(root.innerHTML).toContain('Unrestricted Gifts');
-    expect(root.innerHTML).toContain('Salaries &amp; Benefits');
+    expect(root.innerHTML).toContain('Salaries');
   });
 
   it('finPlanSetView(\'qb\') switches to the raw QuickBooks-order tree, with no board category groups', () => {
@@ -262,7 +262,7 @@ describe('Planning table — Board view / QuickBooks order toggle', () => {
     const root = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
     const fin = loadBundle({ 'fin-plan-root': root });
     baseSetup(fin, fixtureTree());
-    const header = rowsOf(root.innerHTML).find(r => r.includes('Salaries &amp; Benefits'));
+    const header = rowsOf(root.innerHTML).find(r => textOf(r) === 'Salaries');
     expect(header).toContain('finCoaRename(false,&quot;salaries&quot;,this)');
   });
 
@@ -531,6 +531,72 @@ describe('Chart of Accounts page', () => {
     const { fin, coaRoot } = coaSetup();
     fin.finRenderChartOfAccounts();
     expect(coaRoot.innerHTML).toMatch(/QuickBooks/);
+  });
+
+  // Salaries/Benefits split into two peer categories, and Youth & Family added back as its own —
+  // both 2026-09-05. Split so each can be collapsed independently; see the collapse tests below.
+  it('Salaries and Benefits are two separate default categories, not one merged "Salaries & Benefits"', () => {
+    const { fin } = coaSetup();
+    expect(fin.finBoardDefaultExpCat('51010 Pastoral Salaries')).toBe('salaries');
+    expect(fin.finBoardDefaultExpCat('59040 Health Insurance')).toBe('benefits');
+    expect(fin.finBoardDefaultExpCat('59041 Employee Pension')).toBe('benefits');
+  });
+
+  it('Youth & Family is its own board category, split back out of the old Programs catch-all', () => {
+    const { fin, coaRoot } = coaSetup();
+    expect(fin.finBoardDefaultExpCat('56010 Youth Group Supplies')).toBe('youth_family');
+    fin._finPlanBaseTree = [
+      node('Expenses:56010 Youth Group Supplies', '56010 Youth Group Supplies', 'Expenses', 0, 25000, 25000),
+      node('Expenses:59500 Food Pantry Outreach', '59500 Food Pantry Outreach', 'Expenses', 0, 15000, 15000),
+    ];
+    fin.finRenderChartOfAccounts();
+    expect(coaRoot.innerHTML).toContain('Youth &amp; Family');
+    expect(coaRoot.innerHTML).toContain('56010 Youth Group Supplies');
+    // The account that still matches the Programs fallback is under Programs, not Youth & Family.
+    expect(coaRoot.innerHTML).toContain('Programs');
+    expect(coaRoot.innerHTML).toContain('59500 Food Pantry Outreach');
+  });
+
+  // Collapse — each category's member-account list can fold up independently of every other one,
+  // so "collapse Salaries" and "collapse Benefits" are two separate, unrelated clicks.
+  describe('per-category collapse', () => {
+    function collapseSetup() {
+      const s = coaSetup();
+      s.fin._finPlanBaseTree = [
+        node('Expenses:51010 Pastoral Salaries', '51010 Pastoral Salaries', 'Expenses', 0, 800000, 800000),
+        node('Expenses:59040 Health Insurance', '59040 Health Insurance', 'Expenses', 0, 200000, 200000),
+      ];
+      s.fin.finRenderChartOfAccounts();
+      return s;
+    }
+
+    // The per-row checkbox (finCoaToggleOne) only ever renders inside a category's member list —
+    // the group-level "select all" checkbox in the header uses finCoaToggleGroup instead, and the
+    // header keeps referencing the account's own path (which, in this fixture, embeds the account
+    // label) in that group checkbox's onchange even while collapsed. So finCoaToggleOne( is the
+    // reliable "is this account's row actually rendered right now" marker, not the label text.
+    it('collapsing a category hides its member accounts but keeps the header (name + count) visible', () => {
+      const { fin, coaRoot } = collapseSetup();
+      expect(coaRoot.innerHTML).toContain('finCoaToggleOne(&quot;Expenses:51010 Pastoral Salaries&quot;)');
+      fin.finCoaToggleCollapse(false, 'salaries');
+      expect(coaRoot.innerHTML).not.toContain('finCoaToggleOne(&quot;Expenses:51010 Pastoral Salaries&quot;)');
+      expect(coaRoot.innerHTML).toContain('Salaries'); // the heading itself is still there
+      expect(coaRoot.innerHTML).toContain('1 account'); // and its count
+    });
+
+    it('collapsing one category never touches another — Benefits stays open while Salaries is collapsed', () => {
+      const { fin, coaRoot } = collapseSetup();
+      fin.finCoaToggleCollapse(false, 'salaries');
+      expect(coaRoot.innerHTML).not.toContain('finCoaToggleOne(&quot;Expenses:51010 Pastoral Salaries&quot;)');
+      expect(coaRoot.innerHTML).toContain('finCoaToggleOne(&quot;Expenses:59040 Health Insurance&quot;)');
+    });
+
+    it('toggling collapse a second time restores the member accounts', () => {
+      const { fin, coaRoot } = collapseSetup();
+      fin.finCoaToggleCollapse(false, 'salaries');
+      fin.finCoaToggleCollapse(false, 'salaries');
+      expect(coaRoot.innerHTML).toContain('finCoaToggleOne(&quot;Expenses:51010 Pastoral Salaries&quot;)');
+    });
   });
 });
 

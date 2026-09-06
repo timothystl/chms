@@ -98,6 +98,26 @@ describe('finance/planning/board-categories', () => {
     expect(got.expense['Expenses:58200 District & Synod Support']).toBe('district_synod');
   });
 
+  // Salaries/Benefits (split from one merged "Salaries & Benefits" category so each can collapse
+  // independently on the Chart of Accounts page) and Youth & Family (split back out of the
+  // "Programs" catch-all) — all added 2026-09-05, same reasoning/pattern as worship/district_synod.
+  it('accepts the salaries, benefits, and youth_family board categories', async () => {
+    const db = makeTestDb();
+    expect(BOARD_EXPENSE_KEYS).toContain('salaries');
+    expect(BOARD_EXPENSE_KEYS).toContain('benefits');
+    expect(BOARD_EXPENSE_KEYS).toContain('youth_family');
+    const res = await PUT(db, { expense: {
+      'Expenses:51010 Pastoral Salaries': 'salaries',
+      'Expenses:59040 Health Insurance': 'benefits',
+      'Expenses:56010 Youth Group': 'youth_family',
+    } }, true);
+    expect(res.status).toBe(200);
+    const got = await (await GET(db, true)).json();
+    expect(got.expense['Expenses:51010 Pastoral Salaries']).toBe('salaries');
+    expect(got.expense['Expenses:59040 Health Insurance']).toBe('benefits');
+    expect(got.expense['Expenses:56010 Youth Group']).toBe('youth_family');
+  });
+
   it('a second PUT merges into the first — a save made from Planning and one made from Chart of Accounts land in the same store', async () => {
     const db = makeTestDb();
     await PUT(db, { revenue: { 'Income:A': 'donor' } }, true);

@@ -539,6 +539,49 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### FIN75 — Chart of Accounts: Youth & Family added back; Salaries split from Benefits; per-category collapse (2026-09-06, DONE)
+Asked for directly: add "Youth & Family" back as an expense category, and add the option to
+collapse sections on the Chart of Accounts page ("collapse all the salaries, and then all the
+benefits"). **Asked the user first** (`AskUserQuestion`) whether "Salaries" and "Benefits" should
+become two separate categories or stay merged with a generic collapse added to every section —
+the phrasing implied two independent collapses, which only makes sense if they're two separate
+sections. **User chose the split.**
+- **Two new board expense categories, same mechanism as the worship/district_synod split
+  (2026-09-04)**: `salaries` (Salaries) and `benefits` (Benefits) replace the old single merged
+  `salaries` ("Salaries & Benefits") key; `youth_family` (Youth & Family) is carved back out of
+  the old `programs` catch-all, which used to match `youth` itself. `BOARD_EXPENSE_CATEGORIES`
+  (`src/api-finance.js`) and `FIN_BOARD_EXP_ORDER`/`FIN_BOARD_EXP_DEFAULT_LABEL`/
+  `FIN_BOARD_EXP_RULES` (`src/frontend/js-finance.js`) grew from 7 to 9 keys, kept in sync by
+  hand as this pair of lists already was. Default-matching regexes: `salaries` narrowed to
+  `/salar|payroll|wage|compensation/i`; the split-off `benefits`:
+  `/benefit|pension|fica|health insurance|disability/i`; `youth_family`:
+  `/youth|family ministr|family life/i`, tested before the (now narrower) `programs` fallback.
+  **An account with a SAVED override of `salaries` from before this change stays under Salaries
+  even if it's really a benefit line** — a saved pick always wins over the regex default, and
+  there was previously no way to tell which accounts under the old merged key were "really"
+  salary vs. benefit without inspecting each one by hand; only unassigned accounts re-sort
+  automatically under the new rules. Same tradeoff already accepted for the worship/district_synod
+  split.
+- **Collapse is per-category and independent**: new `_finCoaCollapsed` map (`'r:'+key` /
+  `'e:'+key`, session-only — a working-session convenience, not a persisted preference) and
+  `finCoaToggleCollapse(isRev, key)` in `finCoaBuildCard`. A ▾/▸ chevron on each category header
+  toggles that one category's member-account list; the header itself (checkbox, renameable name,
+  account count) stays visible either way, so collapsing Salaries never hides Benefits or any
+  other section. Scoped to the Chart of Accounts page only, per the literal ask — Planning's own
+  Board view table (`groupHeaderRow` in `finRenderPlanning`) is untouched.
+- `npm test` (2241/2241, 8 new/updated: 1 backend test for the two new/split keys in
+  `test/finance-planning-board-categories.test.js`, 7 frontend tests in
+  `test/finance-planning-chart-of-accounts.test.js` for the split default-classification and the
+  collapse behavior). **Every new test verified non-vacuous** by reverting `js-finance.js` and
+  confirming all 6 of its dependent tests fail against the pre-change code (the backend-only test
+  passes either way since `BOARD_EXPENSE_KEYS`'s generic "accepts every real key" test already
+  covered new keys mechanically — the targeted test adds a named regression guard, not new
+  coverage). `node --check` on all three assembled bundles; div-balance on the assembled
+  `CHMS_HTML` (1123/1123, unchanged — the collapse UI renders at runtime, no new static markup).
+  DEPLOY_VERSION bumped to 1.230.0. **Not verified**: a live browser.
+  (`src/api-finance.js`, `src/frontend/js-finance.js`, `src/frontend/js-core.js`,
+  `test/finance-planning-board-categories.test.js`, `test/finance-planning-chart-of-accounts.test.js`)
+
 ### PERF8 — Ordinary fund reads no longer scan all giving history (2026-09-05, DONE)
 Live Cloudflare D1 measurement after a short Finance session found 436,000 rows read, with
 406,440 caused by one unrestricted fund-history aggregation. `GET /admin/api/funds` served both
