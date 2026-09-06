@@ -2988,16 +2988,20 @@ var FIN_BOARD_REV_RULES = [
 ];
 // worship/district_synod were split out of the old "programs" catch-all 2026-09-04, by the
 // user's own explicit choice — the board reads them as their own peer categories, not as a
-// subset of general Programs. Order matters: both must be tested BEFORE the (now narrower)
-// programs fallback, since programs no longer carries worship|music itself.
+// subset of general Programs. youth_family was split out the same way 2026-09-05 (Programs used
+// to catch "youth" itself); salaries/benefits were also split 2026-09-05, into two peer
+// categories, so each can be collapsed independently on the Chart of Accounts page. Order
+// matters: a rule must be tested BEFORE the (narrower) programs fallback it was carved out of.
 var FIN_BOARD_EXP_RULES = [
   { key: 'mdo', re: /mdo|mother'?s day out/i },
-  { key: 'salaries', re: /salar|payroll|wage|benefit|compensation|pension|fica|health insurance|disability/i },
+  { key: 'salaries', re: /salar|payroll|wage|compensation/i },
+  { key: 'benefits', re: /benefit|pension|fica|health insurance|disability/i },
   { key: 'worship', re: /worship|music|choir|organist|liturg|hymn/i },
   { key: 'education', re: /educat|school|lutheran high|scholarship|tuition aid|seminar/i },
   { key: 'property', re: /propert|facilit|utilit|maintenance|building|grounds|janitor|custodial|repair|mortgage|insuranc/i },
+  { key: 'youth_family', re: /youth|family ministr|family life/i },
   { key: 'district_synod', re: /district|synod/i },
-  { key: 'programs', re: /program|youth|children|mission|outreach|fellowship|evangel/i },
+  { key: 'programs', re: /program|children|mission|outreach|fellowship|evangel/i },
 ];
 function finBoardDefaultRevCat(label) {
   for (var i = 0; i < FIN_BOARD_REV_RULES.length; i++) if (FIN_BOARD_REV_RULES[i].re.test(label || '')) return FIN_BOARD_REV_RULES[i].key;
@@ -3012,14 +3016,14 @@ function finBoardDefaultExpCat(label) {
 }
 var FIN_BOARD_REV_ORDER = ['donor', 'earned', 'passive', 'restricted'];
 var FIN_BOARD_REV_DEFAULT_LABEL = { donor: 'Unrestricted Gifts', earned: 'Earned Income', passive: 'Passive Income', restricted: 'Restricted Gifts' };
-// Seven categories, not the money-flow Sankey's five (FLOW_EXPENSE_KEYS in api-finance.js,
+// Nine categories, not the money-flow Sankey's five (FLOW_EXPENSE_KEYS in api-finance.js,
 // deliberately untouched) — the two systems are independent by design (see the header comment on
 // readPlanningBoardCategories in api-finance.js), so this list is free to carry more categories
 // than the Sankey's own without reshaping that heavily-tested, board-facing diagram too. The
 // backend validates against its own BOARD_EXPENSE_KEYS, kept in exact sync with this array by
 // hand — there is no shared module between this String.raw-served bundle and api-finance.js.
-var FIN_BOARD_EXP_ORDER = ['mdo', 'salaries', 'worship', 'property', 'education', 'district_synod', 'programs'];
-var FIN_BOARD_EXP_DEFAULT_LABEL = { mdo: 'MDO', salaries: 'Salaries & Benefits', worship: 'Worship & Music', property: 'Property & Operations', education: 'Lutheran Education', district_synod: 'District & Synod Support', programs: 'Programs' };
+var FIN_BOARD_EXP_ORDER = ['mdo', 'salaries', 'benefits', 'worship', 'property', 'education', 'youth_family', 'district_synod', 'programs'];
+var FIN_BOARD_EXP_DEFAULT_LABEL = { mdo: 'MDO', salaries: 'Salaries', benefits: 'Benefits', worship: 'Worship & Music', property: 'Property & Operations', education: 'Lutheran Education', youth_family: 'Youth & Family', district_synod: 'District & Synod Support', programs: 'Programs' };
 // Empty until finLoadPlanning()'s fetch resolves — every reader below tolerates that (an unset
 // map just means "everything is on its regex default"), so a page opened mid-load never throws.
 var _finPlanBoardCats = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' };
@@ -3053,7 +3057,7 @@ function finBoardBucket(leaves, key, isRev) {
     .map(function(l) { var c = JSON.parse(JSON.stringify(l)); c.children = []; return c; });
   if (!members.length) return null;
   var g = finMakeGroupNode(finBoardLabelFor(key, isRev), isRev ? 'Income' : 'Expenses', members);
-  // Which of the four/seven category keys this group renames to — read by groupHeaderRow() in
+  // Which of the four/nine category keys this group renames to — read by groupHeaderRow() in
   // finRenderPlanning so the same rename control Chart of Accounts offers also works right here.
   g.boardCatKey = key;
   g.boardCatIsRev = isRev;
@@ -6874,6 +6878,12 @@ var _finPlanCsvRows = [];
 // same reasoning as _finPlanExcluded resetting on reload — a selection is a working-session
 // choice, not a standing decision.
 var _finCoaSelected = {};
+// Chart of Accounts' own per-category collapse state — 'r:'+key for a Revenue category, 'e:'+key
+// for an Expense one (the prefix means a revenue and an expense category can never collide even
+// though their key spaces overlap in neither direction today). Session-only, like _finCoaSelected
+// above — collapsing a section to work on another one is a working-session convenience, not a
+// standing preference worth persisting across a reload.
+var _finCoaCollapsed = {};
 // The Salary Calculator and Health Insurance cards fully rebuild #fin-plan-root's innerHTML on
 // every keystroke (same pattern as the rest of this app), which destroys and recreates the
 // focused input — losing both keyboard focus and (since nothing stays focused) the page's scroll
@@ -7817,6 +7827,14 @@ function finCoaClearSelection(codes) {
   codes.forEach(function(p) { delete _finCoaSelected[p]; });
   finRenderChartOfAccounts();
 }
+// Fold one category's account list up/down — the header (checkbox, name, count) stays visible
+// either way, only the member rows underneath hide. Independent per category, so collapsing
+// Salaries doesn't touch Benefits (or any other section) — each toggles on its own.
+function finCoaToggleCollapse(isRev, key) {
+  var k = (isRev ? 'r:' : 'e:') + key;
+  if (_finCoaCollapsed[k]) delete _finCoaCollapsed[k]; else _finCoaCollapsed[k] = true;
+  finRenderChartOfAccounts();
+}
 // Bulk "Move to" — every currently-selected leaf within one card (revenue or expense; the two
 // never share a path, so a selection made on one card can't leak into the other's bulk move) gets
 // reassigned to the chosen category in one save, and the moved paths drop out of the selection —
@@ -7848,7 +7866,9 @@ function finCoaRenameWrapper(textEl) {
 }
 // One card (Revenue or Expenses): every real leaf of that kind, grouped by its current board
 // category in the fixed category order, each group carrying a checkbox-select + per-account picker
-// row and a group-level "select all in this category" checkbox + renameable heading.
+// row and a group-level "select all in this category" checkbox + renameable heading, plus its own
+// collapse toggle (finCoaToggleCollapse) so one category's account list can fold up independently
+// of any other's — the header (checkbox/name/count) stays put either way.
 function finCoaBuildCard(leaves, isRev, order, title, sub) {
   var cats = order.map(function(k) { return { key: k, label: finBoardLabelFor(k, isRev) }; });
   var selectedCodes = leaves.filter(function(l) { return _finCoaSelected[l.path]; }).map(function(l) { return l.path; });
@@ -7857,7 +7877,8 @@ function finCoaBuildCard(leaves, isRev, order, title, sub) {
       .sort(function(a, b) { return a.label < b.label ? -1 : (a.label > b.label ? 1 : 0); });
     var codes = members.map(function(l) { return l.path; });
     var allChecked = codes.length > 0 && codes.every(function(p) { return !!_finCoaSelected[p]; });
-    var rowsHtml = members.length
+    var collapsed = !!_finCoaCollapsed[(isRev ? 'r:' : 'e:') + k];
+    var rowsHtml = collapsed ? '' : (members.length
       ? '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:0 32px;">' + members.map(function(l) {
           return '<div style="display:flex;align-items:center;gap:11px;padding:8px 0;border-bottom:1px solid var(--warm-row-divider);">'
             + '<input type="checkbox" ' + (_finCoaSelected[l.path] ? 'checked' : '') + ' onchange="finCoaToggleOne(' + jsAttr(l.path) + ')" style="width:14px;height:14px;flex-shrink:0;">'
@@ -7866,9 +7887,10 @@ function finCoaBuildCard(leaves, isRev, order, title, sub) {
               + cats.map(function(c) { return '<option value="' + c.key + '"' + (c.key === k ? ' selected' : '') + '>' + esc(c.label) + '</option>'; }).join('')
             + '</select>' + finPurposeTagSelectHtml(l.path) + '</div>';
         }).join('') + '</div>'
-      : '<div style="font-size:12.5px;color:var(--warm-gray);padding:9px 0 0 24px;">No accounts read under this category yet.</div>';
+      : '<div style="font-size:12.5px;color:var(--warm-gray);padding:9px 0 0 24px;">No accounts read under this category yet.</div>');
     return '<div>'
       + '<div style="display:flex;align-items:center;gap:10px;padding-bottom:6px;border-bottom:1px solid var(--warm-row-divider);">'
+      + '<span onclick="finCoaToggleCollapse(' + (isRev ? 'true' : 'false') + ',' + jsAttr(k) + ')" title="' + (collapsed ? 'Expand' : 'Collapse') + ' this category" style="cursor:pointer;font-size:10px;color:var(--warm-meta);width:12px;flex-shrink:0;text-align:center;user-select:none;">' + (collapsed ? '▸' : '▾') + '</span>'
       + '<input type="checkbox" ' + (allChecked ? 'checked' : '') + (codes.length ? '' : ' disabled') + ' onchange="finCoaToggleGroup(' + jsAttr(codes) + ',this.checked)" title="Select every account in this category" style="width:14px;height:14px;flex-shrink:0;">'
       + '<span contenteditable="true" onblur="finCoaRename(' + (isRev ? 'true' : 'false') + ',' + jsAttr(k) + ',this)" title="Click to rename this category. Display only — nothing in QuickBooks changes." style="font-size:14px;font-weight:700;color:var(--color-navy);outline:none;border-radius:6px;padding:1px 5px;margin-left:-5px;cursor:text;border-bottom:1px dashed var(--warm-row-divider);">' + esc(finBoardLabelFor(k, isRev)) + '</span>'
       + '<span style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">' + members.length + (members.length === 1 ? ' account' : ' accounts') + '</span>'

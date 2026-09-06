@@ -2789,15 +2789,21 @@ async function readFlowExpenseOverrides(db) {
 // user asked for Worship & Music and District & Synod Support as their own peer categories on the
 // Budget tab — reusing FLOW_EXPENSE_KEYS for that would have silently grown the money-flow
 // Sankey diagram from five categories to seven too, which nobody asked for and this session has
-// no live browser to re-verify. Mirrored in FIN_BOARD_EXP_ORDER/FIN_BOARD_EXP_DEFAULT_LABEL in
-// js-finance.js — the two lists must be kept in exact sync by hand, since there is no shared
-// module between this backend file and that String.raw-served frontend bundle.
+// no live browser to re-verify. Grew again 2026-09-05: "Salaries & Benefits" split into two peer
+// categories (salaries/benefits) so each can be collapsed independently on the Chart of Accounts
+// page, and "Youth & Family" (youth_family) was added back as its own category — split out of the
+// old catch-all "Programs" bucket the same way worship/district_synod were split out of it on
+// 2026-09-04. Mirrored in FIN_BOARD_EXP_ORDER/FIN_BOARD_EXP_DEFAULT_LABEL in js-finance.js — the
+// two lists must be kept in exact sync by hand, since there is no shared module between this
+// backend file and that String.raw-served frontend bundle.
 export const BOARD_EXPENSE_CATEGORIES = [
   { key: 'mdo', label: 'MDO' },
-  { key: 'salaries', label: 'Salaries & Benefits' },
+  { key: 'salaries', label: 'Salaries' },
+  { key: 'benefits', label: 'Benefits' },
   { key: 'worship', label: 'Worship & Music' },
   { key: 'property', label: 'Property & Operations' },
   { key: 'education', label: 'Lutheran Education' },
+  { key: 'youth_family', label: 'Youth & Family' },
   { key: 'district_synod', label: 'District & Synod Support' },
   { key: 'programs', label: 'Programs' },
 ];
@@ -4300,9 +4306,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
 
   // Purpose tags — a SECOND, independent axis over the same accounts and Compensation Planner
   // workers the Board Category system above already classifies, so one line can carry a board
-  // category ("Salaries & Benefits") AND a free-form purpose ("Youth") at once. Its own
-  // chms_config key, deliberately not layered onto finance_planning_board_categories — that
-  // store's category set is a fixed 7-key allowlist (BOARD_EXPENSE_KEYS); purpose tags are
+  // category ("Salaries") AND a free-form purpose ("Youth") at once. Its own chms_config key,
+  // deliberately not layered onto finance_planning_board_categories — that store's category set
+  // is a fixed allowlist (BOARD_EXPENSE_KEYS); purpose tags are
   // admin-defined and open-ended (add/rename/delete at will), which needs a different shape
   // entirely (a managed list, not a fixed enum). Only `categories` (keyed by Chart of Accounts
   // leaf category_path — a path is unique across the whole chart of accounts regardless of
