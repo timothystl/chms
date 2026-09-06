@@ -26,6 +26,7 @@ function makeTestDb() {
   )`);
   sqlite.exec(readFileSync(new URL('../migrations/0020_scheduler_volunteers.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0021_scheduler_volunteers_legacy_id.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0049_scheduler_volunteer_second_email.sql', import.meta.url), 'utf8'));
   return {
     prepare(sql) {
       return {
@@ -136,6 +137,38 @@ describe('handleSchedulerVolunteersApi', () => {
     // Untouched fields survive the sparse update
     expect(patched.volunteer.roles).toEqual(['PowerPoint']);
     expect(patched.volunteer.service_preference).toBe('both');
+  });
+
+  it('stores a second notification address alongside reminder_email on create', async () => {
+    const createRes = await handleSchedulerVolunteersApi(
+      { ...req, json: async () => ({ person_id: 1, roles: ['Acolyte'], reminder_email: 'kid@example.org', second_email: 'parent@example.org' }) },
+      env, makeUrl(''), 'POST'
+    );
+    const created = await createRes.json();
+    expect(created.volunteer.reminder_email).toBe('kid@example.org');
+    expect(created.volunteer.second_email).toBe('parent@example.org');
+
+    const listed = await (await handleSchedulerVolunteersApi(req, env, makeUrl(''), 'GET')).json();
+    expect(listed.volunteers[0].second_email).toBe('parent@example.org');
+  });
+
+  it('defaults second_email to empty and leaves it out of PATCH unless provided', async () => {
+    await handleSchedulerVolunteersApi(
+      { ...req, json: async () => ({ person_id: 2, roles: ['PowerPoint'], second_email: 'family@example.org' }) },
+      env, makeUrl(''), 'POST'
+    );
+    const patched = await (await handleSchedulerVolunteersApi(
+      { ...req, json: async () => ({ blackout_dates: ['2026-12-25'] }) },
+      env, makeUrl('/2'), 'PATCH'
+    )).json();
+    // second_email untouched by a PATCH that never mentions it
+    expect(patched.volunteer.second_email).toBe('family@example.org');
+
+    const cleared = await (await handleSchedulerVolunteersApi(
+      { ...req, json: async () => ({ second_email: '' }) },
+      env, makeUrl('/2'), 'PATCH'
+    )).json();
+    expect(cleared.volunteer.second_email).toBe('');
   });
 
   it('404s a PATCH for a person with no volunteer link', async () => {

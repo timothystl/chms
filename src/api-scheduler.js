@@ -1228,6 +1228,7 @@ function volunteerRowOut(row) {
     email: row.email,
     photo_url: row.photo_url,
     reminder_email: row.reminder_email,
+    second_email: row.second_email || '',
     roles: JSON.parse(row.roles || '[]'),
     primary_for: JSON.parse(row.primary_for || '[]'),
     preferred_sundays: JSON.parse(row.preferred_sundays || '[]'),
@@ -1250,18 +1251,19 @@ const VOLUNTEER_SELECT = `SELECT sv.*, p.first_name, p.last_name, p.email, p.pho
 async function upsertVolunteer(db, personId, fields, legacyId) {
   await db.prepare(
     `INSERT INTO scheduler_volunteers
-      (person_id, reminder_email, roles, primary_for, preferred_sundays, service_preference,
+      (person_id, reminder_email, second_email, roles, primary_for, preferred_sundays, service_preference,
        role_sunday_overrides, blackout_dates, absence_start, absence_until, active,
        migrated_from_legacy_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, datetime('now'))
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, datetime('now'))
      ON CONFLICT(person_id) DO UPDATE SET
-       reminder_email=excluded.reminder_email, roles=excluded.roles, primary_for=excluded.primary_for,
+       reminder_email=excluded.reminder_email, second_email=excluded.second_email,
+       roles=excluded.roles, primary_for=excluded.primary_for,
        preferred_sundays=excluded.preferred_sundays, service_preference=excluded.service_preference,
        role_sunday_overrides=excluded.role_sunday_overrides, blackout_dates=excluded.blackout_dates,
        absence_start=excluded.absence_start, absence_until=excluded.absence_until,
        active=1, updated_at=datetime('now')`
   ).bind(
-    personId, fields.reminder_email || '', JSON.stringify(fields.roles || []), JSON.stringify(fields.primary_for || []),
+    personId, fields.reminder_email || '', fields.second_email || '', JSON.stringify(fields.roles || []), JSON.stringify(fields.primary_for || []),
     JSON.stringify(fields.preferred_sundays || []), SCHED_SERVICE_PREFS.includes(fields.service_preference) ? fields.service_preference : 'both',
     JSON.stringify(fields.role_sunday_overrides || {}), JSON.stringify(fields.blackout_dates || []),
     fields.absence_start || '', fields.absence_until || '', legacyId || ''
@@ -1330,6 +1332,7 @@ export async function handleSchedulerVolunteersApi(req, env, url, method) {
 
     await upsertVolunteer(db, pid, {
       reminder_email: b.reminder_email,
+      second_email: b.second_email,
       roles: parseJsonArray(b.roles, []),
       primary_for: parseJsonArray(b.primary_for, []),
       preferred_sundays: parseJsonArray(b.preferred_sundays, []),
@@ -1354,6 +1357,7 @@ export async function handleSchedulerVolunteersApi(req, env, url, method) {
     const binds = [];
     function set(col, val) { fields.push(col + '=?'); binds.push(val); }
     if (b.reminder_email !== undefined) set('reminder_email', b.reminder_email || '');
+    if (b.second_email !== undefined) set('second_email', b.second_email || '');
     if (b.roles !== undefined) set('roles', JSON.stringify(parseJsonArray(b.roles, [])));
     if (b.primary_for !== undefined) set('primary_for', JSON.stringify(parseJsonArray(b.primary_for, [])));
     if (b.preferred_sundays !== undefined) set('preferred_sundays', JSON.stringify(parseJsonArray(b.preferred_sundays, [])));

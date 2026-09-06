@@ -939,6 +939,9 @@ body.embedded #app-content { display:block!important; }
     <label for="person-email" style="margin-top:12px;">Email Address <span style="font-weight:normal;color:var(--warm-gray);">(for reminder emails)</span></label>
     <input type="email" id="person-email" placeholder="volunteer@example.com" style="max-width:320px;">
 
+    <label for="person-second-email" style="margin-top:12px;">Second Email <span style="font-weight:normal;color:var(--warm-gray);">(optional \u2014 a parent's email for a child who serves, or a second address of their own. Every reminder goes to both.)</span></label>
+    <input type="email" id="person-second-email" placeholder="parent@example.com" style="max-width:320px;">
+
     <div class="form-row">
       <div>
         <label>Preferred Sundays of Month</label>
@@ -1429,6 +1432,29 @@ function avatarHtml(person, size) {
 function getPeople()  { try { return JSON.parse(localStorage.getItem('ws_people')  || '[]'); } catch(e) { return []; } }
 function savePeople(a){ localStorage.setItem('ws_people', JSON.stringify(a)); }
 
+// A volunteer can carry a second notification address (a parent's email for a child
+// who serves, or a second address of their own) alongside their primary email/
+// reminder_email override. Every send site routes through these two helpers so
+// "does this person get emailed" and "who does the email actually go to" can never
+// drift from each other — one place decides both.
+function personEmailRecipients(p) {
+  if (!p) return [];
+  var out = [];
+  [p.email, p.secondEmail].forEach(function(e) {
+    var v = (e || '').trim();
+    if (v && out.indexOf(v) === -1) out.push(v);
+  });
+  return out;
+}
+function personHasEmail(p) { return personEmailRecipients(p).length > 0; }
+// The value to hand the /email/send 'to' field: a plain string for the
+// ordinary one-address case (so every existing send is byte-identical to
+// before this existed), an array only when a second address is actually set.
+function personEmailTo(p) {
+  var list = personEmailRecipients(p);
+  return list.length <= 1 ? (list[0] || '') : list;
+}
+
 // ── SC6: relational scheduler_volunteers bridge ─────────────────────
 // getPeople()/savePeople() stay a plain synchronous localStorage array — every existing
 // call site (schedule generation, Focus Week, stats, reminders, ...) keeps working
@@ -1440,6 +1466,7 @@ function relationalVolunteerToWsPerson(row) {
     personId: row.person_id,
     name: ((row.first_name || '') + ' ' + (row.last_name || '')).trim(),
     email: row.reminder_email || row.email || '',
+    secondEmail: row.second_email || '',
     preferredSundays: row.preferred_sundays || [],
     servicePreference: row.service_preference || 'both',
     roles: row.roles || [],
@@ -2071,6 +2098,7 @@ function clearForm() {
   document.getElementById('person-name').value = '';
   document.getElementById('person-name').removeAttribute('readonly');
   document.getElementById('person-email').value = '';
+  document.getElementById('person-second-email').value = '';
   document.getElementById('pref-sundays').querySelectorAll('input').forEach(function(cb){ cb.checked = false; });
   document.getElementById('pref-service').querySelector('input[value="both"]').checked = true;
   document.getElementById('pref-roles').querySelectorAll('input').forEach(function(cb){ cb.checked = false; });
@@ -2097,6 +2125,7 @@ function savePerson() {
   var name = document.getElementById('person-name').value.trim();
   if (!name) { alert('Please enter a name.'); return; }
   var email = document.getElementById('person-email').value.trim();
+  var secondEmail = document.getElementById('person-second-email').value.trim();
 
   var preferredSundays = [];
   document.getElementById('pref-sundays').querySelectorAll('input:checked').forEach(function(cb){
@@ -2145,6 +2174,7 @@ function savePerson() {
     var fields = {
       person_id: effectivePersonId,
       reminder_email: email,
+      second_email: secondEmail,
       roles: roles,
       primary_for: primaryFor,
       preferred_sundays: preferredSundays,
@@ -2161,7 +2191,7 @@ function savePerson() {
       if (d.error) { alert('Error saving: ' + d.error); return; }
       var derivedId = (existing && existing.id) || ('p' + effectivePersonId);
       var entry = {
-        id: derivedId, personId: effectivePersonId, name: name, email: email,
+        id: derivedId, personId: effectivePersonId, name: name, email: email, secondEmail: secondEmail,
         preferredSundays: preferredSundays, servicePreference: servicePreference,
         roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides,
         breezePersonId: existing ? (existing.breezePersonId || null) : null,
@@ -2182,7 +2212,7 @@ function savePerson() {
   // Unchanged from before SC6: still writes straight to the localStorage/blob array.
   for (var i = 0; i < people.length; i++) {
     if (people[i].id === editId) {
-      people[i] = { id: editId, name: name, email: email, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides, breezePersonId: people[i].breezePersonId || null, blackoutDates: currentBlackouts.slice(), absenceStart: absenceStart, absenceUntil: absenceUntil };
+      people[i] = { id: editId, name: name, email: email, secondEmail: secondEmail, preferredSundays: preferredSundays, servicePreference: servicePreference, roles: roles, primaryFor: primaryFor, roleSundayOverrides: roleSundayOverrides, breezePersonId: people[i].breezePersonId || null, blackoutDates: currentBlackouts.slice(), absenceStart: absenceStart, absenceUntil: absenceUntil };
       break;
     }
   }
@@ -2285,6 +2315,7 @@ function renderPeopleList() {
     var haystack = [
       p.name,
       p.email || '',
+      p.secondEmail || '',
       p.roles.map(roleLabel).join(' '),
       svcLabels[p.servicePreference] || p.servicePreference
     ].join(' ').toLowerCase();
@@ -2349,6 +2380,7 @@ function renderPeopleList() {
       +'<td><div class="pt-name">'+esc(p.name)+primary+breeze+'</div>'
       +(absenceBadge ? '<div style="margin-top:2px;">'+absenceBadge+'</div>' : '')
       +(p.email ? '<div class="pt-email">'+esc(p.email)+'</div>' : '')
+      +(p.secondEmail ? '<div class="pt-email">+ '+esc(p.secondEmail)+'</div>' : '')
       +'<div class="pt-avail">'+esc(personAvailabilityLine(p))+'</div>'
       +'</td>'
       +'<td><div class="pt-roles">'+roleTags+'</div></td>'
@@ -2609,6 +2641,7 @@ function volunteerApiFields(p) {
   return {
     person_id: p.personId,
     reminder_email: p.email || '',
+    second_email: p.secondEmail || '',
     roles: p.roles || [],
     primary_for: p.primaryFor || [],
     preferred_sundays: p.preferredSundays || [],
@@ -2666,6 +2699,7 @@ function editPerson(id) {
   document.getElementById('person-name').value = person.name;
   document.getElementById('person-name').toggleAttribute('readonly', !!person.personId);
   document.getElementById('person-email').value = person.email || '';
+  document.getElementById('person-second-email').value = person.secondEmail || '';
   document.getElementById('person-search-query').value = '';
   document.getElementById('person-search-results').innerHTML = '';
   // Already linked to a real person — the search box is only for re-linking, so tuck it
@@ -5394,7 +5428,7 @@ function sendReminderEmails() {
 
   var total = 0, sent = 0, skipped = 0, errors = 0;
   pids.forEach(function(pid) {
-    if (pMap[pid] && pMap[pid].email) total++;
+    if (pMap[pid] && personHasEmail(pMap[pid])) total++;
     else skipped++;
   });
   if (!total) {
@@ -5406,7 +5440,7 @@ function sendReminderEmails() {
   // Generate / persist RSVP tokens (one per person, stable across re-sends)
   var rsvpTokens = getRsvpTokens();
   pids.forEach(function(pid) {
-    if (pMap[pid] && pMap[pid].email && !rsvpTokens[pid]) {
+    if (pMap[pid] && personHasEmail(pMap[pid]) && !rsvpTokens[pid]) {
       rsvpTokens[pid] = genRsvpToken();
     }
   });
@@ -5416,7 +5450,7 @@ function sendReminderEmails() {
   // never per recipient. esvFetchPassages always resolves, so a missing key or
   // a failed lookup leaves _esvText empty and every reading stays a link.
   var _esvText = {};
-  var _esvTasks = pids.filter(function(pid){ return pMap[pid] && pMap[pid].email; })
+  var _esvTasks = pids.filter(function(pid){ return pMap[pid] && personHasEmail(pMap[pid]); })
                       .map(function(pid){ return { assignments: personAssignments[pid] }; });
   var readingsMode = readingsModeNow();
   var chain = esvWantedNow()
@@ -5425,7 +5459,7 @@ function sendReminderEmails() {
 
   pids.forEach(function(pid) {
     var person = pMap[pid];
-    if (!person || !person.email) return;
+    if (!person || !personHasEmail(person)) return;
     var assignments = personAssignments[pid];
     var token = rsvpTokens[pid] || '';
 
@@ -5499,7 +5533,7 @@ function sendReminderEmails() {
             'Content-Type':  'application/json',
           }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
           body: JSON.stringify({
-            to:       person.email,
+            to:       personEmailTo(person),
             subject:  'Your Upcoming Worship Service Assignments \u2014 Timothy Lutheran',
             text:     textBody,
             html:     buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase,
@@ -5701,7 +5735,7 @@ function renderReminderList(weekFilter) {
     var person = pMap[pid];
     if (!person) return;
     var weekA  = _reminderAssignmentsCache[pid].filter(function(a){ return a.dateISO === weekFilter; });
-    var hasEmail = !!(person.email);
+    var hasEmail = personHasEmail(person);
     var rowBg    = rowIdx % 2 === 0 ? '' : 'background:#fafaf8;';
     var roleText = weekA.map(function(a) {
       return roleLabel(a.role) + ' (' + (a.svc === 'both services' ? 'Both' : a.svc) + ')';
@@ -5857,7 +5891,7 @@ function _sendWeekReminders() {
     var pid  = cb.getAttribute('data-pid');
     var week = cb.getAttribute('data-week');
     var person = pMap[pid];
-    if (!person || !person.email) return;
+    if (!person || !personHasEmail(person)) return;
     var weekA = (_reminderAssignmentsCache[pid] || []).filter(function(a){ return a.dateISO === week; });
     if (!weekA.length) return;
     tasks.push({ person: person, assignments: weekA });
@@ -5945,7 +5979,7 @@ function _sendWeekReminders() {
             'Content-Type': 'application/json',
           }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
           body: JSON.stringify({
-            to:          person.email,
+            to:          personEmailTo(person),
             subject:     'Worship Service Reminder \u2014 ' + assignments[0].date + ' \u2014 Timothy Lutheran',
             text:        textBody,
             html:        buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase,
@@ -6297,8 +6331,8 @@ function renderNotifySlots(weekFilter) {
   displaySlots.forEach(function(d, rowIdx) {
     var slot = d.slot;
     var cacheIdx = d.idx;
-    var withEmail = slot.pool.filter(function(p) { return p.email; });
-    var withoutEmail = slot.pool.filter(function(p) { return !p.email; });
+    var withEmail = slot.pool.filter(function(p) { return personHasEmail(p); });
+    var withoutEmail = slot.pool.filter(function(p) { return !personHasEmail(p); });
     var eligibleHtml = '';
     if (!slot.pool.length) {
       eligibleHtml = '<span style="color:var(--warm-gray);font-style:italic;">None available</span>';
@@ -6407,7 +6441,7 @@ function sendVolunteerNotifications() {
   var seen = {};
   checkedIdxs.forEach(function(idx) {
     var slot = slots[idx];
-    slot.pool.filter(function(p) { return p.email; }).forEach(function(p) {
+    slot.pool.filter(function(p) { return personHasEmail(p); }).forEach(function(p) {
       var key = p.id + '|' + slot.dateISO + '|' + slot.svc + '|' + slot.role;
       if (!seen[key]) { seen[key] = true; tasks.push({ person: p, slot: slot }); }
     });
@@ -6447,7 +6481,7 @@ function sendVolunteerNotifications() {
           'Content-Type':  'application/json',
         }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
         body: JSON.stringify({
-          to:       p.email,
+          to:       personEmailTo(p),
           subject:  subject,
           text:     textBody,
           html:     buildVolunteerRequestHtml(p, slot, s.replyTo || ''),
