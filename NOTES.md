@@ -24,6 +24,36 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.231.0 — Scheduler volunteers can carry a second email address (2026-09-06)
+
+Asked for directly: a kid who serves may have their own email and a parent's, and the Scheduler
+should be able to notify both. New optional **Second Email** field on every Scheduler volunteer
+(Add/Edit Person panel, right under the existing Email Address field) — additive, not a
+replacement: when set, every email the Scheduler sends that person (assignment emails, weekly
+reminders, open-slot requests) goes to both addresses; when blank, nothing changes from before.
+
+- New `scheduler_volunteers.second_email` column (migration `0049`), threaded through the
+  relational volunteer API (`GET`/`POST`/`PATCH /admin/api/scheduler/volunteers`) alongside the
+  existing `reminder_email`.
+- New shared helpers `personEmailRecipients()`/`personHasEmail()`/`personEmailTo()` in
+  `src/scheduler-html.js` — every send site (`sendReminderEmails`, `_sendWeekReminders`,
+  `sendVolunteerNotifications`) and every "does this person have an email" check (the reminder
+  panel, the open-slot notify panel) routes through these instead of reading `person.email`
+  directly, so a future new send site can't reintroduce a single-address assumption.
+- `personEmailTo()` deliberately returns a **plain string** when only one address is set (byte-
+  identical to every existing send) and an **array** only once a second address exists — Resend's
+  `to` field accepts either, so the backend `/email/send` proxy needed no change at all.
+- `npm test` (2270/2270, 20 new: 6 in `test/scheduler-volunteers.test.js` for the backend field,
+  14 in the new `test/scheduler-second-email.test.js`, which drives the real served script through
+  the same `vm` harness the rest of this test suite uses). **Every new test verified non-vacuous**
+  by reverting the fix and confirming the dependent tests fail (4 for the send-path change, 1 for
+  the backend field). `node --check` on the standalone and embedded served scripts and all four
+  assembled app-JS bundles; div-balance on the assembled shell (1123/1123, unchanged — nothing
+  static was added). `scheduler/index.html` resynced by evaluating the module. **Not verified**: a
+  live browser or a real sent email. (`migrations/0049_scheduler_volunteer_second_email.sql`,
+  `src/db.js`, `src/api-scheduler.js`, `src/scheduler-html.js`, `scheduler/index.html`,
+  `src/frontend/js-core.js`, `test/scheduler-volunteers.test.js`, `test/scheduler-second-email.test.js`)
+
 ### v1.229.8 — Finance/Giving routine reads use compact summaries (2026-09-05)
 
 The last routine lifetime gift scans have been removed. Fund statistics, duplicate-fund review,

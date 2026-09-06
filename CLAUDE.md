@@ -539,6 +539,48 @@ Current state: 38 items open (P22-F closed 2026-08-22 — see below). Next up is
 
 ## Queued Items (add new ones here during sessions)
 
+### SC21 — Scheduler volunteers can carry a second (e.g. parent) email address (2026-09-06, DONE)
+Asked for directly: a child who serves may have their own email and a parent's, and every
+notification the Scheduler sends should be able to reach both. New optional **Second Email** field
+on the Add/Edit Person panel, right under the existing Email Address field — purely additive: a
+volunteer with nothing in it behaves exactly as before.
+- **New `scheduler_volunteers.second_email` column** (migration `0049` + the matching runtime
+  `ALTER TABLE` in `src/db.js`), threaded through `GET`/`POST`/`PATCH /admin/api/scheduler/volunteers`
+  alongside the pre-existing `reminder_email` — same sparse-PATCH contract, same upsert-on-POST
+  shape.
+- **One place decides "who gets emailed," not each send site separately.** New
+  `personEmailRecipients(p)`/`personHasEmail(p)`/`personEmailTo(p)` in `src/scheduler-html.js`.
+  Every place that used to read `person.email`/`p.email` directly — the three actual send call
+  sites (`sendReminderEmails`, `_sendWeekReminders`, `sendVolunteerNotifications`), the reminder
+  panel's per-row checkbox gate, the open-slot notify panel's Eligible/no-email split, the People
+  list search box — now routes through these instead, so a future new send path can't reintroduce
+  a single-address assumption by copying the old pattern.
+- **`personEmailTo()` returns a plain string when only one address is set, an array only once a
+  second exists.** Deliberate: every existing send stays byte-identical to before (`to:
+  'larry@example.org'`, not `to: ['larry@example.org']`), and Resend's `to` field already accepts
+  either shape — so `handleSchedEmailSend` (the `/email/send` proxy) needed no backend change at
+  all. Verified against the pre-existing `test/scheduler-month-office.test.js` assertions, which
+  pin the single-string shape and pass unchanged.
+- **The RSVP-store record's own `email` field is untouched** — it's used only as a single
+  `reply_to` address on the office's RSVP-response notification, a genuinely single-recipient use,
+  not a place a second address belongs.
+- `npm test` (2270/2270, 20 new: 6 in `test/scheduler-volunteers.test.js` for the backend field —
+  create, list, and a PATCH that leaves `second_email` untouched unless explicitly sent — plus 14
+  in the new `test/scheduler-second-email.test.js`, driving the real served `<script>` through the
+  same `vm` harness this test suite already uses for the Scheduler). **Every new test verified
+  non-vacuous**: reverted the three `to:` call sites back to `person.email` and confirmed all 4
+  dependent tests fail with the plain-string old value; reverted the backend field pass-through and
+  confirmed the dependent backend test fails. **A backtick in one of my own first-draft comments
+  closed the outer (non-`String.raw`) template literal** — the SC3-BUG1/FIN15/TAP2-BUG class this
+  file has hit repeatedly — caught by `node --check` on the extracted served script before it ever
+  reached the test suite, not by reading. `node --check` on the standalone and ChMS-embedded served
+  scripts and all four assembled app-JS bundles (`app-member`/`app-staff`/`app-ext`/`app-finance`);
+  div-balance on the assembled `CHMS_HTML` (1123/1123, unchanged — nothing static was added to the
+  shell). `scheduler/index.html` resynced by evaluating the module (SC5), confirmed to still parse.
+  **Not verified**: a live browser or a real sent email. (`migrations/0049_scheduler_volunteer_second_email.sql`,
+  `src/db.js`, `src/api-scheduler.js`, `src/scheduler-html.js`, `scheduler/index.html`,
+  `src/frontend/js-core.js`, `test/scheduler-volunteers.test.js`, `test/scheduler-second-email.test.js`)
+
 ### FIN75 — Chart of Accounts: Youth & Family added back; Salaries split from Benefits; per-category collapse (2026-09-06, DONE)
 Asked for directly: add "Youth & Family" back as an expense category, and add the option to
 collapse sections on the Chart of Accounts page ("collapse all the salaries, and then all the

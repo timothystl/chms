@@ -1998,6 +1998,11 @@ async function _doInitDb(db) {
        fields_json TEXT    NOT NULL DEFAULT '[]',
        updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
      )`,
+    // (see migrations/0049_scheduler_volunteer_second_email.sql): a second notification
+    // address per Scheduler volunteer -- a parent's email alongside a child volunteer's
+    // own, or vice versa. When set, every email the Scheduler sends this person also
+    // goes here; reminder_email is untouched.
+    "ALTER TABLE scheduler_volunteers ADD COLUMN second_email TEXT NOT NULL DEFAULT ''",
   ];
   // Every statement here is either an idempotent CREATE ... IF NOT EXISTS, or an ALTER TABLE
   // ADD COLUMN — SQLite has no "ADD COLUMN IF NOT EXISTS", so a re-run always throws "duplicate
