@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDaycareReportView, readSyntheticDaycareReport } from '../apps/finance/daycare-report-service.js';
+import { buildDaycareReportView, readSyntheticDaycareReport, readSyntheticDaycareAllocation } from '../apps/finance/daycare-report-service.js';
 
 const rows = [
   { period: '2026-01', category: 'Synthetic Tuition', entry_type: 'actual', amount_cents: 4000000 },
@@ -40,5 +40,23 @@ describe('Finance synthetic Daycare Report service', () => {
     };
     await expect(readSyntheticDaycareReport(db)).rejects.toThrow('Synthetic Daycare Report rows invalid');
     expect(() => buildDaycareReportView([rows[0], { ...rows[1], period: '2026-02' }])).toThrow('Synthetic Daycare Report period mismatch');
+  });
+
+  it('computes shared-cost allocations from bounded synthetic church inputs', async () => {
+    const db = { prepare(sql) { return { sql }; }, async batch(statements) {
+      expect(statements).toHaveLength(2);
+      return [
+        { results: [{ key: 'daycare_insurance_pct', value: '0.5' }, { key: 'daycare_utility_pct', value: '0.5' }] },
+        { results: [{ account_name: 'Synthetic Insurance', own_actual_cents: 500000 }, { account_name: 'Synthetic Utilities', own_actual_cents: 1200000 }] },
+      ];
+    } };
+    const allocation = await readSyntheticDaycareAllocation(db);
+    expect(allocation).toEqual({ utility_pct: 0.5, insurance_pct: 0.5, utility_source_cents: 1200000, insurance_source_cents: 500000, utility_allocated_cents: 600000, insurance_allocated_cents: 250000 });
+    expect(buildDaycareReportView(rows, allocation).totals).toMatchObject({ expenseActualCents: 3350000, netActualCents: 650000 });
+  });
+
+  it('fails closed on incomplete allocation inputs', async () => {
+    const db = { prepare(sql) { return { sql }; }, async batch() { return [{ results: [] }, { results: [] }]; } };
+    await expect(readSyntheticDaycareAllocation(db)).rejects.toThrow('Synthetic Daycare allocation inputs invalid');
   });
 });

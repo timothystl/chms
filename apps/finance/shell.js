@@ -7,7 +7,7 @@ import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from './parity-manifes
 import { buildFinancialHealthView } from './health-view-model.js';
 import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends } from './church-report-service.js';
 import { buildBalanceSheetView, readSyntheticBalanceSheet, readSyntheticBalanceTrends } from './balance-sheet-service.js';
-import { buildDaycareReportView, readSyntheticDaycareReport } from './daycare-report-service.js';
+import { buildDaycareReportView, readSyntheticDaycareReport, readSyntheticDaycareAllocation } from './daycare-report-service.js';
 import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers } from './property-report-service.js';
 import { buildBudgetReportView, readSyntheticBudgetReport } from './budget-report-service.js';
 import { buildAccountsReportView, readSyntheticAccountsReport } from './accounts-report-service.js';
@@ -118,7 +118,7 @@ function renderCompensationRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.role_label)}</td><td>${formatCents(row.salary_cents)}</td><td>${formatCents(row.benefits_cents)}</td><td>${row.adjustment_pct.toFixed(1)}%</td></tr>`).join('');
 }
 
-function renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, propertyReport, propertyReserves, propertyLedgers, budgetReport, accountsReport, dataStatus, compensationReport) {
+function renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, budgetReport, accountsReport, dataStatus, compensationReport) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     return `<section aria-label="Synthetic financial health">
@@ -153,11 +153,14 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
     </section>`;
   }
   if (section.id === 'daycare') {
-    const report = buildDaycareReportView(daycareReport);
+    const report = buildDaycareReportView(daycareReport, daycareAllocation);
+    const variance = report.totals.netActualCents - report.totals.netBudgetCents;
     return `<section class="report" aria-label="Synthetic Daycare Report">
       <div class="section-heading"><div><div class="eyebrow">Daycare Report</div><h2>Operating report for ${escapeHtml(report.period)}</h2></div><span class="badge">Synthetic staging</span></div>
-      <div class="grid"><div class="card"><small>Tuition income</small><strong>${formatCents(report.totals.incomeActualCents)}</strong></div><div class="card"><small>Operating expenses</small><strong>${formatCents(report.totals.expenseActualCents)}</strong></div><div class="card"><small>Operating result</small><strong>${formatSignedCents(report.totals.netActualCents)}</strong><span>Budget ${formatSignedCents(report.totals.netBudgetCents)}</span></div></div>
+      <div class="grid"><div class="card"><small>Tuition income</small><strong>${formatCents(report.totals.incomeActualCents)}</strong><span>Budget ${formatCents(report.totals.incomeBudgetCents)}</span></div><div class="card"><small>Operating expenses</small><strong>${formatCents(report.totals.expenseActualCents)}</strong><span>Budget ${formatCents(report.totals.expenseBudgetCents)}</span></div><div class="card"><small>Operating result</small><strong>${formatSignedCents(report.totals.netActualCents)}</strong><span>Budget ${formatSignedCents(report.totals.netBudgetCents)} · variance ${formatSignedCents(variance)}</span></div></div>
       <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Category</th><th>Type</th><th>Amount</th></tr></thead><tbody>${renderDaycareRows(report.categories)}</tbody></table></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Shared building costs</div><h2>Utilities and insurance allocation</h2></div><span class="badge">${(daycareAllocation.utility_pct * 100).toFixed(0)}% utilities · ${(daycareAllocation.insurance_pct * 100).toFixed(0)}% insurance</span></div>
+      <div class="grid"><div class="card"><small>Church utilities actual</small><strong>${formatCents(daycareAllocation.utility_source_cents)}</strong><span>Daycare share ${formatCents(daycareAllocation.utility_allocated_cents)}</span></div><div class="card"><small>Church insurance actual</small><strong>${formatCents(daycareAllocation.insurance_source_cents)}</strong><span>Daycare share ${formatCents(daycareAllocation.insurance_allocated_cents)}</span></div></div>
     </section>`;
   }
   if (section.id === 'property') {
@@ -213,7 +216,7 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, propertyReport, propertyReserves, propertyLedgers, budgetReport, accountsReport, dataStatus, compensationReport) {
+function renderShell(metadata, summary, giving, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, budgetReport, accountsReport, dataStatus, compensationReport) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -271,7 +274,7 @@ function renderShell(metadata, summary, giving, section, churchReport, churchTre
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-      ${renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, propertyReport, propertyReserves, propertyLedgers, budgetReport, accountsReport, dataStatus, compensationReport)}
+      ${renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, budgetReport, accountsReport, dataStatus, compensationReport)}
     <p><small>All values shown here are deterministic synthetic staging fixtures. Giving is the committed Connect contract example, validated locally with no network call.</small></p>
     <footer>${release}</footer>
   </main>
@@ -358,6 +361,8 @@ export default {
           ? await readSyntheticBalanceTrends(env.FINANCE_DB) : null;
         const daycareReport = section.id === 'daycare'
           ? await readSyntheticDaycareReport(env.FINANCE_DB) : null;
+        const daycareAllocation = section.id === 'daycare'
+          ? await readSyntheticDaycareAllocation(env.FINANCE_DB) : null;
         const propertyReport = section.id === 'property'
           ? await readSyntheticPropertyReport(env.FINANCE_DB) : null;
         const propertyReserves = section.id === 'property'
@@ -372,7 +377,7 @@ export default {
           ? await readSyntheticDataStatus(env.FINANCE_DB) : null;
         const compensationReport = section.id === 'compensation'
           ? await readSyntheticCompensationReport(env.FINANCE_DB) : null;
-        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, propertyReport, propertyReserves, propertyLedgers, budgetReport, accountsReport, dataStatus, compensationReport), {
+        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, budgetReport, accountsReport, dataStatus, compensationReport), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {
