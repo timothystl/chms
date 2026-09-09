@@ -14,6 +14,7 @@ export const FINANCE_QUERY_BUDGETS = Object.freeze({
   accountsReport: 1,
   dataStatus: 1,
   compensationReport: 1,
+  cashRunway: 2,
 });
 
 export async function runBudgetedReadBatch(db, budgetName, statements) {

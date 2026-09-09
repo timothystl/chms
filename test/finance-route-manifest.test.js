@@ -26,7 +26,7 @@ describe('Finance staging route manifest', () => {
     expect(resolveFinanceRoute('/api/v1/summary')).toMatchObject({
       id: 'summary-v1', contract: 'finance.summary.v1', dataSource: 'synthetic-d1',
     });
-    expect(resolveFinanceRoute('/').optionalQueryBudgets).toEqual(['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport']);
+    expect(resolveFinanceRoute('/').optionalQueryBudgets).toEqual(['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'cashRunway']);
     expect(resolveFinanceRoute('/api/v1/connect-giving-transport-evidence')).toMatchObject({
       id: 'giving-transport-evidence-v1', contract: 'finance.connect-giving-transport-evidence.v1', dataSource: 'synthetic-static',
     });

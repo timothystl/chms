@@ -49,6 +49,7 @@ the migration does not copy production data or authorize a new writer.
 - `accounts-report-service.js` — one-query synthetic account inventory and classification summary.
 - `data-status-service.js` — one-query synthetic import provenance and isolation status.
 - `compensation-report-service.js` — one-query synthetic role-level compensation plan and totals.
+- `cash-runway-service.js` — two-query synthetic operating-cash and expense-coverage boundary.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data. Alpha.5 imports and validates only the
@@ -170,6 +171,12 @@ Alpha.30 assembles a decision-ready synthetic board packet snapshot from the Chu
 multi-year operating trend, balance-sheet totals, and aggregate Giving evidence already read by
 the page. It fails closed on mismatched periods or unreconciled position/Giving inputs and adds no
 query, export, writer, production data, or board-delivery path.
+
+Alpha.31 adds operating cash runway to Financial Health. A named two-query budget reads one
+synthetic operating-cash account and latest-year synthetic expenses, rejects missing, mismatched,
+negative-cash, or nonpositive-expense inputs, and calculates average monthly expense and months of
+coverage. Account selection, production data, editing, imports, alerts, and writers remain
+disconnected.
 
 ## Validate
 
