@@ -18,6 +18,7 @@ import { buildSyntheticBoardPacket } from './board-packet-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView } from './financial-mix-service.js';
 import { buildEntityOverview } from './entity-overview-service.js';
+import { buildOperatingBridge } from './operating-bridge-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -161,11 +162,13 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
     const health = buildFinancialHealthView(summary, giving);
     const runway = buildCashRunwayView(cashRunway);
     const mix = buildFinancialMixView(churchReport);
+    const church = buildChurchReportView(churchReport);
     const entities = buildEntityOverview({
-      church: buildChurchReportView(churchReport),
+      church,
       daycare: buildDaycareReportView(daycareReport),
       property: buildPropertyReportView(propertyReport),
     });
+    const bridge = buildOperatingBridge(church);
     return `<section aria-label="Synthetic financial health">
       <div class="section-heading"><div><div class="eyebrow">Financial Health</div><h2>How are we doing, and what should we decide?</h2></div><span class="badge">Synthetic staging</span></div>
       <div class="grid">
@@ -180,6 +183,9 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
       <div class="section-heading trend-heading"><div><div class="eyebrow">Entity overview</div><h2>Separate operating views</h2></div><span class="badge">Not consolidated</span></div>
       <div class="grid">${renderEntityCards(entities.entities)}</div>
       <p>Periods are shown separately because these synthetic sources do not share one reporting window; their results are not added together.</p>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Money flow</div><h2>FY${bridge.fiscalYear} Church operating bridge</h2></div><span class="badge">Reconciled</span></div>
+      <div class="grid"><div class="card"><small>1 · Income</small><strong>${formatCents(bridge.incomeCents)}</strong></div><div class="card"><small>2 · Expenses</small><strong>−${formatCents(bridge.expenseCents)}</strong></div><div class="card"><small>3 · ${bridge.resultLabel}</small><strong>${formatSignedCents(bridge.resultCents)}</strong><span>Income minus expenses</span></div></div>
+      <p>This is an arithmetic operating bridge, not donor-to-expense tracing or a claim that particular revenue funded particular costs.</p>
       <div class="decision-grid">${health.decisions.map((decision) => `<div class="decision"><small>${decision.stream}</small><b>${decision.authority}</b><span>${decision.action}</span></div>`).join('')}</div>
     </section>`;
   }

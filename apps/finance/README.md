@@ -52,6 +52,7 @@ the migration does not copy production data or authorize a new writer.
 - `cash-runway-service.js` — two-query synthetic operating-cash and expense-coverage boundary.
 - `financial-mix-service.js` — pure reconciled income/expense composition view.
 - `entity-overview-service.js` — pure separately-periodized Church, Daycare, and Property view.
+- `operating-bridge-service.js` — pure reconciled annual Church income-to-result bridge.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data. Alpha.5 imports and validates only the
@@ -190,6 +191,11 @@ Church, Daycare, and Commercial Property readers. Each source retains its own re
 validated income/expense/result arithmetic; the UI explicitly refuses to present a consolidated
 total across unlike periods. It adds no query-budget type, migration, production data, writer, or
 inter-entity accounting rule.
+
+Alpha.34 adds a reconciled annual Church operating bridge to Financial Health. It reuses the
+validated Church detail view to show income minus expenses equals surplus or deficit, and labels
+the result as arithmetic only rather than donor-to-expense tracing. It adds no query, migration,
+production data, allocation rule, charting dependency, or writer.
 
 ## Validate
 
