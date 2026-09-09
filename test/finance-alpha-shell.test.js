@@ -15,6 +15,19 @@ const env = {
   FINANCE_DB: {
     prepare(sql) { statements.push(sql); return { sql }; },
     async batch(batchStatements) {
+      if (batchStatements.length === 3 && batchStatements[0].sql.includes('finance_property_valuation_assumptions')) return [
+        { results: [{ property_key: 'synthetic-property', utility_reimbursement_cents: 600000, vacancy_rate_pct: 0.05, management_fee_pct: 0.06, cap_rate: 0.08 }] },
+        { results: [
+          { unit_key: 'unit-a', tenant_label: 'Synthetic Unit A', square_feet: 1200, annual_rent_cents: 2400000 },
+          { unit_key: 'unit-b', tenant_label: 'Synthetic Unit B', square_feet: 1800, annual_rent_cents: 3600000 },
+        ] },
+        { results: [
+          { cost_key: 'insurance', cost_label: 'Insurance', annual_cost_cents: 400000 },
+          { cost_key: 'maintenance_repairs', cost_label: 'Maintenance and repairs', annual_cost_cents: 600000 },
+          { cost_key: 'taxes', cost_label: 'Property taxes', annual_cost_cents: 800000 },
+          { cost_key: 'utilities', cost_label: 'Utilities', annual_cost_cents: 1200000 },
+        ] },
+      ];
       if (batchStatements.length === 2 && batchStatements[0].sql.includes('finance_property_capital_ledger')) return [
         { results: [{ entry_date: '2026-01-15', amount_cents: 100000, payee: 'Synthetic Vendor', description: 'Synthetic capital project', project: 'Synthetic Project' }] },
         { results: [{ entry_date: '2026-01-20', category: 'Synthetic repair', description: 'Synthetic repair item', amount_cents: 25000, payee: 'Synthetic Vendor', capitalized: 0 }] },
@@ -83,7 +96,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.28');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.29');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -115,7 +128,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.28',
+      version: '1.0.0-alpha.29',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -127,7 +140,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
     expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.28 · alpha');
+    expect(html).toContain('1.0.0-alpha.29 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="appbar"');
@@ -242,7 +255,14 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('Synthetic repair item');
     expect(html).toContain('$1,000');
     expect(html).toContain('$250');
-    expect(statements).toHaveLength(4);
+    expect(html).toContain('Income approach');
+    expect(html).toContain('8.0% cap rate');
+    expect(html).toContain('Synthetic Unit A');
+    expect(html).toContain('$62,700');
+    expect(html).toContain('$28,938');
+    expect(html).toContain('$361,725');
+    expect(html).toContain('Income and cost walk reconciles · read-only');
+    expect(statements).toHaveLength(7);
     expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
   });
 
@@ -339,7 +359,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
   });
 
   it('enforces the named summary query budget and read-only statements', async () => {
-    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1 });
+    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, propertyValuation: 3, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1 });
     await expect(runBudgetedReadBatch(env.FINANCE_DB, 'summary', [
       'SELECT 1', 'SELECT 2', 'SELECT 3', 'SELECT 4', 'SELECT 5',
     ])).rejects.toThrow('Finance query budget exceeded: summary');
@@ -360,7 +380,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.28',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.29',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -410,7 +430,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       dataClassification: 'synthetic',
       scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
       duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
-      release: { version: '1.0.0-alpha.28', releaseSha: 'test-sha' },
+      release: { version: '1.0.0-alpha.29', releaseSha: 'test-sha' },
     });
     expect(body.scenario.totals.netCents).toBe(145000);
     expect(body.scenario.reconciliation.totalsMatch).toBe(true);

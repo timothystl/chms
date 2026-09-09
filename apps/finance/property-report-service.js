@@ -76,6 +76,62 @@ export async function readSyntheticPropertyLedgers(db) {
   };
 }
 
+export async function readSyntheticPropertyValuation(db) {
+  const statements = [
+    "SELECT property_key, utility_reimbursement_cents, vacancy_rate_pct, management_fee_pct, cap_rate FROM finance_property_valuation_assumptions WHERE property_key='synthetic-property' AND source='synthetic_fixture'",
+    "SELECT unit_key, tenant_label, square_feet, annual_rent_cents FROM finance_property_rent_roll WHERE property_key='synthetic-property' AND source='synthetic_fixture' ORDER BY unit_key",
+    "SELECT cost_key, cost_label, annual_cost_cents FROM finance_property_operating_costs WHERE property_key='synthetic-property' AND source='synthetic_fixture' ORDER BY cost_key",
+  ];
+  const { results } = await runBudgetedReadBatch(db, 'propertyValuation', statements);
+  const assumptionRows = results[0]?.results;
+  const rentRoll = results[1]?.results;
+  const operatingCosts = results[2]?.results;
+  const assumptions = assumptionRows?.[0];
+  if (!Array.isArray(assumptionRows) || assumptionRows.length !== 1
+    || assumptions.property_key !== 'synthetic-property'
+    || !Number.isInteger(assumptions.utility_reimbursement_cents)
+    || assumptions.utility_reimbursement_cents < 0
+    || ![assumptions.vacancy_rate_pct, assumptions.management_fee_pct, assumptions.cap_rate]
+      .every((value) => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1)
+    || assumptions.cap_rate === 0
+    || !Array.isArray(rentRoll) || rentRoll.length === 0 || rentRoll.some((row) =>
+      typeof row.unit_key !== 'string' || row.unit_key.trim() === ''
+      || typeof row.tenant_label !== 'string' || row.tenant_label.trim() === ''
+      || !Number.isInteger(row.square_feet) || row.square_feet < 0
+      || !Number.isInteger(row.annual_rent_cents) || row.annual_rent_cents < 0)
+    || !Array.isArray(operatingCosts) || operatingCosts.length === 0 || operatingCosts.some((row) =>
+      typeof row.cost_key !== 'string' || !/^[a-z][a-z0-9_]*$/.test(row.cost_key)
+      || typeof row.cost_label !== 'string' || row.cost_label.trim() === ''
+      || !Number.isInteger(row.annual_cost_cents) || row.annual_cost_cents < 0)
+  ) throw new Error('Synthetic Commercial Property valuation rows invalid');
+  return {
+    assumptions: { ...assumptions },
+    rentRoll: rentRoll.map((row) => ({ ...row })),
+    operatingCosts: operatingCosts.map((row) => ({ ...row })),
+  };
+}
+
+export function buildPropertyValuationView(input) {
+  const totalAnnualRentCents = input.rentRoll.reduce((sum, row) => sum + row.annual_rent_cents, 0);
+  const grossRentalIncomeCents = totalAnnualRentCents + input.assumptions.utility_reimbursement_cents;
+  const vacancyCents = Math.round(grossRentalIncomeCents * input.assumptions.vacancy_rate_pct);
+  const effectiveRentalIncomeCents = grossRentalIncomeCents - vacancyCents;
+  const itemizedOperatingCostsCents = input.operatingCosts.reduce((sum, row) => sum + row.annual_cost_cents, 0);
+  const managementFeeCents = Math.round(effectiveRentalIncomeCents * input.assumptions.management_fee_pct);
+  const totalOperatingCostsCents = itemizedOperatingCostsCents + managementFeeCents;
+  const noiCents = effectiveRentalIncomeCents - totalOperatingCostsCents;
+  const capitalizedValueCents = Math.round(noiCents / input.assumptions.cap_rate);
+  return {
+    ...input,
+    totals: {
+      totalAnnualRentCents, grossRentalIncomeCents, vacancyCents, effectiveRentalIncomeCents,
+      itemizedOperatingCostsCents, managementFeeCents, totalOperatingCostsCents, noiCents,
+      capitalizedValueCents,
+      reconciled: effectiveRentalIncomeCents - itemizedOperatingCostsCents - managementFeeCents === noiCents,
+    },
+  };
+}
+
 export function buildPropertyReportView(rows) {
   const totals = (field) => rows.reduce((sum, row) => sum + row[field], 0);
   return {
