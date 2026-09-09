@@ -7,6 +7,7 @@ import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from './parity-manifes
 import { buildFinancialHealthView } from './health-view-model.js';
 import { buildChurchReportView, readSyntheticChurchReport } from './church-report-service.js';
 import { buildBalanceSheetView, readSyntheticBalanceSheet } from './balance-sheet-service.js';
+import { buildDaycareReportView, readSyntheticDaycareReport } from './daycare-report-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -72,7 +73,11 @@ function renderBalanceRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.account_name)}</td><td>${formatCents(row.own_balance_cents)}</td></tr>`).join('');
 }
 
-function renderSectionBody(section, summary, giving, churchReport, balanceSheet) {
+function renderDaycareRows(rows) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.entry_type)}</td><td>${formatCents(row.amount_cents)}</td></tr>`).join('');
+}
+
+function renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     return `<section aria-label="Synthetic financial health">
@@ -102,6 +107,14 @@ function renderSectionBody(section, summary, giving, churchReport, balanceSheet)
       <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Account</th><th>Balance</th></tr></thead><tbody>${renderBalanceRows([...report.assets, ...report.liabilities, ...report.equity])}</tbody></table></div>
     </section>`;
   }
+  if (section.id === 'daycare') {
+    const report = buildDaycareReportView(daycareReport);
+    return `<section class="report" aria-label="Synthetic Daycare Report">
+      <div class="section-heading"><div><div class="eyebrow">Daycare Report</div><h2>Operating report for ${escapeHtml(report.period)}</h2></div><span class="badge">Synthetic staging</span></div>
+      <div class="grid"><div class="card"><small>Tuition income</small><strong>${formatCents(report.totals.incomeActualCents)}</strong></div><div class="card"><small>Operating expenses</small><strong>${formatCents(report.totals.expenseActualCents)}</strong></div><div class="card"><small>Operating result</small><strong>${formatSignedCents(report.totals.netActualCents)}</strong><span>Budget ${formatSignedCents(report.totals.netBudgetCents)}</span></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Category</th><th>Type</th><th>Amount</th></tr></thead><tbody>${renderDaycareRows(report.categories)}</tbody></table></div>
+    </section>`;
+  }
   return `<section class="parity" aria-label="${section.label} staging scaffold">
     <h2>${section.label}</h2>
     <p>This familiar workspace is retained in the parity plan. Its production workflow and data are not connected to staging.</p>
@@ -109,7 +122,7 @@ function renderSectionBody(section, summary, giving, churchReport, balanceSheet)
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, section, churchReport, balanceSheet) {
+function renderShell(metadata, summary, giving, section, churchReport, balanceSheet, daycareReport) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -158,7 +171,7 @@ function renderShell(metadata, summary, giving, section, churchReport, balanceSh
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-    ${renderSectionBody(section, summary, giving, churchReport, balanceSheet)}
+    ${renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport)}
     <p><small>All values shown here are deterministic synthetic staging fixtures. Giving is the committed Connect contract example, validated locally with no network call.</small></p>
     <footer>${release}</footer>
   </main>
@@ -239,7 +252,9 @@ export default {
           ? await readSyntheticChurchReport(env.FINANCE_DB) : null;
         const balanceSheet = section.id === 'balance'
           ? await readSyntheticBalanceSheet(env.FINANCE_DB) : null;
-        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, balanceSheet), {
+        const daycareReport = section.id === 'daycare'
+          ? await readSyntheticDaycareReport(env.FINANCE_DB) : null;
+        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, balanceSheet, daycareReport), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {
