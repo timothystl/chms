@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildBalanceSheetView, readSyntheticBalanceSheet } from '../apps/finance/balance-sheet-service.js';
+import { buildBalanceSheetView, readSyntheticBalanceSheet, readSyntheticBalanceTrends } from '../apps/finance/balance-sheet-service.js';
 
 const rows = [
   { fiscal_year: 2026, as_of_date: '2026-12-31', classification: 'Assets', account_name: 'Synthetic Cash', own_balance_cents: 30000000 },
@@ -42,6 +42,28 @@ describe('Finance synthetic Balance Sheet service', () => {
         async batch() { return [{ results }]; },
       };
       await expect(readSyntheticBalanceSheet(db)).rejects.toThrow('Synthetic Balance Sheet rows invalid');
+    }
+  });
+
+  it('derives reconciled multi-year position trends', async () => {
+    const trendRows = [
+      { fiscal_year: 2025, as_of_date: '2025-12-31', assets_cents: 27000000, liabilities_cents: 11000000, equity_cents: 16000000 },
+      { fiscal_year: 2026, as_of_date: '2026-12-31', assets_cents: 30000000, liabilities_cents: 10000000, equity_cents: 20000000 },
+    ];
+    const db = { prepare(sql) { return { sql }; }, async batch() { return [{ results: trendRows }]; } };
+    await expect(readSyntheticBalanceTrends(db)).resolves.toEqual([
+      { ...trendRows[0], net_assets_cents: 16000000 },
+      { ...trendRows[1], net_assets_cents: 20000000 },
+    ]);
+  });
+
+  it('fails closed on an incomplete or unreconciled position trend', async () => {
+    for (const results of [[{ fiscal_year: 2026, as_of_date: '2026-12-31', assets_cents: 30000000, liabilities_cents: 10000000, equity_cents: 20000000 }], [
+      { fiscal_year: 2025, as_of_date: '2025-12-31', assets_cents: 27000000, liabilities_cents: 11000000, equity_cents: 15000000 },
+      { fiscal_year: 2026, as_of_date: '2026-12-31', assets_cents: 30000000, liabilities_cents: 10000000, equity_cents: 20000000 },
+    ]]) {
+      const db = { prepare(sql) { return { sql }; }, async batch() { return [{ results }]; } };
+      await expect(readSyntheticBalanceTrends(db)).rejects.toThrow('Synthetic Balance Sheet trend rows invalid');
     }
   });
 });
