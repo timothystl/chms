@@ -154,6 +154,12 @@ base amount and explicit growth assumption; the service rejects malformed or ari
 inconsistent rows, then renders base and planned income, expenses, net result, and change with a
 cent-level reconciliation. Editing, production data, imports, and writers remain disconnected.
 
+Alpha.28 adds a Finance-owned account-presentation table instead of extending Connect's shared
+configuration blobs. The read-only Chart of Accounts joins each synthetic ledger path to a board
+category and an independent optional purpose tag, while preserving the original ledger path and
+rejecting missing or malformed mappings. Production mappings, editing, imports, and writers remain
+disconnected.
+
 ## Validate
 
 From the repository root:
