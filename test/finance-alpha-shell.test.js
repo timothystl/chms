@@ -118,7 +118,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.39');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.40');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -150,7 +150,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.39',
+      version: '1.0.0-alpha.40',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -162,11 +162,15 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
-    expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.39 · alpha');
+    expect(html).toContain('no production writers');
+    expect(html).toContain('1.0.0-alpha.40 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="appbar"');
+    expect(html).toContain('class="content-shell"');
+    expect(html).toContain('Finance / Financial Health');
+    expect(html).toContain('aria-current="page"');
+    expect(html).toContain('Skip to report');
     expect(html).toContain('color-scheme: light');
     expect(html).toContain('--warm-meta');
     expect(html).toContain('How are we doing, and what should we decide?');
@@ -464,7 +468,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.39',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.40',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -514,7 +518,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       dataClassification: 'synthetic',
       scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
       duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
-      release: { version: '1.0.0-alpha.39', releaseSha: 'test-sha' },
+      release: { version: '1.0.0-alpha.40', releaseSha: 'test-sha' },
     });
     expect(body.scenario.totals.netCents).toBe(145000);
     expect(body.scenario.reconciliation.totalsMatch).toBe(true);

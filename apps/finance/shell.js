@@ -86,8 +86,9 @@ function escapeHtml(value) {
 }
 
 function renderSectionNav(activeSection) {
+  const icons = { health: 'H', church: 'C', balance: 'B', daycare: 'D', property: 'P', planning: 'P', accounts: 'A', compensation: 'C', data: 'D' };
   return FINANCE_PARITY_SECTIONS.map((section) =>
-    `<a href="/?section=${section.id}"${section.id === activeSection.id ? ' aria-current="page"' : ''}>${section.label}</a>`
+    `<a href="/?section=${section.id}"${section.id === activeSection.id ? ' aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">${icons[section.id]}</span><span>${section.label}</span></a>`
   ).join('');
 }
 
@@ -332,19 +333,28 @@ function renderShell(metadata, summary, giving, section, churchReport, churchTre
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance — Staging</title>
   <style>
-    :root { color-scheme: light; font-family: "DM Sans", "Source Sans 3", Arial, sans-serif; --navy:#1e2d4a; --teal:#2e7ea6; --gold:#c9973a; --charcoal:#1a1a2a; --warm-gray:#8a8377; --warm-meta:#8a7a5c; --warm-label:#5c4b2e; --border:#e5d9be; --divider:#f1e7d2; --page:#fbf8f1; --header:#fbf3e1; --card:#fffdf9; --sage:#6b8f71; }
+    :root { color-scheme: light; font-family: "DM Sans", "Source Sans 3", Arial, sans-serif; --navy:#1e2d4a; --teal:#2e7ea6; --gold:#c9973a; --charcoal:#1a1a2a; --warm-gray:#8a8377; --warm-meta:#8a7a5c; --warm-label:#5c4b2e; --border:#e5d9be; --divider:#f1e7d2; --page:#fbf8f1; --header:#fbf3e1; --card:#fffdf9; --sage:#6b8f71; --sidebar:13.5rem; }
     * { box-sizing: border-box; }
     body { min-height: 100vh; margin: 0; background: var(--page); color: var(--charcoal); }
-    .appbar { min-height:4.5rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.8rem max(1rem,calc((100% - 72rem)/2)); background:var(--navy); color:#fff; box-shadow:0 3px 14px rgba(30,45,74,.18); }
-    .brand { display:flex; align-items:center; gap:.75rem; font-family:Georgia,serif; font-size:1.08rem; font-weight:700; }
+    .skip-link { position:fixed; left:1rem; top:-4rem; z-index:20; padding:.65rem .9rem; background:#fff; color:var(--navy); border-radius:.5rem; font-weight:700; }
+    .skip-link:focus { top:1rem; }
+    .app-shell { min-height:100vh; }
+    .appbar { position:fixed; inset:0 auto 0 0; z-index:10; width:var(--sidebar); display:flex; flex-direction:column; align-items:stretch; gap:1rem; padding:1.15rem .85rem; background:var(--navy); color:#fff; box-shadow:3px 0 18px rgba(30,45,74,.16); }
+    .brand { display:flex; align-items:center; gap:.7rem; min-height:3rem; padding:0 .35rem; font-family:Georgia,serif; font-size:1rem; font-weight:700; }
     .brand small { display:block; color:rgba(255,255,255,.65); font-family:Arial,sans-serif; font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; margin-top:.12rem; }
-    .mark { width:2.3rem; height:2.3rem; display:grid; place-items:center; border:1px solid rgba(255,255,255,.45); border-radius:50%; color:#f5e0b0; font-size:1.25rem; }
-    .environment { padding:.35rem .7rem; border:1px solid rgba(255,255,255,.25); border-radius:99px; color:#f5e0b0; font-size:.72rem; font-weight:700; }
-    main { width:min(72rem,calc(100% - 2rem)); margin:0 auto; padding:2.3rem 0 3rem; }
+    .mark { width:2.25rem; height:2.25rem; flex:0 0 auto; display:grid; place-items:center; border:1px solid rgba(255,255,255,.45); border-radius:50%; color:#f5e0b0; font-size:1.2rem; }
+    .environment { margin-top:auto; padding:.55rem .65rem; border:1px solid rgba(255,255,255,.2); border-radius:.6rem; color:#f5e0b0; font-size:.7rem; font-weight:700; text-align:center; }
+    .content-shell { min-height:100vh; margin-left:var(--sidebar); }
+    .topbar { position:sticky; top:0; z-index:5; height:3.2rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:0 1.5rem; background:#fff; border-bottom:1px solid var(--border); }
+    .topbar-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--charcoal); font-size:.9rem; font-weight:700; }
+    .topbar-meta { color:var(--warm-meta); font-size:.72rem; white-space:nowrap; }
+    main { width:min(76rem,calc(100% - 3rem)); margin:0 auto; padding:2rem 0 3rem; }
+    .page-intro { display:grid; grid-template-columns:1fr auto; align-items:end; gap:1rem; }
+    .page-intro p { max-width:48rem; margin-bottom:0; }
     .eyebrow { color:var(--warm-meta); font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
     h1 { margin:.35rem 0 .55rem; color:var(--navy); font-family:Georgia,serif; font-size:clamp(2.1rem,6vw,3.2rem); line-height:1; }
     p { color:var(--warm-gray); line-height:1.6; }
-    .status { margin-top:1.2rem; padding:.75rem 1rem; border-left:4px solid var(--sage); border-radius:.55rem; background:#edf3ee; color:#4a6e52; font-size:.84rem; font-weight:700; }
+    .status { padding:.55rem .8rem; border:1px solid #d8e7db; border-radius:99px; background:#edf3ee; color:#4a6e52; font-size:.74rem; font-weight:700; white-space:nowrap; }
     .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(12rem,1fr)); gap:1rem; margin-top:1.25rem; }
     .card { padding:1.15rem 1.25rem; border-top:4px solid var(--teal); border-radius:1.1rem; background:var(--card); box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05); }
     .card small { display:block; color:var(--warm-meta); margin-bottom:.4rem; font-size:.7rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
@@ -363,28 +373,34 @@ function renderShell(metadata, summary, giving, section, churchReport, churchTre
     th, td { padding:.75rem .85rem; border-bottom:1px solid var(--divider); text-align:left; }
     th:nth-child(n+3), td:nth-child(n+3) { text-align:right; font-variant-numeric:tabular-nums; }
     th { color:var(--warm-label); background:var(--header); font-size:.68rem; letter-spacing:.05em; text-transform:uppercase; }
-    nav { display:flex; gap:.15rem; overflow-x:auto; padding:.45rem 0 0; margin-top:1.25rem; border-bottom:1px solid var(--border); }
-    nav a { flex:0 0 auto; padding:.7rem .82rem; border-bottom:2px solid transparent; color:var(--warm-meta); text-decoration:none; font-size:.8rem; font-weight:700; }
-    nav a[aria-current="page"] { border-bottom-color:var(--navy); color:var(--navy); }
+    nav { display:flex; flex-direction:column; gap:.18rem; min-height:0; overflow-y:auto; }
+    nav::before { content:'Finance'; padding:.5rem .65rem .35rem; color:var(--gold); font-size:.62rem; font-weight:700; letter-spacing:.18em; text-transform:uppercase; }
+    nav a { display:flex; align-items:center; gap:.65rem; min-height:2.35rem; padding:.5rem .65rem; border-radius:.55rem; color:rgba(255,255,255,.7); text-decoration:none; font-size:.76rem; font-weight:650; line-height:1.2; }
+    nav a:hover { background:rgba(255,255,255,.07); color:#fff; }
+    nav a[aria-current="page"] { background:rgba(46,126,166,.25); box-shadow:inset 3px 0 0 var(--teal); color:#fff; }
+    .nav-icon { width:1.35rem; height:1.35rem; flex:0 0 auto; display:grid; place-items:center; border:1px solid currentColor; border-radius:.4rem; font-size:.58rem; }
     .parity { margin-top:1.25rem; padding:1.25rem; border:1px solid var(--border); border-radius:.85rem; background:var(--card); }
     .parity h2 { margin:0 0 .5rem; }
     .parity ul { columns:2; color:var(--warm-gray); line-height:1.8; }
     footer { margin-top:2rem; padding-top:1rem; border-top:1px solid var(--border); color:var(--warm-meta); font-size:.75rem; }
-    @media(max-width:767px){.appbar{padding:.75rem 1rem}.brand{font-size:.92rem}.environment{display:none}main{width:min(100% - 1.2rem,72rem);padding-top:1.4rem}.section-heading{align-items:start;flex-direction:column}.grid{grid-template-columns:1fr}.parity ul{columns:1}}
+    @media(max-width:900px){:root{--sidebar:11.5rem}.brand{font-size:.88rem}nav a{font-size:.71rem}}
+    @media(max-width:767px){.appbar{position:static;width:100%;padding:.65rem .8rem;display:block}.brand{min-height:auto}.brand small{display:none}.environment{display:none}.appbar nav{flex-direction:row;overflow-x:auto;margin-top:.65rem;padding-bottom:.1rem}.appbar nav::before{display:none}.appbar nav a{flex:0 0 auto;min-height:2rem;padding:.4rem .55rem}.appbar nav a[aria-current="page"]{box-shadow:inset 0 -3px 0 var(--teal)}.nav-icon{display:none}.content-shell{margin-left:0}.topbar{height:2.8rem;padding:0 .8rem}.topbar-meta{display:none}main{width:min(100% - 1.2rem,76rem);padding-top:1.3rem}.page-intro{grid-template-columns:1fr}.status{justify-self:start}.section-heading{align-items:start;flex-direction:column}.grid{grid-template-columns:1fr}.parity ul{columns:1}}
   </style>
 </head>
 <body>
-  <header class="appbar"><div class="brand"><span class="mark" aria-hidden="true">T</span><div>Timothy Lutheran Church<small>Finance workspace</small></div></div><span class="environment">Isolated staging</span></header>
-  <main>
-    <div class="eyebrow">Isolated staging environment</div>
-    <h1>Timothy Finance</h1>
-    <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
-    <div class="status">Environment ready · no production writers attached</div>
-    <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
+  <a class="skip-link" href="#main-content">Skip to report</a>
+  <div class="app-shell">
+    <aside class="appbar"><div class="brand"><span class="mark" aria-hidden="true">T</span><div>Timothy Lutheran Church<small>Finance workspace</small></div></div><nav aria-label="Finance workspace">${renderSectionNav(section)}</nav><span class="environment">Isolated staging · read-only</span></aside>
+    <div class="content-shell">
+      <header class="topbar"><span class="topbar-title">Finance / ${escapeHtml(section.label)}</span><span class="topbar-meta">${escapeHtml(release)}</span></header>
+      <main id="main-content">
+    <div class="page-intro"><div><div class="eyebrow">Finance workspace · isolated staging</div><h1>${escapeHtml(section.label)}</h1><p>The rebuilt Finance application boundary is running with synthetic data. Production workflows are not connected.</p></div><div class="status">Ready · no production writers</div></div>
       ${renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway)}
     <p><small>All values shown here are deterministic synthetic staging fixtures. Giving is the committed Connect contract example, validated locally with no network call.</small></p>
     <footer>${release}</footer>
-  </main>
+      </main>
+    </div>
+  </div>
 </body>
 </html>`;
 }
