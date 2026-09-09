@@ -13,8 +13,9 @@ Production binds D1 `tlc-volunteer-db` as `DB`, KV as `RSVP_STORE`, R2
 `tlc-chms-photos` as `PHOTOS`, and a daily 14:00 UTC cron. `wrangler.toml` is the source
 configuration; live attachment still outranks prose.
 
-Connect staging runs the same entry point as Worker `breeze-proxy-worker-staging` with separate D1,
-KV, and R2 resources and no cron. It is an integration environment, not a production shadow.
+Connect staging runs the same entry point as Worker `timothy-connect-staging` (renamed 2026-09-09
+from `breeze-proxy-worker-staging`) with separate D1, KV, and R2 resources and no cron. It is an
+integration environment, not a production shadow.
 
 The Finance staging Worker `timothy-finance-app-staging` starts at `apps/finance/shell.js` and uses
 only D1 binding `FINANCE_DB`. Its sole configured hostname is
