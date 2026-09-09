@@ -3,7 +3,7 @@ import { runBudgetedReadBatch } from './query-budget.js';
 const CLASSIFICATIONS = new Set(['Income', 'Expenses']);
 
 export async function readSyntheticAccountsReport(db) {
-  const sql = "SELECT classification, category_path, account_name FROM finance_church_entries WHERE source='synthetic_fixture' ORDER BY classification, category_path";
+  const sql = "SELECT DISTINCT classification, category_path, account_name FROM finance_church_entries WHERE source='synthetic_fixture' ORDER BY classification, category_path";
   const { results } = await runBudgetedReadBatch(db, 'accountsReport', [sql]);
   const rows = results[0]?.results;
   if (!Array.isArray(rows) || rows.length === 0 || rows.some((row) =>

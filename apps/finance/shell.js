@@ -5,7 +5,7 @@ import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from '
 import { isFinanceMethodAllowed, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from './parity-manifest.js';
 import { buildFinancialHealthView } from './health-view-model.js';
-import { buildChurchReportView, readSyntheticChurchReport } from './church-report-service.js';
+import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends } from './church-report-service.js';
 import { buildBalanceSheetView, readSyntheticBalanceSheet } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport } from './daycare-report-service.js';
 import { buildPropertyReportView, readSyntheticPropertyReport } from './property-report-service.js';
@@ -74,6 +74,10 @@ function renderChurchRows(rows) {
   }).join('');
 }
 
+function renderChurchTrendRows(rows) {
+  return rows.map((row) => `<tr><td>${row.fiscal_year}</td><td>${formatCents(row.income_cents)}</td><td>${formatCents(row.expense_cents)}</td><td>${formatSignedCents(row.net_cents)}</td></tr>`).join('');
+}
+
 function renderBalanceRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.account_name)}</td><td>${formatCents(row.own_balance_cents)}</td></tr>`).join('');
 }
@@ -98,7 +102,7 @@ function renderCompensationRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.role_label)}</td><td>${formatCents(row.salary_cents)}</td><td>${formatCents(row.benefits_cents)}</td><td>${row.adjustment_pct.toFixed(1)}%</td></tr>`).join('');
 }
 
-function renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus, compensationReport) {
+function renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus, compensationReport) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     return `<section aria-label="Synthetic financial health">
@@ -118,6 +122,8 @@ function renderSectionBody(section, summary, giving, churchReport, balanceSheet,
       <div class="section-heading"><div><div class="eyebrow">Church Report</div><h2>Fiscal year ${report.fiscalYear}</h2></div><span class="badge">Synthetic staging</span></div>
       <div class="grid"><div class="card"><small>Income</small><strong>${formatCents(report.totals.incomeActualCents)}</strong></div><div class="card"><small>Expenses</small><strong>${formatCents(report.totals.expenseActualCents)}</strong></div><div class="card"><small>Net result</small><strong>${formatSignedCents(report.totals.actualNetCents)}</strong><span>Budget ${formatSignedCents(report.totals.budgetNetCents)} · variance ${formatSignedCents(variance)}</span></div></div>
       <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Account</th><th>Actual</th><th>Budget</th><th>Favorable variance</th></tr></thead><tbody>${renderChurchRows([...report.income, ...report.expenses])}</tbody></table></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Operating history</div><h2>Multi-year operating trend</h2></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Fiscal year</th><th>Income</th><th>Expenses</th><th>Net result</th></tr></thead><tbody>${renderChurchTrendRows(churchTrends)}</tbody></table></div>
     </section>`;
   }
   if (section.id === 'balance') {
@@ -182,7 +188,7 @@ function renderSectionBody(section, summary, giving, churchReport, balanceSheet,
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, section, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus, compensationReport) {
+function renderShell(metadata, summary, giving, section, churchReport, churchTrends, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus, compensationReport) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -240,7 +246,7 @@ function renderShell(metadata, summary, giving, section, churchReport, balanceSh
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-    ${renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus, compensationReport)}
+      ${renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus, compensationReport)}
     <p><small>All values shown here are deterministic synthetic staging fixtures. Giving is the committed Connect contract example, validated locally with no network call.</small></p>
     <footer>${release}</footer>
   </main>
@@ -319,6 +325,8 @@ export default {
           ? await readSyntheticSummary(env.FINANCE_DB) : null;
         const churchReport = section.id === 'church'
           ? await readSyntheticChurchReport(env.FINANCE_DB) : null;
+        const churchTrends = section.id === 'church'
+          ? await readSyntheticChurchTrends(env.FINANCE_DB) : null;
         const balanceSheet = section.id === 'balance'
           ? await readSyntheticBalanceSheet(env.FINANCE_DB) : null;
         const daycareReport = section.id === 'daycare'
@@ -333,7 +341,7 @@ export default {
           ? await readSyntheticDataStatus(env.FINANCE_DB) : null;
         const compensationReport = section.id === 'compensation'
           ? await readSyntheticCompensationReport(env.FINANCE_DB) : null;
-        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus, compensationReport), {
+        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, churchTrends, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus, compensationReport), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {

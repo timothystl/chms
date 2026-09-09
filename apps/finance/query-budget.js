@@ -1,6 +1,7 @@
 export const FINANCE_QUERY_BUDGETS = Object.freeze({
   summary: 4,
   churchReport: 1,
+  churchTrends: 1,
   balanceSheet: 1,
   daycareReport: 1,
   propertyReport: 1,

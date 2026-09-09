@@ -3,7 +3,7 @@ import { runBudgetedReadBatch } from './query-budget.js';
 const CLASSIFICATIONS = new Set(['Assets', 'Liabilities', 'Equity']);
 
 export async function readSyntheticBalanceSheet(db) {
-  const sql = "SELECT fiscal_year, as_of_date, classification, account_name, own_balance_cents FROM finance_church_balances WHERE source='synthetic_fixture' ORDER BY classification, account_name";
+  const sql = "SELECT fiscal_year, as_of_date, classification, account_name, own_balance_cents FROM finance_church_balances WHERE source='synthetic_fixture' AND fiscal_year=(SELECT MAX(fiscal_year) FROM finance_church_balances WHERE source='synthetic_fixture') ORDER BY classification, account_name";
   const { results } = await runBudgetedReadBatch(db, 'balanceSheet', [sql]);
   const rows = results[0]?.results;
   if (!Array.isArray(rows) || rows.length === 0 || rows.some((row) =>

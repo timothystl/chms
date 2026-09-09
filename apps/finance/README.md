@@ -114,6 +114,11 @@ language: warm page surfaces, navy display headings, gold/teal accents, white el
 the existing flat horizontal subnavigation. This changes presentation only; routes, queries,
 bindings, synthetic data, access controls, and writer isolation are unchanged.
 
+Alpha.20 adds a bounded multi-year Church operating trend using a second, explicitly named
+one-query read budget. Current-year summaries and account detail remain scoped to the latest
+synthetic fiscal year, while the trend compares deterministic 2025 and 2026 fixture totals.
+Production data, imports, drill-downs, and writers remain disconnected.
+
 ## Validate
 
 From the repository root:
