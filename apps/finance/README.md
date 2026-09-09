@@ -44,6 +44,7 @@ the migration does not copy production data or authorize a new writer.
 - `balance-sheet-service.js` — one-query synthetic position detail and equation reconciliation.
 - `daycare-report-service.js` — one-query synthetic actuals and operating-result detail.
 - `property-report-service.js` — one-query synthetic monthly property performance detail.
+- `budget-report-service.js` — one-query synthetic future-plan detail and totals.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data. Alpha.5 imports and validates only the
@@ -87,6 +88,10 @@ Alpha.14 adds the first functional Commercial Property slice: monthly revenue, e
 income, occupancy, distributable cash, and reserve balance. It uses one separately named read
 budget. Reserve schedules, capital, repairs, forecasts, valuation, imports, production data, and
 writers remain disconnected.
+
+Alpha.15 adds the first functional Budget slice: future-year planned income, expenses, net result,
+and category detail. It uses one separately named read budget. Editing, growth scenarios, board
+categories, purpose tags, imports, production data, and writers remain disconnected.
 
 ## Validate
 
