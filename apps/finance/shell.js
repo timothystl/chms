@@ -129,7 +129,7 @@ function renderBudgetRows(rows) {
 }
 
 function renderAccountRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category_path)}</td><td>${escapeHtml(row.account_name)}</td></tr>`).join('');
+  return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category_path)}</td><td>${escapeHtml(row.account_name)}</td><td>${escapeHtml(row.board_category_label)}</td><td>${row.purpose_tag_label === null ? '—' : escapeHtml(row.purpose_tag_label)}</td></tr>`).join('');
 }
 
 function renderCompensationRows(rows) {
@@ -207,9 +207,9 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
   if (section.id === 'accounts') {
     const report = buildAccountsReportView(accountsReport);
     return `<section class="report" aria-label="Synthetic Chart of Accounts">
-      <div class="section-heading"><div><div class="eyebrow">Chart of Accounts</div><h2>Account inventory</h2></div><span class="badge">Synthetic staging</span></div>
-      <div class="grid"><div class="card"><small>Total accounts</small><strong>${report.counts.total}</strong></div><div class="card"><small>Income accounts</small><strong>${report.counts.income}</strong></div><div class="card"><small>Expense accounts</small><strong>${report.counts.expenses}</strong><span>Read-only inventory</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Account path</th><th>Account</th></tr></thead><tbody>${renderAccountRows(report.rows)}</tbody></table></div>
+      <div class="section-heading"><div><div class="eyebrow">Chart of Accounts</div><h2>Account presentation</h2></div><span class="badge">Synthetic staging</span></div>
+      <div class="grid"><div class="card"><small>Total accounts</small><strong>${report.counts.total}</strong><span>${report.counts.income} income · ${report.counts.expenses} expense</span></div><div class="card"><small>Board categories</small><strong>${report.counts.boardCategories}</strong><span>Presentation only; ledger paths unchanged</span></div><div class="card"><small>Purpose tags</small><strong>${report.counts.purposeTags}</strong><span>Independent reporting lens · read-only</span></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Account path</th><th>Account</th><th>Board category</th><th>Purpose</th></tr></thead><tbody>${renderAccountRows(report.rows)}</tbody></table></div>
     </section>`;
   }
   if (section.id === 'compensation') {
