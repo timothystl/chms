@@ -124,6 +124,11 @@ read budget. Each fixture year must satisfy the accounting equation before it is
 the current position remains scoped to the latest synthetic fiscal year. Production data, imports,
 adjustments, drill-downs, and writers remain disconnected.
 
+Alpha.22 adds the first Commercial Property reserve workflow: a read-only property-tax reserve
+schedule with target, carried balance, monthly contribution, ending balance, and funding progress.
+Its separately named one-query reader rejects broken month-to-month carry-forward. Production
+property data, reserve editing, disbursements, imports, and writers remain disconnected.
+
 ## Validate
 
 From the repository root:
