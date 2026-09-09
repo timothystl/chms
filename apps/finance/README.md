@@ -129,6 +129,11 @@ schedule with target, carried balance, monthly contribution, ending balance, and
 Its separately named one-query reader rejects broken month-to-month carry-forward. Production
 property data, reserve editing, disbursements, imports, and writers remain disconnected.
 
+Alpha.23 adds bounded read-only Commercial Property capital-project and repair ledgers with
+separate totals and line detail. The two-statement ledger budget validates synthetic dates,
+amounts, classifications, and descriptive fields before rendering. Production property data,
+editing, imports, and writers remain disconnected.
+
 ## Validate
 
 From the repository root:

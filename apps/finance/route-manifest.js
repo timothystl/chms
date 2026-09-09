@@ -1,7 +1,7 @@
 const READ_METHODS = Object.freeze(['GET', 'HEAD']);
 
 const ROUTES = [
-  { id: 'shell', paths: ['/', '/index.html'], dataSource: 'synthetic-d1', queryBudget: 'summary', optionalQueryBudgets: ['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'propertyReport', 'propertyReserves', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport'] },
+  { id: 'shell', paths: ['/', '/index.html'], dataSource: 'synthetic-d1', queryBudget: 'summary', optionalQueryBudgets: ['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport'] },
   { id: 'health', paths: ['/health'], dataSource: 'none' },
   { id: 'summary-v1', paths: ['/api/v1/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', contract: 'finance.summary.v1' },
   { id: 'giving-preview-v1', paths: ['/api/v1/connect-giving-preview'], dataSource: 'synthetic-static', contract: 'connect.giving-summary.v1' },
