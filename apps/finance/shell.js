@@ -2,6 +2,7 @@ import { FINANCE_RELEASE_CHANNEL, FINANCE_VERSION } from './version.js';
 import givingFixture from '../../contracts/examples/giving-summary-v1.synthetic.json';
 import { acceptConnectGivingSummaryV1 } from './connect-giving-consumer.js';
 import { reconcileSyntheticGivingDelivery } from './connect-giving-transport.js';
+import { fetchLiveConnectGivingSummary, defaultLiveGivingPeriod } from './connect-giving-client.js';
 import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from './summary-service.js';
 import { isFinanceMethodAllowed, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from './parity-manifest.js';
@@ -28,6 +29,16 @@ const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
 const GIVING_CONTRACT = 'connect.giving-summary.v1';
 const GIVING_TRANSPORT_EVIDENCE_CONTRACT = 'finance.connect-giving-transport-evidence.v1';
 const SYNTHETIC_GIVING = acceptConnectGivingSummaryV1(givingFixture);
+
+// Tries the real connect.giving-summary.v1 endpoint (see connect-giving-client.js); falls back
+// to the committed synthetic fixture whenever the live call isn't configured yet or fails for
+// any reason. Never throws, and the caller always gets a valid, already-accepted contract object
+// either way — only `source` tells the two apart.
+async function resolveGivingSummary(env) {
+  const result = await fetchLiveConnectGivingSummary(env, defaultLiveGivingPeriod());
+  if (result.ok) return { giving: result.summary, source: 'live' };
+  return { giving: SYNTHETIC_GIVING, source: 'synthetic-fallback', fallbackReason: result.reason };
+}
 const SYNTHETIC_DELIVERY_ID = 'synthetic-giving-2026-01-v1';
 const SYNTHETIC_GIVING_TRANSPORT = Object.freeze({
   contract: GIVING_TRANSPORT_EVIDENCE_CONTRACT,
@@ -179,7 +190,7 @@ function renderEntityCards(entities) {
   return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)}</span></div>`).join('');
 }
 
-function renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway) {
+function renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     const runway = buildCashRunwayView(cashRunway);
@@ -196,7 +207,7 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
       <div class="grid">
         <div class="card"><small>Operating result</small><strong>${formatSignedCents(health.operating.actualNetCents)}</strong><span>Budget ${formatSignedCents(health.operating.budgetNetCents)} · variance ${formatSignedCents(health.operating.varianceCents)}</span></div>
         <div class="card"><small>Financial position</small><strong>${formatCents(health.position.netAssetsCents)}</strong><span>Assets ${formatCents(health.position.assetsCents)} · liabilities ${formatCents(health.position.liabilitiesCents)}</span></div>
-        <div class="card"><small>Giving reconciliation</small><strong>${formatCents(health.giving.netCents)}</strong><span>${health.giving.sourceRecordCount} aggregate records · ${health.giving.reconciled ? 'totals match' : 'review required'}</span></div>
+        <div class="card"><small>Giving reconciliation</small><strong>${formatCents(health.giving.netCents)}</strong><span>${health.giving.sourceRecordCount} aggregate records · ${health.giving.reconciled ? 'totals match' : 'review required'} · ${givingSource === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>
       </div>
       <div class="section-heading trend-heading"><div><div class="eyebrow">Liquidity</div><h2>Operating cash runway</h2></div><span class="badge">As of ${escapeHtml(runway.asOfDate)}</span></div>
       <div class="grid"><div class="card"><small>Operating cash</small><strong>${formatCents(runway.operatingCashCents)}</strong><span>${escapeHtml(runway.accountName)} · synthetic fixture</span></div><div class="card"><small>Average monthly expense</small><strong>${formatCents(runway.monthlyExpenseCents)}</strong><span>FY${runway.fiscalYear} annual expense ${formatCents(runway.annualExpenseCents)}</span></div><div class="card"><small>Expense coverage</small><strong>${runway.runwayMonths.toFixed(1)} months</strong><span>Cash divided by average monthly expense · read-only</span></div></div>
@@ -323,7 +334,7 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway) {
+function renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -381,8 +392,8 @@ function renderShell(metadata, summary, giving, section, churchReport, churchTre
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-      ${renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway)}
-    <p><small>All values shown here are deterministic synthetic staging fixtures. Giving is the committed Connect contract example, validated locally with no network call.</small></p>
+      ${renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway)}
+    <p><small>Every value besides Giving shown here comes from deterministic synthetic staging fixtures. Giving is ${givingSource === 'live' ? 'fetched live from Connect’s real, aggregate-only contract endpoint' : 'the committed Connect contract example (the live endpoint is not configured or did not answer), validated locally with no network call'}.</small></p>
     <footer>${release}</footer>
   </main>
 </body>
@@ -428,10 +439,12 @@ export default {
     }
 
     if (route.id === 'giving-preview-v1') {
-      const body = request.method === 'HEAD' ? null : JSON.stringify(SYNTHETIC_GIVING);
+      const { giving, source } = await resolveGivingSummary(env);
+      const body = request.method === 'HEAD' ? null : JSON.stringify(giving);
       return response(body, { headers: {
         'Content-Type': 'application/json; charset=utf-8',
         'X-Finance-Contract': GIVING_CONTRACT,
+        'X-Giving-Source': source,
       } });
     }
 
@@ -505,7 +518,9 @@ export default {
           ? await readSyntheticCompensationBenefits(env.FINANCE_DB) : null;
         const cashRunway = section.id === 'health'
           ? await readSyntheticCashRunway(env.FINANCE_DB) : null;
-        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway), {
+        const { giving, source: givingSource } = section.id === 'health'
+          ? await resolveGivingSummary(env) : { giving: SYNTHETIC_GIVING, source: 'synthetic-fallback' };
+        return response(renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {

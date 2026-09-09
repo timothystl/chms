@@ -19,6 +19,7 @@ import {
 } from './src/api-scheduler.js';
 import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
 import { handleIntakeApi } from './src/api-intake.js';
+import { handleContractsServiceApi } from './src/api-contracts-service.js';
 import { handleMemberSetup } from './src/api-people.js';
 import { LOGIN_HTML, PUBLIC_HTML, PUBLIC_APP_CSS, PUBLIC_APP_JS } from './src/html-templates.js';
 import { chmsHtmlForRole, CHMS_MANIFEST_JSON, SW_JS, BACKLOG_HTML, CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS, CHMS_APP_EXT_JS, CHMS_APP_FINANCE_JS, CHMS_APP_CSS, CHMS_SCHEDULER_HTML, CHMS_SCHEDULER_JS } from './src/html-chms.js';
@@ -494,6 +495,17 @@ async function _fetch(req, env) {
         return await handleIntakeApi(req, env, path);
       } catch (e) {
         console.error('Intake API error [' + method + ' ' + path + ']:', e?.message, e?.stack);
+        return json({ error: 'Internal server error' }, 500);
+      }
+    }
+    // Server-to-server contract endpoint for Finance — same shared-secret shape as the
+    // intake/signup routes above (X-Contract-Key / env.FINANCE_CONTRACT_API_KEY), NOT a user
+    // session. Must stay above the /api/* Breeze-proxy catch-all further down or it never matches.
+    if (path.startsWith('/api/contracts/')) {
+      try {
+        return await handleContractsServiceApi(req, env, path);
+      } catch (e) {
+        console.error('Contracts API error [' + method + ' ' + path + ']:', e?.message, e?.stack);
         return json({ error: 'Internal server error' }, 500);
       }
     }
