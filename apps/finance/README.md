@@ -50,6 +50,7 @@ the migration does not copy production data or authorize a new writer.
 - `accounts-report-service.js` — one-query synthetic account inventory and classification summary.
 - `data-status-service.js` — one-query synthetic import provenance and isolation status.
 - `compensation-report-service.js` — one-query synthetic role-level compensation plan, reconciled totals, and a role-only council review snapshot that cannot imply approval.
+- `compensation-benchmark-service.js` — one-query role-level synthetic benchmark comparison with explicit non-published source classification.
 - `cash-runway-service.js` — two-query synthetic operating-cash and expense-coverage boundary.
 - `financial-mix-service.js` — pure reconciled income/expense composition view.
 - `entity-overview-service.js` — pure separately-periodized Church, Daycare, and Property view.
