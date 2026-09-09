@@ -22,7 +22,7 @@
   "services": [
     {
       "binding": "CONNECT_SERVICE",
-      "service": "breeze-proxy-worker-staging"
+      "service": "timothy-connect-staging"
     }
   ],
   "vars": {
