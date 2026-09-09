@@ -134,6 +134,11 @@ separate totals and line detail. The two-statement ledger budget validates synth
 amounts, classifications, and descriptive fields before rendering. Production property data,
 editing, imports, and writers remain disconnected.
 
+Alpha.24 completes the initial Daycare reporting capability set with synthetic budget comparison
+and a 50% utilities/insurance shared-cost allocation calculated from the latest synthetic Church
+actuals. Allocation settings and source rows are read through one named two-statement budget and
+validated before use. Production data, allocation editing, imports, and writers remain disconnected.
+
 ## Validate
 
 From the repository root:

@@ -19,6 +19,10 @@ const env = {
         { results: [{ entry_date: '2026-01-15', amount_cents: 100000, payee: 'Synthetic Vendor', description: 'Synthetic capital project', project: 'Synthetic Project' }] },
         { results: [{ entry_date: '2026-01-20', category: 'Synthetic repair', description: 'Synthetic repair item', amount_cents: 25000, payee: 'Synthetic Vendor', capitalized: 0 }] },
       ];
+      if (batchStatements.length === 2 && batchStatements[0].sql.includes('daycare_utility_pct')) return [
+        { results: [{ key: 'daycare_insurance_pct', value: '0.5' }, { key: 'daycare_utility_pct', value: '0.5' }] },
+        { results: [{ account_name: 'Synthetic Insurance', own_actual_cents: 500000 }, { account_name: 'Synthetic Utilities', own_actual_cents: 1200000 }] },
+      ];
       if (batchStatements.length === 1) {
         if (batchStatements[0].sql.includes('finance_property_reserves')) return [{ results: [
           { reserve_key: 'property_tax', report_month: '2026-01', tax_year: 2026, target_estimate_cents: 6000000, reserve_before_cents: 2000000, contribution_cents: 500000, reserve_after_cents: 2500000, note: 'Synthetic fixture' },
@@ -52,7 +56,9 @@ const env = {
         ] }];
         if (batchStatements[0].sql.includes('finance_daycare_entries')) return [{ results: [
           { period: '2026-01', category: 'Synthetic Tuition', entry_type: 'actual', amount_cents: 4000000 },
+          { period: '2026-01', category: 'Synthetic Tuition', entry_type: 'budget', amount_cents: 4200000 },
           { period: '2026-01', category: 'Synthetic Labor', entry_type: 'actual', amount_cents: 2500000 },
+          { period: '2026-01', category: 'Synthetic Labor', entry_type: 'budget', amount_cents: 2600000 },
         ] }];
         if (batchStatements[0].sql.includes('finance_church_balances')) return [{ results: [
           { fiscal_year: 2026, as_of_date: '2026-12-31', classification: 'Assets', account_name: 'Synthetic Cash', own_balance_cents: 30000000 },
@@ -76,7 +82,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.23');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.24');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -108,7 +114,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.23',
+      version: '1.0.0-alpha.24',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -120,7 +126,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
     expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.23 · alpha');
+    expect(html).toContain('1.0.0-alpha.24 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="appbar"');
@@ -202,10 +208,15 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('Synthetic Tuition');
     expect(html).toContain('Synthetic Labor');
     expect(html).toContain('$40,000');
-    expect(html).toContain('$25,000');
-    expect(html).toContain('$15,000');
-    expect(statements).toHaveLength(1);
-    expect(statements[0]).toMatch(/^SELECT\b/i);
+    expect(html).toContain('$33,500');
+    expect(html).toContain('$6,500');
+    expect(html).toContain('Budget $16,000 · variance −$9,500');
+    expect(html).toContain('Utilities and insurance allocation');
+    expect(html).toContain('50% utilities · 50% insurance');
+    expect(html).toContain('Daycare share $6,000');
+    expect(html).toContain('Daycare share $2,500');
+    expect(statements).toHaveLength(3);
+    expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
   });
 
   it('renders a synthetic Commercial Property report with monthly performance and its own read budget', async () => {
@@ -311,7 +322,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
   });
 
   it('enforces the named summary query budget and read-only statements', async () => {
-    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1 });
+    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1 });
     await expect(runBudgetedReadBatch(env.FINANCE_DB, 'summary', [
       'SELECT 1', 'SELECT 2', 'SELECT 3', 'SELECT 4', 'SELECT 5',
     ])).rejects.toThrow('Finance query budget exceeded: summary');
@@ -332,7 +343,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.23',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.24',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
