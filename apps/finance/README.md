@@ -45,6 +45,7 @@ the migration does not copy production data or authorize a new writer.
 - `balance-sheet-service.js` — one-query synthetic position detail and equation reconciliation.
 - `daycare-report-service.js` — one-query synthetic actuals and operating-result detail.
 - `property-report-service.js` — one-query synthetic monthly property performance detail.
+- `property-forecast-service.js` — one-query 12-month synthetic property plan with monthly and annual reconciliation.
 - `budget-report-service.js` — one-query synthetic future-plan detail and totals.
 - `accounts-report-service.js` — one-query synthetic account inventory and classification summary.
 - `data-status-service.js` — one-query synthetic import provenance and isolation status.
