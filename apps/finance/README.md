@@ -47,6 +47,7 @@ the migration does not copy production data or authorize a new writer.
 - `budget-report-service.js` — one-query synthetic future-plan detail and totals.
 - `accounts-report-service.js` — one-query synthetic account inventory and classification summary.
 - `data-status-service.js` — one-query synthetic import provenance and isolation status.
+- `compensation-report-service.js` — one-query synthetic role-level compensation plan and totals.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data. Alpha.5 imports and validates only the
@@ -102,6 +103,11 @@ editing, board-category mapping, imports, production data, and writers remain di
 Alpha.17 adds the first functional Data & Imports slice: fixture provenance, last-import time, and
 explicit connection/writer isolation status. It uses one separately named read budget. Uploads,
 connections, administrative tools, production data, and writers remain disconnected.
+
+Alpha.18 adds the first functional Compensation slice and a Finance-owned staging schema:
+synthetic role-level salary, benefits, adjustment assumptions, and plan totals. It uses one
+separately named read budget. Personal identities, editing, comparisons, production data, and
+writers remain disconnected.
 
 ## Validate
 
