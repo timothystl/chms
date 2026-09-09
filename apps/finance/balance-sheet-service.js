@@ -16,6 +16,21 @@ export async function readSyntheticBalanceSheet(db) {
   return rows.map((row) => ({ ...row }));
 }
 
+export async function readSyntheticBalanceTrends(db) {
+  const sql = "SELECT fiscal_year, MAX(as_of_date) AS as_of_date, SUM(CASE WHEN classification='Assets' THEN own_balance_cents ELSE 0 END) AS assets_cents, SUM(CASE WHEN classification='Liabilities' THEN own_balance_cents ELSE 0 END) AS liabilities_cents, SUM(CASE WHEN classification='Equity' THEN own_balance_cents ELSE 0 END) AS equity_cents FROM finance_church_balances WHERE source='synthetic_fixture' GROUP BY fiscal_year ORDER BY fiscal_year";
+  const { results } = await runBudgetedReadBatch(db, 'balanceTrends', [sql]);
+  const rows = results[0]?.results;
+  if (!Array.isArray(rows) || rows.length < 2 || rows.some((row) =>
+    !Number.isInteger(row.fiscal_year)
+    || typeof row.as_of_date !== 'string'
+    || !Number.isInteger(row.assets_cents)
+    || !Number.isInteger(row.liabilities_cents)
+    || !Number.isInteger(row.equity_cents)
+    || row.assets_cents - row.liabilities_cents - row.equity_cents !== 0
+  )) throw new Error('Synthetic Balance Sheet trend rows invalid');
+  return rows.map((row) => ({ ...row, net_assets_cents: row.assets_cents - row.liabilities_cents }));
+}
+
 export function buildBalanceSheetView(rows) {
   const byClassification = (classification) => rows.filter((row) => row.classification === classification);
   const sum = (items) => items.reduce((total, row) => total + row.own_balance_cents, 0);

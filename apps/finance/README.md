@@ -119,6 +119,11 @@ one-query read budget. Current-year summaries and account detail remain scoped t
 synthetic fiscal year, while the trend compares deterministic 2025 and 2026 fixture totals.
 Production data, imports, drill-downs, and writers remain disconnected.
 
+Alpha.21 adds a bounded multi-year Balance Sheet position view through a second named one-query
+read budget. Each fixture year must satisfy the accounting equation before it is rendered, while
+the current position remains scoped to the latest synthetic fiscal year. Production data, imports,
+adjustments, drill-downs, and writers remain disconnected.
+
 ## Validate
 
 From the repository root:
