@@ -16,6 +16,7 @@ import { buildDataStatusView, readSyntheticDataStatus } from './data-status-serv
 import { buildCompensationReportView, readSyntheticCompensationReport } from './compensation-report-service.js';
 import { buildSyntheticBoardPacket } from './board-packet-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
+import { buildFinancialMixView } from './financial-mix-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -146,10 +147,15 @@ function renderCompensationRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.role_label)}</td><td>${formatCents(row.salary_cents)}</td><td>${formatCents(row.benefits_cents)}</td><td>${row.adjustment_pct.toFixed(1)}%</td></tr>`).join('');
 }
 
+function renderFinancialMixRows(rows) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.accountName)}</td><td>${formatCents(row.amountCents)}</td><td>${row.sharePct.toFixed(1)}%</td></tr>`).join('');
+}
+
 function renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, budgetReport, accountsReport, dataStatus, compensationReport, cashRunway) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     const runway = buildCashRunwayView(cashRunway);
+    const mix = buildFinancialMixView(churchReport);
     return `<section aria-label="Synthetic financial health">
       <div class="section-heading"><div><div class="eyebrow">Financial Health</div><h2>How are we doing, and what should we decide?</h2></div><span class="badge">Synthetic staging</span></div>
       <div class="grid">
@@ -159,6 +165,8 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
       </div>
       <div class="section-heading trend-heading"><div><div class="eyebrow">Liquidity</div><h2>Operating cash runway</h2></div><span class="badge">As of ${escapeHtml(runway.asOfDate)}</span></div>
       <div class="grid"><div class="card"><small>Operating cash</small><strong>${formatCents(runway.operatingCashCents)}</strong><span>${escapeHtml(runway.accountName)} · synthetic fixture</span></div><div class="card"><small>Average monthly expense</small><strong>${formatCents(runway.monthlyExpenseCents)}</strong><span>FY${runway.fiscalYear} annual expense ${formatCents(runway.annualExpenseCents)}</span></div><div class="card"><small>Expense coverage</small><strong>${runway.runwayMonths.toFixed(1)} months</strong><span>Cash divided by average monthly expense · read-only</span></div></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Operating mix</div><h2>Where money comes from and goes</h2></div><span class="badge">FY${mix.fiscalYear} · reconciled</span></div>
+      <div class="grid"><div><h3>Revenue mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.income.items)}</tbody></table></div></div><div><h3>Expense mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.expenses.items)}</tbody></table></div></div></div>
       <div class="decision-grid">${health.decisions.map((decision) => `<div class="decision"><small>${decision.stream}</small><b>${decision.authority}</b><span>${decision.action}</span></div>`).join('')}</div>
     </section>`;
   }
@@ -404,7 +412,7 @@ export default {
         const section = resolveFinanceSection(url.searchParams.get('section'));
         const summary = section.id === 'health' || section.id === 'church'
           ? await readSyntheticSummary(env.FINANCE_DB) : null;
-        const churchReport = section.id === 'church'
+        const churchReport = section.id === 'church' || section.id === 'health'
           ? await readSyntheticChurchReport(env.FINANCE_DB) : null;
         const churchTrends = section.id === 'church'
           ? await readSyntheticChurchTrends(env.FINANCE_DB) : null;
