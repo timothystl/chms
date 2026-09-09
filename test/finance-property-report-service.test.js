@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers } from '../apps/finance/property-report-service.js';
+import { buildPropertyReportView, buildPropertyValuationView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers, readSyntheticPropertyValuation } from '../apps/finance/property-report-service.js';
 
 const rows = [
   { property_key: 'synthetic-property', period: '2026-01', occupancy_pct: 90, total_revenue_cents: 2000000, total_expenses_cents: 1200000, net_income_cents: 800000, net_operating_income_cents: 900000, available_for_distribution_cents: 500000, reserve_balance_cents: 2500000 },
@@ -84,6 +84,49 @@ describe('Finance synthetic Commercial Property service', () => {
     for (const pair of [[[], validRepairs], [validCapital, [{ ...validRepairs[0], amount_cents: -1 }]]]) {
       const db = { prepare(sql) { return { sql }; }, async batch() { return [{ results: pair[0] }, { results: pair[1] }]; } };
       await expect(readSyntheticPropertyLedgers(db)).rejects.toThrow(/Synthetic Commercial Property/);
+    }
+  });
+
+  it('reads and reconciles the bounded synthetic income-approach valuation', async () => {
+    const assumptions = { property_key: 'synthetic-property', utility_reimbursement_cents: 600000, vacancy_rate_pct: 0.05, management_fee_pct: 0.06, cap_rate: 0.08 };
+    const rentRoll = [
+      { unit_key: 'unit-a', tenant_label: 'Synthetic Unit A', square_feet: 1200, annual_rent_cents: 2400000 },
+      { unit_key: 'unit-b', tenant_label: 'Synthetic Unit B', square_feet: 1800, annual_rent_cents: 3600000 },
+    ];
+    const operatingCosts = [
+      { cost_key: 'insurance', cost_label: 'Insurance', annual_cost_cents: 400000 },
+      { cost_key: 'maintenance_repairs', cost_label: 'Maintenance and repairs', annual_cost_cents: 600000 },
+      { cost_key: 'taxes', cost_label: 'Property taxes', annual_cost_cents: 800000 },
+      { cost_key: 'utilities', cost_label: 'Utilities', annual_cost_cents: 1200000 },
+    ];
+    const db = { prepare(sql) { return { sql }; }, async batch(statements) { expect(statements).toHaveLength(3); return [{ results: [assumptions] }, { results: rentRoll }, { results: operatingCosts }]; } };
+    const input = await readSyntheticPropertyValuation(db);
+    expect(buildPropertyValuationView(input).totals).toEqual({
+      totalAnnualRentCents: 6000000,
+      grossRentalIncomeCents: 6600000,
+      vacancyCents: 330000,
+      effectiveRentalIncomeCents: 6270000,
+      itemizedOperatingCostsCents: 3000000,
+      managementFeeCents: 376200,
+      totalOperatingCostsCents: 3376200,
+      noiCents: 2893800,
+      capitalizedValueCents: 36172500,
+      reconciled: true,
+    });
+  });
+
+  it('fails closed on incomplete or invalid valuation inputs', async () => {
+    const validAssumption = { property_key: 'synthetic-property', utility_reimbursement_cents: 0, vacancy_rate_pct: 0, management_fee_pct: 0, cap_rate: 0.08 };
+    const validRent = [{ unit_key: 'a', tenant_label: 'A', square_feet: 1, annual_rent_cents: 1 }];
+    const validCost = [{ cost_key: 'utilities', cost_label: 'Utilities', annual_cost_cents: 0 }];
+    for (const triplet of [
+      [[], validRent, validCost],
+      [[{ ...validAssumption, cap_rate: 0 }], validRent, validCost],
+      [[validAssumption], [], validCost],
+      [[validAssumption], validRent, [{ ...validCost[0], cost_key: 'Bad Key' }]],
+    ]) {
+      const db = { prepare(sql) { return { sql }; }, async batch() { return triplet.map((results) => ({ results })); } };
+      await expect(readSyntheticPropertyValuation(db)).rejects.toThrow('Synthetic Commercial Property valuation rows invalid');
     }
   });
 });

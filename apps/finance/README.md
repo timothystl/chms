@@ -160,6 +160,12 @@ category and an independent optional purpose tag, while preserving the original 
 rejecting missing or malformed mappings. Production mappings, editing, imports, and writers remain
 disconnected.
 
+Alpha.29 adds a normalized Finance-owned property valuation model with separate assumptions, rent
+roll, and operating-cost tables. The read-only income approach follows the existing worksheet rule
+from contract rent through vacancy, management fee, NOI, and cap-rate value, and exposes the full
+reconciling walk using only deterministic synthetic inputs. Production property values, editing,
+imports, debt workflows, and writers remain disconnected.
+
 ## Validate
 
 From the repository root:
