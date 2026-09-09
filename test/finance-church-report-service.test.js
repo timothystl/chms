@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChurchReportView, readSyntheticChurchReport } from '../apps/finance/church-report-service.js';
+import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends } from '../apps/finance/church-report-service.js';
 
 const rows = [
   { fiscal_year: 2026, classification: 'Income', account_name: 'Synthetic Contributions', own_actual_cents: 12000000, own_budget_cents: 12500000 },
@@ -31,5 +31,22 @@ describe('synthetic Church Report service', () => {
   it('fails closed on an unexpected classification or non-integer amount', async () => {
     await expect(readSyntheticChurchReport(dbWith([{ ...rows[0], classification: 'Other' }]))).rejects.toThrow('Synthetic Church Report rows invalid');
     await expect(readSyntheticChurchReport(dbWith([{ ...rows[0], own_actual_cents: 1.5 }]))).rejects.toThrow('Synthetic Church Report rows invalid');
+  });
+
+  it('derives a bounded multi-year operating trend', async () => {
+    const trends = await readSyntheticChurchTrends(dbWith([
+      { fiscal_year: 2025, income_cents: 11000000, expense_cents: 7800000 },
+      { fiscal_year: 2026, income_cents: 12000000, expense_cents: 8000000 },
+    ]));
+    expect(trends).toEqual([
+      { fiscal_year: 2025, income_cents: 11000000, expense_cents: 7800000, net_cents: 3200000 },
+      { fiscal_year: 2026, income_cents: 12000000, expense_cents: 8000000, net_cents: 4000000 },
+    ]);
+  });
+
+  it('fails closed when a trend is incomplete', async () => {
+    await expect(readSyntheticChurchTrends(dbWith([
+      { fiscal_year: 2026, income_cents: 12000000, expense_cents: 8000000 },
+    ]))).rejects.toThrow('Synthetic Church trend rows invalid');
   });
 });
