@@ -45,6 +45,7 @@ the migration does not copy production data or authorize a new writer.
 - `daycare-report-service.js` — one-query synthetic actuals and operating-result detail.
 - `property-report-service.js` — one-query synthetic monthly property performance detail.
 - `budget-report-service.js` — one-query synthetic future-plan detail and totals.
+- `accounts-report-service.js` — one-query synthetic account inventory and classification summary.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data. Alpha.5 imports and validates only the
@@ -92,6 +93,10 @@ writers remain disconnected.
 Alpha.15 adds the first functional Budget slice: future-year planned income, expenses, net result,
 and category detail. It uses one separately named read budget. Editing, growth scenarios, board
 categories, purpose tags, imports, production data, and writers remain disconnected.
+
+Alpha.16 adds the first functional Chart of Accounts slice: synthetic account paths,
+classifications, and classification counts. It uses one separately named read budget. Account
+editing, board-category mapping, imports, production data, and writers remain disconnected.
 
 ## Validate
 
