@@ -19,6 +19,12 @@
       "migrations_dir": "apps/finance/migrations"
     }
   ],
+  "services": [
+    {
+      "binding": "CONNECT_SERVICE",
+      "service": "breeze-proxy-worker-staging"
+    }
+  ],
   "vars": {
     "ENVIRONMENT": "staging",
     "RELEASE_SHA": "unreleased"

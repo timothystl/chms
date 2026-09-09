@@ -35,6 +35,7 @@ the migration does not copy production data or authorize a new writer.
 - `../../wrangler.finance.staging.jsonc` — isolated staging Worker configuration.
 - `../../test/finance-alpha-shell.test.js` — boundary, response, and security regression tests.
 - `connect-giving-consumer.js` — fail-closed parser for the proposed aggregate Giving contract.
+- `connect-giving-client.js` — real transport for the live endpoint, with a fail-closed fallback to the synthetic fixture.
 - `connect-giving-transport.js` — pure staging harness for bounded attempts, idempotency, and reconciliation.
 - `query-budget.js` — named, fail-closed D1 read budgets for independently observable routes.
 - `summary-service.js` — synthetic D1 read and `finance.summary.v1` contract assembly boundary.
@@ -58,10 +59,14 @@ the migration does not copy production data or authorize a new writer.
 - `operating-bridge-service.js` — pure reconciled annual Church income-to-result bridge.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
-reconciliation before returning detached aggregate data. Alpha.5 imports and validates only the
-committed synthetic producer example, displays its aggregate net/count, and serves it at
-`/api/v1/connect-giving-preview`. There is no network fetch, scheduled delivery, service binding,
-or credential. Runtime producer transport remains a separately gated step.
+reconciliation before returning detached aggregate data, served at `/api/v1/connect-giving-preview`.
+`connect-giving-client.js` now attempts the real endpoint first — a Cloudflare service binding
+(`CONNECT_SERVICE`) to Connect's Worker plus a shared secret (`FINANCE_CONTRACT_API_KEY`), matching
+the pattern the website repo already uses for its own cross-Worker calls — and falls back to the
+committed synthetic fixture whenever that binding/secret isn't configured yet or the call fails for
+any reason; the response's `X-Giving-Source` header (`live` or `synthetic-fallback`) and the shell's
+own footer note say which happened. Neither is provisioned in staging yet, so every request still
+falls back today exactly as before. No writer, schedule, queue, or production data connection exists.
 
 The summary read is capped at one four-statement D1 batch. The budget helper rejects unknown
 budgets, excess statements, non-`SELECT` SQL, and incomplete batch results before a response is

@@ -138,9 +138,17 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     const shell = fs.readFileSync(path.join(repoRoot, 'apps/finance/shell.js'), 'utf8');
     expect(shell).not.toMatch(/\b(INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP)\b/i);
     expect(shell).not.toMatch(/\.run\(|\.exec\(/);
-    for (const forbidden of ['kv_namespaces', 'r2_buckets', 'queues', 'services', 'triggers']) {
+    for (const forbidden of ['kv_namespaces', 'r2_buckets', 'queues', 'triggers']) {
       expect(config[forbidden], `${forbidden} must not exist in the alpha shell`).toBeUndefined();
     }
+    // 'services' is deliberately no longer in the forbidden list above: the one binding this
+    // config carries, CONNECT_SERVICE, is the intentional real connect.giving-summary.v1
+    // connection (see connect-giving-client.js) -- pin exactly that one binding, at exactly
+    // Connect's STAGING Worker, so a future addition of some other outbound service still fails
+    // this test.
+    expect(config.services).toEqual([
+      { binding: 'CONNECT_SERVICE', service: 'breeze-proxy-worker-staging' },
+    ]);
   });
 
   it('reports non-sensitive release identity from health', async () => {
@@ -487,20 +495,54 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.headers.get('link')).toBe('</api/v1/summary>; rel="successor-version"');
   });
 
-  it('serves the validated static Connect Giving fixture without querying D1 or calling outbound', async () => {
+  it('falls back to the validated static Connect Giving fixture when the live endpoint is not configured', async () => {
+    // This env (see the top of the file) has no CONNECT_SERVICE binding and no
+    // FINANCE_CONTRACT_API_KEY -- the real, intended state until both are deliberately
+    // provisioned -- so the live attempt short-circuits to not_configured and this falls back,
+    // exactly as it did before the live connect-giving-client.js existed.
     statements.length = 0;
     const res = await worker.fetch(new Request('https://finance.test/api/v1/connect-giving-preview'), env);
     expect(res.status).toBe(200);
     expect(res.headers.get('x-finance-contract')).toBe('connect.giving-summary.v1');
+    expect(res.headers.get('x-giving-source')).toBe('synthetic-fallback');
     const body = await res.json();
     expect(body.contract).toBe('connect.giving-summary.v1');
     expect(body.dataClassification).toBe('aggregate');
     expect(body.totals).toEqual({ grossCents: 150000, refundCents: 5000, netCents: 145000 });
     expect(body.reconciliation).toEqual({ sourceRecordCount: 6, fundCount: 2, totalsMatch: true });
     expect(statements).toHaveLength(0);
+  });
 
-    const shell = fs.readFileSync(path.join(repoRoot, 'apps/finance/shell.js'), 'utf8');
-    expect(shell).not.toMatch(/await\s+fetch\s*\(|globalThis\.fetch|env\.[A-Za-z0-9_]+\.fetch\s*\(/);
+  it('serves the real live summary instead once the service binding and shared secret are configured', async () => {
+    const liveEnv = {
+      ...env,
+      CONNECT_SERVICE: {
+        async fetch() {
+          return new Response(JSON.stringify({
+            contract: 'connect.giving-summary.v1', dataClassification: 'aggregate',
+            sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+            period: { startDate: '2026-06-01', endDate: '2026-06-14' },
+            generatedAt: '2026-06-15T00:00:00Z', sourceThrough: '2026-06-14T23:59:59Z',
+            funds: [{ fundRef: '9', fundLabel: 'Live Test Fund', giftCount: 1, householdCount: 1,
+              amounts: { grossCents: 500000, refundCents: 0, netCents: 500000 } }],
+            totals: { grossCents: 500000, refundCents: 0, netCents: 500000 },
+            reconciliation: { sourceRecordCount: 1, fundCount: 1, totalsMatch: true },
+          }), { status: 200 });
+        },
+      },
+      FINANCE_CONTRACT_API_KEY: 'test-secret',
+    };
+    const res = await worker.fetch(new Request('https://finance.test/api/v1/connect-giving-preview'), liveEnv);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-giving-source')).toBe('live');
+    const body = await res.json();
+    expect(body.totals).toEqual({ grossCents: 500000, refundCents: 0, netCents: 500000 });
+    expect(body.funds[0].fundLabel).toBe('Live Test Fund');
+
+    // The Financial Health section renders from the same resolver and says so.
+    const shellRes = await worker.fetch(new Request('https://finance.test/?section=health'), liveEnv);
+    const html = await shellRes.text();
+    expect(html).toContain('live from Connect');
   });
 
   it('serves read-only synthetic transport and reconciliation evidence without querying D1', async () => {

@@ -81,35 +81,43 @@ export async function buildConnectGivingSummaryV1(db, { startDate, endDate, now 
   };
 }
 
+// Shared by both entry points onto this contract: the human-role-gated admin route below, and
+// the shared-secret-gated server-to-server route (src/api-contracts-service.js) that Finance
+// actually calls. One place validates the request and fails closed on a malformed assembly, so
+// neither entry point can drift from the other.
+export async function respondWithConnectGivingSummaryV1(url, db) {
+  const startDate = url.searchParams.get('from');
+  const endDate = url.searchParams.get('to');
+  if (!isValidDateStr(startDate) || !isValidDateStr(endDate)) {
+    return json({ error: 'from and to are required as YYYY-MM-DD dates' }, 400);
+  }
+  if (startDate > endDate) {
+    return json({ error: 'from must not be after to' }, 400);
+  }
+  const now = new Date();
+  // The contract requires sourceThrough (end of the requested period) to never be later than
+  // generatedAt (now) — a future-dated period would violate that by construction, so this is
+  // refused here rather than emitted and rejected downstream by Finance's consumer.
+  if (`${endDate}T23:59:59Z` > now.toISOString()) {
+    return json({ error: 'to must not be in the future' }, 400);
+  }
+
+  const summary = await buildConnectGivingSummaryV1(db, { startDate, endDate, now });
+
+  // Fail closed: this reuses Finance's own consumer validator, so producer and consumer can
+  // never silently drift apart. This should never fire from real data — if it does, something
+  // is wrong with this endpoint, and Finance must not see a malformed contract.
+  const validation = validateConnectGivingSummaryV1(summary);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled summary failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(summary);
+}
+
 export async function handleContractsApi(req, env, url, method, seg, db) {
   if (seg === 'contracts/connect-giving-summary-v1' && method === 'GET') {
-    const startDate = url.searchParams.get('from');
-    const endDate = url.searchParams.get('to');
-    if (!isValidDateStr(startDate) || !isValidDateStr(endDate)) {
-      return json({ error: 'from and to are required as YYYY-MM-DD dates' }, 400);
-    }
-    if (startDate > endDate) {
-      return json({ error: 'from must not be after to' }, 400);
-    }
-    const now = new Date();
-    // The contract requires sourceThrough (end of the requested period) to never be later than
-    // generatedAt (now) — a future-dated period would violate that by construction, so this is
-    // refused here rather than emitted and rejected downstream by Finance's consumer.
-    if (`${endDate}T23:59:59Z` > now.toISOString()) {
-      return json({ error: 'to must not be in the future' }, 400);
-    }
-
-    const summary = await buildConnectGivingSummaryV1(db, { startDate, endDate, now });
-
-    // Fail closed: this reuses Finance's own consumer validator, so producer and consumer can
-    // never silently drift apart. This should never fire from real data — if it does, something
-    // is wrong with this endpoint, and Finance must not see a malformed contract.
-    const validation = validateConnectGivingSummaryV1(summary);
-    if (!validation.ok) {
-      return json({ error: 'Internal: assembled summary failed contract validation', details: validation.errors }, 500);
-    }
-
-    return json(summary);
+    return respondWithConnectGivingSummaryV1(url, db);
   }
   return null;
 }
