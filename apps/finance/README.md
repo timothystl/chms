@@ -197,6 +197,11 @@ validated Church detail view to show income minus expenses equals surplus or def
 the result as arithmetic only rather than donor-to-expense tracing. It adds no query, migration,
 production data, allocation rule, charting dependency, or writer.
 
+Alpha.35 renders Chart of Accounts as a deterministic hierarchy while preserving every source
+ledger path, Finance-owned board category, and independent purpose tag. Empty path segments and
+duplicate leaves fail closed. It reuses the existing one-query account reader and adds no
+migration, production mapping, account edit, classification writer, or ledger mutation.
+
 ## Validate
 
 From the repository root:
