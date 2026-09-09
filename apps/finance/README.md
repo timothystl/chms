@@ -43,6 +43,7 @@ the migration does not copy production data or authorize a new writer.
 - `church-report-service.js` — one-query synthetic account detail and report totals boundary.
 - `balance-sheet-service.js` — one-query synthetic position detail and equation reconciliation.
 - `daycare-report-service.js` — one-query synthetic actuals and operating-result detail.
+- `property-report-service.js` — one-query synthetic monthly property performance detail.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data. Alpha.5 imports and validates only the
@@ -81,6 +82,11 @@ named read budget. Imports, adjustments, trends, production data, and writers re
 Alpha.13 adds the first functional Daycare Report slice: synthetic tuition, labor, and operating
 result with category detail. It uses one separately named read budget. Budgets, shared-cost
 allocations, room operations, imports, production data, and writers remain disconnected.
+
+Alpha.14 adds the first functional Commercial Property slice: monthly revenue, expenses, net
+income, occupancy, distributable cash, and reserve balance. It uses one separately named read
+budget. Reserve schedules, capital, repairs, forecasts, valuation, imports, production data, and
+writers remain disconnected.
 
 ## Validate
 
