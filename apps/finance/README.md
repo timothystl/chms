@@ -41,6 +41,7 @@ the migration does not copy production data or authorize a new writer.
 - `parity-manifest.js` — source-backed inventory of the existing Finance navigation and capabilities.
 - `health-view-model.js` — pure synthetic operating, position, Giving, and decision framing.
 - `church-report-service.js` — one-query synthetic account detail and report totals boundary.
+- `balance-sheet-service.js` — one-query synthetic position detail and equation reconciliation.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data. Alpha.5 imports and validates only the
@@ -71,6 +72,10 @@ Alpha.11 adds the first functional Church Report slice: fiscal-year income, expe
 budget comparison, favorable variance, and account detail. It uses one separately named read budget
 and only rows marked as the deterministic synthetic fixture. Imports, adjustments, drill-downs,
 board packets, production data, and writers remain disconnected.
+
+Alpha.12 adds the first functional Balance Sheet slice: assets, liabilities, net assets, accounting
+equation difference, and account detail as of the synthetic fixture date. It uses one separately
+named read budget. Imports, adjustments, trends, production data, and writers remain disconnected.
 
 ## Validate
 

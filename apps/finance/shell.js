@@ -6,6 +6,7 @@ import { isFinanceMethodAllowed, resolveFinanceRoute } from './route-manifest.js
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from './parity-manifest.js';
 import { buildFinancialHealthView } from './health-view-model.js';
 import { buildChurchReportView, readSyntheticChurchReport } from './church-report-service.js';
+import { buildBalanceSheetView, readSyntheticBalanceSheet } from './balance-sheet-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -67,7 +68,11 @@ function renderChurchRows(rows) {
   }).join('');
 }
 
-function renderSectionBody(section, summary, giving, churchReport) {
+function renderBalanceRows(rows) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.account_name)}</td><td>${formatCents(row.own_balance_cents)}</td></tr>`).join('');
+}
+
+function renderSectionBody(section, summary, giving, churchReport, balanceSheet) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     return `<section aria-label="Synthetic financial health">
@@ -89,6 +94,14 @@ function renderSectionBody(section, summary, giving, churchReport) {
       <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Account</th><th>Actual</th><th>Budget</th><th>Favorable variance</th></tr></thead><tbody>${renderChurchRows([...report.income, ...report.expenses])}</tbody></table></div>
     </section>`;
   }
+  if (section.id === 'balance') {
+    const report = buildBalanceSheetView(balanceSheet);
+    return `<section class="report" aria-label="Synthetic Balance Sheet">
+      <div class="section-heading"><div><div class="eyebrow">Balance Sheet</div><h2>Financial position as of ${escapeHtml(report.asOfDate)}</h2></div><span class="badge">Synthetic staging</span></div>
+      <div class="grid"><div class="card"><small>Assets</small><strong>${formatCents(report.totals.assetsCents)}</strong></div><div class="card"><small>Liabilities</small><strong>${formatCents(report.totals.liabilitiesCents)}</strong></div><div class="card"><small>Net assets</small><strong>${formatCents(report.totals.equityCents)}</strong><span>Equation difference ${formatSignedCents(report.totals.equationDifferenceCents)}</span></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Account</th><th>Balance</th></tr></thead><tbody>${renderBalanceRows([...report.assets, ...report.liabilities, ...report.equity])}</tbody></table></div>
+    </section>`;
+  }
   return `<section class="parity" aria-label="${section.label} staging scaffold">
     <h2>${section.label}</h2>
     <p>This familiar workspace is retained in the parity plan. Its production workflow and data are not connected to staging.</p>
@@ -96,7 +109,7 @@ function renderSectionBody(section, summary, giving, churchReport) {
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, section, churchReport) {
+function renderShell(metadata, summary, giving, section, churchReport, balanceSheet) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -145,7 +158,7 @@ function renderShell(metadata, summary, giving, section, churchReport) {
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-    ${renderSectionBody(section, summary, giving, churchReport)}
+    ${renderSectionBody(section, summary, giving, churchReport, balanceSheet)}
     <p><small>All values shown here are deterministic synthetic staging fixtures. Giving is the committed Connect contract example, validated locally with no network call.</small></p>
     <footer>${release}</footer>
   </main>
@@ -224,7 +237,9 @@ export default {
           ? await readSyntheticSummary(env.FINANCE_DB) : null;
         const churchReport = section.id === 'church'
           ? await readSyntheticChurchReport(env.FINANCE_DB) : null;
-        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport), {
+        const balanceSheet = section.id === 'balance'
+          ? await readSyntheticBalanceSheet(env.FINANCE_DB) : null;
+        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, balanceSheet), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {
