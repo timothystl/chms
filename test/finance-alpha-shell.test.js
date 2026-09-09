@@ -49,7 +49,8 @@ const env = {
           { classification: 'Income', category_path: 'Income:Synthetic Contributions', account_name: 'Synthetic Contributions' },
         ] }];
         if (batchStatements[0].sql.includes('finance_budget_plan')) return [{ results: [
-          { category: 'Synthetic Programs', classification: 'Expenses', fiscal_year: 2027, planned_amount_cents: 9000000, basis: 'synthetic_fixture', notes: 'Synthetic fixture' },
+          { category: 'Synthetic Contributions', classification: 'Income', fiscal_year: 2027, base_amount_cents: 12000000, growth_pct: 0.10, planned_amount_cents: 13200000, basis: 'synthetic_fixture', notes: '10% synthetic growth assumption' },
+          { category: 'Synthetic Programs', classification: 'Expenses', fiscal_year: 2027, base_amount_cents: 8000000, growth_pct: 0.125, planned_amount_cents: 9000000, basis: 'synthetic_fixture', notes: '12.5% synthetic growth assumption' },
         ] }];
         if (batchStatements[0].sql.includes('finance_property_monthly')) return [{ results: [
           { property_key: 'synthetic-property', period: '2026-01', occupancy_pct: 90, total_revenue_cents: 2000000, total_expenses_cents: 1200000, net_income_cents: 800000, net_operating_income_cents: 900000, available_for_distribution_cents: 500000, reserve_balance_cents: 2500000 },
@@ -82,7 +83,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.26');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.27');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -114,7 +115,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.26',
+      version: '1.0.0-alpha.27',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -126,7 +127,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
     expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.26 · alpha');
+    expect(html).toContain('1.0.0-alpha.27 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="appbar"');
@@ -245,18 +246,27 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
   });
 
-  it('renders a synthetic Budget report with future plan detail and its own read budget', async () => {
+  it('renders a reconciled synthetic Budget outlook with base and growth assumptions', async () => {
     statements.length = 0;
     const res = await worker.fetch(new Request('https://finance.test/?section=planning'), env);
     const html = await res.text();
     expect(res.status).toBe(200);
     expect(html).toContain('Synthetic Budget Report');
+    expect(html).toContain('Budget outlook');
     expect(html).toContain('Plan for fiscal year 2027');
+    expect(html).toContain('Synthetic Contributions');
     expect(html).toContain('Synthetic Programs');
-    expect(html).toContain('Planned expenses');
+    expect(html).toContain('Base result');
+    expect(html).toContain('$40,000');
+    expect(html).toContain('Planned result');
+    expect(html).toContain('$42,000');
+    expect(html).toContain('Outlook change');
+    expect(html).toContain('$2,000');
+    expect(html).toContain('10.0%');
+    expect(html).toContain('12.5%');
+    expect(html).toContain('$132,000');
     expect(html).toContain('$90,000');
-    expect(html).toContain('−$90,000');
-    expect(html).toContain('Read-only planning preview');
+    expect(html).toContain('Planned totals reconcile · read-only preview');
     expect(statements).toHaveLength(1);
     expect(statements[0]).toMatch(/^SELECT\b/i);
   });
@@ -346,7 +356,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.26',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.27',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -396,7 +406,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       dataClassification: 'synthetic',
       scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
       duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
-      release: { version: '1.0.0-alpha.26', releaseSha: 'test-sha' },
+      release: { version: '1.0.0-alpha.27', releaseSha: 'test-sha' },
     });
     expect(body.scenario.totals.netCents).toBe(145000);
     expect(body.scenario.reconciliation.totalsMatch).toBe(true);

@@ -149,6 +149,11 @@ Alpha.26 adds explicit Data & Imports freshness evaluation. The staging fixture 
 against a documented 30-day review window at request time, showing its exact timestamp, age, and
 stale/current state while continuing to state that no production connection or writer exists.
 
+Alpha.27 expands Budget into a deterministic read-only outlook. Each synthetic category carries a
+base amount and explicit growth assumption; the service rejects malformed or arithmetically
+inconsistent rows, then renders base and planned income, expenses, net result, and change with a
+cent-level reconciliation. Editing, production data, imports, and writers remain disconnected.
+
 ## Validate
 
 From the repository root:

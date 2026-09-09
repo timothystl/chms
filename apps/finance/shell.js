@@ -125,7 +125,7 @@ function renderPropertyRepairRows(rows) {
 }
 
 function renderBudgetRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category)}</td><td>${formatCents(row.planned_amount_cents)}</td><td>${escapeHtml(row.notes)}</td></tr>`).join('');
+  return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category)}</td><td>${formatCents(row.base_amount_cents)}</td><td>${(row.growth_pct * 100).toFixed(1)}%</td><td>${formatCents(row.planned_amount_cents)}</td><td>${formatSignedCents(row.changeCents)}</td><td>${escapeHtml(row.notes)}</td></tr>`).join('');
 }
 
 function renderAccountRows(rows) {
@@ -199,9 +199,9 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
   if (section.id === 'planning') {
     const report = buildBudgetReportView(budgetReport);
     return `<section class="report" aria-label="Synthetic Budget Report">
-      <div class="section-heading"><div><div class="eyebrow">Budget</div><h2>Plan for fiscal year ${report.fiscalYear}</h2></div><span class="badge">Synthetic staging</span></div>
-      <div class="grid"><div class="card"><small>Planned income</small><strong>${formatCents(report.totals.incomeCents)}</strong></div><div class="card"><small>Planned expenses</small><strong>${formatCents(report.totals.expenseCents)}</strong></div><div class="card"><small>Planned result</small><strong>${formatSignedCents(report.totals.netCents)}</strong><span>Read-only planning preview</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Category</th><th>Planned amount</th><th>Notes</th></tr></thead><tbody>${renderBudgetRows(report.rows)}</tbody></table></div>
+      <div class="section-heading"><div><div class="eyebrow">Budget outlook</div><h2>Plan for fiscal year ${report.fiscalYear}</h2></div><span class="badge">Synthetic staging</span></div>
+      <div class="grid"><div class="card"><small>Base result</small><strong>${formatSignedCents(report.totals.baseNetCents)}</strong><span>Income ${formatCents(report.totals.baseIncomeCents)} · expenses ${formatCents(report.totals.baseExpenseCents)}</span></div><div class="card"><small>Planned result</small><strong>${formatSignedCents(report.totals.plannedNetCents)}</strong><span>Income ${formatCents(report.totals.plannedIncomeCents)} · expenses ${formatCents(report.totals.plannedExpenseCents)}</span></div><div class="card"><small>Outlook change</small><strong>${formatSignedCents(report.totals.netChangeCents)}</strong><span>${report.totals.reconciled ? 'Planned totals reconcile' : 'Review required'} · read-only preview</span></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Category</th><th>Base amount</th><th>Growth</th><th>Planned amount</th><th>Change</th><th>Notes</th></tr></thead><tbody>${renderBudgetRows(report.rows)}</tbody></table></div>
     </section>`;
   }
   if (section.id === 'accounts') {
