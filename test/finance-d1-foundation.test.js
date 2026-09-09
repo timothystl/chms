@@ -10,6 +10,7 @@ const historyFixtures = readFileSync(new URL('../apps/finance/fixtures/0003_synt
 const balanceHistoryFixtures = readFileSync(new URL('../apps/finance/fixtures/0004_synthetic_balance_history.sql', import.meta.url), 'utf8');
 const propertyReserveFixtures = readFileSync(new URL('../apps/finance/fixtures/0005_synthetic_property_reserves.sql', import.meta.url), 'utf8');
 const daycareBudgetAllocationFixtures = readFileSync(new URL('../apps/finance/fixtures/0006_synthetic_daycare_budget_allocation.sql', import.meta.url), 'utf8');
+const budgetOutlookFixtures = readFileSync(new URL('../apps/finance/fixtures/0007_synthetic_budget_outlook.sql', import.meta.url), 'utf8');
 const expected = [
   'finance_budget_plan', 'finance_church_balances', 'finance_church_entries',
   'finance_compensation_plan', 'finance_daycare_entries', 'finance_daycare_rooms', 'finance_import_log',
@@ -43,6 +44,7 @@ describe('Finance isolated D1 foundation', () => {
     db.exec(balanceHistoryFixtures);
     db.exec(propertyReserveFixtures);
     db.exec(daycareBudgetAllocationFixtures);
+    db.exec(budgetOutlookFixtures);
     expect(db.prepare('SELECT SUM(own_actual_cents) AS n FROM finance_church_entries').get().n).toBe(40500000);
     expect(db.prepare('SELECT COUNT(DISTINCT fiscal_year) AS n FROM finance_church_entries').get().n).toBe(2);
     expect(db.prepare('SELECT SUM(own_balance_cents) AS n FROM finance_church_balances').get().n).toBe(114000000);
@@ -51,6 +53,8 @@ describe('Finance isolated D1 foundation', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM finance_daycare_entries').get().n).toBe(4);
     expect(db.prepare('SELECT COUNT(*) AS n FROM finance_compensation_plan').get().n).toBe(2);
     expect(db.prepare("SELECT COUNT(*) AS n FROM finance_property_reserves WHERE property_key='synthetic-property'").get().n).toBe(3);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM finance_budget_plan WHERE basis='synthetic_fixture'").get().n).toBe(2);
+    expect(db.prepare("SELECT SUM(planned_amount_cents - base_amount_cents) AS n FROM finance_budget_plan WHERE basis='synthetic_fixture'").get().n).toBe(2200000);
     expect(db.prepare("SELECT value FROM finance_settings WHERE key='fixture_label'").get().value).toBe('SYNTHETIC-NO-PRODUCTION-DATA');
     expect(fixtures).not.toMatch(/@|access_token|refresh_token|realm_id/i);
     expect(compensationFixtures).not.toMatch(/@|access_token|refresh_token|realm_id/i);
@@ -58,5 +62,6 @@ describe('Finance isolated D1 foundation', () => {
     expect(balanceHistoryFixtures).not.toMatch(/@|access_token|refresh_token|realm_id/i);
     expect(propertyReserveFixtures).not.toMatch(/@|access_token|refresh_token|realm_id/i);
     expect(daycareBudgetAllocationFixtures).not.toMatch(/@|access_token|refresh_token|realm_id/i);
+    expect(budgetOutlookFixtures).not.toMatch(/@|access_token|refresh_token|realm_id/i);
   });
 });
