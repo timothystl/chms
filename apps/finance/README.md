@@ -50,6 +50,7 @@ the migration does not copy production data or authorize a new writer.
 - `data-status-service.js` — one-query synthetic import provenance and isolation status.
 - `compensation-report-service.js` — one-query synthetic role-level compensation plan and totals.
 - `cash-runway-service.js` — two-query synthetic operating-cash and expense-coverage boundary.
+- `financial-mix-service.js` — pure reconciled income/expense composition view.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data. Alpha.5 imports and validates only the
@@ -177,6 +178,11 @@ synthetic operating-cash account and latest-year synthetic expenses, rejects mis
 negative-cash, or nonpositive-expense inputs, and calculates average monthly expense and months of
 coverage. Account selection, production data, editing, imports, alerts, and writers remain
 disconnected.
+
+Alpha.32 adds reconciled revenue and expense composition to Financial Health. It reuses the
+existing one-query Church detail boundary, validates a single fiscal period and nonnegative
+integer-cent amounts, and shows each account's share of its source total. It adds no query-budget
+type, migration, production data, classification writer, or charting dependency.
 
 ## Validate
 
