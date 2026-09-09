@@ -58,6 +58,16 @@ const env = {
           { fiscal_year: 2025, income_cents: 11000000, expense_cents: 7800000 },
           { fiscal_year: 2026, income_cents: 12000000, expense_cents: 8000000 },
         ] }];
+        if (batchStatements[0].sql.includes('finance_compensation_benefit_components')) return [{ results: [
+          { fiscal_year: 2027, role_label: 'Synthetic Ministry Role', component_key: 'pension', component_label: 'Pension', amount_cents: 400000, source_kind: 'synthetic_fixture' },
+          { fiscal_year: 2027, role_label: 'Synthetic Ministry Role', component_key: 'health', component_label: 'Group health plan', amount_cents: 600000, source_kind: 'synthetic_fixture' },
+          { fiscal_year: 2027, role_label: 'Synthetic Ministry Role', component_key: 'disability', component_label: 'Disability', amount_cents: 100000, source_kind: 'synthetic_fixture' },
+          { fiscal_year: 2027, role_label: 'Synthetic Ministry Role', component_key: 'employer_taxes', component_label: 'Employer taxes', amount_cents: 100000, source_kind: 'synthetic_fixture' },
+          { fiscal_year: 2027, role_label: 'Synthetic Operations Role', component_key: 'pension', component_label: 'Pension', amount_cents: 300000, source_kind: 'synthetic_fixture' },
+          { fiscal_year: 2027, role_label: 'Synthetic Operations Role', component_key: 'health', component_label: 'Group health plan', amount_cents: 400000, source_kind: 'synthetic_fixture' },
+          { fiscal_year: 2027, role_label: 'Synthetic Operations Role', component_key: 'disability', component_label: 'Disability', amount_cents: 50000, source_kind: 'synthetic_fixture' },
+          { fiscal_year: 2027, role_label: 'Synthetic Operations Role', component_key: 'employer_taxes', component_label: 'Employer taxes', amount_cents: 150000, source_kind: 'synthetic_fixture' },
+        ] }];
         if (batchStatements[0].sql.includes('finance_compensation_benchmarks')) return [{ results: [
           { fiscal_year: 2027, role_label: 'Synthetic Ministry Role', benchmark_salary_cents: 6250000, source_label: 'Synthetic district-style benchmark', source_kind: 'synthetic_fixture' },
           { fiscal_year: 2027, role_label: 'Synthetic Operations Role', benchmark_salary_cents: 4750000, source_label: 'Synthetic district-style benchmark', source_kind: 'synthetic_fixture' },
@@ -108,7 +118,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.38');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.39');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -140,7 +150,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.38',
+      version: '1.0.0-alpha.39',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -153,7 +163,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
     expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.38 · alpha');
+    expect(html).toContain('1.0.0-alpha.39 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="appbar"');
@@ -411,7 +421,13 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('95.5% of benchmark');
     expect(html).toContain('$5,000');
     expect(html).toContain('Salary only · alternative, not the plan');
-    expect(statements).toHaveLength(2);
+    expect(html).toContain('Benefits &amp; taxes');
+    expect(html).toContain('What the benefits plan contains');
+    expect(html).toContain('Group health plan');
+    expect(html).toContain('$10,000');
+    expect(html).toContain('47.6%');
+    expect(html).toContain('must exactly match the benefits plan above');
+    expect(statements).toHaveLength(3);
     expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
   });
 
@@ -427,7 +443,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
   });
 
   it('enforces the named summary query budget and read-only statements', async () => {
-    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, propertyValuation: 3, propertyForecast: 1, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1, compensationBenchmark: 1, cashRunway: 2 });
+    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, propertyValuation: 3, propertyForecast: 1, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1, compensationBenchmark: 1, compensationBenefits: 1, cashRunway: 2 });
     await expect(runBudgetedReadBatch(env.FINANCE_DB, 'summary', [
       'SELECT 1', 'SELECT 2', 'SELECT 3', 'SELECT 4', 'SELECT 5',
     ])).rejects.toThrow('Finance query budget exceeded: summary');
@@ -448,7 +464,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.38',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.39',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -498,7 +514,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       dataClassification: 'synthetic',
       scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
       duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
-      release: { version: '1.0.0-alpha.38', releaseSha: 'test-sha' },
+      release: { version: '1.0.0-alpha.39', releaseSha: 'test-sha' },
     });
     expect(body.scenario.totals.netCents).toBe(145000);
     expect(body.scenario.reconciliation.totalsMatch).toBe(true);

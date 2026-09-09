@@ -16,6 +16,7 @@ export const FINANCE_QUERY_BUDGETS = Object.freeze({
   dataStatus: 1,
   compensationReport: 1,
   compensationBenchmark: 1,
+  compensationBenefits: 1,
   cashRunway: 2,
 });
 
