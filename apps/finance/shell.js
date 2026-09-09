@@ -1,6 +1,7 @@
 import { FINANCE_RELEASE_CHANNEL, FINANCE_VERSION } from './version.js';
 import givingFixture from '../../contracts/examples/giving-summary-v1.synthetic.json';
 import { acceptConnectGivingSummaryV1 } from './connect-giving-consumer.js';
+import { reconcileSyntheticGivingDelivery } from './connect-giving-transport.js';
 import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from './summary-service.js';
 import { isFinanceMethodAllowed, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from './parity-manifest.js';
@@ -17,7 +18,24 @@ import { buildCompensationReportView, readSyntheticCompensationReport } from './
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
 const GIVING_CONTRACT = 'connect.giving-summary.v1';
+const GIVING_TRANSPORT_EVIDENCE_CONTRACT = 'finance.connect-giving-transport-evidence.v1';
 const SYNTHETIC_GIVING = acceptConnectGivingSummaryV1(givingFixture);
+const SYNTHETIC_DELIVERY_ID = 'synthetic-giving-2026-01-v1';
+const SYNTHETIC_GIVING_TRANSPORT = Object.freeze({
+  contract: GIVING_TRANSPORT_EVIDENCE_CONTRACT,
+  dataClassification: 'synthetic',
+  scenario: reconcileSyntheticGivingDelivery({
+    deliveryId: SYNTHETIC_DELIVERY_ID,
+    payload: givingFixture,
+    attemptedOutcomes: ['temporary_failure', 'delivered'],
+  }),
+  duplicateReplay: reconcileSyntheticGivingDelivery({
+    deliveryId: SYNTHETIC_DELIVERY_ID,
+    payload: givingFixture,
+    attemptedOutcomes: ['delivered'],
+    processedDeliveryIds: [SYNTHETIC_DELIVERY_ID],
+  }),
+});
 
 const SECURITY_HEADERS = Object.freeze({
   'Cache-Control': 'no-store',
@@ -325,6 +343,17 @@ export default {
       return response(body, { headers: {
         'Content-Type': 'application/json; charset=utf-8',
         'X-Finance-Contract': GIVING_CONTRACT,
+      } });
+    }
+
+    if (route.id === 'giving-transport-evidence-v1') {
+      const body = request.method === 'HEAD' ? null : JSON.stringify({
+        ...SYNTHETIC_GIVING_TRANSPORT,
+        release: metadata,
+      });
+      return response(body, { headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'X-Finance-Contract': GIVING_TRANSPORT_EVIDENCE_CONTRACT,
       } });
     }
 

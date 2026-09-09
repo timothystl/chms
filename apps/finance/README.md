@@ -35,6 +35,7 @@ the migration does not copy production data or authorize a new writer.
 - `../../wrangler.finance.staging.jsonc` — isolated staging Worker configuration.
 - `../../test/finance-alpha-shell.test.js` — boundary, response, and security regression tests.
 - `connect-giving-consumer.js` — fail-closed parser for the proposed aggregate Giving contract.
+- `connect-giving-transport.js` — pure staging harness for bounded attempts, idempotency, and reconciliation.
 - `query-budget.js` — named, fail-closed D1 read budgets for independently observable routes.
 - `summary-service.js` — synthetic D1 read and `finance.summary.v1` contract assembly boundary.
 - `route-manifest.js` — executable route, method, contract, data-source, and query-budget registry.
@@ -138,6 +139,11 @@ Alpha.24 completes the initial Daycare reporting capability set with synthetic b
 and a 50% utilities/insurance shared-cost allocation calculated from the latest synthetic Church
 actuals. Allocation settings and source rows are read through one named two-statement budget and
 validated before use. Production data, allocation editing, imports, and writers remain disconnected.
+
+Alpha.25 adds an offline synthetic Giving transport/reconciliation harness and a protected
+read-only evidence endpoint. It proves fail-closed contract validation, bounded retry outcomes,
+terminal-failure handling, idempotent duplicate disposition, and cent-level reconciliation without
+a service binding, credential, network fetch, schedule, queue, receipt writer, or production data.
 
 ## Validate
 
