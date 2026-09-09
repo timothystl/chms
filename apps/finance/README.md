@@ -51,6 +51,7 @@ the migration does not copy production data or authorize a new writer.
 - `compensation-report-service.js` — one-query synthetic role-level compensation plan and totals.
 - `cash-runway-service.js` — two-query synthetic operating-cash and expense-coverage boundary.
 - `financial-mix-service.js` — pure reconciled income/expense composition view.
+- `entity-overview-service.js` — pure separately-periodized Church, Daycare, and Property view.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data. Alpha.5 imports and validates only the
@@ -183,6 +184,12 @@ Alpha.32 adds reconciled revenue and expense composition to Financial Health. It
 existing one-query Church detail boundary, validates a single fiscal period and nonnegative
 integer-cent amounts, and shows each account's share of its source total. It adds no query-budget
 type, migration, production data, classification writer, or charting dependency.
+
+Alpha.33 adds a separately periodized entity overview to Financial Health using the existing
+Church, Daycare, and Commercial Property readers. Each source retains its own reporting window and
+validated income/expense/result arithmetic; the UI explicitly refuses to present a consolidated
+total across unlike periods. It adds no query-budget type, migration, production data, writer, or
+inter-entity accounting rule.
 
 ## Validate
 

@@ -17,6 +17,7 @@ import { buildCompensationReportView, readSyntheticCompensationReport } from './
 import { buildSyntheticBoardPacket } from './board-packet-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView } from './financial-mix-service.js';
+import { buildEntityOverview } from './entity-overview-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -151,11 +152,20 @@ function renderFinancialMixRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.accountName)}</td><td>${formatCents(row.amountCents)}</td><td>${row.sharePct.toFixed(1)}%</td></tr>`).join('');
 }
 
+function renderEntityCards(entities) {
+  return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)}</span></div>`).join('');
+}
+
 function renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, budgetReport, accountsReport, dataStatus, compensationReport, cashRunway) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     const runway = buildCashRunwayView(cashRunway);
     const mix = buildFinancialMixView(churchReport);
+    const entities = buildEntityOverview({
+      church: buildChurchReportView(churchReport),
+      daycare: buildDaycareReportView(daycareReport),
+      property: buildPropertyReportView(propertyReport),
+    });
     return `<section aria-label="Synthetic financial health">
       <div class="section-heading"><div><div class="eyebrow">Financial Health</div><h2>How are we doing, and what should we decide?</h2></div><span class="badge">Synthetic staging</span></div>
       <div class="grid">
@@ -167,6 +177,9 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
       <div class="grid"><div class="card"><small>Operating cash</small><strong>${formatCents(runway.operatingCashCents)}</strong><span>${escapeHtml(runway.accountName)} · synthetic fixture</span></div><div class="card"><small>Average monthly expense</small><strong>${formatCents(runway.monthlyExpenseCents)}</strong><span>FY${runway.fiscalYear} annual expense ${formatCents(runway.annualExpenseCents)}</span></div><div class="card"><small>Expense coverage</small><strong>${runway.runwayMonths.toFixed(1)} months</strong><span>Cash divided by average monthly expense · read-only</span></div></div>
       <div class="section-heading trend-heading"><div><div class="eyebrow">Operating mix</div><h2>Where money comes from and goes</h2></div><span class="badge">FY${mix.fiscalYear} · reconciled</span></div>
       <div class="grid"><div><h3>Revenue mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.income.items)}</tbody></table></div></div><div><h3>Expense mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.expenses.items)}</tbody></table></div></div></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Entity overview</div><h2>Separate operating views</h2></div><span class="badge">Not consolidated</span></div>
+      <div class="grid">${renderEntityCards(entities.entities)}</div>
+      <p>Periods are shown separately because these synthetic sources do not share one reporting window; their results are not added together.</p>
       <div class="decision-grid">${health.decisions.map((decision) => `<div class="decision"><small>${decision.stream}</small><b>${decision.authority}</b><span>${decision.action}</span></div>`).join('')}</div>
     </section>`;
   }
@@ -420,11 +433,11 @@ export default {
           ? await readSyntheticBalanceSheet(env.FINANCE_DB) : null;
         const balanceTrends = section.id === 'balance'
           ? await readSyntheticBalanceTrends(env.FINANCE_DB) : null;
-        const daycareReport = section.id === 'daycare'
+        const daycareReport = section.id === 'daycare' || section.id === 'health'
           ? await readSyntheticDaycareReport(env.FINANCE_DB) : null;
         const daycareAllocation = section.id === 'daycare'
           ? await readSyntheticDaycareAllocation(env.FINANCE_DB) : null;
-        const propertyReport = section.id === 'property'
+        const propertyReport = section.id === 'property' || section.id === 'health'
           ? await readSyntheticPropertyReport(env.FINANCE_DB) : null;
         const propertyReserves = section.id === 'property'
           ? await readSyntheticPropertyReserves(env.FINANCE_DB) : null;
