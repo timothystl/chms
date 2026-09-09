@@ -100,7 +100,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.32');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.33');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -132,7 +132,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.32',
+      version: '1.0.0-alpha.33',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -145,7 +145,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
     expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.32 · alpha');
+    expect(html).toContain('1.0.0-alpha.33 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="appbar"');
@@ -169,9 +169,16 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('Expense mix');
     expect(html).toContain('FY2026 · reconciled');
     expect(html).toContain('100.0%');
+    expect(html).toContain('Entity overview');
+    expect(html).toContain('Separate operating views');
+    expect(html).toContain('Not consolidated');
+    expect(html).toContain('Church · FY2026');
+    expect(html).toContain('Daycare · 2026-01');
+    expect(html).toContain('Commercial Property · 2026-01');
+    expect(html).toContain('their results are not added together');
     expect(html).toContain('validated locally with no network call');
     expect(html).toContain('deterministic synthetic staging fixtures');
-    expect(statements).toHaveLength(7);
+    expect(statements).toHaveLength(9);
     expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
   });
 
@@ -401,7 +408,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.32',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.33',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -451,7 +458,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       dataClassification: 'synthetic',
       scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
       duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
-      release: { version: '1.0.0-alpha.32', releaseSha: 'test-sha' },
+      release: { version: '1.0.0-alpha.33', releaseSha: 'test-sha' },
     });
     expect(body.scenario.totals.netCents).toBe(145000);
     expect(body.scenario.reconciliation.totalsMatch).toBe(true);
