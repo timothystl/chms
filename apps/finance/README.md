@@ -145,6 +145,10 @@ read-only evidence endpoint. It proves fail-closed contract validation, bounded 
 terminal-failure handling, idempotent duplicate disposition, and cent-level reconciliation without
 a service binding, credential, network fetch, schedule, queue, receipt writer, or production data.
 
+Alpha.26 adds explicit Data & Imports freshness evaluation. The staging fixture is classified
+against a documented 30-day review window at request time, showing its exact timestamp, age, and
+stale/current state while continuing to state that no production connection or writer exists.
+
 ## Validate
 
 From the repository root:

@@ -19,9 +19,19 @@ describe('Finance synthetic Data and Imports status', () => {
   });
 
   it('states both production and writer isolation', () => {
-    expect(buildDataStatusView(row)).toMatchObject({
+    expect(buildDataStatusView(row, '2026-01-15T00:00:00Z')).toMatchObject({
       source: 'synthetic_fixture', productionConnected: false, writerConnected: false,
+      freshnessWindowDays: 30, ageDays: 14, freshness: 'current',
     });
+  });
+
+  it('marks data beyond the 30-day review window stale', () => {
+    expect(buildDataStatusView(row, '2026-02-01T00:00:00Z')).toMatchObject({ ageDays: 31, freshness: 'stale' });
+  });
+
+  it('fails closed on an invalid clock or future import timestamp', () => {
+    expect(() => buildDataStatusView(row, 'invalid')).toThrow('Synthetic Data freshness timestamps invalid');
+    expect(() => buildDataStatusView(row, '2025-12-31T23:59:59Z')).toThrow('Synthetic Data freshness timestamps invalid');
   });
 
   it('fails closed on missing, duplicate, or malformed provenance', async () => {
