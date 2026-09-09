@@ -11,6 +11,7 @@ import { buildDaycareReportView, readSyntheticDaycareReport } from './daycare-re
 import { buildPropertyReportView, readSyntheticPropertyReport } from './property-report-service.js';
 import { buildBudgetReportView, readSyntheticBudgetReport } from './budget-report-service.js';
 import { buildAccountsReportView, readSyntheticAccountsReport } from './accounts-report-service.js';
+import { buildDataStatusView, readSyntheticDataStatus } from './data-status-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -92,7 +93,7 @@ function renderAccountRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category_path)}</td><td>${escapeHtml(row.account_name)}</td></tr>`).join('');
 }
 
-function renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport) {
+function renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     return `<section aria-label="Synthetic financial health">
@@ -154,6 +155,13 @@ function renderSectionBody(section, summary, giving, churchReport, balanceSheet,
       <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Account path</th><th>Account</th></tr></thead><tbody>${renderAccountRows(report.rows)}</tbody></table></div>
     </section>`;
   }
+  if (section.id === 'data') {
+    const status = buildDataStatusView(dataStatus);
+    return `<section class="report" aria-label="Synthetic Data and Imports Status">
+      <div class="section-heading"><div><div class="eyebrow">Data &amp; Imports</div><h2>Source and isolation status</h2></div><span class="badge">Synthetic staging</span></div>
+      <div class="grid"><div class="card"><small>Fixture source</small><strong>${escapeHtml(status.source)}</strong><span>${escapeHtml(status.note)}</span></div><div class="card"><small>Production connection</small><strong>${status.productionConnected ? 'Connected' : 'Disconnected'}</strong></div><div class="card"><small>Application writer</small><strong>${status.writerConnected ? 'Connected' : 'Disconnected'}</strong><span>Last fixture import ${escapeHtml(status.lastImportedAt)}</span></div></div>
+    </section>`;
+  }
   return `<section class="parity" aria-label="${section.label} staging scaffold">
     <h2>${section.label}</h2>
     <p>This familiar workspace is retained in the parity plan. Its production workflow and data are not connected to staging.</p>
@@ -161,7 +169,7 @@ function renderSectionBody(section, summary, giving, churchReport, balanceSheet,
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, section, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport) {
+function renderShell(metadata, summary, giving, section, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -210,7 +218,7 @@ function renderShell(metadata, summary, giving, section, churchReport, balanceSh
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-    ${renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport)}
+    ${renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus)}
     <p><small>All values shown here are deterministic synthetic staging fixtures. Giving is the committed Connect contract example, validated locally with no network call.</small></p>
     <footer>${release}</footer>
   </main>
@@ -299,7 +307,9 @@ export default {
           ? await readSyntheticBudgetReport(env.FINANCE_DB) : null;
         const accountsReport = section.id === 'accounts'
           ? await readSyntheticAccountsReport(env.FINANCE_DB) : null;
-        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport), {
+        const dataStatus = section.id === 'data'
+          ? await readSyntheticDataStatus(env.FINANCE_DB) : null;
+        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {

@@ -46,6 +46,7 @@ the migration does not copy production data or authorize a new writer.
 - `property-report-service.js` — one-query synthetic monthly property performance detail.
 - `budget-report-service.js` — one-query synthetic future-plan detail and totals.
 - `accounts-report-service.js` — one-query synthetic account inventory and classification summary.
+- `data-status-service.js` — one-query synthetic import provenance and isolation status.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data. Alpha.5 imports and validates only the
@@ -97,6 +98,10 @@ categories, purpose tags, imports, production data, and writers remain disconnec
 Alpha.16 adds the first functional Chart of Accounts slice: synthetic account paths,
 classifications, and classification counts. It uses one separately named read budget. Account
 editing, board-category mapping, imports, production data, and writers remain disconnected.
+
+Alpha.17 adds the first functional Data & Imports slice: fixture provenance, last-import time, and
+explicit connection/writer isolation status. It uses one separately named read budget. Uploads,
+connections, administrative tools, production data, and writers remain disconnected.
 
 ## Validate
 
