@@ -13,7 +13,7 @@ import { buildPropertyReportView, buildPropertyValuationView, readSyntheticPrope
 import { buildBudgetReportView, readSyntheticBudgetReport } from './budget-report-service.js';
 import { buildAccountsReportView, readSyntheticAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, readSyntheticDataStatus } from './data-status-service.js';
-import { buildCompensationReportView, readSyntheticCompensationReport } from './compensation-report-service.js';
+import { buildCompensationCouncilSnapshot, buildCompensationReportView, readSyntheticCompensationReport } from './compensation-report-service.js';
 import { buildSyntheticBoardPacket } from './board-packet-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView } from './financial-mix-service.js';
@@ -271,10 +271,13 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
   }
   if (section.id === 'compensation') {
     const report = buildCompensationReportView(compensationReport);
+    const council = buildCompensationCouncilSnapshot(report);
     return `<section class="report" aria-label="Synthetic Compensation Report">
       <div class="section-heading"><div><div class="eyebrow">Compensation</div><h2>Role-level plan for fiscal year ${report.fiscalYear}</h2></div><span class="badge">Synthetic staging</span></div>
       <div class="grid"><div class="card"><small>Salary plan</small><strong>${formatCents(report.totals.salaryCents)}</strong></div><div class="card"><small>Benefits plan</small><strong>${formatCents(report.totals.benefitsCents)}</strong></div><div class="card"><small>Total compensation</small><strong>${formatCents(report.totals.totalCents)}</strong><span>No personal identities</span></div></div>
       <div class="table-wrap"><table><thead><tr><th>Role</th><th>Salary</th><th>Benefits</th><th>Adjustment</th></tr></thead><tbody>${renderCompensationRows(report.rows)}</tbody></table></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Council review snapshot</div><h2>Plan-level decision context</h2></div><span class="badge">Role-only · review-only · not approved</span></div>
+      <div class="grid"><div class="card"><small>Roles represented</small><strong>${council.roleCount}</strong><span>No personal identities</span></div><div class="card"><small>Benefits share</small><strong>${council.benefitsSharePct.toFixed(1)}%</strong><span>Of total planned compensation</span></div><div class="card"><small>Weighted adjustment</small><strong>${council.weightedAdjustmentPct.toFixed(1)}%</strong><span>Salary-weighted planning assumption</span></div></div>
     </section>`;
   }
   if (section.id === 'data') {

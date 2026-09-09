@@ -100,7 +100,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.35');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.36');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -132,7 +132,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.35',
+      version: '1.0.0-alpha.36',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -145,7 +145,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
     expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.35 · alpha');
+    expect(html).toContain('1.0.0-alpha.36 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="appbar"');
@@ -381,6 +381,13 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('$21,000');
     expect(html).toContain('$126,000');
     expect(html).toContain('No personal identities');
+    expect(html).toContain('Council review snapshot');
+    expect(html).toContain('Plan-level decision context');
+    expect(html).toContain('Role-only · review-only · not approved');
+    expect(html).toContain('Benefits share');
+    expect(html).toContain('16.7%');
+    expect(html).toContain('Weighted adjustment');
+    expect(html).toContain('3.0%');
     expect(statements).toHaveLength(1);
     expect(statements[0]).toMatch(/^SELECT\b/i);
   });
@@ -418,7 +425,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.35',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.36',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -468,7 +475,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       dataClassification: 'synthetic',
       scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
       duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
-      release: { version: '1.0.0-alpha.35', releaseSha: 'test-sha' },
+      release: { version: '1.0.0-alpha.36', releaseSha: 'test-sha' },
     });
     expect(body.scenario.totals.netCents).toBe(145000);
     expect(body.scenario.reconciliation.totalsMatch).toBe(true);
