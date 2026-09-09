@@ -73,38 +73,19 @@ The target architecture has four staff products: Church Website, Connect, Financ
 
 ## Timothy Digital overhaul checkpoint
 
-- Preparation 0 is complete.
-- Preparation 1 is closed by Andrew's acceptance of remaining stabilization uncertainty.
-- Preparation 2's seven-day usage baseline is waived and closed.
-- The CHMS retained-backup packet passed its recorded checks. The repeatable `tlc-volunteer-db` exercise passed locally and
-  in GitHub Actions, matching 117 schema objects, 60 table counts, 36 numeric financial controls,
-  integrity and foreign keys before deleting plaintext and disposable copies. On September 8, the
-  first encrypted source-and-D1 package passed a restricted-SharePoint upload/download checksum
-  test. A later full package added current source at `c0a78bc`, a fresh D1 export, all 244 objects
-  (112,920,749 bytes) from R2 `tlc-chms-photos`, and a Cloudflare configuration/secret-name
-  inventory. Its local encryption/decryption, Git, D1 and per-object checks passed. A downloaded
-  SharePoint copy then matched the original encrypted package by size and SHA-256. A disposable R2
-  restore was not separately demonstrated. The same recovery key is held separately. Issue #846 records a restricted
-  SharePoint folder as the primary independent destination and an encrypted local or external
-  drive as the secondary copy, alongside the approved cadence and retention. Andrew accepted sole
-  operator continuity and directed that no alternate operator or further CHMS backup step block
-  preparation. Do not turn those accepted limitations into passed tests.
-- The approved myMDO authorization migrations are live and synchronized to source through
-  childcare-portal PR #328. Do not reapply them. Migration-ledger, cron, advisor, function-drift,
-  and governance follow-ups closed in #837 and #840–844. Andrew approved the Preparation 5 role defaults with granular per-user checkboxes: presets
-  seed least-privilege defaults, authorized administrators can narrow or deliberately extend grants,
-  and high-risk permissions remain explicit, server-enforced and audited. Current assignments were
-  retained by owner decision, and #844 closes Preparation 5. The Council compensation workspace is
-  a separate product addition rather than preparation work.
-- The deployment-safety part of Implementation 1 was pulled forward and completed in PR #831.
-  On September 9 Andrew authorized beginning the overhaul with non-destructive parallel staging.
-  Finance staging is now `1.0.0-alpha.3`: protected by Worker-level Access, backed by a dedicated
-  synthetic-only D1, export/restore tested, and read-only. That authorization does not permit Finance data movement,
-  shared-auth rollout, production routes or competing writers without a separately reviewed slice.
-- Preparation 6 documentation reset is underway; the current Markdown path dispositions are
-  recorded in the private architecture repository. Finance extraction, repository renames,
-  shared-auth rollout, payroll movement, and documentation deletion remain blocked until its
-  signoff. Preparation 7 is the formal go/no-go for the broader implementation sequence.
+Andrew retired the old preparation-gate/implementation-phase ceremony on September 9, 2026. The
+current plan is a plain task list in the private `digital-architecture` repository's
+`architecture/11-overhaul-readiness-and-execution-plan.md` — read it before starting overhaul work
+here, not the retired gate language this section used to carry. In short, the goals are: Finance
+becomes its own application; shared staff login across products; code normalized and functions
+(and legacy names like `tlc-volunteer-db`, `tlc-chms-photos`, `RSVP_STORE`) moved/renamed to match
+current scope; real developer documentation; and better observability so a resource spike (like
+the earlier hard-to-diagnose D1 usage spike) is easy to root-cause. None of these are gated behind
+each other — pick up whichever is asked for. CHMS's own backup/restore is real and tested (a
+disposable database restore drill passed); Website and myMDO do not have an equivalent yet.
+Renaming any live D1 database, R2 bucket, or KV namespace needs a deploy that repoints bindings —
+batch those with other planned deploys and back up first. myMDO's authorization migrations are
+already live and synchronized to source through childcare-portal PR #328; do not reapply them.
 
 ## Documentation discipline
 
