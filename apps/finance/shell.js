@@ -19,6 +19,7 @@ import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-serv
 import { buildFinancialMixView } from './financial-mix-service.js';
 import { buildEntityOverview } from './entity-overview-service.js';
 import { buildOperatingBridge } from './operating-bridge-service.js';
+import { buildPropertyForecastView, readSyntheticPropertyForecast } from './property-forecast-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -137,6 +138,10 @@ function renderPropertyCostRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.cost_label)}</td><td>${formatCents(row.annual_cost_cents)}</td></tr>`).join('');
 }
 
+function renderPropertyForecastRows(rows) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${formatCents(row.revenue_cents)}</td><td>${formatCents(row.expenses_cents)}</td><td>${formatSignedCents(row.net_income_cents)}</td></tr>`).join('');
+}
+
 function renderBudgetRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category)}</td><td>${formatCents(row.base_amount_cents)}</td><td>${(row.growth_pct * 100).toFixed(1)}%</td><td>${formatCents(row.planned_amount_cents)}</td><td>${formatSignedCents(row.changeCents)}</td><td>${escapeHtml(row.notes)}</td></tr>`).join('');
 }
@@ -164,7 +169,7 @@ function renderEntityCards(entities) {
   return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)}</span></div>`).join('');
 }
 
-function renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, budgetReport, accountsReport, dataStatus, compensationReport, cashRunway) {
+function renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, cashRunway) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     const runway = buildCashRunwayView(cashRunway);
@@ -235,6 +240,7 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
   if (section.id === 'property') {
     const report = buildPropertyReportView(propertyReport);
     const valuation = buildPropertyValuationView(propertyValuation);
+    const forecast = buildPropertyForecastView(propertyForecast);
     const latestReserve = propertyReserves.at(-1);
     return `<section class="report" aria-label="Synthetic Commercial Property Report">
       <div class="section-heading"><div><div class="eyebrow">Commercial Property</div><h2>Property performance through ${escapeHtml(report.periodEnd)}</h2></div><span class="badge">Synthetic staging</span></div>
@@ -250,6 +256,9 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
       <div class="grid"><div class="card"><small>Effective rental income</small><strong>${formatCents(valuation.totals.effectiveRentalIncomeCents)}</strong><span>Gross ${formatCents(valuation.totals.grossRentalIncomeCents)} · vacancy ${formatCents(valuation.totals.vacancyCents)}</span></div><div class="card"><small>Net operating income</small><strong>${formatSignedCents(valuation.totals.noiCents)}</strong><span>Operating costs ${formatCents(valuation.totals.totalOperatingCostsCents)}</span></div><div class="card"><small>Capitalized value</small><strong>${formatCents(valuation.totals.capitalizedValueCents)}</strong><span>${valuation.totals.reconciled ? 'Income and cost walk reconciles' : 'Review required'} · read-only</span></div></div>
       <div class="table-wrap"><table><thead><tr><th>Tenant</th><th>Square feet</th><th>Annual contract rent</th></tr></thead><tbody>${renderPropertyRentRows(valuation.rentRoll)}</tbody></table></div>
       <div class="table-wrap"><table><thead><tr><th>Operating cost</th><th>Annual amount</th></tr></thead><tbody>${renderPropertyCostRows(valuation.operatingCosts)}</tbody></table></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Property forecast</div><h2>Fiscal year ${forecast.fiscalYear} monthly plan</h2></div><span class="badge">${forecast.reconciled ? '12 months · reconciled' : 'Review required'}</span></div>
+      <div class="grid"><div class="card"><small>Forecast revenue</small><strong>${formatCents(forecast.totals.revenueCents)}</strong></div><div class="card"><small>Forecast expenses</small><strong>${formatCents(forecast.totals.expenseCents)}</strong></div><div class="card"><small>Forecast net income</small><strong>${formatSignedCents(forecast.totals.netIncomeCents)}</strong><span>Read-only synthetic plan</span></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Month</th><th>Revenue</th><th>Expenses</th><th>Net income</th></tr></thead><tbody>${renderPropertyForecastRows(forecast.rows)}</tbody></table></div>
     </section>`;
   }
   if (section.id === 'planning') {
@@ -296,7 +305,7 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, budgetReport, accountsReport, dataStatus, compensationReport, cashRunway) {
+function renderShell(metadata, summary, giving, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, cashRunway) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -354,7 +363,7 @@ function renderShell(metadata, summary, giving, section, churchReport, churchTre
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-      ${renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, budgetReport, accountsReport, dataStatus, compensationReport, cashRunway)}
+      ${renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, cashRunway)}
     <p><small>All values shown here are deterministic synthetic staging fixtures. Giving is the committed Connect contract example, validated locally with no network call.</small></p>
     <footer>${release}</footer>
   </main>
@@ -462,6 +471,8 @@ export default {
           ? await readSyntheticPropertyLedgers(env.FINANCE_DB) : null;
         const propertyValuation = section.id === 'property'
           ? await readSyntheticPropertyValuation(env.FINANCE_DB) : null;
+        const propertyForecast = section.id === 'property'
+          ? await readSyntheticPropertyForecast(env.FINANCE_DB) : null;
         const budgetReport = section.id === 'planning'
           ? await readSyntheticBudgetReport(env.FINANCE_DB) : null;
         const accountsReport = section.id === 'accounts'
@@ -472,7 +483,7 @@ export default {
           ? await readSyntheticCompensationReport(env.FINANCE_DB) : null;
         const cashRunway = section.id === 'health'
           ? await readSyntheticCashRunway(env.FINANCE_DB) : null;
-        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, budgetReport, accountsReport, dataStatus, compensationReport, cashRunway), {
+        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, cashRunway), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {
