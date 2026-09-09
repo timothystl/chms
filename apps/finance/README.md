@@ -166,6 +166,11 @@ from contract rent through vacancy, management fee, NOI, and cap-rate value, and
 reconciling walk using only deterministic synthetic inputs. Production property values, editing,
 imports, debt workflows, and writers remain disconnected.
 
+Alpha.30 assembles a decision-ready synthetic board packet snapshot from the Church report,
+multi-year operating trend, balance-sheet totals, and aggregate Giving evidence already read by
+the page. It fails closed on mismatched periods or unreconciled position/Giving inputs and adds no
+query, export, writer, production data, or board-delivery path.
+
 ## Validate
 
 From the repository root:

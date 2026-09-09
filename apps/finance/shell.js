@@ -14,6 +14,7 @@ import { buildBudgetReportView, readSyntheticBudgetReport } from './budget-repor
 import { buildAccountsReportView, readSyntheticAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, readSyntheticDataStatus } from './data-status-service.js';
 import { buildCompensationReportView, readSyntheticCompensationReport } from './compensation-report-service.js';
+import { buildSyntheticBoardPacket } from './board-packet-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -160,12 +161,16 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
   if (section.id === 'church') {
     const report = buildChurchReportView(churchReport);
     const variance = report.totals.actualNetCents - report.totals.budgetNetCents;
+    const packet = buildSyntheticBoardPacket({ summary, churchReport: report, churchTrends, giving });
     return `<section class="report" aria-label="Synthetic Church Report">
       <div class="section-heading"><div><div class="eyebrow">Church Report</div><h2>Fiscal year ${report.fiscalYear}</h2></div><span class="badge">Synthetic staging</span></div>
       <div class="grid"><div class="card"><small>Income</small><strong>${formatCents(report.totals.incomeActualCents)}</strong></div><div class="card"><small>Expenses</small><strong>${formatCents(report.totals.expenseActualCents)}</strong></div><div class="card"><small>Net result</small><strong>${formatSignedCents(report.totals.actualNetCents)}</strong><span>Budget ${formatSignedCents(report.totals.budgetNetCents)} · variance ${formatSignedCents(variance)}</span></div></div>
       <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Account</th><th>Actual</th><th>Budget</th><th>Favorable variance</th></tr></thead><tbody>${renderChurchRows([...report.income, ...report.expenses])}</tbody></table></div>
       <div class="section-heading trend-heading"><div><div class="eyebrow">Operating history</div><h2>Multi-year operating trend</h2></div></div>
       <div class="table-wrap"><table><thead><tr><th>Fiscal year</th><th>Income</th><th>Expenses</th><th>Net result</th></tr></thead><tbody>${renderChurchTrendRows(churchTrends)}</tbody></table></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Board packet snapshot</div><h2>Decision-ready FY${packet.fiscalYear} summary</h2></div><span class="badge">${packet.ready ? 'Reconciled' : 'Review required'}</span></div>
+      <div class="grid"><div class="card"><small>Operating result</small><strong>${formatSignedCents(packet.operating.actualNetCents)}</strong><span>Budget ${formatSignedCents(packet.operating.budgetNetCents)} · ${packet.operating.disposition} ${formatSignedCents(packet.operating.varianceCents)}</span></div><div class="card"><small>Financial position</small><strong>${formatCents(packet.position.netAssetsCents)}</strong><span>Assets ${formatCents(packet.position.assetsCents)} · liabilities ${formatCents(packet.position.liabilitiesCents)}</span></div><div class="card"><small>Operating trend</small><strong>${formatSignedCents(packet.trend.changeCents)}</strong><span>FY${packet.trend.priorFiscalYear} to FY${packet.trend.currentFiscalYear}</span></div><div class="card"><small>Giving evidence</small><strong>${formatCents(packet.giving.netCents)}</strong><span>${packet.giving.sourceRecordCount} aggregate records · totals reconcile</span></div></div>
+      <p>Prepared from the same bounded synthetic reads shown above; no separate board-packet query or writer is used.</p>
     </section>`;
   }
   if (section.id === 'balance') {
