@@ -224,7 +224,9 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
     const status = buildDataStatusView(dataStatus);
     return `<section class="report" aria-label="Synthetic Data and Imports Status">
       <div class="section-heading"><div><div class="eyebrow">Data &amp; Imports</div><h2>Source and isolation status</h2></div><span class="badge">Synthetic staging</span></div>
-      <div class="grid"><div class="card"><small>Fixture source</small><strong>${escapeHtml(status.source)}</strong><span>${escapeHtml(status.note)}</span></div><div class="card"><small>Production connection</small><strong>${status.productionConnected ? 'Connected' : 'Disconnected'}</strong></div><div class="card"><small>Application writer</small><strong>${status.writerConnected ? 'Connected' : 'Disconnected'}</strong><span>Last fixture import ${escapeHtml(status.lastImportedAt)}</span></div></div>
+      <div class="grid"><div class="card"><small>Fixture source</small><strong>${escapeHtml(status.source)}</strong><span>${escapeHtml(status.note)}</span></div><div class="card"><small>Production connection</small><strong>${status.productionConnected ? 'Connected' : 'Disconnected'}</strong></div><div class="card"><small>Application writer</small><strong>${status.writerConnected ? 'Connected' : 'Disconnected'}</strong><span>No competing staging writer</span></div></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Source freshness</div><h2>${status.freshness === 'stale' ? 'Review before relying on this fixture' : 'Fixture is within the review window'}</h2></div><span class="badge">${status.freshness}</span></div>
+      <div class="grid"><div class="card"><small>Last fixture import</small><strong>${escapeHtml(status.lastImportedAt)}</strong></div><div class="card"><small>Age at request</small><strong>${status.ageDays} days</strong><span>Policy window ${status.freshnessWindowDays} days</span></div></div>
     </section>`;
   }
   return `<section class="parity" aria-label="${section.label} staging scaffold">
