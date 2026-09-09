@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves } from '../apps/finance/property-report-service.js';
+import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers } from '../apps/finance/property-report-service.js';
 
 const rows = [
   { property_key: 'synthetic-property', period: '2026-01', occupancy_pct: 90, total_revenue_cents: 2000000, total_expenses_cents: 1200000, net_income_cents: 800000, net_operating_income_cents: 900000, available_for_distribution_cents: 500000, reserve_balance_cents: 2500000 },
@@ -65,5 +65,25 @@ describe('Finance synthetic Commercial Property service', () => {
     ];
     const db = { prepare(sql) { return { sql }; }, async batch() { return [{ results }]; } };
     await expect(readSyntheticPropertyReserves(db)).rejects.toThrow('Synthetic Commercial Property reserve rows invalid');
+  });
+
+  it('reads and totals bounded synthetic capital and repair ledgers', async () => {
+    const capital = [{ entry_date: '2026-01-15', amount_cents: 100000, payee: 'Synthetic Vendor', description: 'Synthetic capital project', project: 'Synthetic Project' }];
+    const repairs = [{ entry_date: '2026-01-20', category: 'Synthetic repair', description: 'Synthetic repair item', amount_cents: 25000, payee: 'Synthetic Vendor', capitalized: 0 }];
+    const db = { prepare(sql) { return { sql }; }, async batch(statements) { expect(statements).toHaveLength(2); return [{ results: capital }, { results: repairs }]; } };
+    await expect(readSyntheticPropertyLedgers(db)).resolves.toEqual({
+      capital,
+      repairs,
+      totals: { capital_cents: 100000, repairs_cents: 25000 },
+    });
+  });
+
+  it('fails closed on malformed or empty property ledgers', async () => {
+    const validCapital = [{ entry_date: '2026-01-15', amount_cents: 100000, payee: 'Synthetic Vendor', description: 'Synthetic capital project', project: 'Synthetic Project' }];
+    const validRepairs = [{ entry_date: '2026-01-20', category: 'Synthetic repair', description: 'Synthetic repair item', amount_cents: 25000, payee: 'Synthetic Vendor', capitalized: 0 }];
+    for (const pair of [[[], validRepairs], [validCapital, [{ ...validRepairs[0], amount_cents: -1 }]]]) {
+      const db = { prepare(sql) { return { sql }; }, async batch() { return [{ results: pair[0] }, { results: pair[1] }]; } };
+      await expect(readSyntheticPropertyLedgers(db)).rejects.toThrow(/Synthetic Commercial Property/);
+    }
   });
 });

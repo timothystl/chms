@@ -43,6 +43,39 @@ export async function readSyntheticPropertyReserves(db) {
   }));
 }
 
+export async function readSyntheticPropertyLedgers(db) {
+  const statements = [
+    "SELECT entry_date, amount_cents, payee, description, project FROM finance_property_capital_ledger WHERE property_key='synthetic-property' ORDER BY entry_date, id",
+    "SELECT entry_date, category, description, amount_cents, payee, capitalized FROM finance_property_repairs WHERE property_key='synthetic-property' ORDER BY entry_date, id",
+  ];
+  const { results } = await runBudgetedReadBatch(db, 'propertyLedgers', statements);
+  const capital = results[0]?.results;
+  const repairs = results[1]?.results;
+  if (!Array.isArray(capital) || capital.length === 0 || capital.some((row) =>
+    typeof row.entry_date !== 'string'
+    || !/^\d{4}-\d{2}-\d{2}$/.test(row.entry_date)
+    || !Number.isInteger(row.amount_cents)
+    || row.amount_cents < 0
+    || ['payee', 'description', 'project'].some((field) => typeof row[field] !== 'string')
+  )) throw new Error('Synthetic Commercial Property capital rows invalid');
+  if (!Array.isArray(repairs) || repairs.length === 0 || repairs.some((row) =>
+    typeof row.entry_date !== 'string'
+    || !/^\d{4}-\d{2}-\d{2}$/.test(row.entry_date)
+    || !Number.isInteger(row.amount_cents)
+    || row.amount_cents < 0
+    || ![0, 1].includes(row.capitalized)
+    || ['category', 'description', 'payee'].some((field) => typeof row[field] !== 'string')
+  )) throw new Error('Synthetic Commercial Property repair rows invalid');
+  return {
+    capital: capital.map((row) => ({ ...row })),
+    repairs: repairs.map((row) => ({ ...row })),
+    totals: {
+      capital_cents: capital.reduce((sum, row) => sum + row.amount_cents, 0),
+      repairs_cents: repairs.reduce((sum, row) => sum + row.amount_cents, 0),
+    },
+  };
+}
+
 export function buildPropertyReportView(rows) {
   const totals = (field) => rows.reduce((sum, row) => sum + row[field], 0);
   return {
