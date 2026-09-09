@@ -21,6 +21,7 @@ import { buildEntityOverview } from './entity-overview-service.js';
 import { buildOperatingBridge } from './operating-bridge-service.js';
 import { buildPropertyForecastView, readSyntheticPropertyForecast } from './property-forecast-service.js';
 import { buildCompensationBenchmarkView, readSyntheticCompensationBenchmarks } from './compensation-benchmark-service.js';
+import { buildCompensationBenefitsView, readSyntheticCompensationBenefits } from './compensation-benefits-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -166,6 +167,10 @@ function renderCompensationBenchmarkRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.roleLabel)}</td><td>${formatCents(row.salaryCents)}</td><td>${formatCents(row.benchmarkSalaryCents)}</td><td>${row.salaryToBenchmarkPct.toFixed(1)}%</td><td>${formatCents(row.gapCents)}</td></tr>`).join('');
 }
 
+function renderCompensationBenefitRows(rows, totalCents) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.componentLabel)}</td><td>${formatCents(row.amountCents)}</td><td>${totalCents === 0 ? '0.0' : (row.amountCents / totalCents * 100).toFixed(1)}%</td><td>${row.roleCount}</td></tr>`).join('');
+}
+
 function renderFinancialMixRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.accountName)}</td><td>${formatCents(row.amountCents)}</td><td>${row.sharePct.toFixed(1)}%</td></tr>`).join('');
 }
@@ -174,7 +179,7 @@ function renderEntityCards(entities) {
   return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)}</span></div>`).join('');
 }
 
-function renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, cashRunway) {
+function renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     const runway = buildCashRunwayView(cashRunway);
@@ -287,6 +292,7 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
     const report = buildCompensationReportView(compensationReport);
     const council = buildCompensationCouncilSnapshot(report);
     const benchmark = buildCompensationBenchmarkView(report, compensationBenchmarks);
+    const benefits = buildCompensationBenefitsView(report, compensationBenefits);
     return `<section class="report" aria-label="Synthetic Compensation Report">
       <div class="section-heading"><div><div class="eyebrow">Compensation</div><h2>Role-level plan for fiscal year ${report.fiscalYear}</h2></div><span class="badge">Synthetic staging</span></div>
       <div class="grid"><div class="card"><small>Salary plan</small><strong>${formatCents(report.totals.salaryCents)}</strong></div><div class="card"><small>Benefits plan</small><strong>${formatCents(report.totals.benefitsCents)}</strong></div><div class="card"><small>Total compensation</small><strong>${formatCents(report.totals.totalCents)}</strong><span>No personal identities</span></div></div>
@@ -296,6 +302,9 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
       <div class="section-heading trend-heading"><div><div class="eyebrow">Benchmark comparison</div><h2>Salary against synthetic district-style reference</h2></div><span class="badge">Synthetic · not published guidance</span></div>
       <div class="grid"><div class="card"><small>Planned salaries</small><strong>${formatCents(benchmark.totals.salaryCents)}</strong></div><div class="card"><small>Benchmark salaries</small><strong>${formatCents(benchmark.totals.benchmarkSalaryCents)}</strong><span>${benchmark.totals.salaryToBenchmarkPct.toFixed(1)}% of benchmark</span></div><div class="card"><small>Gap to benchmark</small><strong>${formatCents(benchmark.totals.gapCents)}</strong><span>Salary only · alternative, not the plan</span></div></div>
       <div class="table-wrap"><table><thead><tr><th>Role</th><th>Planned salary</th><th>Benchmark salary</th><th>Share of benchmark</th><th>Gap</th></tr></thead><tbody>${renderCompensationBenchmarkRows(benchmark.rows)}</tbody></table></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Benefits &amp; taxes</div><h2>What the benefits plan contains</h2></div><span class="badge">${benefits.reconciled ? 'Reconciled' : 'Review required'} · role-only</span></div>
+      <div class="table-wrap"><table><thead><tr><th>Component</th><th>Amount</th><th>Share of benefits</th><th>Roles covered</th></tr></thead><tbody>${renderCompensationBenefitRows(benefits.rows, benefits.totalCents)}</tbody></table></div>
+      <p>The component total is ${formatCents(benefits.totalCents)} and must exactly match the benefits plan above. No personal identities are included.</p>
     </section>`;
   }
   if (section.id === 'data') {
@@ -314,7 +323,7 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, cashRunway) {
+function renderShell(metadata, summary, giving, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -372,7 +381,7 @@ function renderShell(metadata, summary, giving, section, churchReport, churchTre
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-      ${renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, cashRunway)}
+      ${renderSectionBody(section, summary, giving, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway)}
     <p><small>All values shown here are deterministic synthetic staging fixtures. Giving is the committed Connect contract example, validated locally with no network call.</small></p>
     <footer>${release}</footer>
   </main>
@@ -492,9 +501,11 @@ export default {
           ? await readSyntheticCompensationReport(env.FINANCE_DB) : null;
         const compensationBenchmarks = section.id === 'compensation'
           ? await readSyntheticCompensationBenchmarks(env.FINANCE_DB) : null;
+        const compensationBenefits = section.id === 'compensation'
+          ? await readSyntheticCompensationBenefits(env.FINANCE_DB) : null;
         const cashRunway = section.id === 'health'
           ? await readSyntheticCashRunway(env.FINANCE_DB) : null;
-        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, cashRunway), {
+        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {
