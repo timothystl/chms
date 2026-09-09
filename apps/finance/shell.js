@@ -141,8 +141,15 @@ function renderBudgetRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category)}</td><td>${formatCents(row.base_amount_cents)}</td><td>${(row.growth_pct * 100).toFixed(1)}%</td><td>${formatCents(row.planned_amount_cents)}</td><td>${formatSignedCents(row.changeCents)}</td><td>${escapeHtml(row.notes)}</td></tr>`).join('');
 }
 
-function renderAccountRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category_path)}</td><td>${escapeHtml(row.account_name)}</td><td>${escapeHtml(row.board_category_label)}</td><td>${row.purpose_tag_label === null ? '—' : escapeHtml(row.purpose_tag_label)}</td></tr>`).join('');
+function flattenAccountHierarchy(nodes) {
+  return nodes.flatMap((node) => [node, ...flattenAccountHierarchy(node.children)]);
+}
+
+function renderAccountHierarchy(nodes) {
+  return flattenAccountHierarchy(nodes).map((node) => {
+    const presentation = node.account;
+    return `<tr><td style="padding-left:${(0.85 + node.depth * 1.1).toFixed(2)}rem">${node.depth === 0 ? '<strong>' : ''}${escapeHtml(node.label)}${node.depth === 0 ? '</strong>' : ''}</td><td>${escapeHtml(node.path)}</td><td>${presentation ? escapeHtml(presentation.name) : '—'}</td><td>${presentation ? escapeHtml(presentation.boardCategoryLabel) : '—'}</td><td>${presentation?.purposeTagLabel ? escapeHtml(presentation.purposeTagLabel) : '—'}</td></tr>`;
+  }).join('');
 }
 
 function renderCompensationRows(rows) {
@@ -258,7 +265,8 @@ function renderSectionBody(section, summary, giving, churchReport, churchTrends,
     return `<section class="report" aria-label="Synthetic Chart of Accounts">
       <div class="section-heading"><div><div class="eyebrow">Chart of Accounts</div><h2>Account presentation</h2></div><span class="badge">Synthetic staging</span></div>
       <div class="grid"><div class="card"><small>Total accounts</small><strong>${report.counts.total}</strong><span>${report.counts.income} income · ${report.counts.expenses} expense</span></div><div class="card"><small>Board categories</small><strong>${report.counts.boardCategories}</strong><span>Presentation only; ledger paths unchanged</span></div><div class="card"><small>Purpose tags</small><strong>${report.counts.purposeTags}</strong><span>Independent reporting lens · read-only</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Account path</th><th>Account</th><th>Board category</th><th>Purpose</th></tr></thead><tbody>${renderAccountRows(report.rows)}</tbody></table></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Ledger hierarchy</div><h2>Account tree</h2></div><span class="badge">Paths preserved</span></div>
+      <div class="table-wrap"><table><thead><tr><th>Hierarchy</th><th>Ledger path</th><th>Account</th><th>Board category</th><th>Purpose</th></tr></thead><tbody>${renderAccountHierarchy(report.hierarchy)}</tbody></table></div>
     </section>`;
   }
   if (section.id === 'compensation') {
