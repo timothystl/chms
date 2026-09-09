@@ -12,6 +12,7 @@ import { buildPropertyReportView, readSyntheticPropertyReport } from './property
 import { buildBudgetReportView, readSyntheticBudgetReport } from './budget-report-service.js';
 import { buildAccountsReportView, readSyntheticAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, readSyntheticDataStatus } from './data-status-service.js';
+import { buildCompensationReportView, readSyntheticCompensationReport } from './compensation-report-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -93,7 +94,11 @@ function renderAccountRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category_path)}</td><td>${escapeHtml(row.account_name)}</td></tr>`).join('');
 }
 
-function renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus) {
+function renderCompensationRows(rows) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.role_label)}</td><td>${formatCents(row.salary_cents)}</td><td>${formatCents(row.benefits_cents)}</td><td>${row.adjustment_pct.toFixed(1)}%</td></tr>`).join('');
+}
+
+function renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus, compensationReport) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     return `<section aria-label="Synthetic financial health">
@@ -155,6 +160,14 @@ function renderSectionBody(section, summary, giving, churchReport, balanceSheet,
       <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Account path</th><th>Account</th></tr></thead><tbody>${renderAccountRows(report.rows)}</tbody></table></div>
     </section>`;
   }
+  if (section.id === 'compensation') {
+    const report = buildCompensationReportView(compensationReport);
+    return `<section class="report" aria-label="Synthetic Compensation Report">
+      <div class="section-heading"><div><div class="eyebrow">Compensation</div><h2>Role-level plan for fiscal year ${report.fiscalYear}</h2></div><span class="badge">Synthetic staging</span></div>
+      <div class="grid"><div class="card"><small>Salary plan</small><strong>${formatCents(report.totals.salaryCents)}</strong></div><div class="card"><small>Benefits plan</small><strong>${formatCents(report.totals.benefitsCents)}</strong></div><div class="card"><small>Total compensation</small><strong>${formatCents(report.totals.totalCents)}</strong><span>No personal identities</span></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Role</th><th>Salary</th><th>Benefits</th><th>Adjustment</th></tr></thead><tbody>${renderCompensationRows(report.rows)}</tbody></table></div>
+    </section>`;
+  }
   if (section.id === 'data') {
     const status = buildDataStatusView(dataStatus);
     return `<section class="report" aria-label="Synthetic Data and Imports Status">
@@ -169,7 +182,7 @@ function renderSectionBody(section, summary, giving, churchReport, balanceSheet,
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, section, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus) {
+function renderShell(metadata, summary, giving, section, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus, compensationReport) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -218,7 +231,7 @@ function renderShell(metadata, summary, giving, section, churchReport, balanceSh
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-    ${renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus)}
+    ${renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus, compensationReport)}
     <p><small>All values shown here are deterministic synthetic staging fixtures. Giving is the committed Connect contract example, validated locally with no network call.</small></p>
     <footer>${release}</footer>
   </main>
@@ -309,7 +322,9 @@ export default {
           ? await readSyntheticAccountsReport(env.FINANCE_DB) : null;
         const dataStatus = section.id === 'data'
           ? await readSyntheticDataStatus(env.FINANCE_DB) : null;
-        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus), {
+        const compensationReport = section.id === 'compensation'
+          ? await readSyntheticCompensationReport(env.FINANCE_DB) : null;
+        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport, accountsReport, dataStatus, compensationReport), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {
