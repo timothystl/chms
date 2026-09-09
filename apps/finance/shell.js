@@ -9,6 +9,7 @@ import { buildChurchReportView, readSyntheticChurchReport } from './church-repor
 import { buildBalanceSheetView, readSyntheticBalanceSheet } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport } from './daycare-report-service.js';
 import { buildPropertyReportView, readSyntheticPropertyReport } from './property-report-service.js';
+import { buildBudgetReportView, readSyntheticBudgetReport } from './budget-report-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -82,7 +83,11 @@ function renderPropertyRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${row.occupancy_pct.toFixed(0)}%</td><td>${formatCents(row.total_revenue_cents)}</td><td>${formatCents(row.total_expenses_cents)}</td><td>${formatSignedCents(row.net_income_cents)}</td></tr>`).join('');
 }
 
-function renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport) {
+function renderBudgetRows(rows) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category)}</td><td>${formatCents(row.planned_amount_cents)}</td><td>${escapeHtml(row.notes)}</td></tr>`).join('');
+}
+
+function renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     return `<section aria-label="Synthetic financial health">
@@ -128,6 +133,14 @@ function renderSectionBody(section, summary, giving, churchReport, balanceSheet,
       <div class="table-wrap"><table><thead><tr><th>Period</th><th>Occupancy</th><th>Revenue</th><th>Expenses</th><th>Net income</th></tr></thead><tbody>${renderPropertyRows(report.rows)}</tbody></table></div>
     </section>`;
   }
+  if (section.id === 'planning') {
+    const report = buildBudgetReportView(budgetReport);
+    return `<section class="report" aria-label="Synthetic Budget Report">
+      <div class="section-heading"><div><div class="eyebrow">Budget</div><h2>Plan for fiscal year ${report.fiscalYear}</h2></div><span class="badge">Synthetic staging</span></div>
+      <div class="grid"><div class="card"><small>Planned income</small><strong>${formatCents(report.totals.incomeCents)}</strong></div><div class="card"><small>Planned expenses</small><strong>${formatCents(report.totals.expenseCents)}</strong></div><div class="card"><small>Planned result</small><strong>${formatSignedCents(report.totals.netCents)}</strong><span>Read-only planning preview</span></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Category</th><th>Planned amount</th><th>Notes</th></tr></thead><tbody>${renderBudgetRows(report.rows)}</tbody></table></div>
+    </section>`;
+  }
   return `<section class="parity" aria-label="${section.label} staging scaffold">
     <h2>${section.label}</h2>
     <p>This familiar workspace is retained in the parity plan. Its production workflow and data are not connected to staging.</p>
@@ -135,7 +148,7 @@ function renderSectionBody(section, summary, giving, churchReport, balanceSheet,
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, section, churchReport, balanceSheet, daycareReport, propertyReport) {
+function renderShell(metadata, summary, giving, section, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -184,7 +197,7 @@ function renderShell(metadata, summary, giving, section, churchReport, balanceSh
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-    ${renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport)}
+    ${renderSectionBody(section, summary, giving, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport)}
     <p><small>All values shown here are deterministic synthetic staging fixtures. Giving is the committed Connect contract example, validated locally with no network call.</small></p>
     <footer>${release}</footer>
   </main>
@@ -269,7 +282,9 @@ export default {
           ? await readSyntheticDaycareReport(env.FINANCE_DB) : null;
         const propertyReport = section.id === 'property'
           ? await readSyntheticPropertyReport(env.FINANCE_DB) : null;
-        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, balanceSheet, daycareReport, propertyReport), {
+        const budgetReport = section.id === 'planning'
+          ? await readSyntheticBudgetReport(env.FINANCE_DB) : null;
+        return response(renderShell(metadata, summary, SYNTHETIC_GIVING, section, churchReport, balanceSheet, daycareReport, propertyReport, budgetReport), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {
