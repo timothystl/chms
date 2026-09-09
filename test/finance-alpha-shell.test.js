@@ -82,7 +82,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.24');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.25');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -114,7 +114,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.24',
+      version: '1.0.0-alpha.25',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -126,7 +126,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
     expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.24 · alpha');
+    expect(html).toContain('1.0.0-alpha.25 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="appbar"');
@@ -343,7 +343,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.24',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.25',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -380,6 +380,24 @@ describe('Finance 1.0.0 alpha staging shell', () => {
 
     const shell = fs.readFileSync(path.join(repoRoot, 'apps/finance/shell.js'), 'utf8');
     expect(shell).not.toMatch(/await\s+fetch\s*\(|globalThis\.fetch|env\.[A-Za-z0-9_]+\.fetch\s*\(/);
+  });
+
+  it('serves read-only synthetic transport and reconciliation evidence without querying D1', async () => {
+    statements.length = 0;
+    const res = await worker.fetch(new Request('https://finance.test/api/v1/connect-giving-transport-evidence'), env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-finance-contract')).toBe('finance.connect-giving-transport-evidence.v1');
+    const body = await res.json();
+    expect(body).toMatchObject({
+      contract: 'finance.connect-giving-transport-evidence.v1',
+      dataClassification: 'synthetic',
+      scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
+      duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
+      release: { version: '1.0.0-alpha.25', releaseSha: 'test-sha' },
+    });
+    expect(body.scenario.totals.netCents).toBe(145000);
+    expect(body.scenario.reconciliation.totalsMatch).toBe(true);
+    expect(statements).toHaveLength(0);
   });
 
   it('ships restrictive response headers and rejects writes', async () => {

@@ -11,7 +11,7 @@ describe('Finance staging route manifest', () => {
     expect(new Set(paths).size).toBe(paths.length);
     expect(paths).toEqual([
       '/', '/index.html', '/health', '/api/v1/summary',
-      '/api/v1/connect-giving-preview', '/api/summary',
+      '/api/v1/connect-giving-preview', '/api/v1/connect-giving-transport-evidence', '/api/summary',
     ]);
     for (const route of FINANCE_ROUTE_MANIFEST) {
       expect(route.methods).toEqual(['GET', 'HEAD']);
@@ -27,6 +27,9 @@ describe('Finance staging route manifest', () => {
       id: 'summary-v1', contract: 'finance.summary.v1', dataSource: 'synthetic-d1',
     });
     expect(resolveFinanceRoute('/').optionalQueryBudgets).toEqual(['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport']);
+    expect(resolveFinanceRoute('/api/v1/connect-giving-transport-evidence')).toMatchObject({
+      id: 'giving-transport-evidence-v1', contract: 'finance.connect-giving-transport-evidence.v1', dataSource: 'synthetic-static',
+    });
     expect(resolveFinanceRoute('/missing')).toBeUndefined();
     expect(isFinanceMethodAllowed('GET')).toBe(true);
     expect(isFinanceMethodAllowed('HEAD')).toBe(true);
