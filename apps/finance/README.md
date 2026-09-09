@@ -109,6 +109,11 @@ synthetic role-level salary, benefits, adjustment assumptions, and plan totals. 
 separately named read budget. Personal identities, editing, comparisons, production data, and
 writers remain disconnected.
 
+Alpha.19 replaces the dark engineering presentation with the established Timothy Finance visual
+language: warm page surfaces, navy display headings, gold/teal accents, white elevated cards, and
+the existing flat horizontal subnavigation. This changes presentation only; routes, queries,
+bindings, synthetic data, access controls, and writer isolation are unchanged.
+
 ## Validate
 
 From the repository root:

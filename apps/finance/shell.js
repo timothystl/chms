@@ -191,40 +191,49 @@ function renderShell(metadata, summary, giving, section, churchReport, balanceSh
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance — Staging</title>
   <style>
-    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    :root { color-scheme: light; font-family: "DM Sans", "Source Sans 3", Arial, sans-serif; --navy:#1e2d4a; --teal:#2e7ea6; --gold:#c9973a; --charcoal:#1a1a2a; --warm-gray:#8a8377; --warm-meta:#8a7a5c; --warm-label:#5c4b2e; --border:#e5d9be; --divider:#f1e7d2; --page:#fbf8f1; --header:#fbf3e1; --card:#fffdf9; --sage:#6b8f71; }
     * { box-sizing: border-box; }
-    body { min-height: 100vh; margin: 0; display: grid; place-items: center; background: #08131f; color: #e8f0f7; }
-    main { width: min(72rem, calc(100% - 2rem)); padding: 2.5rem; border: 1px solid #27425a; border-radius: 1rem; background: #0e1e2d; }
-    .eyebrow { color: #80c7ff; font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-    h1 { margin: .65rem 0 1rem; font-size: clamp(2rem, 7vw, 3.5rem); line-height: 1; }
-    p { color: #b8c8d6; line-height: 1.6; }
-    .status { margin-top: 1.75rem; padding: 1rem; border-radius: .65rem; background: #102a3d; color: #d9efff; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(9rem,1fr)); gap: .75rem; margin-top: 1.25rem; }
-    .card { padding: 1rem; border: 1px solid #27425a; border-radius: .65rem; }
-    .card small { display: block; color: #80c7ff; margin-bottom: .35rem; }
-    .card strong { font-size: 1.3rem; }
-    .card span, .decision span { display:block; margin-top:.4rem; color:#9db0c1; font-size:.78rem; line-height:1.45; }
+    body { min-height: 100vh; margin: 0; background: var(--page); color: var(--charcoal); }
+    .appbar { min-height:4.5rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.8rem max(1rem,calc((100% - 72rem)/2)); background:var(--navy); color:#fff; box-shadow:0 3px 14px rgba(30,45,74,.18); }
+    .brand { display:flex; align-items:center; gap:.75rem; font-family:Georgia,serif; font-size:1.08rem; font-weight:700; }
+    .brand small { display:block; color:rgba(255,255,255,.65); font-family:Arial,sans-serif; font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; margin-top:.12rem; }
+    .mark { width:2.3rem; height:2.3rem; display:grid; place-items:center; border:1px solid rgba(255,255,255,.45); border-radius:50%; color:#f5e0b0; font-size:1.25rem; }
+    .environment { padding:.35rem .7rem; border:1px solid rgba(255,255,255,.25); border-radius:99px; color:#f5e0b0; font-size:.72rem; font-weight:700; }
+    main { width:min(72rem,calc(100% - 2rem)); margin:0 auto; padding:2.3rem 0 3rem; }
+    .eyebrow { color:var(--warm-meta); font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+    h1 { margin:.35rem 0 .55rem; color:var(--navy); font-family:Georgia,serif; font-size:clamp(2.1rem,6vw,3.2rem); line-height:1; }
+    p { color:var(--warm-gray); line-height:1.6; }
+    .status { margin-top:1.2rem; padding:.75rem 1rem; border-left:4px solid var(--sage); border-radius:.55rem; background:#edf3ee; color:#4a6e52; font-size:.84rem; font-weight:700; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(12rem,1fr)); gap:1rem; margin-top:1.25rem; }
+    .card { padding:1.15rem 1.25rem; border-top:4px solid var(--teal); border-radius:1.1rem; background:var(--card); box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05); }
+    .card small { display:block; color:var(--warm-meta); margin-bottom:.4rem; font-size:.7rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
+    .card strong { color:var(--charcoal); font-size:1.65rem; font-variant-numeric:tabular-nums; }
+    .card span, .decision span { display:block; margin-top:.45rem; color:var(--warm-gray); font-size:.76rem; line-height:1.45; }
     .section-heading { display:flex; justify-content:space-between; gap:1rem; align-items:end; margin-top:1.4rem; }
-    .section-heading h2 { margin:.3rem 0 0; font-size:1.55rem; }
-    .badge { padding:.35rem .6rem; border:1px solid #3c6688; border-radius:999px; color:#80c7ff; font-size:.72rem; }
+    .section-heading h2 { margin:.25rem 0 0; color:var(--navy); font-family:Georgia,serif; font-size:1.75rem; }
+    .badge { padding:.35rem .7rem; border-radius:999px; background:#eaf4fa; color:var(--teal); font-size:.72rem; font-weight:700; }
     .decision-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:.75rem; margin-top:.75rem; }
-    .decision { padding:1rem; border-left:3px solid #80c7ff; background:#102536; border-radius:.35rem; }
+    .decision { padding:1rem; border:1px solid var(--border); border-left:4px solid var(--gold); background:var(--card); border-radius:.75rem; }
     .decision small, .decision b { display:block; }
-    .table-wrap { overflow-x:auto; margin-top:1rem; border:1px solid #27425a; border-radius:.65rem; }
+    .decision small { color:var(--warm-meta); text-transform:uppercase; font-size:.68rem; font-weight:700; }
+    .decision b { color:var(--navy); margin-top:.25rem; }
+    .table-wrap { overflow-x:auto; margin-top:1rem; border:1px solid var(--border); border-radius:.85rem; background:var(--card); }
     table { width:100%; border-collapse:collapse; font-size:.82rem; }
-    th, td { padding:.7rem .8rem; border-bottom:1px solid #27425a; text-align:left; }
+    th, td { padding:.75rem .85rem; border-bottom:1px solid var(--divider); text-align:left; }
     th:nth-child(n+3), td:nth-child(n+3) { text-align:right; font-variant-numeric:tabular-nums; }
-    th { color:#80c7ff; background:#102536; }
-    nav { display:flex; gap:.45rem; overflow-x:auto; padding:.4rem 0 1rem; margin-top:1.25rem; border-bottom:1px solid #27425a; }
-    nav a { flex:0 0 auto; padding:.55rem .75rem; border-radius:.45rem; color:#b8c8d6; text-decoration:none; font-size:.82rem; }
-    nav a[aria-current="page"] { background:#17486a; color:#fff; }
-    .parity { margin-top:1.25rem; padding:1.25rem; border:1px solid #27425a; border-radius:.65rem; }
+    th { color:var(--warm-label); background:var(--header); font-size:.68rem; letter-spacing:.05em; text-transform:uppercase; }
+    nav { display:flex; gap:.15rem; overflow-x:auto; padding:.45rem 0 0; margin-top:1.25rem; border-bottom:1px solid var(--border); }
+    nav a { flex:0 0 auto; padding:.7rem .82rem; border-bottom:2px solid transparent; color:var(--warm-meta); text-decoration:none; font-size:.8rem; font-weight:700; }
+    nav a[aria-current="page"] { border-bottom-color:var(--navy); color:var(--navy); }
+    .parity { margin-top:1.25rem; padding:1.25rem; border:1px solid var(--border); border-radius:.85rem; background:var(--card); }
     .parity h2 { margin:0 0 .5rem; }
-    .parity ul { columns:2; color:#b8c8d6; line-height:1.8; }
-    footer { margin-top: 2rem; color: #7890a4; font-size: .8rem; }
+    .parity ul { columns:2; color:var(--warm-gray); line-height:1.8; }
+    footer { margin-top:2rem; padding-top:1rem; border-top:1px solid var(--border); color:var(--warm-meta); font-size:.75rem; }
+    @media(max-width:767px){.appbar{padding:.75rem 1rem}.brand{font-size:.92rem}.environment{display:none}main{width:min(100% - 1.2rem,72rem);padding-top:1.4rem}.section-heading{align-items:start;flex-direction:column}.grid{grid-template-columns:1fr}.parity ul{columns:1}}
   </style>
 </head>
 <body>
+  <header class="appbar"><div class="brand"><span class="mark" aria-hidden="true">T</span><div>Timothy Lutheran Church<small>Finance workspace</small></div></div><span class="environment">Isolated staging</span></header>
   <main>
     <div class="eyebrow">Isolated staging environment</div>
     <h1>Timothy Finance</h1>
