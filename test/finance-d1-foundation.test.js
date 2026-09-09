@@ -6,6 +6,7 @@ const sql = readFileSync(new URL('../apps/finance/migrations/0001_finance_founda
 const compensationSql = readFileSync(new URL('../apps/finance/migrations/0002_finance_compensation_staging.sql', import.meta.url), 'utf8');
 const accountPresentationSql = readFileSync(new URL('../apps/finance/migrations/0003_finance_account_presentation.sql', import.meta.url), 'utf8');
 const propertyValuationSql = readFileSync(new URL('../apps/finance/migrations/0004_finance_property_valuation.sql', import.meta.url), 'utf8');
+const compensationBenchmarkSql = readFileSync(new URL('../apps/finance/migrations/0005_finance_compensation_benchmarks.sql', import.meta.url), 'utf8');
 const fixtures = readFileSync(new URL('../apps/finance/fixtures/0001_synthetic_staging.sql', import.meta.url), 'utf8');
 const compensationFixtures = readFileSync(new URL('../apps/finance/fixtures/0002_synthetic_compensation.sql', import.meta.url), 'utf8');
 const historyFixtures = readFileSync(new URL('../apps/finance/fixtures/0003_synthetic_church_history.sql', import.meta.url), 'utf8');
@@ -16,9 +17,10 @@ const budgetOutlookFixtures = readFileSync(new URL('../apps/finance/fixtures/000
 const accountPresentationFixtures = readFileSync(new URL('../apps/finance/fixtures/0008_synthetic_account_presentation.sql', import.meta.url), 'utf8');
 const propertyValuationFixtures = readFileSync(new URL('../apps/finance/fixtures/0009_synthetic_property_valuation.sql', import.meta.url), 'utf8');
 const propertyForecastFixtures = readFileSync(new URL('../apps/finance/fixtures/0010_synthetic_property_forecast.sql', import.meta.url), 'utf8');
+const compensationBenchmarkFixtures = readFileSync(new URL('../apps/finance/fixtures/0011_synthetic_compensation_benchmarks.sql', import.meta.url), 'utf8');
 const expected = [
   'finance_account_presentation', 'finance_budget_plan', 'finance_church_balances', 'finance_church_entries',
-  'finance_compensation_plan', 'finance_daycare_entries', 'finance_daycare_rooms', 'finance_import_log',
+  'finance_compensation_benchmarks', 'finance_compensation_plan', 'finance_daycare_entries', 'finance_daycare_rooms', 'finance_import_log',
   'finance_property_budget_monthly', 'finance_property_capital_ledger',
   'finance_property_distributions', 'finance_property_monthly', 'finance_property_operating_costs',
   'finance_property_rent_roll', 'finance_property_repairs', 'finance_property_reserve_disbursements',
@@ -32,6 +34,7 @@ describe('Finance isolated D1 foundation', () => {
     db.exec(compensationSql);
     db.exec(accountPresentationSql);
     db.exec(propertyValuationSql);
+    db.exec(compensationBenchmarkSql);
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map(({ name }) => name);
     expect(tables).toEqual(expected);
     for (const table of expected) expect(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n).toBe(0);
@@ -48,6 +51,7 @@ describe('Finance isolated D1 foundation', () => {
     db.exec(compensationSql);
     db.exec(accountPresentationSql);
     db.exec(propertyValuationSql);
+    db.exec(compensationBenchmarkSql);
     db.exec(fixtures);
     db.exec(compensationFixtures);
     db.exec(historyFixtures);
@@ -58,6 +62,7 @@ describe('Finance isolated D1 foundation', () => {
     db.exec(accountPresentationFixtures);
     db.exec(propertyValuationFixtures);
     db.exec(propertyForecastFixtures);
+    db.exec(compensationBenchmarkFixtures);
     expect(db.prepare('SELECT SUM(own_actual_cents) AS n FROM finance_church_entries').get().n).toBe(40500000);
     expect(db.prepare('SELECT COUNT(DISTINCT fiscal_year) AS n FROM finance_church_entries').get().n).toBe(2);
     expect(db.prepare('SELECT SUM(own_balance_cents) AS n FROM finance_church_balances').get().n).toBe(114000000);
@@ -65,6 +70,7 @@ describe('Finance isolated D1 foundation', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM finance_daycare_rooms').get().n).toBe(1);
     expect(db.prepare('SELECT COUNT(*) AS n FROM finance_daycare_entries').get().n).toBe(4);
     expect(db.prepare('SELECT COUNT(*) AS n FROM finance_compensation_plan').get().n).toBe(2);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM finance_compensation_benchmarks WHERE source_kind='synthetic_fixture'").get().n).toBe(2);
     expect(db.prepare("SELECT COUNT(*) AS n FROM finance_property_reserves WHERE property_key='synthetic-property'").get().n).toBe(3);
     expect(db.prepare("SELECT COUNT(*) AS n FROM finance_budget_plan WHERE basis='synthetic_fixture'").get().n).toBe(2);
     expect(db.prepare("SELECT SUM(planned_amount_cents - base_amount_cents) AS n FROM finance_budget_plan WHERE basis='synthetic_fixture'").get().n).toBe(2200000);
@@ -85,5 +91,6 @@ describe('Finance isolated D1 foundation', () => {
     expect(accountPresentationFixtures).not.toMatch(/@|access_token|refresh_token|realm_id/i);
     expect(propertyValuationFixtures).not.toMatch(/@|access_token|refresh_token|realm_id/i);
     expect(propertyForecastFixtures).not.toMatch(/@|access_token|refresh_token|realm_id/i);
+    expect(compensationBenchmarkFixtures).not.toMatch(/@|access_token|refresh_token|realm_id/i);
   });
 });
