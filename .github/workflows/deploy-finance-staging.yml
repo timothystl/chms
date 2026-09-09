@@ -1,0 +1,39 @@
+name: Deploy Finance Staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Finance staging Worker
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Finance validation gate
+        run: npm run validate:finance
+
+      - name: Deploy Finance staging (wrangler.finance.staging.jsonc)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: deploy --config wrangler.finance.staging.jsonc
