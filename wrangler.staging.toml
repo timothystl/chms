@@ -1,12 +1,21 @@
-name = "breeze-proxy-worker-staging"
+name = "timothy-connect-staging"
 main = "tlc-volunteer-worker.js"
 compatibility_date = "2024-01-01"
 workers_dev = true
 
+# Renamed from breeze-proxy-worker-staging (2026-09-09): that name dated from when this app began
+# as a Breeze ChMS proxy/extension around January 2026; it has served the whole Connect staging
+# environment for a while now and the old name no longer matched. Cloudflare Workers cannot be
+# renamed in place -- this deploys a NEW Worker under the new name. The old
+# breeze-proxy-worker-staging Worker must be deleted separately once this one is confirmed live and
+# every reference (this file, docs/OPERATIONS.md, docs/ARCHITECTURE.md, and Finance staging's
+# CONNECT_SERVICE binding) has moved to the new name -- an unreferenced leftover Worker isn't
+# harmful, just confusing, which is exactly the problem this rename exists to fix.
+#
 # Deploy:   wrangler deploy --config wrangler.staging.toml
 # Secrets:  wrangler secret put <NAME> --config wrangler.staging.toml
 # Migrate:  wrangler d1 migrations apply tlc-volunteer-db-staging --remote --config wrangler.staging.toml
-# URL:      https://breeze-proxy-worker-staging.<subdomain>.workers.dev
+# URL:      https://timothy-connect-staging.<subdomain>.workers.dev
 
 [vars]
 EMAIL_FROM     = "TLC Gather <noreply@notify.timothystl.org>"

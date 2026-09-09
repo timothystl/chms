@@ -5,7 +5,7 @@
 | Environment | Worker | Data/storage | Release boundary |
 |---|---|---|---|
 | Production | `tlc-chms` | Production D1, KV, and R2; daily cron | Manual approved-main SHA workflow only |
-| Connect staging | `breeze-proxy-worker-staging` | Separate staging D1, KV, and R2; no cron | Manual Wrangler operation |
+| Connect staging | `timothy-connect-staging` (renamed 2026-09-09 from `breeze-proxy-worker-staging`) | Separate staging D1, KV, and R2; no cron | Manual Wrangler operation |
 | Finance staging | `timothy-finance-app-staging` | Separate Finance D1; synthetic data only | Manual reviewed alpha release |
 
 ## Production release
