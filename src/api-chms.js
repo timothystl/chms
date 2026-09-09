@@ -8,6 +8,7 @@ import { handlePeopleApi, handleSendMemberInvite } from './api-people.js';
 import { handleGivingApi } from './api-giving.js';
 import { handleTuitionAidApi } from './api-tuition-aid.js';
 import { handleFinanceApi } from './api-finance.js';
+import { handleContractsApi } from './api-contracts.js';
 
 // The Home Dashboard used to aggregate the lifetime giving_entries table three times per load.
 // Completed months now come from one materialized fund/month row (maintained by D1 triggers in
@@ -209,6 +210,11 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
   // the generic reports rule and the first match wins.
   const ACCESS_GATE = [
     { match: (s) => s.startsWith('giving') || s.startsWith('reports/giving'), item: 'giving' },
+    // The cross-product Giving-summary contract for Finance is an aggregate export of the same
+    // data 'giving' already governs, so it inherits that item rather than getting its own —
+    // including the anonymous-safe check below, which it is deliberately NOT allowlisted for
+    // (a new anonymous endpoint is denied until explicitly allowlisted, same as every other one).
+    { match: (s) => s.startsWith('contracts/connect-giving-summary'), item: 'giving' },
     { match: (s) => s.startsWith('tuition-aid'), item: 'tuitionaid' },
     { match: (s) => s.startsWith('finance'), item: 'finance' },
     { match: (s) => s.startsWith('attendance'), item: 'attendance' },
@@ -736,6 +742,13 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       seg === 'giving/force-remove-orphans' ||
       (seg.startsWith('people/') && seg.endsWith('/dismiss-first-gift'))) {
     const result = await handleReportsApi(req, env, url, method, seg, db, isAdmin, isFinance, isStaff, canEdit, givingAnon);
+    if (result !== null) return result;
+  }
+
+  // ── Cross-product contracts (e.g. connect.giving-summary.v1 for Finance) → api-contracts.js ──
+  // ACCESS_GATE above has already required 'giving' view for this segment; no separate check here.
+  if (seg.startsWith('contracts/')) {
+    const result = await handleContractsApi(req, env, url, method, seg, db);
     if (result !== null) return result;
   }
 
