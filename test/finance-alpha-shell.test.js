@@ -147,7 +147,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     // Connect's STAGING Worker, so a future addition of some other outbound service still fails
     // this test.
     expect(config.services).toEqual([
-      { binding: 'CONNECT_SERVICE', service: 'breeze-proxy-worker-staging' },
+      { binding: 'CONNECT_SERVICE', service: 'timothy-connect-staging' },
     ]);
   });
 
