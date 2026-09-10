@@ -2,9 +2,9 @@ import { FINANCE_RELEASE_CHANNEL, FINANCE_VERSION } from './version.js';
 import givingFixture from '../../contracts/examples/giving-summary-v1.synthetic.json';
 import { acceptConnectGivingSummaryV1 } from './connect-giving-consumer.js';
 import { reconcileSyntheticGivingDelivery } from './connect-giving-transport.js';
-import { fetchLiveConnectGivingSummary, defaultLiveGivingPeriod } from './connect-giving-client.js';
+import { fetchLiveConnectGivingSummary, defaultLiveGivingPeriod, postConnectGivingQuickEntry } from './connect-giving-client.js';
 import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from './summary-service.js';
-import { isFinanceMethodAllowed, resolveFinanceRoute } from './route-manifest.js';
+import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from './parity-manifest.js';
 import { buildFinancialHealthView } from './health-view-model.js';
 import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends } from './church-report-service.js';
@@ -58,7 +58,11 @@ const SYNTHETIC_GIVING_TRANSPORT = Object.freeze({
 
 const SECURITY_HEADERS = Object.freeze({
   'Cache-Control': 'no-store',
-  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  // form-action is 'self', not 'none', for exactly one reason: the Giving quick-entry form
+  // (see the 'giving' section below) has to submit somewhere. It still can't target any other
+  // origin. Nothing else here changed -- still no script-src of any kind, so no inline or
+  // external JS can run on this page regardless.
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff',
@@ -94,6 +98,23 @@ function formatSignedCents(value) {
 function escapeHtml(value) {
   const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   return [...String(value)].map((character) => entities[character] || character).join('');
+}
+
+// Maps a postConnectGivingQuickEntry() failure (or Connect's own refusal message) to something
+// a bookkeeper can act on, without leaking wire-level detail (network error text, status codes).
+function describeGivingEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Giving entry is not connected yet. Nothing was recorded.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was recorded — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as recorded.';
+    case 'http_error': return message ? String(message) : 'Connect refused the entry.';
+    default: return 'The gift was not recorded.';
+  }
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function renderSectionNav(activeSection) {
@@ -190,7 +211,13 @@ function renderEntityCards(entities) {
   return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)}</span></div>`).join('');
 }
 
-function renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway) {
+function renderGivingFundOptions(giving) {
+  const funds = giving?.funds || [];
+  if (!funds.length) return '<option value="">No funds available from Connect right now</option>';
+  return funds.map((fund) => `<option value="${escapeHtml(fund.fundRef)}">${escapeHtml(fund.fundLabel || fund.fundRef)}</option>`).join('');
+}
+
+function renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     const runway = buildCashRunwayView(cashRunway);
@@ -220,6 +247,26 @@ function renderSectionBody(section, summary, giving, givingSource, churchReport,
       <div class="grid"><div class="card"><small>1 · Income</small><strong>${formatCents(bridge.incomeCents)}</strong></div><div class="card"><small>2 · Expenses</small><strong>−${formatCents(bridge.expenseCents)}</strong></div><div class="card"><small>3 · ${bridge.resultLabel}</small><strong>${formatSignedCents(bridge.resultCents)}</strong><span>Income minus expenses</span></div></div>
       <p>This is an arithmetic operating bridge, not donor-to-expense tracing or a claim that particular revenue funded particular costs.</p>
       <div class="decision-grid">${health.decisions.map((decision) => `<div class="decision"><small>${decision.stream}</small><b>${decision.authority}</b><span>${decision.action}</span></div>`).join('')}</div>
+    </section>`;
+  }
+  if (section.id === 'giving') {
+    return `<section aria-label="Giving quick entry">
+      <div class="section-heading"><div><div class="eyebrow">Giving</div><h2>Record a gift</h2></div><span class="badge">Relayed live to Connect</span></div>
+      ${givingEntryStatus === 'ok' ? '<p class="status">Recorded in Connect.</p>' : ''}
+      ${givingEntryStatus === 'error' ? `<p class="status status-error">Not recorded: ${escapeHtml(givingEntryMessage || 'unknown error')}</p>` : ''}
+      <form method="POST" action="/api/v1/connect-giving-quick-entry">
+        <div class="grid form-grid">
+          <div class="field"><label for="ge-date">Date</label><input id="ge-date" type="date" name="date" value="${escapeHtml(todayIsoDate())}" required></div>
+          <div class="field"><label for="ge-fund">Fund</label><select id="ge-fund" name="fund_id" required>${renderGivingFundOptions(giving)}</select></div>
+          <div class="field"><label for="ge-amount">Amount ($)</label><input id="ge-amount" type="number" name="amount" step="0.01" min="0.01" placeholder="0.00" required></div>
+          <div class="field"><label for="ge-method">Method</label><select id="ge-method" name="method"><option value="cash">Cash</option><option value="check" selected>Check</option><option value="card">Card</option><option value="ach">ACH</option><option value="other">Other</option></select></div>
+          <div class="field"><label for="ge-check">Check #</label><input id="ge-check" type="text" name="check_number" placeholder="optional"></div>
+          <div class="field"><label for="ge-person">Person ID</label><input id="ge-person" type="number" name="person_id" placeholder="optional — Connect's Person ID"></div>
+        </div>
+        <div class="field"><label for="ge-notes">Notes</label><input id="ge-notes" type="text" name="notes" placeholder="optional"></div>
+        <button type="submit">Record gift</button>
+      </form>
+      <p>This writes directly into Connect's own Giving records — the same recording path the desktop and mobile Giving screens already share. Finance never stores a copy. Fund choices above come from ${givingSource === 'live' ? "Connect's real, current giving activity" : "Connect's committed example fixture (the live connection is not configured or did not answer)"}, so a fund with no recent activity may not be listed yet.</p>
     </section>`;
   }
   if (section.id === 'church') {
@@ -334,7 +381,7 @@ function renderSectionBody(section, summary, giving, givingSource, churchReport,
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway) {
+function renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -356,6 +403,15 @@ function renderShell(metadata, summary, giving, givingSource, section, churchRep
     h1 { margin:.35rem 0 .55rem; color:var(--navy); font-family:Georgia,serif; font-size:clamp(2.1rem,6vw,3.2rem); line-height:1; }
     p { color:var(--warm-gray); line-height:1.6; }
     .status { margin-top:1.2rem; padding:.75rem 1rem; border-left:4px solid var(--sage); border-radius:.55rem; background:#edf3ee; color:#4a6e52; font-size:.84rem; font-weight:700; }
+    .status-error { border-left-color:#b23b3b; background:#fbeceb; color:#8a2f2f; }
+    form { margin-top:1.25rem; }
+    .form-grid { margin-top:0; }
+    .field { display:flex; flex-direction:column; gap:.3rem; margin-top:1rem; }
+    .field:first-child { margin-top:0; }
+    label { color:var(--warm-label); font-size:.72rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+    input, select { padding:.6rem .75rem; border:1px solid var(--border); border-radius:.55rem; background:var(--card); color:var(--charcoal); font-size:.9rem; font-family:inherit; }
+    button { margin-top:1.4rem; padding:.75rem 1.4rem; border:none; border-radius:.6rem; background:var(--navy); color:#fff; font-size:.85rem; font-weight:700; cursor:pointer; }
+    button:hover { background:#16233b; }
     .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(12rem,1fr)); gap:1rem; margin-top:1.25rem; }
     .card { padding:1.15rem 1.25rem; border-top:4px solid var(--teal); border-radius:1.1rem; background:var(--card); box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05); }
     .card small { display:block; color:var(--warm-meta); margin-bottom:.4rem; font-size:.7rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
@@ -392,7 +448,7 @@ function renderShell(metadata, summary, giving, givingSource, section, churchRep
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-      ${renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway)}
+      ${renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage)}
     <p><small>Every value besides Giving shown here comes from deterministic synthetic staging fixtures. Giving is ${givingSource === 'live' ? 'fetched live from Connect’s real, aggregate-only contract endpoint' : 'the committed Connect contract example (the live endpoint is not configured or did not answer), validated locally with no network call'}.</small></p>
     <footer>${release}</footer>
   </main>
@@ -405,16 +461,15 @@ export default {
     const url = new URL(request.url);
     const metadata = releaseMetadata(env);
 
-    if (!isFinanceMethodAllowed(request.method)) {
-      return response(JSON.stringify({ error: 'Method not allowed' }), {
-        status: 405,
-        headers: { 'Content-Type': 'application/json; charset=utf-8', Allow: 'GET, HEAD' },
-      });
-    }
-
     const route = resolveFinanceRoute(url.pathname);
     if (!route) {
       return response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    }
+    if (!isMethodAllowedForRoute(route, request.method)) {
+      return response(JSON.stringify({ error: 'Method not allowed' }), {
+        status: 405,
+        headers: { 'Content-Type': 'application/json; charset=utf-8', Allow: route.methods.join(', ') },
+      });
     }
 
     if (route.id === 'health') {
@@ -457,6 +512,32 @@ export default {
         'Content-Type': 'application/json; charset=utf-8',
         'X-Finance-Contract': GIVING_TRANSPORT_EVIDENCE_CONTRACT,
       } });
+    }
+
+    if (route.id === 'giving-quick-entry-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=giving&status=error&reason=invalid_json' } });
+      }
+      const entry = {
+        date: form.get('date') || '',
+        fund_id: form.get('fund_id') || '',
+        amount: form.get('amount') || '',
+        method: form.get('method') || '',
+        check_number: form.get('check_number') || '',
+        person_id: form.get('person_id') || '',
+        notes: form.get('notes') || '',
+      };
+      const result = await postConnectGivingQuickEntry(env, accessJwt, entry);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=giving&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'giving', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
 
     if (route.id === 'summary-legacy') {
@@ -518,9 +599,13 @@ export default {
           ? await readSyntheticCompensationBenefits(env.FINANCE_DB) : null;
         const cashRunway = section.id === 'health'
           ? await readSyntheticCashRunway(env.FINANCE_DB) : null;
-        const { giving, source: givingSource } = section.id === 'health'
+        const { giving, source: givingSource } = section.id === 'health' || section.id === 'giving'
           ? await resolveGivingSummary(env) : { giving: SYNTHETIC_GIVING, source: 'synthetic-fallback' };
-        return response(renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway), {
+        const givingEntryStatus = section.id === 'giving' ? url.searchParams.get('status') : null;
+        const givingEntryMessage = givingEntryStatus === 'error'
+          ? describeGivingEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        return response(renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {

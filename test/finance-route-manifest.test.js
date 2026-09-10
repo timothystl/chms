@@ -1,19 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import {
   FINANCE_ROUTE_MANIFEST,
-  isFinanceMethodAllowed,
+  isMethodAllowedForRoute,
   resolveFinanceRoute,
 } from '../apps/finance/route-manifest.js';
 
+// A route is "read-only" here unless it is the one deliberate, named exception below --
+// giving-quick-entry-v1, which relays a write to Connect and never touches Finance's own
+// database. Anything else claiming non-GET/HEAD methods, or a `writer` flag, is a regression.
+const WRITE_ROUTE_ID = 'giving-quick-entry-v1';
+
 describe('Finance staging route manifest', () => {
-  it('is a closed, unique inventory with read-only methods and isolated data sources', () => {
+  it('is a closed, unique inventory with isolated data sources, read-only except one declared write relay', () => {
     const paths = FINANCE_ROUTE_MANIFEST.flatMap((route) => route.paths);
     expect(new Set(paths).size).toBe(paths.length);
     expect(paths).toEqual([
       '/', '/index.html', '/health', '/api/v1/summary',
-      '/api/v1/connect-giving-preview', '/api/v1/connect-giving-transport-evidence', '/api/summary',
+      '/api/v1/connect-giving-preview', '/api/v1/connect-giving-transport-evidence',
+      '/api/v1/connect-giving-quick-entry', '/api/summary',
     ]);
     for (const route of FINANCE_ROUTE_MANIFEST) {
+      if (route.id === WRITE_ROUTE_ID) {
+        expect(route.methods).toEqual(['POST']);
+        expect(route.writer).toBe(true);
+        expect(route.dataSource).toBe('live-relay');
+        continue;
+      }
       expect(route.methods).toEqual(['GET', 'HEAD']);
       expect(['none', 'synthetic-d1', 'synthetic-static']).toContain(route.dataSource);
       expect(route).not.toHaveProperty('writer');
@@ -30,11 +42,21 @@ describe('Finance staging route manifest', () => {
     expect(resolveFinanceRoute('/api/v1/connect-giving-transport-evidence')).toMatchObject({
       id: 'giving-transport-evidence-v1', contract: 'finance.connect-giving-transport-evidence.v1', dataSource: 'synthetic-static',
     });
+    expect(resolveFinanceRoute('/api/v1/connect-giving-quick-entry')).toMatchObject({
+      id: WRITE_ROUTE_ID, contract: 'connect.giving-quick-entry-relay.v1',
+    });
     expect(resolveFinanceRoute('/missing')).toBeUndefined();
-    expect(isFinanceMethodAllowed('GET')).toBe(true);
-    expect(isFinanceMethodAllowed('HEAD')).toBe(true);
+
+    const readRoute = resolveFinanceRoute('/api/v1/summary');
+    expect(isMethodAllowedForRoute(readRoute, 'GET')).toBe(true);
+    expect(isMethodAllowedForRoute(readRoute, 'HEAD')).toBe(true);
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
-      expect(isFinanceMethodAllowed(method)).toBe(false);
+      expect(isMethodAllowedForRoute(readRoute, method)).toBe(false);
     }
+
+    const writeRoute = resolveFinanceRoute('/api/v1/connect-giving-quick-entry');
+    expect(isMethodAllowedForRoute(writeRoute, 'POST')).toBe(true);
+    expect(isMethodAllowedForRoute(writeRoute, 'GET')).toBe(false);
+    expect(isMethodAllowedForRoute(writeRoute, 'HEAD')).toBe(false);
   });
 });
