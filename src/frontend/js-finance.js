@@ -6871,6 +6871,11 @@ var _finPlanPicking = false;
 // screen-only toggle (see the "Mark DRAFT" checkbox in finRenderPlanning's toolbar), never
 // persisted, since a draft mark describes the printed page, not the plan data itself.
 var _finPlanPrintDraft = false;
+// "Plan for next year" (default) prints the FY{target} Plan/Change/Δ% columns and plan-framed
+// copy; "Just this year" drops all three for a bare FY{base} Budget/Actual/Projected report — a
+// mid-year finance-committee update, not a proposal to adopt. Screen-only, never persisted, same
+// as _finPlanPrintDraft above.
+var _finPlanPrintMode = 'plan'; // 'plan' | 'thisyear'
 // Rows exactly as last written to the table (respecting current column visibility and row
 // exclusion) — set at the end of every finRenderPlanning() call, so Export CSV is always what's
 // actually on screen, never a second computation that could drift from it.
@@ -7518,6 +7523,10 @@ function finRenderPlanning() {
     + (excludedCount ? '<button onclick="finPlanResetExcluded()" style="background:none;border:none;padding:0;font-size:11.5px;font-weight:700;color:var(--color-teal);cursor:pointer;text-decoration:underline;">Include all lines</button>' : '')
     + '<div style="margin-left:auto;display:flex;gap:8px;align-items:center;">'
       + (excludedCount ? '<span style="font-size:11.5px;color:var(--warm-gray);">' + excludedCount + ' line(s) excluded</span>' : '')
+      + '<div style="display:flex;gap:3px;background:var(--warm-surface-page);border-radius:99px;padding:3px;" title="Which columns the printed sheet shows.">'
+        + '<button onclick="finPlanSetPrintMode(\'plan\')" style="' + (_finPlanPrintMode !== 'thisyear' ? 'background:var(--color-navy);color:var(--white);' : 'background:none;color:var(--warm-meta);') + 'border:none;border-radius:99px;padding:5px 11px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;">Plan for next year</button>'
+        + '<button onclick="finPlanSetPrintMode(\'thisyear\')" style="' + (_finPlanPrintMode === 'thisyear' ? 'background:var(--color-navy);color:var(--white);' : 'background:none;color:var(--warm-meta);') + 'border:none;border-radius:99px;padding:5px 11px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;">Just this year</button>'
+      + '</div>'
       + '<label style="display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--warm-meta);cursor:pointer;" title="Stamps a translucent DRAFT watermark across the printed sheet — for a budget that has not gone to Commit yet.">'
         + '<input type="checkbox" ' + (_finPlanPrintDraft ? 'checked ' : '') + 'onchange="_finPlanPrintDraft=this.checked" style="width:13px;height:13px;">Mark DRAFT</label>'
       + '<button onclick="finPlanExportCsv()" style="padding:7px 14px;background:var(--warm-surface-page);color:var(--warm-ink-label);border:1.5px solid var(--warm-border);border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer;">Export CSV</button>'
@@ -7831,12 +7840,19 @@ function finPlanExportCsv() {
 // A dedicated, non-editable document for handing to the board — same idiom as the Compensation
 // tab's "Print for Council" (finCompCouncilReportHtml): rebuilt fresh from finPlanSnapshot() into
 // #fin-plan-printsheet-root, then body.printing-plan hides everything else on the tab so this is
-// the only thing that prints (see the printing-plan rules in html-head.js). Unlike the workspace
-// table, the sheet always shows every value column (Budget/Actual/Projected/Plan/Change/Δ%)
-// regardless of the on-screen column chips — a board member reading a printed page has no chip
-// row to click back on, so nothing is one click away from missing. "Choose rows" exclusions and
-// the Board/QuickBooks view toggle DO still apply — both are content decisions, not display
-// prefs, and Export CSV honors them for the same reason.
+// the only thing that prints (see the printing-plan rules in html-head.js). "Choose rows"
+// exclusions and the Board/QuickBooks view toggle DO apply — both are content decisions, not
+// display prefs, and Export CSV honors them for the same reason — but the on-screen column chips
+// don't: a board member reading a printed page has no chip row to click back on.
+//
+// Three forced pages — Summary, Revenue, Expenses, in that order, via .fin-plan-rpt-page +
+// .fin-plan-rpt-page{break-before:page} in html-head.js — and no closing "action steps" page.
+// Within Revenue/Expenses, each board category prints as its own <tbody class="cat">
+// (break-inside:avoid), so a category's rows stay together across a page break wherever the
+// category itself fits on one page. finPlanSetPrintMode toggles "Plan for next year" (the
+// FY{target} Plan/Change/Δ% columns and plan-framed copy, the long-standing default) against
+// "Just this year" (a bare FY{base} Budget/Actual/Projected report, for a mid-year update with no
+// plan to compare against) — showPlan below threads that choice through every row builder.
 function finPlanRptDeltaColor(pct) {
   return pct > 4 ? 'var(--danger)' : pct < 0 ? 'var(--sage-text)' : 'var(--warm-ink-label)';
 }
@@ -7845,52 +7861,59 @@ function finPlanRptMoneyCell(cents, opts) {
   var text = cents == null ? '<span class="mut">&mdash;</span>' : (cents < 0 ? '−$' + finFmtMoney(-cents / 100) : '$' + finFmtMoney(cents / 100));
   return '<td class="n' + (opts.cls ? ' ' + opts.cls : '') + '"' + (opts.color ? ' style="color:' + opts.color + ';"' : '') + '>' + text + '</td>';
 }
-// One row's worth of Budget/Actual/Projected/Plan/Change/Δ% cells from a {budget,actual,proj,
-// plan,hasBudget} bundle — shared by leaf rows, category "Total X" rows, and the two section
-// grand totals below, so the six-column shape (and the >4%/negative/flat delta coloring, matching
-// the workspace table's own deltaCell) is written once.
-function finPlanRptCentsRow(labelHtml, cents, rowCls) {
-  var changeCents = cents.hasBudget ? cents.plan - cents.budget : null;
-  var pct = (cents.hasBudget && cents.budget) ? (changeCents / Math.abs(cents.budget) * 100) : null;
-  var pctColor = pct != null ? finPlanRptDeltaColor(pct) : null;
-  return '<tr' + (rowCls ? ' class="' + rowCls + '"' : '') + '>' + labelHtml
+// One row's worth of Budget/Actual/Projected cells, plus Plan/Change/Δ% when showPlan, from a
+// {budget,actual,proj,plan,hasBudget} bundle — shared by leaf rows, category "Total X" rows, and
+// the two section grand totals below, so the column shape (and the >4%/negative/flat delta
+// coloring, matching the workspace table's own deltaCell) is written once.
+function finPlanRptCentsRow(labelHtml, cents, rowCls, showPlan) {
+  var out = '<tr' + (rowCls ? ' class="' + rowCls + '"' : '') + '>' + labelHtml
     + finPlanRptMoneyCell(cents.hasBudget ? cents.budget : null)
     + finPlanRptMoneyCell(cents.actual)
-    + finPlanRptMoneyCell(cents.proj, { color: 'var(--warm-ink-label)' })
-    + finPlanRptMoneyCell(cents.plan)
-    + finPlanRptMoneyCell(changeCents, { color: pctColor })
-    + '<td class="n"' + (pctColor ? ' style="color:' + pctColor + ';"' : '') + '>' + (pct == null ? '<span class="mut">&mdash;</span>' : (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%') + '</td>'
-    + '</tr>';
+    + finPlanRptMoneyCell(cents.proj, { color: 'var(--warm-ink-label)' });
+  if (showPlan) {
+    var changeCents = cents.hasBudget ? cents.plan - cents.budget : null;
+    var pct = (cents.hasBudget && cents.budget) ? (changeCents / Math.abs(cents.budget) * 100) : null;
+    var pctColor = pct != null ? finPlanRptDeltaColor(pct) : null;
+    out += finPlanRptMoneyCell(cents.plan)
+      + finPlanRptMoneyCell(changeCents, { color: pctColor })
+      + '<td class="n"' + (pctColor ? ' style="color:' + pctColor + ';"' : '') + '>' + (pct == null ? '<span class="mut">&mdash;</span>' : (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%') + '</td>';
+  }
+  return out + '</tr>';
 }
 function finPlanRptNodeCents(node, maps) {
   return { budget: maps.budget[node.path] || 0, actual: maps.actual[node.path] || 0, proj: maps.projected[node.path] || 0, plan: maps.plan[node.path] || 0, hasBudget: maps.hasBudget[node.path] };
 }
-function finPlanRptLeafRow(node, maps) { return finPlanRptCentsRow(finTreeLabelCell(node, node.label), finPlanRptNodeCents(node, maps), ''); }
-function finPlanRptGroupHeaderRow(node) { return '<tr class="grp"><td colspan="7">' + esc(node.label) + '</td></tr>'; }
-function finPlanRptGroupTotalRow(node, maps) { return finPlanRptCentsRow(finTreeLabelCell(node, 'Total ' + node.label, { padV: '6px' }), finPlanRptNodeCents(node, maps), 'sub'); }
-// One section (Revenue or Expenses): every root's leaf/header/total rows in reading order, plus a
-// combined "Total X" row UNLESS a single root with children already prints that same figure on
-// its own "Total {root}" row — identical rule to the workspace table's sectionSelfTotals, so the
-// printed sheet never shows one number twice in a row for the same reason the screen doesn't.
-function finPlanRptSection(sectionTitle, roots, maps, totalsCents) {
-  var out = [];
-  finRenderTreeQbOrder(roots, {
-    leaf: function(n) { return finPlanRptLeafRow(n, maps); },
-    groupHeader: finPlanRptGroupHeaderRow,
-    groupTotal: function(n) { return finPlanRptGroupTotalRow(n, maps); },
-  }, out);
-  var selfTotals = roots.length === 1 && roots[0].children.length > 0;
-  if (roots.length && !selfTotals) out.push(finPlanRptCentsRow('<td>Total ' + esc(sectionTitle) + '</td>', totalsCents, 'tot'));
-  return out.join('');
+function finPlanRptLeafRow(node, maps, showPlan) { return finPlanRptCentsRow(finTreeLabelCell(node, node.label), finPlanRptNodeCents(node, maps), '', showPlan); }
+function finPlanRptGroupHeaderRow(node, showPlan) { return '<tr class="grp"><td colspan="' + (showPlan ? 7 : 4) + '">' + esc(node.label) + '</td></tr>'; }
+function finPlanRptGroupTotalRow(node, maps, showPlan) { return finPlanRptCentsRow(finTreeLabelCell(node, 'Total ' + node.label, { padV: '6px' }), finPlanRptNodeCents(node, maps), 'sub', showPlan); }
+// One section (Revenue or Expenses) as a run of per-category <tbody class="cat"> blocks — see the
+// break-inside:avoid rule in html-head.js — followed by the section's own "Total X" row. Board
+// view wraps every root inside one synthetic "Revenue"/"Expenses" node (finBuildBoardTree) that
+// exists purely for grouping — the page's own <h2> already names the section, so print skips
+// straight to its children (the real board categories) rather than repeating that wrapper as a
+// redundant row.
+function finPlanRptSection(sectionTitle, roots, maps, totalsCents, showPlan) {
+  var listed = (roots.length === 1 && roots[0].children.length > 0) ? roots[0].children : roots;
+  var body = listed.map(function(top) {
+    var rows = finRenderTreeQbOrder([top], {
+      leaf: function(n) { return finPlanRptLeafRow(n, maps, showPlan); },
+      groupHeader: function(n) { return finPlanRptGroupHeaderRow(n, showPlan); },
+      groupTotal: function(n) { return finPlanRptGroupTotalRow(n, maps, showPlan); },
+    }, []).join('');
+    return '<tbody class="cat">' + rows + '</tbody>';
+  }).join('');
+  var totalRow = roots.length ? '<tbody>' + finPlanRptCentsRow('<td>Total ' + esc(sectionTitle) + '</td>', totalsCents, 'tot', showPlan) + '</tbody>' : '';
+  return body + totalRow;
 }
-function finPlanRptNetRow(netBudgetCents, netActualCents, netProjCents, netPlanCents) {
+function finPlanRptNetRow(netBudgetCents, netActualCents, netProjCents, netPlanCents, showPlan) {
   function netCell(cents) {
     return '<td class="n" style="color:' + (cents < 0 ? 'var(--danger)' : 'var(--sage-text)') + ';">' + (cents < 0 ? '−' : '') + '$' + finFmtMoney(Math.abs(cents) / 100) + '</td>';
   }
-  return '<tr class="net"><td>Net &mdash; revenue less expenses</td>'
+  var out = '<tr class="net"><td>Net &mdash; revenue less expenses</td>'
     + (netBudgetCents ? netCell(netBudgetCents) : '<td class="n mut">&mdash;</td>')
-    + netCell(netActualCents) + netCell(netProjCents) + netCell(netPlanCents)
-    + '<td class="n mut" colspan="2">&mdash;</td></tr>';
+    + netCell(netActualCents) + netCell(netProjCents);
+  if (showPlan) out += netCell(netPlanCents) + '<td class="n mut" colspan="2">&mdash;</td>';
+  return out + '</tr>';
 }
 function finPlanRptTile(label, value, cls, sub) {
   return '<div class="fin-plan-rpt-tile ' + cls + '"><div class="fin-plan-rpt-tile-lbl">' + esc(label) + '</div>'
@@ -7905,9 +7928,9 @@ function finPlanRptTile(label, value, cls, sub) {
 function finPlanRptCategoryNodes(roots) {
   return (roots.length === 1 && roots[0].children.length > 0) ? roots[0].children : roots;
 }
-// The one auto-generated sentence on the sheet — built entirely from this snapshot's own figures
-// (no invented narrative), naming the one or two categories that account for most of the planned
-// expense growth so a reader isn't left to find them in a multi-page table.
+// The one auto-generated sentence on the summary page — built entirely from this snapshot's own
+// figures (no invented narrative), naming the one or two categories that account for most of the
+// planned expense growth so a reader isn't left to find them in a multi-page table.
 function finPlanRptNarrative(snap, netPlanCents) {
   if (!snap.revenueHasBudget && !snap.expenseHasBudget) return '';
   var parts = [];
@@ -7929,62 +7952,101 @@ function finPlanRptNarrative(snap, netPlanCents) {
   parts.push('It closes ' + finMoney0(Math.abs(netPlanCents)) + ' to the ' + (netPlanCents >= 0 ? 'good' : 'bad') + '.');
   return '<p class="fin-plan-rpt-p">' + parts.join(' ') + '</p>';
 }
+// "Just this year"'s narrative — there is no FY{target} plan to compare against in this mode, so
+// this reports the plain Budget/Actual/Projected position instead of a plan-vs-budget delta.
+function finPlanRptThisYearNarrative(snap, today) {
+  if (!snap.revenueHasBudget && !snap.expenseHasBudget) return '';
+  var netActual = snap.revenueActualCents - snap.expenseActualCents;
+  var netProj = snap.baseRevenueProjCents - snap.baseExpenseProjCents;
+  var parts = ['Through ' + today + ', the church has received ' + finMoney0(snap.revenueActualCents)
+    + (snap.revenueHasBudget ? ' of a ' + finMoney0(snap.revenueBudgetCents) + ' FY' + _finPlanBaseYear + ' revenue budget' : '')
+    + ' and spent ' + finMoney0(snap.expenseActualCents)
+    + (snap.expenseHasBudget ? ' of a ' + finMoney0(snap.expenseBudgetCents) + ' expense budget' : '') + ' &mdash; a net '
+    + (netActual >= 0 ? 'surplus' : 'deficit') + ' of ' + finMoney0(Math.abs(netActual)) + ' so far.'];
+  parts.push('Projected to year end, that comes to a net ' + (netProj >= 0 ? 'surplus' : 'deficit') + ' of ' + finMoney0(Math.abs(netProj)) + '.');
+  return '<p class="fin-plan-rpt-p">' + parts.join(' ') + '</p>';
+}
+function finPlanRptTableHead(showPlan, baseYear, targetYear) {
+  return showPlan
+    ? '<tr><th style="width:24%;">Category</th><th class="n" style="width:13%;">FY' + baseYear + ' Budget</th><th class="n" style="width:13%;">FY' + baseYear + ' Actual</th><th class="n" style="width:13%;">FY' + baseYear + ' Proj.</th><th class="n" style="width:13%;">FY' + targetYear + ' Plan</th><th class="n" style="width:12%;">Change</th><th class="n" style="width:12%;">&Delta;%</th></tr>'
+    : '<tr><th style="width:40%;">Category</th><th class="n" style="width:20%;">FY' + baseYear + ' Budget</th><th class="n" style="width:20%;">FY' + baseYear + ' Actual</th><th class="n" style="width:20%;">FY' + baseYear + ' Proj.</th></tr>';
+}
 function finPlanBuildPrintSheetHtml() {
   var snap = finPlanSnapshot();
   var maps = snap.maps;
+  var showPlan = _finPlanPrintMode !== 'thisyear';
   var revTotals = { budget: snap.revenueBudgetCents, actual: snap.revenueActualCents, proj: snap.baseRevenueProjCents, plan: snap.revenuePlanCents, hasBudget: snap.revenueHasBudget };
   var expTotals = { budget: snap.expenseBudgetCents, actual: snap.expenseActualCents, proj: snap.baseExpenseProjCents, plan: snap.expensePlanCents, hasBudget: snap.expenseHasBudget };
   var netActualCents = snap.revenueActualCents - snap.expenseActualCents;
   var netProjCents = snap.baseRevenueProjCents - snap.baseExpenseProjCents;
   var netPlanCents = snap.projectedNetCents;
   var today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  // Repeated on every forced page, not just the first — each .fin-plan-rpt-page is its own
+  // positioning context (see html-head.js) so the mark actually lands on every printed sheet
+  // rather than once wherever the browser happens to paginate a single tall watermark.
+  var watermark = _finPlanPrintDraft ? '<div class="fin-plan-rpt-watermark">DRAFT</div>' : '';
 
-  var tiles = '<div class="fin-plan-rpt-tiles">'
-    + finPlanRptTile('Planned revenue', finMoney0(snap.revenuePlanCents), 'rev', snap.revenueHasBudget ? finPlanRptPctNote(snap.revenueBudgetCents, snap.revenuePlanCents, 'on FY' + _finPlanBaseYear + ' budget') : '')
-    + finPlanRptTile('Planned expenses', finMoney0(snap.expensePlanCents), 'exp', snap.expenseHasBudget ? finPlanRptPctNote(snap.expenseBudgetCents, snap.expensePlanCents, 'on FY' + _finPlanBaseYear + ' budget') : '')
-    + finPlanRptTile('Planned net', finFmtSigned(netPlanCents), 'net', 'revenue less expenses')
-    + finPlanRptTile('FY' + _finPlanBaseYear + ' net, projected', finFmtSigned(netProjCents), 'base', (snap.baseProrated ? 'annualized from actuals' : 'full year actuals'))
-    + '</div>';
+  var tiles = showPlan
+    ? '<div class="fin-plan-rpt-tiles">'
+      + finPlanRptTile('Planned revenue', finMoney0(snap.revenuePlanCents), 'rev', snap.revenueHasBudget ? finPlanRptPctNote(snap.revenueBudgetCents, snap.revenuePlanCents, 'on FY' + _finPlanBaseYear + ' budget') : '')
+      + finPlanRptTile('Planned expenses', finMoney0(snap.expensePlanCents), 'exp', snap.expenseHasBudget ? finPlanRptPctNote(snap.expenseBudgetCents, snap.expensePlanCents, 'on FY' + _finPlanBaseYear + ' budget') : '')
+      + finPlanRptTile('Planned net', finFmtSigned(netPlanCents), 'net', 'revenue less expenses')
+      + finPlanRptTile('FY' + _finPlanBaseYear + ' net, projected', finFmtSigned(netProjCents), 'base', (snap.baseProrated ? 'annualized from actuals' : 'full year actuals'))
+      + '</div>'
+    : '<div class="fin-plan-rpt-tiles">'
+      + finPlanRptTile('FY' + _finPlanBaseYear + ' budget revenue', finMoney0(snap.revenueBudgetCents), 'rev', '')
+      + finPlanRptTile('FY' + _finPlanBaseYear + ' budget expenses', finMoney0(snap.expenseBudgetCents), 'exp', '')
+      + finPlanRptTile('Net so far', finFmtSigned(netActualCents), 'net', 'actual through ' + today)
+      + finPlanRptTile('Net, projected', finFmtSigned(netProjCents), 'base', (snap.baseProrated ? 'annualized from actuals' : 'full year actuals'))
+      + '</div>';
 
-  var motionBox = '<div class="fin-plan-rpt-box"><div class="fin-plan-rpt-box-h">The plan in one line</div>'
-    + '<p>Adopting the FY' + _finPlanTargetYear + ' budget as presented commits to ' + finMoney0(snap.revenuePlanCents) + ' in planned revenue and '
-    + finMoney0(snap.expensePlanCents) + ' in planned expenses &mdash; a planned ' + (netPlanCents >= 0 ? 'surplus' : 'deficit') + ' of ' + finMoney0(Math.abs(netPlanCents)) + '.</p></div>';
-  var columnKeyBox = '<div class="fin-plan-rpt-box"><div class="fin-plan-rpt-box-h">How to read the columns</div>'
-    + '<p><b>Budget</b> is the FY' + _finPlanBaseYear + ' figure already adopted. <b>Actual</b> is money in and out through ' + today + '. <b>Projected</b> annualizes that to a full year. <b>Plan</b> is the FY' + _finPlanTargetYear + ' proposal. <b>Change</b> and <b>&Delta;%</b> compare Plan against Budget.</p></div>';
-
-  var tableRows = finPlanRptSection('Revenue', snap.revRoots, maps, revTotals)
-    + finPlanRptSection('Expenses', snap.expRoots, maps, expTotals)
-    + finPlanRptNetRow(_finPlanBaseNet.budgetCents || null, netActualCents, netProjCents, netPlanCents);
-  var table = (!snap.revRoots.length && !snap.expRoots.length) ? '<p class="fin-plan-rpt-p mut">No Church Budget data found for FY' + _finPlanBaseYear + '.</p>'
-    // table-layout:fixed reads column widths from THIS row alone — the labels wrapped this
-    // section (e.g. "58200 District & Synod Support") mean Category needs real room, the
-    // narrowest bar of every other column is Δ%, everything else money.
-    : '<table class="fin-plan-rpt-table"><thead><tr>'
-      + '<th style="width:24%;">Category</th><th class="n" style="width:13%;">FY' + _finPlanBaseYear + ' Budget</th><th class="n" style="width:13%;">FY' + _finPlanBaseYear + ' Actual</th><th class="n" style="width:13%;">FY' + _finPlanBaseYear + ' Proj.</th><th class="n" style="width:13%;">FY' + _finPlanTargetYear + ' Plan</th><th class="n" style="width:12%;">Change</th><th class="n" style="width:12%;">&Delta;%</th>'
-      + '</tr></thead><tbody>' + tableRows + '</tbody></table>';
-
+  var narrative = showPlan ? finPlanRptNarrative(snap, netPlanCents) : finPlanRptThisYearNarrative(snap, today);
   var excludedCount = Object.keys(_finPlanExcluded).length;
+  var excludedNote = excludedCount ? '<p class="fin-plan-rpt-foot">' + excludedCount + ' line(s) excluded from this sheet via Choose rows.</p>' : '';
 
-  return '<div class="fin-plan-rpt">'
-    + (_finPlanPrintDraft ? '<div class="fin-plan-rpt-watermark">DRAFT</div>' : '')
-    + '<div class="fin-plan-rpt-hd"><span>Timothy Lutheran Church &middot; St. Louis</span><span>Proposed FY' + _finPlanTargetYear + ' Budget &middot; prepared ' + today + '</span></div>'
+  if (!snap.revRoots.length && !snap.expRoots.length) {
+    return '<div class="fin-plan-rpt"><div class="fin-plan-rpt-page">' + watermark + '<p class="fin-plan-rpt-p mut">No Church Budget data found for FY' + _finPlanBaseYear + '.</p></div></div>';
+  }
+
+  var summaryPage = '<div class="fin-plan-rpt-page">'
+    + watermark
+    + '<div class="fin-plan-rpt-hd"><span>Timothy Lutheran Church &middot; St. Louis</span><span>' + (showPlan ? 'Proposed FY' + _finPlanTargetYear + ' Budget' : 'FY' + _finPlanBaseYear + ' Budget') + ' &middot; prepared ' + today + '</span></div>'
     + '<div class="fin-plan-rpt-kicker">Church Budget</div>'
-    + '<h1 class="fin-plan-rpt-h1">Fiscal Year ' + _finPlanTargetYear + ' Budget</h1>'
-    + '<div class="fin-plan-rpt-sub">Built on FY' + _finPlanBaseYear + ' (' + (snap.baseProrated ? 'annualized from ' + snap.baseThroughWeek.toFixed(0) + ' week(s) of actuals' : 'a full year of actuals') + ') &middot; independent of QuickBooks until committed</div>'
+    + '<h1 class="fin-plan-rpt-h1">Fiscal Year ' + (showPlan ? _finPlanTargetYear : _finPlanBaseYear) + ' Budget</h1>'
+    + '<div class="fin-plan-rpt-sub">' + (showPlan
+        ? 'Built on FY' + _finPlanBaseYear + ' (' + (snap.baseProrated ? 'annualized from ' + snap.baseThroughWeek.toFixed(0) + ' week(s) of actuals' : 'a full year of actuals') + ') &middot; independent of QuickBooks until committed'
+        : 'Actual through ' + today + (snap.baseProrated ? ', annualized from ' + snap.baseThroughWeek.toFixed(0) + ' week(s) of actuals to project year end' : '')) + '</div>'
     + tiles
-    + finPlanRptNarrative(snap, netPlanCents)
-    + '<h2 class="fin-plan-rpt-h2">Category by category</h2>'
-    + '<div class="fin-plan-rpt-note">Grouped the way the board reads a budget (&ldquo;' + (_finPlanViewMode === 'board' ? 'Board view' : 'QuickBooks order') + '&rdquo;), whole dollars.</div>'
-    + table
-    + '<div class="fin-plan-rpt-boxes">' + motionBox + columnKeyBox + '</div>'
-    + (excludedCount ? '<p class="fin-plan-rpt-foot">' + excludedCount + ' line(s) excluded from this sheet via Choose rows.</p>' : '')
-    + '<p class="fin-plan-rpt-foot">Figures are whole dollars and may not sum exactly where cents are rounded. The FY' + _finPlanTargetYear + ' plan is held separately from the accounting system and does not affect posted figures until it is adopted and committed.</p>'
+    + narrative
+    + excludedNote
     + '</div>';
+
+  var thead = '<thead>' + finPlanRptTableHead(showPlan, _finPlanBaseYear, _finPlanTargetYear) + '</thead>';
+  var revenuePage = !snap.revRoots.length ? '' : '<div class="fin-plan-rpt-page">'
+    + watermark
+    + '<h2 class="fin-plan-rpt-h2">Revenue</h2>'
+    + '<div class="fin-plan-rpt-note">Grouped the way the board reads a budget (&ldquo;' + (_finPlanViewMode === 'board' ? 'Board view' : 'QuickBooks order') + '&rdquo;), whole dollars.</div>'
+    + '<table class="fin-plan-rpt-table">' + thead + finPlanRptSection('Revenue', snap.revRoots, maps, revTotals, showPlan) + '</table>'
+    + '</div>';
+  var expensesPage = !snap.expRoots.length ? '' : '<div class="fin-plan-rpt-page">'
+    + watermark
+    + '<h2 class="fin-plan-rpt-h2">Expenses</h2>'
+    + '<table class="fin-plan-rpt-table">' + thead
+      + finPlanRptSection('Expenses', snap.expRoots, maps, expTotals, showPlan)
+      + '<tbody>' + finPlanRptNetRow(_finPlanBaseNet.budgetCents || null, netActualCents, netProjCents, netPlanCents, showPlan) + '</tbody>'
+    + '</table>'
+    + '</div>';
+
+  return '<div class="fin-plan-rpt">' + summaryPage + revenuePage + expensesPage + '</div>';
 }
 function finPlanRptPctNote(budgetCents, planCents, suffix) {
   if (!budgetCents) return '';
   var pct = (planCents - budgetCents) / Math.abs(budgetCents) * 100;
   return (pct >= 0 ? '+' : '') + pct.toFixed(1) + '% ' + suffix;
+}
+function finPlanSetPrintMode(mode) {
+  _finPlanPrintMode = (mode === 'thisyear') ? 'thisyear' : 'plan';
+  finRenderPlanning();
 }
 function finPlanPrint() {
   var root = document.getElementById('fin-plan-printsheet-root');

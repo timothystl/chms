@@ -613,7 +613,7 @@ describe('Planning table — Print', () => {
     const printRoot = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
     const fin = loadBundle({ 'fin-plan-root': root, 'fin-plan-printsheet-root': printRoot });
     baseSetup(fin, fixtureTree());
-    return { fin, printRoot };
+    return { fin, root, printRoot };
   }
 
   it('finPlanPrint marks body.printing-plan before the print dialog fires — the same body.printing-<feature> contract as .printing-comp/.printing-board', () => {
@@ -670,5 +670,68 @@ describe('Planning table — Print', () => {
     expect(narrativeMatch).toBeTruthy();
     expect(narrativeMatch[1]).not.toContain('most of it Expenses');
     expect(narrativeMatch[1]).toMatch(/most of it (Salaries|MDO)( and (Salaries|MDO))?/);
+  });
+
+  it('forces exactly three pages — Summary, Revenue, Expenses — with no trailing page', () => {
+    const { fin, printRoot } = printSetup();
+    fin.finPlanPrint();
+    const pages = printRoot.innerHTML.split('<div class="fin-plan-rpt-page">');
+    // split()'s first element is whatever precedes the first match (the outer <div
+    // class="fin-plan-rpt-page fin-plan-rpt"> wrapper), so three pages means four parts.
+    expect(pages.length).toBe(4);
+    expect(pages[1]).toContain('Fiscal Year 2027 Budget');
+    expect(pages[2]).toContain('<h2 class="fin-plan-rpt-h2">Revenue</h2>');
+    expect(pages[3]).toContain('<h2 class="fin-plan-rpt-h2">Expenses</h2>');
+    expect(pages[3]).toContain('Net &mdash; revenue less expenses');
+  });
+
+  it('drops the motion/column-key/rounding boxes the sheet used to end with', () => {
+    const { fin, printRoot } = printSetup();
+    fin.finPlanPrint();
+    expect(printRoot.innerHTML).not.toContain('The plan in one line');
+    expect(printRoot.innerHTML).not.toContain('How to read the columns');
+    expect(printRoot.innerHTML).not.toContain('may not sum exactly');
+  });
+
+  it('wraps every board category in its own <tbody class="cat"> so a category cannot split across a page break', () => {
+    const { fin, printRoot } = printSetup();
+    fin.finPlanPrint();
+    // fixtureTree() (Board view) buckets into 3 revenue categories (Donor Income — itself wrapping
+    // Unrestricted + Restricted Gifts as one atomic block, Earned Income, Passive Income) and 7
+    // expense categories (mdo/salaries/worship/property/education/district_synod/programs — see
+    // fixtureTree()'s own per-leaf comments) = 10 <tbody class="cat"> blocks total.
+    const catCount = (printRoot.innerHTML.match(/<tbody class="cat">/g) || []).length;
+    expect(catCount).toBe(10);
+  });
+
+  it('stamps the DRAFT watermark onto every page, not just the first', () => {
+    const { fin, printRoot } = printSetup();
+    fin._finPlanPrintDraft = true;
+    fin.finPlanPrint();
+    const watermarkCount = (printRoot.innerHTML.match(/fin-plan-rpt-watermark/g) || []).length;
+    expect(watermarkCount).toBe(3);
+  });
+
+  it('"Just this year" drops the Plan/Change/Δ% columns and prints a Budget/Actual/Projected report instead', () => {
+    const { fin, printRoot } = printSetup();
+    fin.finPlanSetPrintMode('thisyear');
+    fin.finPlanPrint();
+    expect(printRoot.innerHTML).toContain('Fiscal Year 2026 Budget');
+    expect(printRoot.innerHTML).not.toContain('FY2027 Plan');
+    expect(printRoot.innerHTML).not.toContain('>Change<');
+    expect(printRoot.innerHTML).not.toContain('Δ%');
+    expect(printRoot.innerHTML).not.toContain('The plan spends');
+    expect(printRoot.innerHTML).toContain('the church has received');
+    // A leaf row now carries only 4 <td> (Category, Budget, Actual, Projected).
+    const leafRow = printRoot.innerHTML.match(/<tr>(?:(?!<tr>)[\s\S])*?51010 Pastoral Salaries[\s\S]*?<\/tr>/);
+    expect(leafRow).toBeTruthy();
+    expect((leafRow[0].match(/<td/g) || []).length).toBe(4);
+  });
+
+  it('finPlanSetPrintMode re-renders the workspace so the toolbar pill reflects the active mode', () => {
+    const { fin, root } = printSetup();
+    fin.finPlanSetPrintMode('thisyear');
+    expect(fin._finPlanPrintMode).toBe('thisyear');
+    expect(root.innerHTML).toContain('Just this year');
   });
 });

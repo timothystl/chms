@@ -1175,10 +1175,15 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 /* The printed Budget sheet (Planning's "Print") — same "hidden on screen, exists only to be
    printed" idiom as .fin-comp-print-root/.fin-comp-rpt just above. finPlanPrint() renders into it
    (see finPlanBuildPrintSheetHtml in js-finance.js), adds the printing-plan class to the page
-   body, and calls window.print(). Category/total/net rows share one column shape (Category, Budget, Actual,
-   Projected, Plan, Change, Δ%) — see finPlanRptCentsRow. */
+   body, and calls window.print(). Three forced pages (.fin-plan-rpt-page — Summary, Revenue,
+   Expenses; see the break-before rule under @media print below), each its own positioning context
+   so a DRAFT watermark lands on every page rather than once whatever page a single tall watermark
+   happens to fall on. Category/total/net rows share one column shape — Category, Budget, Actual,
+   Projected, and (when "Plan for next year" is the active print mode) Plan, Change, Δ% — see
+   finPlanRptCentsRow. */
 .fin-plan-printsheet-root{display:none;}
-.fin-plan-rpt{font-size:9.5pt;color:var(--charcoal);position:relative;}
+.fin-plan-rpt{font-size:9.5pt;color:var(--charcoal);}
+.fin-plan-rpt-page{position:relative;}
 .fin-plan-rpt-hd{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding-bottom:6px;border-bottom:1px solid var(--border);font-size:9pt;color:var(--warm-meta);font-weight:700;letter-spacing:.04em;margin-bottom:14px;}
 .fin-plan-rpt-kicker{font-size:9.5pt;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--color-gold);}
 .fin-plan-rpt-h1{font-family:var(--font-display);font-size:26pt;font-weight:700;color:var(--color-navy);line-height:1.05;margin:2px 0;}
@@ -1195,10 +1200,6 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-plan-rpt-tile-lbl{font-size:7.5pt;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--warm-meta);}
 .fin-plan-rpt-tile-val{font-size:15pt;font-weight:800;font-variant-numeric:tabular-nums;color:var(--color-navy);margin-top:2px;}
 .fin-plan-rpt-tile-sub{font-size:8.5pt;color:var(--warm-ink-label);margin-top:1px;}
-.fin-plan-rpt-boxes{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px;}
-.fin-plan-rpt-box{border:1px solid var(--warm-border);border-radius:8px;padding:10px 13px;}
-.fin-plan-rpt-box-h{font-size:7.5pt;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--warm-meta);margin-bottom:4px;}
-.fin-plan-rpt-box p{font-size:9.5pt;line-height:1.5;margin:0;}
 .fin-plan-rpt-foot{font-size:8.5pt;color:var(--warm-meta);margin-top:10px;max-width:6.6in;}
 .fin-plan-rpt-watermark{position:absolute;top:38%;left:0;right:0;text-align:center;font-family:var(--font-display);font-size:110px;font-weight:600;letter-spacing:.12em;color:rgba(30,45,74,.07);transform:rotate(-18deg);pointer-events:none;}
 .fin-plan-rpt-table{width:100%;border-collapse:collapse;font-size:9pt;margin-top:6px;table-layout:fixed;}
@@ -1648,10 +1649,12 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
      with its chrome hidden. The navy summary strip, the year-input/commit header actions, "Choose
      rows" chrome, and the five-year outlook chart are working-session controls that never reach
      paper; the sheet is rebuilt fresh from the same finPlanSnapshot() the screen renders from, so
-     it always shows every value column (Budget/Actual/Projected/Plan/Change/Δ%) regardless of the
-     on-screen column chips, while still honoring "Choose rows" exclusions and the Board/
-     QuickBooks view toggle — same body.printing-<feature> contract as .printing-comp/
-     .printing-board above.
+     it honors "Choose rows" exclusions and the Board/QuickBooks view toggle, while the on-screen
+     column chips never apply to it — see the printing-<feature> contract on .printing-comp/
+     .printing-board above. Three forced pages (Summary, Revenue, Expenses — .fin-plan-rpt-page
+     below), each board category held together across a page break by its own <tbody class="cat">
+     wherever it fits on one page (.cat below); "Plan for next year" vs "Just this year"
+     (finPlanSetPrintMode) decides whether the Plan/Change/Δ% columns print at all.
      ⚠ #fin-plan-printsheet-root is NOT a direct child of #fin-panel-planning — finRenderPlanning()
      rebuilds #fin-plan-root's innerHTML (see js-finance.js), so the print sheet is a grandchild:
      #fin-panel-planning > #fin-plan-root > #fin-plan-printsheet-root. A rule of the shape
@@ -1664,9 +1667,11 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
   body.printing-plan #fin-panel-planning > *:not(#fin-plan-root){display:none!important;}
   body.printing-plan #fin-plan-root > *:not(#fin-plan-printsheet-root){display:none!important;}
   body.printing-plan #fin-plan-printsheet-root{display:block!important;}
+  .fin-plan-rpt-page + .fin-plan-rpt-page{break-before:page;}
   .fin-plan-rpt-table thead{display:table-header-group;}
   .fin-plan-rpt-table tr{break-inside:avoid;}
-  .fin-plan-rpt-tiles,.fin-plan-rpt-boxes{break-inside:avoid;}
+  .fin-plan-rpt-table tbody.cat{break-inside:avoid;}
+  .fin-plan-rpt-tiles{break-inside:avoid;}
 }
 /* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
    left-side navy menu column matching the design mockup's inner "TLC Admin"
