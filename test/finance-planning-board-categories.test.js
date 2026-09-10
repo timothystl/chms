@@ -37,7 +37,7 @@ describe('finance/planning/board-categories', () => {
     const res = await GET(db, false);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' });
+    expect(body).toEqual({ revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '', accountLabels: {} });
   });
 
   it('a non-admin can read but not write', async () => {
@@ -201,5 +201,57 @@ describe('finance/planning/board-categories', () => {
     const got = await (await GET(db, true)).json();
     expect(got.revenue).toEqual({ 'Income:A': 'donor' });
     expect(got.donorWrapperLabel).toBe('Giving');
+  });
+
+  // accountLabels — leaf-level renames ("42006 Hattie Blum Endowment-Unrestri" -> something a
+  // reader can place). No fixed allowlist, unlike revenueLabels/expenseLabels: any category_path
+  // is a valid key, same as revenue/expense's own account-assignment maps above.
+  it('renames a leaf account and it round-trips on GET', async () => {
+    const db = makeTestDb();
+    const res = await PUT(db, { accountLabels: { 'Income:42006 Hattie Blum Endowment-Unrestri': 'Hattie Blum Endowment' } }, true);
+    expect(res.status).toBe(200);
+    const got = await (await GET(db, true)).json();
+    expect(got.accountLabels).toEqual({ 'Income:42006 Hattie Blum Endowment-Unrestri': 'Hattie Blum Endowment' });
+  });
+
+  it('trims a leaf rename\'s whitespace', async () => {
+    const db = makeTestDb();
+    await PUT(db, { accountLabels: { 'Income:A': '  Sunday Offering  ' } }, true);
+    const got = await (await GET(db, true)).json();
+    expect(got.accountLabels['Income:A']).toBe('Sunday Offering');
+  });
+
+  it('a blank leaf rename clears the override back to the real QuickBooks name', async () => {
+    const db = makeTestDb();
+    await PUT(db, { accountLabels: { 'Income:A': 'Custom Name' } }, true);
+    const res = await PUT(db, { accountLabels: { 'Income:A': '   ' } }, true);
+    expect(res.status).toBe(200);
+    const got = await (await GET(db, true)).json();
+    expect(got.accountLabels).toEqual({});
+  });
+
+  it('a non-admin cannot set an account label', async () => {
+    const db = makeTestDb();
+    const res = await PUT(db, { accountLabels: { 'Income:A': 'Custom Name' } }, false);
+    expect(res.status).toBe(403);
+    const got = await (await GET(db, false)).json();
+    expect(got.accountLabels).toEqual({});
+  });
+
+  it('a second PUT merges leaf renames — one made from Planning and one made from Chart of Accounts land in the same store', async () => {
+    const db = makeTestDb();
+    await PUT(db, { accountLabels: { 'Income:A': 'First' } }, true);
+    await PUT(db, { accountLabels: { 'Income:B': 'Second' } }, true);
+    const got = await (await GET(db, true)).json();
+    expect(got.accountLabels).toEqual({ 'Income:A': 'First', 'Income:B': 'Second' });
+  });
+
+  it('renaming an account does not disturb its board-category assignment or any other stored field', async () => {
+    const db = makeTestDb();
+    await PUT(db, { revenue: { 'Income:A': 'donor' } }, true);
+    await PUT(db, { accountLabels: { 'Income:A': 'Custom Name' } }, true);
+    const got = await (await GET(db, true)).json();
+    expect(got.revenue).toEqual({ 'Income:A': 'donor' });
+    expect(got.accountLabels).toEqual({ 'Income:A': 'Custom Name' });
   });
 });
