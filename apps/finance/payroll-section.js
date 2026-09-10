@@ -4,16 +4,18 @@
 //    write goes through the SAME payroll_* RPC relay Website's own screen
 //    uses (payroll-proxy-client.js / resolvePayrollContractCaller on
 //    Website's side) — Finance never stores payroll data of its own.
+//    Emailing the report relays to Website's own /payroll/email route
+//    (payroll-email-client.js) the same way, now that it accepts Finance's
+//    contract-relay identity too (timothystl/website PR #587).
 //
-// NOT ported in this pass (both require a second Website route to accept the
-// Finance contract-relay identity, the same way the /sb/* proxy now does —
-// see PR #586 in timothystl/website — which is separate, cross-repo work):
-//   - "Email report" to the bookkeeper (Website's /payroll/email route)
+// NOT ported in this pass (needs a THIRD Website route extended the same
+// way, which is separate, cross-repo work):
 //   - The "payroll ready" push notification (Website's /api/push/payroll-ready)
 // Printing has no button here (Finance has no script to call window.print());
 // the print CSS (#pay-print, @media print in shell.js) works with the
 // browser's own print command regardless of how it is invoked.
 import { callPayrollProxy } from './payroll-proxy-client.js';
+import { postPayrollEmailReport } from './payroll-email-client.js';
 import {
   cents, fromCents, money, hrs, takesPto,
   effectiveChurch, mergeMdoHours, mdoPtoMapFrom, mdoRateSnapshotMapFrom,
@@ -189,7 +191,7 @@ function approvalLine(periodApproval) {
 }
 
 // ── ENTRY & APPROVE VIEW ────────────────────────────────────────────────────
-export function renderEntryView({ period, periods, workspace, statusMsg, needsConfirm }) {
+export function renderEntryView({ period, periods, workspace, statusMsg, needsConfirm, alreadySent }) {
   const { churchStaff, periodEntries, periodApproval, mdoStaff, mdoHoursMap, mdoPtoMap, mdoPeriodApproval, mdoError, staffError } = workspace;
   const approved = !!periodApproval;
   const lockAttr = approved ? ' readonly title="Approved — take back the approval to change hours"' : '';
@@ -253,6 +255,18 @@ export function renderEntryView({ period, periods, workspace, statusMsg, needsCo
     </form>
   </div>` : '';
 
+  // Website's own confirm()-before-resend, rebuilt as a query-param confirm step:
+  // the first submit answers already_sent (not an error) and redirects back here
+  // with the fact of it; only a deliberate second submit carries force=1.
+  const emailAlreadySentBanner = alreadySent ? `<div class="pay-warn">
+    <p>This period was already emailed to ${escapeHtml(alreadySent.to || 'the bookkeeper')}${alreadySent.at ? ` on ${escapeHtml(new Date(alreadySent.at).toLocaleString('en-US', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}` : ''}.</p>
+    <form method="POST" action="/api/v1/payroll-email">
+      <input type="hidden" name="period" value="${escapeHtml(period.start)}">
+      <input type="hidden" name="force" value="1">
+      <button type="submit">Send it again</button>
+    </form>
+  </div>` : '';
+
   const approveForm = `<form method="POST" action="/api/v1/payroll-period-approve">
     <input type="hidden" name="period" value="${escapeHtml(period.start)}">
     <input type="hidden" name="action" value="${approved ? 'unapprove' : 'approve'}">
@@ -275,7 +289,12 @@ export function renderEntryView({ period, periods, workspace, statusMsg, needsCo
       <div class="pay-foot"><span>${escapeHtml(summaryLine)}</span>${approveForm}</div>
     </div>
     ${confirmBanner}
+    ${emailAlreadySentBanner}
     <p><a href="/?section=payroll&view=staff-form&id=new">+ Add person</a> · <a href="/api/v1/payroll-csv?period=${encodeURIComponent(period.start)}">Export CSV</a></p>
+    <form method="POST" action="/api/v1/payroll-email" style="margin-top:0;">
+      <input type="hidden" name="period" value="${escapeHtml(period.start)}">
+      <button type="submit">Email report</button>
+    </form>
     <p><small>Church hours are typed here and saved with the Save hours button. Childcare hours come from the MDO app and cannot be edited here.</small></p>
     <p><small>Rates for church staff are entered here, shown beside each name above. Rates for childcare staff live in the MDO app and are read from it — there is deliberately no field for them here.</small></p>
   `;
@@ -300,14 +319,34 @@ export function renderReportView({ period, workspace, layout }) {
   `;
 }
 
-export function buildCsvForPeriod(period, workspace) {
+// The one report shape CSV, print and the emailed report are all built from —
+// matching Website's own "one shape, three destinations" exportReport(), so
+// none of Finance's three can quietly disagree with each other either.
+function buildReportForPeriod(period, workspace) {
   const { churchStaff, periodEntries, periodApproval, mdoStaff, mdoHoursMap, mdoPtoMap, mdoRateSnapshot, mdoError } = workspace;
-  const report = exportReport({
+  return exportReport({
     periodStart: period.start, periodEnd: period.end, periodLabel: periodLabel(period.start, period.end),
     churchStaff, periodEntries, mdoStaff, mdoHoursMap, mdoPtoMap, mdoRateSnapshot,
     periodApproved: !!periodApproval, incomplete: !!mdoError,
   });
-  return buildPayrollCsv(report);
+}
+
+export function buildCsvForPeriod(period, workspace) {
+  return buildPayrollCsv(buildReportForPeriod(period, workspace));
+}
+
+// Emails the report to the bookkeeper through Website's /payroll/email route.
+// `force` skips Website's own "already emailed in the last 12 hours" dedup —
+// set it only on a deliberate, confirmed resend (see the confirm banner in
+// renderEntryView), never on the first attempt.
+export async function emailReport(env, accessJwt, period, workspace, force) {
+  const report = buildReportForPeriod(period, workspace);
+  return postPayrollEmailReport(env, accessJwt, {
+    periodStart: report.periodStart, periodEnd: report.periodEnd, periodLabel: report.label,
+    approved: !!workspace.periodApproval, approvedBy: workspace.periodApproval?.approved_by || '',
+    incomplete: report.incomplete, total: report.total,
+    mdo: report.mdo, church: report.church, force: !!force,
+  });
 }
 
 // ── STAFF ADD/EDIT VIEW (replaces Website's slide-out drawer) ──────────────
@@ -359,13 +398,13 @@ export function renderStaffFormView({ id, churchStaff, formError }) {
 // view and wraps it in the shared toolbar (period picker + Enter&approve/
 // Report tabs), except the staff-form view, which is its own sub-page.
 export function renderPayrollSection(bundle) {
-  const { periods, period, view, layout, ytdLine, workspace, statusMsg, needsConfirm, staffFormId, staffFormError } = bundle;
+  const { periods, period, view, layout, ytdLine, workspace, statusMsg, needsConfirm, staffFormId, staffFormError, alreadySent } = bundle;
   if (view === 'staff-form') {
     return `<section aria-label="Payroll"><h2>Payroll</h2>${renderStaffFormView({ id: staffFormId, churchStaff: workspace.churchStaff, formError: staffFormError })}</section>`;
   }
   const body = view === 'report'
     ? renderReportView({ period, workspace, layout })
-    : renderEntryView({ period, periods, workspace, statusMsg, needsConfirm });
+    : renderEntryView({ period, periods, workspace, statusMsg, needsConfirm, alreadySent });
   return `<section aria-label="Payroll">
     <div class="section-heading"><div><div class="eyebrow">Payroll</div><h2>Payroll</h2></div><span class="badge">Relayed live to Website</span></div>
     <p>Enter hours and exceptions, approve the period, then read the gross-pay report — church staff and Timothy MDO, with a combined total. Withholding, taxes and bank details stay with the payroll service.</p>
@@ -474,11 +513,16 @@ export async function buildPayrollSectionBundle(env, accessJwt, searchParams) {
   const statusMsg = view === 'staff-form' ? '' : {
     saved: 'Hours saved.', approved: 'Period approved.', unapproved: 'Approval taken back.',
     staff_saved: 'Saved.', staff_removed: 'Removed from the church staff list.',
+    emailed: `Emailed to ${searchParams.get('to') || 'the bookkeeper'}.`,
     error: `That did not save: ${errorMessage}.`,
   }[statusParam] || '';
 
+  const alreadySent = statusParam === 'already_sent'
+    ? { to: searchParams.get('to') || '', at: searchParams.get('at') || '' }
+    : null;
+
   return {
-    periods, period, view, layout, needsConfirm, statusMsg, ytdLine, workspace,
+    periods, period, view, layout, needsConfirm, statusMsg, ytdLine, workspace, alreadySent,
     staffFormId: searchParams.get('id') || null,
     staffFormError: view === 'staff-form' && statusParam === 'error' ? errorMessage : '',
   };
