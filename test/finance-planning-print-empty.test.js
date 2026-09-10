@@ -5,59 +5,62 @@ import { HTML_TABS_2 } from '../src/frontend/html-tabs.js';
 
 // Reported live: printing the Budget tab ("my budget print is empty") produced a completely
 // blank print preview. Root cause was a DOM-nesting mismatch in the body.printing-plan CSS
-// contract, not anything in finPlanPrint() itself (which correctly toggles the body class — see
-// the existing coverage in finance-planning-chart-of-accounts.test.js).
-//
-// The static markup nests #fin-plan-print-card TWO levels under #fin-panel-planning:
-//   #fin-panel-planning > #fin-plan-root > #fin-plan-print-card
+// contract: the static markup nests the print target TWO levels under #fin-panel-planning
+//   #fin-panel-planning > #fin-plan-root > <print target>
 // (finRenderPlanning() in js-finance.js fully rebuilds #fin-plan-root's own innerHTML with the
-// print card inside it — it never touches #fin-panel-planning directly.) The pre-fix CSS rule
-// was "#fin-panel-planning > *:not(#fin-plan-print-card){display:none!important;}" — a rule
-// that only ever inspects DIRECT children. #fin-plan-root itself is a direct child and is NOT
-// #fin-plan-print-card, so that rule hid #fin-plan-root outright, taking the print card down
-// with it as a descendant. Nothing was left to print.
+// print target inside it — it never touches #fin-panel-planning directly.) The original CSS rule
+// was "#fin-panel-planning > *:not(#fin-plan-print-card){display:none!important;}" — a rule that
+// only ever inspects DIRECT children. #fin-plan-root itself is a direct child and is NOT the
+// print target, so that rule hid #fin-plan-root outright, taking the print target down with it as
+// a descendant. Nothing was left to print. Fixed by naming both nesting levels explicitly.
+//
+// Print was later rebuilt again (see finPlanBuildPrintSheetHtml/finPlanPrint in js-finance.js) to
+// render a dedicated, purpose-built sheet into #fin-plan-printsheet-root — the workspace's
+// "Category by category" card (#fin-plan-print-card) itself never prints anymore — but the same
+// two-level nesting trap applies to whatever element IS the print target, so this file's coverage
+// moved onto #fin-plan-printsheet-root rather than being retired.
 //
 // No browser exists in this environment to render the cascade directly (vitest runs under
 // environment:'node', no jsdom/CSSOM) — verified at the CSS-source level instead, same
 // technique as the SC19-FIX1/DSN1 class of bug in this codebase.
 
 describe('Budget tab print no longer blanks out (finPlanPrint / body.printing-plan)', () => {
-  it('the static markup nests #fin-plan-print-card two levels under #fin-panel-planning, via #fin-plan-root', () => {
+  it('the static markup nests the print target two levels under #fin-panel-planning, via #fin-plan-root', () => {
     const panelMatch = HTML_TABS_2.match(/<div id="fin-panel-planning"[^>]*>([\s\S]*?)<\/div>\s*<!--/) ||
       HTML_TABS_2.match(/<div id="fin-panel-planning"[^>]*>([\s\S]{0,200})/);
     expect(panelMatch).toBeTruthy();
-    // The only static child is the mount point; the print card is injected into it at render
-    // time, not present in the shipped markup at all — confirming the card can never be a
-    // direct child of #fin-panel-planning.
+    // The only static child is the mount point; the print sheet is injected into it at render
+    // time, not present in the shipped markup at all — confirming it can never be a direct child
+    // of #fin-panel-planning.
     expect(panelMatch[1]).toMatch(/<div id="fin-plan-root">/);
-    expect(panelMatch[1]).not.toMatch(/fin-plan-print-card/);
+    expect(panelMatch[1]).not.toMatch(/fin-plan-printsheet-root/);
 
-    expect(JS_FINANCE).toMatch(/id="fin-plan-print-card"/);
+    expect(JS_FINANCE).toMatch(/id="fin-plan-printsheet-root"/);
     // finRenderPlanning() targets #fin-plan-root, not #fin-panel-planning — confirms where the
-    // print card actually lands once rendered.
+    // print sheet mount point actually lands once rendered.
     const renderFnMatch = JS_FINANCE.match(/function finRenderPlanning\(\)\s*\{([\s\S]*?)\n\}\n/);
     expect(renderFnMatch).toBeTruthy();
     expect(renderFnMatch[1]).toMatch(/getElementById\('fin-plan-root'\)/);
   });
 
   it('the printing-plan CSS block names both nesting levels explicitly, not just the outer one', () => {
-    const blockMatch = HTML_HEAD.match(/body\.printing-plan[\s\S]*?body\.printing-plan #fin-plan-print-card\{[^}]*\}/);
+    const blockMatch = HTML_HEAD.match(/body\.printing-plan[\s\S]*?body\.printing-plan #fin-plan-printsheet-root\{[^}]*\}/);
     expect(blockMatch).toBeTruthy();
     const block = blockMatch[0];
 
     // The fixed shape: #fin-plan-root is carved out from #fin-panel-planning's children, and
-    // #fin-plan-print-card is separately carved out from #fin-plan-root's children.
+    // #fin-plan-printsheet-root is separately carved out from #fin-plan-root's children.
     expect(block).toMatch(/#fin-panel-planning\s*>\s*\*:not\(#fin-plan-root\)\s*\{\s*display:\s*none\s*!important;\s*\}/);
-    expect(block).toMatch(/#fin-plan-root\s*>\s*\*:not\(#fin-plan-print-card\)\s*\{\s*display:\s*none\s*!important;\s*\}/);
+    expect(block).toMatch(/#fin-plan-root\s*>\s*\*:not\(#fin-plan-printsheet-root\)\s*\{\s*display:\s*none\s*!important;\s*\}/);
 
-    // The regression shape: a single rule reaching straight from #fin-panel-planning to
-    // #fin-plan-print-card, skipping the intermediate #fin-plan-root level. If this ever comes
-    // back, it silently hides #fin-plan-root (and everything inside it) again.
-    expect(block).not.toMatch(/#fin-panel-planning\s*>\s*\*:not\(#fin-plan-print-card\)/);
+    // The regression shape: a single rule reaching straight from #fin-panel-planning to the print
+    // sheet, skipping the intermediate #fin-plan-root level. If this ever comes back, it silently
+    // hides #fin-plan-root (and everything inside it) again.
+    expect(block).not.toMatch(/#fin-panel-planning\s*>\s*\*:not\(#fin-plan-printsheet-root\)/);
   });
 
-  it('#fin-plan-print-card is forced visible in case any ambient rule ever sets it display:none', () => {
-    const blockMatch = HTML_HEAD.match(/body\.printing-plan #fin-plan-print-card\{([^}]*)\}/);
+  it('#fin-plan-printsheet-root is forced visible in case any ambient rule ever sets it display:none', () => {
+    const blockMatch = HTML_HEAD.match(/body\.printing-plan #fin-plan-printsheet-root\{([^}]*)\}/);
     expect(blockMatch).toBeTruthy();
     expect(blockMatch[1]).toMatch(/display:\s*block\s*!important/);
   });

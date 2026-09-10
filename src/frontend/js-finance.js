@@ -6867,6 +6867,10 @@ var _finPlanCols = { bud: true, act: true, proj: true, plan: true, delta: true }
 // table — see finPlanFilterExcluded below, applied before any total is summed.
 var _finPlanExcluded = {};
 var _finPlanPicking = false;
+// Whether the next Print stamps a translucent DRAFT watermark across the printed sheet — a
+// screen-only toggle (see the "Mark DRAFT" checkbox in finRenderPlanning's toolbar), never
+// persisted, since a draft mark describes the printed page, not the plan data itself.
+var _finPlanPrintDraft = false;
 // Rows exactly as last written to the table (respecting current column visibility and row
 // exclusion) — set at the end of every finRenderPlanning() call, so Export CSV is always what's
 // actually on screen, never a second computation that could drift from it.
@@ -7270,18 +7274,12 @@ function finPlanComputeMaps(tree, baseThroughWeek, baseProrated, savedBaseProjOv
   })(tree);
   return { plan: plan, projected: projected, actual: actual, budget: budget, hasBudget: hasBudget };
 }
-function finRenderPlanning() {
-  var el = document.getElementById('fin-plan-root');
-  if (!el) return;
-  var isAdminUI = (_userRole === 'admin');
-  // Council, granted 'budget':'edit' (see api-utils.js), may hand-correct the FY{target} Plan
-  // column only -- api-finance.js forks those edits into their own per-user key rather than the
-  // shared plan, the same pattern the Compensation Planner uses for council's raise plan.
-  // Generate All / growth assumption, Base Projected, FY{base} Actual and Commit all stay
-  // isAdminUI-only -- those regenerate, correct real posted figures, or finalize the shared plan
-  // wholesale, unlike a single hand-typed Plan correction (Andrew, 2026-09-09).
-  var canEditPlan = isAdminUI || (_userRole === 'council' && permEdit('budget'));
-
+// The tree/maps/section-totals computation shared by finRenderPlanning() (the screen) and
+// finPlanBuildPrintSheetHtml() (the printed sheet) — both must show the exact same figures for
+// the exact same reason "Choose rows" excludes a line or the Board/QuickBooks toggle regroups
+// one, so this is computed once from state and handed to both rather than rebuilt separately per
+// surface (two hand-inlined copies of one computation is how they drift — SW17).
+function finPlanSnapshot() {
   // "Board view" (default) reads the categories set on Chart of Accounts, via
   // finBuildBoardTree() — a second reading of the SAME leaves, grouped differently. "QuickBooks
   // order" is the tree exactly as this table rendered before Chart of Accounts existed
@@ -7296,10 +7294,57 @@ function finRenderPlanning() {
 
   // "Choose rows" — every group/section/Net total ALWAYS reads the kept (exclusion-filtered)
   // tree, whether or not the picker is currently open, matching Print and CSV below; only which
-  // individual leaf ROWS are actually listed differs (renderTree), so a total can never disagree
-  // with what a printed sheet or export built from the same state would show.
+  // individual leaf ROWS are actually listed differs (renderTree, screen-only), so a total can
+  // never disagree with what a printed sheet or export built from the same state would show.
   var keptTree = finPlanFilterExcluded(viewTree, _finPlanExcluded);
   var maps = finPlanComputeMaps(keptTree, baseThroughWeek, baseProrated, savedBaseProjOverrides);
+
+  function isRevRoot(n) { return !!FIN_REVENUE_CLASSES[n.classification]; }
+  var revRoots = keptTree.filter(isRevRoot);
+  var expRoots = keptTree.filter(function(n) { return !isRevRoot(n); });
+  function sumField(roots, map) { return roots.reduce(function(sum, n) { return sum + (map[n.path] || 0); }, 0); }
+  var revenuePlanCents = sumField(revRoots, maps.plan);
+  var expensePlanCents = sumField(expRoots, maps.plan);
+  var baseRevenueProjCents = sumField(revRoots, maps.projected);
+  var baseExpenseProjCents = sumField(expRoots, maps.projected);
+  var revenueActualCents = sumField(revRoots, maps.actual);
+  var expenseActualCents = sumField(expRoots, maps.actual);
+  var revenueBudgetCents = sumField(revRoots, maps.budget);
+  var expenseBudgetCents = sumField(expRoots, maps.budget);
+  var revenueHasBudget = revRoots.some(function(n) { return maps.hasBudget[n.path]; });
+  var expenseHasBudget = expRoots.some(function(n) { return maps.hasBudget[n.path]; });
+
+  return {
+    viewTree: viewTree, baseThroughWeek: baseThroughWeek, baseProrated: baseProrated,
+    savedBaseProjOverrides: savedBaseProjOverrides, keptTree: keptTree, maps: maps,
+    revRoots: revRoots, expRoots: expRoots,
+    revenuePlanCents: revenuePlanCents, expensePlanCents: expensePlanCents,
+    baseRevenueProjCents: baseRevenueProjCents, baseExpenseProjCents: baseExpenseProjCents,
+    revenueActualCents: revenueActualCents, expenseActualCents: expenseActualCents,
+    revenueBudgetCents: revenueBudgetCents, expenseBudgetCents: expenseBudgetCents,
+    revenueHasBudget: revenueHasBudget, expenseHasBudget: expenseHasBudget,
+    projectedNetCents: revenuePlanCents - expensePlanCents,
+  };
+}
+function finRenderPlanning() {
+  var el = document.getElementById('fin-plan-root');
+  if (!el) return;
+  var isAdminUI = (_userRole === 'admin');
+  // Council, granted 'budget':'edit' (see api-utils.js), may hand-correct the FY{target} Plan
+  // column only -- api-finance.js forks those edits into their own per-user key rather than the
+  // shared plan, the same pattern the Compensation Planner uses for council's raise plan.
+  // Generate All / growth assumption, Base Projected, FY{base} Actual and Commit all stay
+  // isAdminUI-only -- those regenerate, correct real posted figures, or finalize the shared plan
+  // wholesale, unlike a single hand-typed Plan correction (Andrew, 2026-09-09).
+  var canEditPlan = isAdminUI || (_userRole === 'council' && permEdit('budget'));
+
+  var snap = finPlanSnapshot();
+  var viewTree = snap.viewTree;
+  var baseThroughWeek = snap.baseThroughWeek;
+  var baseProrated = snap.baseProrated;
+  var savedBaseProjOverrides = snap.savedBaseProjOverrides;
+  var keptTree = snap.keptTree;
+  var maps = snap.maps;
   var renderTree = _finPlanPicking ? viewTree : keptTree;
 
   var rowsHtml = [];
@@ -7417,21 +7462,20 @@ function finRenderPlanning() {
       + '</tr>';
   }
   function isRevRoot(n) { return !!FIN_REVENUE_CLASSES[n.classification]; }
-  var sumRevRoots = keptTree.filter(isRevRoot);
-  var sumExpRoots = keptTree.filter(function(n) { return !isRevRoot(n); });
+  var sumRevRoots = snap.revRoots;
+  var sumExpRoots = snap.expRoots;
   var renderRevRoots = renderTree.filter(isRevRoot);
   var renderExpRoots = renderTree.filter(function(n) { return !isRevRoot(n); });
-  function sumField(roots, map) { return roots.reduce(function(sum, n) { return sum + (map[n.path] || 0); }, 0); }
-  var revenuePlanCents = sumField(sumRevRoots, maps.plan);
-  var expensePlanCents = sumField(sumExpRoots, maps.plan);
-  var baseRevenueProjCents = sumField(sumRevRoots, maps.projected);
-  var baseExpenseProjCents = sumField(sumExpRoots, maps.projected);
-  var revenueActualCents = sumField(sumRevRoots, maps.actual);
-  var expenseActualCents = sumField(sumExpRoots, maps.actual);
-  var revenueBudgetCents = sumField(sumRevRoots, maps.budget);
-  var expenseBudgetCents = sumField(sumExpRoots, maps.budget);
-  var revenueHasBudget = sumRevRoots.some(function(n) { return maps.hasBudget[n.path]; });
-  var expenseHasBudget = sumExpRoots.some(function(n) { return maps.hasBudget[n.path]; });
+  var revenuePlanCents = snap.revenuePlanCents;
+  var expensePlanCents = snap.expensePlanCents;
+  var baseRevenueProjCents = snap.baseRevenueProjCents;
+  var baseExpenseProjCents = snap.baseExpenseProjCents;
+  var revenueActualCents = snap.revenueActualCents;
+  var expenseActualCents = snap.expenseActualCents;
+  var revenueBudgetCents = snap.revenueBudgetCents;
+  var expenseBudgetCents = snap.expenseBudgetCents;
+  var revenueHasBudget = snap.revenueHasBudget;
+  var expenseHasBudget = snap.expenseHasBudget;
   // A single root now prints its own "Total X" beneath its accounts, so the section subtotal
   // would be the same figure twice in consecutive rows. It is still needed when a section has
   // several roots (Income + Other Income), where no one root's total covers the section.
@@ -7474,6 +7518,8 @@ function finRenderPlanning() {
     + (excludedCount ? '<button onclick="finPlanResetExcluded()" style="background:none;border:none;padding:0;font-size:11.5px;font-weight:700;color:var(--color-teal);cursor:pointer;text-decoration:underline;">Include all lines</button>' : '')
     + '<div style="margin-left:auto;display:flex;gap:8px;align-items:center;">'
       + (excludedCount ? '<span style="font-size:11.5px;color:var(--warm-gray);">' + excludedCount + ' line(s) excluded</span>' : '')
+      + '<label style="display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--warm-meta);cursor:pointer;" title="Stamps a translucent DRAFT watermark across the printed sheet — for a budget that has not gone to Commit yet.">'
+        + '<input type="checkbox" ' + (_finPlanPrintDraft ? 'checked ' : '') + 'onchange="_finPlanPrintDraft=this.checked" style="width:13px;height:13px;">Mark DRAFT</label>'
       + '<button onclick="finPlanExportCsv()" style="padding:7px 14px;background:var(--warm-surface-page);color:var(--warm-ink-label);border:1.5px solid var(--warm-border);border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer;">Export CSV</button>'
       + '<button onclick="finPlanPrint()" style="padding:7px 14px;background:var(--color-navy);color:var(--white);border:none;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer;">Print</button>'
     + '</div>'
@@ -7549,6 +7595,11 @@ function finRenderPlanning() {
       + toolbarHtml
       + tableHtml + actionsHtml
     + '</div>'
+    // Populated on demand by finPlanPrint() — see that function and finPlanBuildPrintSheetHtml()
+    // below. Kept as a standing sibling (rebuilt along with everything else here) rather than a
+    // one-time mount in the static tab shell, matching how #fin-plan-root itself is rebuilt whole
+    // on every edit.
+    + '<div id="fin-plan-printsheet-root" class="fin-plan-printsheet-root"></div>'
     + finRenderPlanningOutlook(projectedRevenueCents, projectedExpenseCents);
   // The Ivanhoe forecast mounts inside the row finRenderPlanningOutlook just wrote.
   finRenderPropertyMultiYearForecast();
@@ -7776,15 +7827,162 @@ function finPlanExportCsv() {
   if (!_finPlanCsvRows.length) { finToast('Nothing to export.'); return; }
   finDownloadCsv('planning-fy' + _finPlanTargetYear + '-' + _finPlanViewMode + '.csv', _finPlanCsvRows);
 }
-// The table already lives on the page (#fin-plan-print-card) — unlike the Council report, there is
-// no separate print-only layout to build. .fin-plan-noprint (the column chips, Choose rows, Export/
-// Print buttons, the growth-assumption row) is hidden by the same body.printing-plan rule that
-// hides every other tab, so what prints is exactly the "Category by category" table as it's
-// currently filtered/columned on screen — same shape as printBoardPage()'s cleanup contract.
+// ── Printed Budget sheet ─────────────────────────────────────────────────────────────────────
+// A dedicated, non-editable document for handing to the board — same idiom as the Compensation
+// tab's "Print for Council" (finCompCouncilReportHtml): rebuilt fresh from finPlanSnapshot() into
+// #fin-plan-printsheet-root, then body.printing-plan hides everything else on the tab so this is
+// the only thing that prints (see the printing-plan rules in html-head.js). Unlike the workspace
+// table, the sheet always shows every value column (Budget/Actual/Projected/Plan/Change/Δ%)
+// regardless of the on-screen column chips — a board member reading a printed page has no chip
+// row to click back on, so nothing is one click away from missing. "Choose rows" exclusions and
+// the Board/QuickBooks view toggle DO still apply — both are content decisions, not display
+// prefs, and Export CSV honors them for the same reason.
+function finPlanRptDeltaColor(pct) {
+  return pct > 4 ? 'var(--danger)' : pct < 0 ? 'var(--sage-text)' : 'var(--warm-ink-label)';
+}
+function finPlanRptMoneyCell(cents, opts) {
+  opts = opts || {};
+  var text = cents == null ? '<span class="mut">&mdash;</span>' : (cents < 0 ? '−$' + finFmtMoney(-cents / 100) : '$' + finFmtMoney(cents / 100));
+  return '<td class="n' + (opts.cls ? ' ' + opts.cls : '') + '"' + (opts.color ? ' style="color:' + opts.color + ';"' : '') + '>' + text + '</td>';
+}
+// One row's worth of Budget/Actual/Projected/Plan/Change/Δ% cells from a {budget,actual,proj,
+// plan,hasBudget} bundle — shared by leaf rows, category "Total X" rows, and the two section
+// grand totals below, so the six-column shape (and the >4%/negative/flat delta coloring, matching
+// the workspace table's own deltaCell) is written once.
+function finPlanRptCentsRow(labelHtml, cents, rowCls) {
+  var changeCents = cents.hasBudget ? cents.plan - cents.budget : null;
+  var pct = (cents.hasBudget && cents.budget) ? (changeCents / Math.abs(cents.budget) * 100) : null;
+  var pctColor = pct != null ? finPlanRptDeltaColor(pct) : null;
+  return '<tr' + (rowCls ? ' class="' + rowCls + '"' : '') + '>' + labelHtml
+    + finPlanRptMoneyCell(cents.hasBudget ? cents.budget : null)
+    + finPlanRptMoneyCell(cents.actual)
+    + finPlanRptMoneyCell(cents.proj, { color: 'var(--warm-ink-label)' })
+    + finPlanRptMoneyCell(cents.plan)
+    + finPlanRptMoneyCell(changeCents, { color: pctColor })
+    + '<td class="n"' + (pctColor ? ' style="color:' + pctColor + ';"' : '') + '>' + (pct == null ? '<span class="mut">&mdash;</span>' : (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%') + '</td>'
+    + '</tr>';
+}
+function finPlanRptNodeCents(node, maps) {
+  return { budget: maps.budget[node.path] || 0, actual: maps.actual[node.path] || 0, proj: maps.projected[node.path] || 0, plan: maps.plan[node.path] || 0, hasBudget: maps.hasBudget[node.path] };
+}
+function finPlanRptLeafRow(node, maps) { return finPlanRptCentsRow(finTreeLabelCell(node, node.label), finPlanRptNodeCents(node, maps), ''); }
+function finPlanRptGroupHeaderRow(node) { return '<tr class="grp"><td colspan="7">' + esc(node.label) + '</td></tr>'; }
+function finPlanRptGroupTotalRow(node, maps) { return finPlanRptCentsRow(finTreeLabelCell(node, 'Total ' + node.label, { padV: '6px' }), finPlanRptNodeCents(node, maps), 'sub'); }
+// One section (Revenue or Expenses): every root's leaf/header/total rows in reading order, plus a
+// combined "Total X" row UNLESS a single root with children already prints that same figure on
+// its own "Total {root}" row — identical rule to the workspace table's sectionSelfTotals, so the
+// printed sheet never shows one number twice in a row for the same reason the screen doesn't.
+function finPlanRptSection(sectionTitle, roots, maps, totalsCents) {
+  var out = [];
+  finRenderTreeQbOrder(roots, {
+    leaf: function(n) { return finPlanRptLeafRow(n, maps); },
+    groupHeader: finPlanRptGroupHeaderRow,
+    groupTotal: function(n) { return finPlanRptGroupTotalRow(n, maps); },
+  }, out);
+  var selfTotals = roots.length === 1 && roots[0].children.length > 0;
+  if (roots.length && !selfTotals) out.push(finPlanRptCentsRow('<td>Total ' + esc(sectionTitle) + '</td>', totalsCents, 'tot'));
+  return out.join('');
+}
+function finPlanRptNetRow(netBudgetCents, netActualCents, netProjCents, netPlanCents) {
+  function netCell(cents) {
+    return '<td class="n" style="color:' + (cents < 0 ? 'var(--danger)' : 'var(--sage-text)') + ';">' + (cents < 0 ? '−' : '') + '$' + finFmtMoney(Math.abs(cents) / 100) + '</td>';
+  }
+  return '<tr class="net"><td>Net &mdash; revenue less expenses</td>'
+    + (netBudgetCents ? netCell(netBudgetCents) : '<td class="n mut">&mdash;</td>')
+    + netCell(netActualCents) + netCell(netProjCents) + netCell(netPlanCents)
+    + '<td class="n mut" colspan="2">&mdash;</td></tr>';
+}
+function finPlanRptTile(label, value, cls, sub) {
+  return '<div class="fin-plan-rpt-tile ' + cls + '"><div class="fin-plan-rpt-tile-lbl">' + esc(label) + '</div>'
+    + '<div class="fin-plan-rpt-tile-val">' + value + '</div>'
+    + (sub ? '<div class="fin-plan-rpt-tile-sub">' + sub + '</div>' : '') + '</div>';
+}
+// The one auto-generated sentence on the sheet — built entirely from this snapshot's own figures
+// (no invented narrative), naming the one or two categories that account for most of the planned
+// expense growth so a reader isn't left to find them in a multi-page table.
+function finPlanRptNarrative(snap, netPlanCents) {
+  if (!snap.revenueHasBudget && !snap.expenseHasBudget) return '';
+  var parts = [];
+  if (snap.expenseHasBudget) {
+    var expDelta = snap.expensePlanCents - snap.expenseBudgetCents;
+    var topGrowers = snap.expRoots.filter(function(n) { return snap.maps.hasBudget[n.path]; })
+      .map(function(n) { return { label: n.label, delta: (snap.maps.plan[n.path] || 0) - (snap.maps.budget[n.path] || 0) }; })
+      .filter(function(x) { return x.delta > 0; })
+      .sort(function(a, b) { return b.delta - a.delta; })
+      .slice(0, 2)
+      .map(function(x) { return x.label; });
+    parts.push('The plan spends ' + finMoney0(Math.abs(expDelta)) + (expDelta >= 0 ? ' more' : ' less') + ' than the FY' + _finPlanBaseYear + ' budget'
+      + (topGrowers.length ? ' &mdash; most of it ' + topGrowers.join(' and ') : '') + '.');
+  }
+  if (snap.revenueHasBudget) {
+    var revDelta = snap.revenuePlanCents - snap.revenueBudgetCents;
+    parts.push('It plans for ' + finMoney0(Math.abs(revDelta)) + (revDelta >= 0 ? ' more' : ' less') + ' revenue than the FY' + _finPlanBaseYear + ' budget.');
+  }
+  parts.push('It closes ' + finMoney0(Math.abs(netPlanCents)) + ' to the ' + (netPlanCents >= 0 ? 'good' : 'bad') + '.');
+  return '<p class="fin-plan-rpt-p">' + parts.join(' ') + '</p>';
+}
+function finPlanBuildPrintSheetHtml() {
+  var snap = finPlanSnapshot();
+  var maps = snap.maps;
+  var revTotals = { budget: snap.revenueBudgetCents, actual: snap.revenueActualCents, proj: snap.baseRevenueProjCents, plan: snap.revenuePlanCents, hasBudget: snap.revenueHasBudget };
+  var expTotals = { budget: snap.expenseBudgetCents, actual: snap.expenseActualCents, proj: snap.baseExpenseProjCents, plan: snap.expensePlanCents, hasBudget: snap.expenseHasBudget };
+  var netActualCents = snap.revenueActualCents - snap.expenseActualCents;
+  var netProjCents = snap.baseRevenueProjCents - snap.baseExpenseProjCents;
+  var netPlanCents = snap.projectedNetCents;
+  var today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  var tiles = '<div class="fin-plan-rpt-tiles">'
+    + finPlanRptTile('Planned revenue', finMoney0(snap.revenuePlanCents), 'rev', snap.revenueHasBudget ? finPlanRptPctNote(snap.revenueBudgetCents, snap.revenuePlanCents, 'on FY' + _finPlanBaseYear + ' budget') : '')
+    + finPlanRptTile('Planned expenses', finMoney0(snap.expensePlanCents), 'exp', snap.expenseHasBudget ? finPlanRptPctNote(snap.expenseBudgetCents, snap.expensePlanCents, 'on FY' + _finPlanBaseYear + ' budget') : '')
+    + finPlanRptTile('Planned net', finFmtSigned(netPlanCents), 'net', 'revenue less expenses')
+    + finPlanRptTile('FY' + _finPlanBaseYear + ' net, projected', finFmtSigned(netProjCents), 'base', (snap.baseProrated ? 'annualized from actuals' : 'full year actuals'))
+    + '</div>';
+
+  var motionBox = '<div class="fin-plan-rpt-box"><div class="fin-plan-rpt-box-h">The plan in one line</div>'
+    + '<p>Adopting the FY' + _finPlanTargetYear + ' budget as presented commits to ' + finMoney0(snap.revenuePlanCents) + ' in planned revenue and '
+    + finMoney0(snap.expensePlanCents) + ' in planned expenses &mdash; a planned ' + (netPlanCents >= 0 ? 'surplus' : 'deficit') + ' of ' + finMoney0(Math.abs(netPlanCents)) + '.</p></div>';
+  var columnKeyBox = '<div class="fin-plan-rpt-box"><div class="fin-plan-rpt-box-h">How to read the columns</div>'
+    + '<p><b>Budget</b> is the FY' + _finPlanBaseYear + ' figure already adopted. <b>Actual</b> is money in and out through ' + today + '. <b>Projected</b> annualizes that to a full year. <b>Plan</b> is the FY' + _finPlanTargetYear + ' proposal. <b>Change</b> and <b>&Delta;%</b> compare Plan against Budget.</p></div>';
+
+  var tableRows = finPlanRptSection('Revenue', snap.revRoots, maps, revTotals)
+    + finPlanRptSection('Expenses', snap.expRoots, maps, expTotals)
+    + finPlanRptNetRow(_finPlanBaseNet.budgetCents || null, netActualCents, netProjCents, netPlanCents);
+  var table = (!snap.revRoots.length && !snap.expRoots.length) ? '<p class="fin-plan-rpt-p mut">No Church Budget data found for FY' + _finPlanBaseYear + '.</p>'
+    : '<table class="fin-plan-rpt-table"><thead><tr>'
+      + '<th>Category</th><th class="n">FY' + _finPlanBaseYear + ' Budget</th><th class="n">FY' + _finPlanBaseYear + ' Actual</th><th class="n">FY' + _finPlanBaseYear + ' Proj.</th><th class="n">FY' + _finPlanTargetYear + ' Plan</th><th class="n">Change</th><th class="n">&Delta;%</th>'
+      + '</tr></thead><tbody>' + tableRows + '</tbody></table>';
+
+  var excludedCount = Object.keys(_finPlanExcluded).length;
+
+  return '<div class="fin-plan-rpt">'
+    + (_finPlanPrintDraft ? '<div class="fin-plan-rpt-watermark">DRAFT</div>' : '')
+    + '<div class="fin-plan-rpt-hd"><span>Timothy Lutheran Church &middot; St. Louis</span><span>Proposed FY' + _finPlanTargetYear + ' Budget &middot; prepared ' + today + '</span></div>'
+    + '<div class="fin-plan-rpt-kicker">Church Budget</div>'
+    + '<h1 class="fin-plan-rpt-h1">Fiscal Year ' + _finPlanTargetYear + ' Budget</h1>'
+    + '<div class="fin-plan-rpt-sub">Built on FY' + _finPlanBaseYear + ' (' + (snap.baseProrated ? 'annualized from ' + snap.baseThroughWeek.toFixed(0) + ' week(s) of actuals' : 'a full year of actuals') + ') &middot; independent of QuickBooks until committed</div>'
+    + tiles
+    + finPlanRptNarrative(snap, netPlanCents)
+    + '<h2 class="fin-plan-rpt-h2">Category by category</h2>'
+    + '<div class="fin-plan-rpt-note">Grouped the way the board reads a budget (&ldquo;' + (_finPlanViewMode === 'board' ? 'Board view' : 'QuickBooks order') + '&rdquo;), whole dollars.</div>'
+    + table
+    + '<div class="fin-plan-rpt-boxes">' + motionBox + columnKeyBox + '</div>'
+    + (excludedCount ? '<p class="fin-plan-rpt-foot">' + excludedCount + ' line(s) excluded from this sheet via Choose rows.</p>' : '')
+    + '<p class="fin-plan-rpt-foot">Figures are whole dollars and may not sum exactly where cents are rounded. The FY' + _finPlanTargetYear + ' plan is held separately from the accounting system and does not affect posted figures until it is adopted and committed.</p>'
+    + '</div>';
+}
+function finPlanRptPctNote(budgetCents, planCents, suffix) {
+  if (!budgetCents) return '';
+  var pct = (planCents - budgetCents) / Math.abs(budgetCents) * 100;
+  return (pct >= 0 ? '+' : '') + pct.toFixed(1) + '% ' + suffix;
+}
 function finPlanPrint() {
+  var root = document.getElementById('fin-plan-printsheet-root');
+  if (!root) return;
+  root.innerHTML = finPlanBuildPrintSheetHtml();
   document.body.classList.add('printing-plan');
   var cleanup = function() {
     document.body.classList.remove('printing-plan');
+    if (root) root.innerHTML = '';
     window.removeEventListener('afterprint', cleanup);
   };
   window.addEventListener('afterprint', cleanup);

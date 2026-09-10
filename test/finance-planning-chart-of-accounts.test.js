@@ -601,11 +601,55 @@ describe('Chart of Accounts page', () => {
 });
 
 describe('Planning table — Print', () => {
+  // finPlanPrint() now builds a dedicated, non-editable sheet into #fin-plan-printsheet-root (see
+  // finPlanBuildPrintSheetHtml in js-finance.js) rather than just hiding the workspace chrome
+  // around the live table — same idiom as Compensation's "Print for Council". Both the workspace
+  // mount (#fin-plan-root, needed by finRenderPlanning() in baseSetup) and the print mount have to
+  // be seeded for that to work in this fake DOM, which never parses innerHTML strings back into
+  // elements — a real browser resolves #fin-plan-printsheet-root from #fin-plan-root's own
+  // rendered markup, but here it has to be its own store entry.
+  function printSetup() {
+    const root = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+    const printRoot = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+    const fin = loadBundle({ 'fin-plan-root': root, 'fin-plan-printsheet-root': printRoot });
+    baseSetup(fin, fixtureTree());
+    return { fin, printRoot };
+  }
+
   it('finPlanPrint marks body.printing-plan before the print dialog fires — the same body.printing-<feature> contract as .printing-comp/.printing-board', () => {
-    const fin = loadBundle();
+    const { fin } = printSetup();
     const added = [];
     fin.document.body.classList.add = (c) => added.push(c);
     fin.finPlanPrint();
     expect(added).toEqual(['printing-plan']);
+  });
+
+  it('builds a standalone printed sheet into #fin-plan-printsheet-root with real figures, not the editable workspace table', () => {
+    const { fin, printRoot } = printSetup();
+    fin.finPlanPrint();
+    expect(printRoot.innerHTML).toContain('Fiscal Year 2027 Budget');
+    expect(printRoot.innerHTML).toContain('Timothy Lutheran Church');
+    expect(printRoot.innerHTML).toContain('Pastoral Salaries');
+    // Static figures, not the workspace's editable Plan/Projected/Actual <input> cells.
+    expect(printRoot.innerHTML).not.toContain('<input');
+  });
+
+  it('the "Mark DRAFT" toggle stamps a watermark onto the next printed sheet, and only when checked', () => {
+    const { fin, printRoot } = printSetup();
+    fin.finPlanPrint();
+    expect(printRoot.innerHTML).not.toContain('fin-plan-rpt-watermark');
+    fin._finPlanPrintDraft = true;
+    fin.finPlanPrint();
+    expect(printRoot.innerHTML).toContain('fin-plan-rpt-watermark');
+    expect(printRoot.innerHTML).toContain('DRAFT');
+  });
+
+  it('honors "Choose rows" exclusions on the printed sheet, same as the workspace totals and Export CSV', () => {
+    const { fin, printRoot } = printSetup();
+    fin._finPlanExcluded = { 'Expenses:54010 Worship & Music': true };
+    fin.finRenderPlanning();
+    fin.finPlanPrint();
+    expect(printRoot.innerHTML).not.toContain('Worship &amp; Music');
+    expect(printRoot.innerHTML).toContain('1 line(s) excluded from this sheet via Choose rows.');
   });
 });
