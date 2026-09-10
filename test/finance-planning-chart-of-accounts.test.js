@@ -652,4 +652,23 @@ describe('Planning table — Print', () => {
     expect(printRoot.innerHTML).not.toContain('Worship &amp; Music');
     expect(printRoot.innerHTML).toContain('1 line(s) excluded from this sheet via Choose rows.');
   });
+
+  // Board view wraps every expense root inside one synthetic "Expenses" node (finBuildBoardTree),
+  // so the narrative's "most of it ___" clause has to look one level past that wrapper for real
+  // category names (Salaries, MDO, ...) rather than just re-naming the wrapper itself.
+  it('the auto-generated narrative names real expense categories, not the Board-view "Expenses" wrapper', () => {
+    const { fin, printRoot } = printSetup();
+    // Plan above budget for two different board categories (salaries, mdo) — see fixtureTree()'s
+    // own comments for which leaf lands in which bucket.
+    fin._finPlanEdits = {
+      'Expenses:51010 Pastoral Salaries': '85000', // budget was $80,000
+      'Expenses:57160 MDO - Supplies': '2000', // budget was $1,500
+    };
+    fin.finRenderPlanning();
+    fin.finPlanPrint();
+    const narrativeMatch = printRoot.innerHTML.match(/<p class="fin-plan-rpt-p">([\s\S]*?)<\/p>/);
+    expect(narrativeMatch).toBeTruthy();
+    expect(narrativeMatch[1]).not.toContain('most of it Expenses');
+    expect(narrativeMatch[1]).toMatch(/most of it (Salaries|MDO)( and (Salaries|MDO))?/);
+  });
 });

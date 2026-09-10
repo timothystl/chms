@@ -7897,6 +7897,14 @@ function finPlanRptTile(label, value, cls, sub) {
     + '<div class="fin-plan-rpt-tile-val">' + value + '</div>'
     + (sub ? '<div class="fin-plan-rpt-tile-sub">' + sub + '</div>' : '') + '</div>';
 }
+// The "categories" a reader would recognize by name — Board view wraps every expense root inside
+// one synthetic "Expenses" node (see finBuildBoardTree), so ranking snap.expRoots directly would
+// only ever find that single wrapper and never the Salaries/Property & Operations/MDO groups
+// underneath it. Descend one level whenever there's exactly one wrapping root with children —
+// same "is this root just a wrapper" test finPlanRptSection uses for its own "Total X" row.
+function finPlanRptCategoryNodes(roots) {
+  return (roots.length === 1 && roots[0].children.length > 0) ? roots[0].children : roots;
+}
 // The one auto-generated sentence on the sheet — built entirely from this snapshot's own figures
 // (no invented narrative), naming the one or two categories that account for most of the planned
 // expense growth so a reader isn't left to find them in a multi-page table.
@@ -7905,7 +7913,7 @@ function finPlanRptNarrative(snap, netPlanCents) {
   var parts = [];
   if (snap.expenseHasBudget) {
     var expDelta = snap.expensePlanCents - snap.expenseBudgetCents;
-    var topGrowers = snap.expRoots.filter(function(n) { return snap.maps.hasBudget[n.path]; })
+    var topGrowers = finPlanRptCategoryNodes(snap.expRoots).filter(function(n) { return snap.maps.hasBudget[n.path]; })
       .map(function(n) { return { label: n.label, delta: (snap.maps.plan[n.path] || 0) - (snap.maps.budget[n.path] || 0) }; })
       .filter(function(x) { return x.delta > 0; })
       .sort(function(a, b) { return b.delta - a.delta; })
