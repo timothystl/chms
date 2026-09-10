@@ -1590,6 +1590,16 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 .role-compensation .s-item[data-tab="finance"]{display:flex!important;}
 /* ── PRINT ── */
 @media print{
+  /* html,body{height:100%;overflow:hidden;} above exists for the SPA shell's fixed-viewport
+     screen layout (internal panels scroll, the page itself never does) — never relaxed for
+     print, so any print document taller than one screen's worth of content got silently clipped
+     to a single page instead of flowing onto more: the browser's print engine paginates based on
+     the actual laid-out content height, and overflow:hidden caps that height at one viewport
+     before pagination ever sees the rest. Confirmed live against the redesigned Budget print
+     sheet: without this reset, three explicit break-before:page pages rendered as one, with the
+     excess simply gone rather than spilling onto pages 2/3. Print is never inside the
+     fixed-viewport shell, so this can just be reset outright rather than scoped further. */
+  html,body{height:auto!important;overflow:visible!important;}
   .sidebar,.topbar,.toolbar,.modal-overlay,#offline-banner{display:none!important;}
   /* Only the currently-active tab prints — a plain window.print() (Finance's Church Report,
      Commercial Property, etc. all just call window.print() with no scoping class) used to force
@@ -1667,7 +1677,7 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
   body.printing-plan #fin-panel-planning > *:not(#fin-plan-root){display:none!important;}
   body.printing-plan #fin-plan-root > *:not(#fin-plan-printsheet-root){display:none!important;}
   body.printing-plan #fin-plan-printsheet-root{display:block!important;}
-  .fin-plan-rpt-page + .fin-plan-rpt-page{break-before:page;}
+  .fin-plan-rpt-newpage{break-before:page;page-break-before:always;}
   .fin-plan-rpt-table thead{display:table-header-group;}
   .fin-plan-rpt-table tr{break-inside:avoid;}
   .fin-plan-rpt-table tbody.cat{break-inside:avoid;}

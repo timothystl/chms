@@ -7845,8 +7845,12 @@ function finPlanExportCsv() {
 // display prefs, and Export CSV honors them for the same reason — but the on-screen column chips
 // don't: a board member reading a printed page has no chip row to click back on.
 //
-// Three forced pages — Summary, Revenue, Expenses, in that order, via .fin-plan-rpt-page +
-// .fin-plan-rpt-page{break-before:page} in html-head.js — and no closing "action steps" page.
+// Three forced pages — Summary, Revenue, Expenses, in that order — and no closing "action steps"
+// page. Revenue and Expenses each carry a second class, .fin-plan-rpt-newpage, whose
+// break-before:page in html-head.js starts them on a new sheet; Summary doesn't get that class,
+// same "class the pages that need a break, not the first" pattern the Compensation report's own
+// .fin-comp-rpt-page already uses — an adjacent-sibling selector (.fin-plan-rpt-page +
+// .fin-plan-rpt-page) looked equivalent but printed as a single un-paginated page in practice.
 // Within Revenue/Expenses, each board category prints as its own <tbody class="cat">
 // (break-inside:avoid), so a category's rows stay together across a page break wherever the
 // category itself fits on one page. finPlanSetPrintMode toggles "Plan for next year" (the
@@ -8022,13 +8026,13 @@ function finPlanBuildPrintSheetHtml() {
     + '</div>';
 
   var thead = '<thead>' + finPlanRptTableHead(showPlan, _finPlanBaseYear, _finPlanTargetYear) + '</thead>';
-  var revenuePage = !snap.revRoots.length ? '' : '<div class="fin-plan-rpt-page">'
+  var revenuePage = !snap.revRoots.length ? '' : '<div class="fin-plan-rpt-page fin-plan-rpt-newpage">'
     + watermark
     + '<h2 class="fin-plan-rpt-h2">Revenue</h2>'
     + '<div class="fin-plan-rpt-note">Grouped the way the board reads a budget (&ldquo;' + (_finPlanViewMode === 'board' ? 'Board view' : 'QuickBooks order') + '&rdquo;), whole dollars.</div>'
     + '<table class="fin-plan-rpt-table">' + thead + finPlanRptSection('Revenue', snap.revRoots, maps, revTotals, showPlan) + '</table>'
     + '</div>';
-  var expensesPage = !snap.expRoots.length ? '' : '<div class="fin-plan-rpt-page">'
+  var expensesPage = !snap.expRoots.length ? '' : '<div class="fin-plan-rpt-page fin-plan-rpt-newpage">'
     + watermark
     + '<h2 class="fin-plan-rpt-h2">Expenses</h2>'
     + '<table class="fin-plan-rpt-table">' + thead

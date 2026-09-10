@@ -65,3 +65,34 @@ describe('Budget tab print no longer blanks out (finPlanPrint / body.printing-pl
     expect(blockMatch[1]).toMatch(/display:\s*block\s*!important/);
   });
 });
+
+// Reported live, again: with the two-level nesting above already fixed and the sheet correctly
+// visible, three explicit break-before:page pages still printed as one, with the Revenue and
+// Expenses content simply gone rather than flowing onto pages 2/3. Root cause was app-wide, not
+// specific to Planning: the global "html,body{height:100%;overflow:hidden;}" rule (for the SPA
+// shell's fixed-viewport screen layout, where internal panels scroll but the page itself never
+// does) was never relaxed for print, so the browser's print engine paginated a body capped at one
+// viewport's height — anything past that was clipped before pagination ever saw it. Verified with
+// an actual generated PDF (chrome --headless --print-to-pdf), the same check a human's "Save as
+// PDF" performs, since vitest itself runs under environment:'node' with no page-layout engine —
+// same technique as the tests above, one level more literal.
+describe('Print pagination isn\'t silently clipped to one page (the global overflow:hidden reset)', () => {
+  it('a print-scoped rule relaxes html,body back to auto/visible, undoing the SPA shell\'s fixed-viewport screen layout', () => {
+    // Scoped inside @media print, not a bare rule — a bare (unconditional) reset would fight the
+    // screen-only rule below on every ordinary page load, not just print.
+    const printResetIndex = HTML_HEAD.indexOf('html,body{height:auto!important;overflow:visible!important;}');
+    expect(printResetIndex).toBeGreaterThan(-1);
+    const precedingMediaPrint = HTML_HEAD.lastIndexOf('@media print{', printResetIndex);
+    expect(precedingMediaPrint).toBeGreaterThan(-1);
+    // Every ordinary "selector{...}" rule between the two is brace-balanced on its own, so a net
+    // count of exactly 1 unmatched "{" (the @media's own) means the block never closed before
+    // reaching this rule — closed and reopened would show 0, one full rule short would show 2.
+    const between = HTML_HEAD.slice(precedingMediaPrint, printResetIndex);
+    const netOpenBraces = (between.match(/\{/g) || []).length - (between.match(/\}/g) || []).length;
+    expect(netOpenBraces).toBe(1);
+  });
+
+  it('the screen-only html,body rule (height:100%;overflow:hidden) is untouched — this is a print-only reset, not a removal', () => {
+    expect(HTML_HEAD).toMatch(/html,body\{height:100%;overflow:hidden;\}/);
+  });
+});
