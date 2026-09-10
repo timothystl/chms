@@ -3,6 +3,7 @@ import givingFixture from '../../contracts/examples/giving-summary-v1.synthetic.
 import { acceptConnectGivingSummaryV1 } from './connect-giving-consumer.js';
 import { reconcileSyntheticGivingDelivery } from './connect-giving-transport.js';
 import { fetchLiveConnectGivingSummary, defaultLiveGivingPeriod, postConnectGivingQuickEntry } from './connect-giving-client.js';
+import { callPayrollProxy } from './payroll-proxy-client.js';
 import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from './summary-service.js';
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from './parity-manifest.js';
@@ -111,6 +112,16 @@ function describeGivingEntryError(reason, message) {
     case 'http_error': return message ? String(message) : 'Connect refused the entry.';
     default: return 'The gift was not recorded.';
   }
+}
+
+// Confirms the payroll relay actually reached Website's proxy and got real data back, without
+// ever putting a staff name, ID, or wage figure in the response -- a count and the real result's
+// field names are enough to prove the round trip is genuine, and this is deliberately reachable
+// by anyone who can already view it (see the route-manifest.js comment on why this is temporary).
+function summarizePayrollRelayDiagnostic(result) {
+  if (!result.ok) return { ok: false, reason: result.reason, message: result.message || null };
+  const rows = Array.isArray(result.result) ? result.result : [];
+  return { ok: true, staffCount: rows.length, sampleFields: rows[0] ? Object.keys(rows[0]) : [] };
 }
 
 function todayIsoDate() {
@@ -538,6 +549,16 @@ export default {
       const params = new URLSearchParams({ section: 'giving', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'payroll-relay-diagnostic-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const result = await callPayrollProxy(env, accessJwt, 'payroll_get_staff', {});
+      const body = request.method === 'HEAD' ? null : JSON.stringify(summarizePayrollRelayDiagnostic(result));
+      return response(body, { headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'X-Finance-Contract': 'finance.payroll-relay-diagnostic.v1',
+      } });
     }
 
     if (route.id === 'summary-legacy') {
