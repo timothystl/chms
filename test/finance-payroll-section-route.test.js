@@ -49,6 +49,10 @@ const CHURCH_STAFF = [
 function rpcEnv(overrides = {}) {
   return liveEnv(async (req) => {
     const path = new URL(req.url).pathname;
+    if (path === '/payroll/email') {
+      if (overrides['/payroll/email']) return overrides['/payroll/email'](await req.json().catch(() => ({})));
+      return new Response(JSON.stringify({ ok: true, to: 'books@example.com' }), { status: 200 });
+    }
     const fn = path.replace('/sb/rest/v1/rpc/', '');
     if (overrides[fn]) return overrides[fn](await req.json().catch(() => ({})));
     if (fn === 'payroll_get_staff') return new Response(JSON.stringify(CHURCH_STAFF), { status: 200 });
@@ -269,5 +273,54 @@ describe('Finance Payroll CSV export', () => {
     expect(csv).toContain('James Hourly');
     expect(csv).toContain('TOTAL GROSS PAY');
     expect(csv).toContain('"2400.00"'); // (2000 salary + 200 housing) + 10*20 hourly
+  });
+});
+
+describe('Finance Payroll email relay', () => {
+  it('relays to Website\'s /payroll/email with the same shape exportReport() produces', async () => {
+    let captured;
+    const env = rpcEnv({
+      payroll_get_period_entries: async () => new Response(JSON.stringify([{ staff_id: 2, hours_worked: 10, pto_hours_used: 0 }]), { status: 200 }),
+      payroll_get_period_approval: async () => new Response(JSON.stringify([{ approved_at: '2026-06-15T00:00:00Z', approved_by: 'bookkeeper@timothystl.org' }]), { status: 200 }),
+      '/payroll/email': async (body) => { captured = body; return new Response(JSON.stringify({ ok: true, to: 'books@example.com' }), { status: 200 }); },
+    });
+    const res = await post(env, '/api/v1/payroll-email', { period: '2026-06-08' });
+    expect(location(res).search).toContain('status=emailed');
+    expect(location(res).search).toContain('to=books%40example.com');
+    expect(captured.periodStart).toBe('2026-06-08');
+    expect(captured.approved).toBe(true);
+    expect(captured.approvedBy).toBe('bookkeeper@timothystl.org');
+    expect(captured.total).toBe(2400);
+    expect(captured.church.rows.map((r) => r.name)).toEqual(['Sarah Salary', 'James Hourly']);
+    expect(captured.force).toBe(false);
+  });
+
+  it('surfaces an already_sent answer as a confirm banner, not an error', async () => {
+    const env = rpcEnv({
+      '/payroll/email': async () => new Response(JSON.stringify({ already_sent: true, last_sent_at: '2026-06-08T10:00:00Z', last_sent_to: 'books@example.com' }), { status: 200 }),
+    });
+    const res = await post(env, '/api/v1/payroll-email', { period: '2026-06-08' });
+    const loc = location(res);
+    expect(loc.searchParams.get('status')).toBe('already_sent');
+    expect(loc.searchParams.get('to')).toBe('books@example.com');
+    const html = await (await get(env, loc.pathname + loc.search)).text();
+    expect(html).toContain('already emailed to books@example.com');
+    expect(html).toContain('Send it again');
+    expect(html).not.toMatch(/<p class="status status-error"/);
+  });
+
+  it('a confirmed resend carries force=1 through to the relay', async () => {
+    let captured;
+    const env = rpcEnv({ '/payroll/email': async (body) => { captured = body; return new Response(JSON.stringify({ ok: true, to: 'books@example.com' }), { status: 200 }); } });
+    await post(env, '/api/v1/payroll-email', { period: '2026-06-08', force: '1' });
+    expect(captured.force).toBe(true);
+  });
+
+  it('redirects with an error status when Website refuses the relay', async () => {
+    const env = rpcEnv({ '/payroll/email': async () => new Response(JSON.stringify({ error: 'No bookkeeper address is set.' }), { status: 400 }) });
+    const res = await post(env, '/api/v1/payroll-email', { period: '2026-06-08' });
+    const loc = location(res);
+    expect(loc.searchParams.get('status')).toBe('error');
+    expect(loc.searchParams.get('message')).toContain('bookkeeper address');
   });
 });

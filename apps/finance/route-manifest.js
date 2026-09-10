@@ -32,6 +32,10 @@ const ROUTES = [
   { id: 'payroll-staff-save-v1', paths: ['/api/v1/payroll-staff-save'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'finance.payroll-staff-save-relay.v1' },
   { id: 'payroll-staff-deactivate-v1', paths: ['/api/v1/payroll-staff-deactivate'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'finance.payroll-staff-deactivate-relay.v1' },
   { id: 'payroll-csv-v1', paths: ['/api/v1/payroll-csv'], dataSource: 'live-relay-read', contract: 'finance.payroll-csv-relay.v1' },
+  // Emails the report to the bookkeeper through Website's own /payroll/email route (not a
+  // Supabase RPC -- see payroll-email-client.js) now that it accepts Finance's contract-relay
+  // identity (timothystl/website PR #587).
+  { id: 'payroll-email-v1', paths: ['/api/v1/payroll-email'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'finance.payroll-email-relay.v1' },
 ];
 
 export const FINANCE_ROUTE_MANIFEST = Object.freeze(ROUTES.map((route) => Object.freeze({

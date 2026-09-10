@@ -10,12 +10,13 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
   { id: 'compensation', label: 'Compensation', permission: 'compensation', capabilities: ['salary planning', 'benefits', 'district comparisons', 'council report'] },
   { id: 'data', label: 'Data & Imports', permission: 'finance', capabilities: ['connection status', 'file imports', 'staleness', 'classification and policy', 'administrative tools'] },
   // Full payroll parity with Website's admin/payroll.html, relayed live to Website's existing
-  // payroll proxy the same way Giving Entry relays to Connect (never stored in Finance) -- see
-  // payroll-section.js, payroll-calc.js and payroll-proxy-client.js. Emailing the report and the
-  // "payroll ready" push notification are not included yet: both need a second Website route
-  // extended to accept Finance's contract-relay identity, the same cross-repo change PR #586 made
-  // for the /sb/* proxy's CSRF check -- separate work, tracked apart from this parity slice.
-  { id: 'payroll', label: 'Payroll', permission: 'admin', capabilities: ['staff roster', 'hours and PTO entry', 'period approval', 'MDO hours integration', 'reports', 'CSV export', 'relayed live to Website, never stored in Finance'] },
+  // payroll proxy and payroll/email route the same way Giving Entry relays to Connect (never
+  // stored in Finance) -- see payroll-section.js, payroll-calc.js, payroll-proxy-client.js and
+  // payroll-email-client.js. The "payroll ready" push notification is not included yet: it needs
+  // a third Website route extended to accept Finance's contract-relay identity, the same
+  // cross-repo change PRs #586 and #587 made for /sb/* and /payroll/email -- separate work,
+  // tracked apart from this parity slice.
+  { id: 'payroll', label: 'Payroll', permission: 'admin', capabilities: ['staff roster', 'hours and PTO entry', 'period approval', 'MDO hours integration', 'reports', 'CSV export', 'email the report', 'relayed live to Website, never stored in Finance'] },
 ].map((section) => Object.freeze({ ...section, capabilities: Object.freeze(section.capabilities) })));
 
 const SECTION_BY_ID = new Map(FINANCE_PARITY_SECTIONS.map((section) => [section.id, section]));

@@ -7,7 +7,7 @@ import { callPayrollProxy } from './payroll-proxy-client.js';
 import {
   buildPayrollSectionBundle, renderPayrollSection, saveAllHours, approvePeriod,
   saveStaffFromForm, deactivateStaffFromForm, buildCsvForPeriod, resolvePayrollPeriod, loadPayrollWorkspace,
-  approverEmailFromJwt,
+  approverEmailFromJwt, emailReport,
 } from './payroll-section.js';
 import { missingHours as payrollMissingHours } from './payroll-calc.js';
 import { decodeJwtClaimsUnsafe } from './jwt-decode-unsafe.js';
@@ -723,6 +723,30 @@ export default {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="payroll-${period.start}.csv"`,
       } });
+    }
+
+    if (route.id === 'payroll-email-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try { form = await request.formData(); } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=payroll&status=error&message=Could+not+read+the+form' } });
+      }
+      const { period } = resolvePayrollPeriod(String(form.get('period') || ''));
+      const workspace = await loadPayrollWorkspace(env, accessJwt, period.start, period.end);
+      const result = await emailReport(env, accessJwt, period, workspace, form.get('force') === '1');
+      const params = new URLSearchParams({ section: 'payroll', period: period.start, view: 'entry' });
+      if (result.ok) {
+        params.set('status', 'emailed');
+        if (result.to) params.set('to', result.to);
+      } else if (result.reason === 'already_sent') {
+        params.set('status', 'already_sent');
+        if (result.alreadySentTo) params.set('to', result.alreadySentTo);
+        if (result.alreadySentAt) params.set('at', result.alreadySentAt);
+      } else {
+        params.set('status', 'error');
+        params.set('message', String(result.message || result.reason || 'unknown error').slice(0, 200));
+      }
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
 
     if (route.id === 'summary-legacy') {

@@ -12,7 +12,7 @@ import {
 // dataSource is a regression.
 const WRITE_ROUTE_IDS = new Set([
   'giving-quick-entry-v1', 'payroll-hours-save-v1', 'payroll-period-approve-v1',
-  'payroll-staff-save-v1', 'payroll-staff-deactivate-v1',
+  'payroll-staff-save-v1', 'payroll-staff-deactivate-v1', 'payroll-email-v1',
 ]);
 const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1']);
 
@@ -26,6 +26,7 @@ describe('Finance staging route manifest', () => {
       '/api/v1/connect-giving-quick-entry', '/api/summary', '/api/v1/payroll-relay-diagnostic',
       '/api/v1/payroll-hours-save', '/api/v1/payroll-period-approve',
       '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
+      '/api/v1/payroll-email',
     ]);
     for (const route of FINANCE_ROUTE_MANIFEST) {
       if (WRITE_ROUTE_IDS.has(route.id)) {
@@ -76,6 +77,9 @@ describe('Finance staging route manifest', () => {
     });
     expect(resolveFinanceRoute('/api/v1/payroll-csv')).toMatchObject({
       id: 'payroll-csv-v1', contract: 'finance.payroll-csv-relay.v1', dataSource: 'live-relay-read',
+    });
+    expect(resolveFinanceRoute('/api/v1/payroll-email')).toMatchObject({
+      id: 'payroll-email-v1', contract: 'finance.payroll-email-relay.v1', dataSource: 'live-relay',
     });
     expect(resolveFinanceRoute('/missing')).toBeUndefined();
 
