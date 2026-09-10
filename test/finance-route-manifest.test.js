@@ -5,31 +5,36 @@ import {
   resolveFinanceRoute,
 } from '../apps/finance/route-manifest.js';
 
-// A route is "read-only, synthetic" here unless it is one of the two deliberate, named exceptions
-// below: giving-quick-entry-v1 relays a write to Connect (never touches Finance's own database);
-// payroll-relay-diagnostic-v1 is a temporary read-only relay to Website's live payroll proxy, kept
-// only until the real payroll UI exists to exercise that path directly (see route-manifest.js).
-// Anything else claiming non-GET/HEAD methods, a `writer` flag, or a live dataSource is a regression.
-const WRITE_ROUTE_ID = 'giving-quick-entry-v1';
-const LIVE_READ_ROUTE_ID = 'payroll-relay-diagnostic-v1';
+// A route is "read-only, synthetic" here unless it is one of the declared, named exceptions
+// below: the Giving and payroll write relays relay a write to Website/Connect (never touch
+// Finance's own database); the payroll read relays are live calls out to Website's payroll proxy,
+// not synthetic fixtures. Anything else claiming non-GET/HEAD methods, a `writer` flag, or a live
+// dataSource is a regression.
+const WRITE_ROUTE_IDS = new Set([
+  'giving-quick-entry-v1', 'payroll-hours-save-v1', 'payroll-period-approve-v1',
+  'payroll-staff-save-v1', 'payroll-staff-deactivate-v1',
+]);
+const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1']);
 
 describe('Finance staging route manifest', () => {
-  it('is a closed, unique inventory with isolated data sources, read-only except two declared live relays', () => {
+  it('is a closed, unique inventory with isolated data sources, read-only except the declared live relays', () => {
     const paths = FINANCE_ROUTE_MANIFEST.flatMap((route) => route.paths);
     expect(new Set(paths).size).toBe(paths.length);
     expect(paths).toEqual([
       '/', '/index.html', '/health', '/api/v1/summary',
       '/api/v1/connect-giving-preview', '/api/v1/connect-giving-transport-evidence',
       '/api/v1/connect-giving-quick-entry', '/api/summary', '/api/v1/payroll-relay-diagnostic',
+      '/api/v1/payroll-hours-save', '/api/v1/payroll-period-approve',
+      '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
     ]);
     for (const route of FINANCE_ROUTE_MANIFEST) {
-      if (route.id === WRITE_ROUTE_ID) {
+      if (WRITE_ROUTE_IDS.has(route.id)) {
         expect(route.methods).toEqual(['POST']);
         expect(route.writer).toBe(true);
         expect(route.dataSource).toBe('live-relay');
         continue;
       }
-      if (route.id === LIVE_READ_ROUTE_ID) {
+      if (LIVE_READ_ROUTE_IDS.has(route.id)) {
         expect(route.methods).toEqual(['GET', 'HEAD']);
         expect(route.dataSource).toBe('live-relay-read');
         expect(route).not.toHaveProperty('writer');
@@ -52,10 +57,25 @@ describe('Finance staging route manifest', () => {
       id: 'giving-transport-evidence-v1', contract: 'finance.connect-giving-transport-evidence.v1', dataSource: 'synthetic-static',
     });
     expect(resolveFinanceRoute('/api/v1/connect-giving-quick-entry')).toMatchObject({
-      id: WRITE_ROUTE_ID, contract: 'connect.giving-quick-entry-relay.v1',
+      id: 'giving-quick-entry-v1', contract: 'connect.giving-quick-entry-relay.v1',
     });
     expect(resolveFinanceRoute('/api/v1/payroll-relay-diagnostic')).toMatchObject({
-      id: LIVE_READ_ROUTE_ID, contract: 'finance.payroll-relay-diagnostic.v1', dataSource: 'live-relay-read',
+      id: 'payroll-relay-diagnostic-v1', contract: 'finance.payroll-relay-diagnostic.v1', dataSource: 'live-relay-read',
+    });
+    expect(resolveFinanceRoute('/api/v1/payroll-hours-save')).toMatchObject({
+      id: 'payroll-hours-save-v1', contract: 'finance.payroll-hours-save-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/payroll-period-approve')).toMatchObject({
+      id: 'payroll-period-approve-v1', contract: 'finance.payroll-period-approve-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/payroll-staff-save')).toMatchObject({
+      id: 'payroll-staff-save-v1', contract: 'finance.payroll-staff-save-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/payroll-staff-deactivate')).toMatchObject({
+      id: 'payroll-staff-deactivate-v1', contract: 'finance.payroll-staff-deactivate-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/payroll-csv')).toMatchObject({
+      id: 'payroll-csv-v1', contract: 'finance.payroll-csv-relay.v1', dataSource: 'live-relay-read',
     });
     expect(resolveFinanceRoute('/missing')).toBeUndefined();
 

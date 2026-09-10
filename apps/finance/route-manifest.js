@@ -14,12 +14,24 @@ const ROUTES = [
   { id: 'giving-quick-entry-v1', paths: ['/api/v1/connect-giving-quick-entry'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.giving-quick-entry-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
-  // Website's production payroll proxy end to end, before any real payroll UI is built on top of
-  // it. Read-only from Finance's own perspective (no Finance DB write), but -- like the Giving
-  // relay above -- it is a genuine live call out, not a synthetic fixture, so it gets its own
-  // `dataSource` value rather than borrowing the synthetic ones. Remove once the real payroll
-  // screens exist and exercise this path naturally.
+  // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no
+  // Finance DB write), but -- like the Giving relay above -- it is a genuine live call out, not a
+  // synthetic fixture, so it gets its own `dataSource` value rather than borrowing the synthetic
+  // ones. The real payroll screens now exist (see payroll-section.js) and exercise this path
+  // naturally through their own routes below; this stays only as a narrow, no-data-shown probe.
   { id: 'payroll-relay-diagnostic-v1', paths: ['/api/v1/payroll-relay-diagnostic'], dataSource: 'live-relay-read', contract: 'finance.payroll-relay-diagnostic.v1' },
+  // ── Real payroll parity, relayed live to Website's existing payroll proxy, the same way the
+  // Giving relay above reaches Connect. Never stored in Finance's own database -- every read is
+  // re-fetched from Website on each request and every write below is a live RPC call out, gated
+  // entirely by Website's own payroll_manage check on the resolved contract-relay identity (see
+  // payroll-contract-auth.js in the website repo). `writer: true` on the four write routes for
+  // the same reason as the Giving relay: this is the one deliberate exception to "Finance is
+  // read-only", made visible here rather than in a conditional elsewhere.
+  { id: 'payroll-hours-save-v1', paths: ['/api/v1/payroll-hours-save'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'finance.payroll-hours-save-relay.v1' },
+  { id: 'payroll-period-approve-v1', paths: ['/api/v1/payroll-period-approve'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'finance.payroll-period-approve-relay.v1' },
+  { id: 'payroll-staff-save-v1', paths: ['/api/v1/payroll-staff-save'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'finance.payroll-staff-save-relay.v1' },
+  { id: 'payroll-staff-deactivate-v1', paths: ['/api/v1/payroll-staff-deactivate'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'finance.payroll-staff-deactivate-relay.v1' },
+  { id: 'payroll-csv-v1', paths: ['/api/v1/payroll-csv'], dataSource: 'live-relay-read', contract: 'finance.payroll-csv-relay.v1' },
 ];
 
 export const FINANCE_ROUTE_MANIFEST = Object.freeze(ROUTES.map((route) => Object.freeze({
