@@ -675,14 +675,21 @@ describe('Planning table — Print', () => {
   it('forces exactly three pages — Summary, Revenue, Expenses — with no trailing page', () => {
     const { fin, printRoot } = printSetup();
     fin.finPlanPrint();
-    const pages = printRoot.innerHTML.split('<div class="fin-plan-rpt-page">');
-    // split()'s first element is whatever precedes the first match (the outer <div
-    // class="fin-plan-rpt-page fin-plan-rpt"> wrapper), so three pages means four parts.
+    const html = printRoot.innerHTML;
+    const pages = html.split(/<div class="fin-plan-rpt-page(?: fin-plan-rpt-newpage)?">/);
+    // split()'s first element is whatever precedes the first match (the outer
+    // <div class="fin-plan-rpt"> wrapper), so three pages means four parts.
     expect(pages.length).toBe(4);
     expect(pages[1]).toContain('Fiscal Year 2027 Budget');
     expect(pages[2]).toContain('<h2 class="fin-plan-rpt-h2">Revenue</h2>');
     expect(pages[3]).toContain('<h2 class="fin-plan-rpt-h2">Expenses</h2>');
     expect(pages[3]).toContain('Net &mdash; revenue less expenses');
+    // Real page breaks land on Revenue and Expenses only, never on the leading Summary page — an
+    // adjacent-sibling selector looked equivalent but printed as one un-paginated page in
+    // practice (see finPlanBuildPrintSheetHtml's own comment in js-finance.js).
+    expect((html.match(/fin-plan-rpt-newpage/g) || []).length).toBe(2);
+    const firstPageTag = html.match(/<div class="fin-plan-rpt-page[^"]*">/)[0];
+    expect(firstPageTag).toBe('<div class="fin-plan-rpt-page">');
   });
 
   it('drops the motion/column-key/rounding boxes the sheet used to end with', () => {
