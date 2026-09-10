@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-data-status:v1",
+  "title": "Connect Finance data-status v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "generatedAt", "imports", "quickbooks"],
+  "properties": {
+    "contract": { "const": "connect.finance-data-status.v1" },
+    "dataClassification": { "const": "aggregate" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "imports": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mostRecentImportAt", "importerCount"],
+      "properties": {
+        "mostRecentImportAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "MAX(last_imported_at) across finance_import_log, or null if no importer has ever recorded a run."
+        },
+        "importerCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Distinct importer_key rows currently in finance_import_log."
+        }
+      }
+    },
+    "quickbooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["connected", "lastSyncedAt"],
+      "properties": {
+        "connected": {
+          "type": "boolean",
+          "description": "Whether a finance_qb_connection row exists. Never carries tokens or other secrets."
+        },
+        "lastSyncedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    }
+  }
+}
