@@ -4,6 +4,12 @@ import { acceptConnectGivingSummaryV1 } from './connect-giving-consumer.js';
 import { reconcileSyntheticGivingDelivery } from './connect-giving-transport.js';
 import { fetchLiveConnectGivingSummary, defaultLiveGivingPeriod, postConnectGivingQuickEntry } from './connect-giving-client.js';
 import { callPayrollProxy } from './payroll-proxy-client.js';
+import {
+  buildPayrollSectionBundle, renderPayrollSection, saveAllHours, approvePeriod,
+  saveStaffFromForm, deactivateStaffFromForm, buildCsvForPeriod, resolvePayrollPeriod, loadPayrollWorkspace,
+  approverEmailFromJwt,
+} from './payroll-section.js';
+import { missingHours as payrollMissingHours } from './payroll-calc.js';
 import { decodeJwtClaimsUnsafe } from './jwt-decode-unsafe.js';
 import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from './summary-service.js';
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
@@ -243,7 +249,7 @@ function renderGivingFundOptions(giving) {
   return funds.map((fund) => `<option value="${escapeHtml(fund.fundRef)}">${escapeHtml(fund.fundLabel || fund.fundRef)}</option>`).join('');
 }
 
-function renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollStaffResult) {
+function renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     const runway = buildCashRunwayView(cashRunway);
@@ -401,13 +407,7 @@ function renderSectionBody(section, summary, giving, givingSource, churchReport,
     </section>`;
   }
   if (section.id === 'payroll') {
-    const rows = payrollStaffResult?.ok && Array.isArray(payrollStaffResult.result) ? payrollStaffResult.result : [];
-    return `<section aria-label="Payroll staff roster">
-      <div class="section-heading"><div><div class="eyebrow">Payroll</div><h2>Staff roster</h2></div><span class="badge">Relayed live to Website</span></div>
-      ${renderPayrollStatus(payrollStaffResult)}
-      ${payrollStaffResult?.ok ? `<div class="grid"><div class="card"><small>Staff records</small><strong>${rows.length}</strong><span>Live from Website's payroll data, not stored in Finance</span></div></div>${renderPayrollStaffRows(rows)}` : ''}
-      <p>This reads Website's existing payroll roster through the same live relay Giving Entry uses to reach Connect. Full payroll parity -- hours and PTO entry, rate management, period approval, year totals, exports -- is a separate, larger effort and is not built yet; this is the first read-only slice.</p>
-    </section>`;
+    return renderPayrollSection(payrollBundle);
   }
   return `<section class="parity" aria-label="${section.label} staging scaffold">
     <h2>${section.label}</h2>
@@ -416,27 +416,7 @@ function renderSectionBody(section, summary, giving, givingSource, churchReport,
   </section>`;
 }
 
-// Website's payroll_get_staff RPC shape isn't pinned in this repo -- render whatever columns
-// actually come back rather than assuming specific field names, so a real response (once the
-// relay is authenticated end to end) shows correctly without another code change.
-function renderPayrollStaffRows(rows) {
-  if (!rows.length) return '<p>No staff records were returned.</p>';
-  const columns = Object.keys(rows[0]);
-  const head = columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('');
-  const body = rows.map((row) => `<tr>${columns.map((column) => `<td>${escapeHtml(row[column] ?? '')}</td>`).join('')}</tr>`).join('');
-  return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
-}
-
-// This is an internal admin tool, not a public-facing form -- the raw reason/message from
-// callPayrollProxy is shown directly rather than paraphrased, since whoever sees this page
-// already has payroll_manage and needs the real detail to fix a configuration problem.
-function renderPayrollStatus(result) {
-  if (!result || result.ok) return '';
-  const detail = result.message ? `${result.reason}: ${result.message}` : result.reason;
-  return `<p class="status status-error">Not connected: ${escapeHtml(detail)}</p>`;
-}
-
-function renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollStaffResult) {
+function renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -493,6 +473,48 @@ function renderShell(metadata, summary, giving, givingSource, section, churchRep
     .parity ul { columns:2; color:var(--warm-gray); line-height:1.8; }
     footer { margin-top:2rem; padding-top:1rem; border-top:1px solid var(--border); color:var(--warm-meta); font-size:.75rem; }
     @media(max-width:767px){.appbar{padding:.75rem 1rem}.brand{font-size:.92rem}.environment{display:none}main{width:min(100% - 1.2rem,72rem);padding-top:1.4rem}.section-heading{align-items:start;flex-direction:column}.grid{grid-template-columns:1fr}.parity ul{columns:1}}
+    /* ── Payroll ── */
+    .pay-toolbar { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:1rem; }
+    .pay-toolbar select { min-width:14rem; }
+    .pay-tab { padding:.55rem .9rem; border:1px solid var(--border); border-radius:.6rem; background:var(--card); color:var(--warm-label); font-size:.78rem; font-weight:700; text-decoration:none; }
+    .pay-tab.is-on { border-color:var(--teal); background:#e4eef4; color:var(--navy); }
+    .pay-note { display:block; color:var(--warm-meta); font-size:.76rem; margin-top:.2rem; }
+    .pay-pill { display:inline-block; padding:.2rem .6rem; border-radius:999px; font-size:.68rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
+    .pay-pill-good { background:#eaf1e5; color:#3b4c2e; }
+    .pay-pill-warn { background:#fbf1dc; color:#7a5b18; }
+    .pay-pill-plain { background:#f1efea; color:#6a6858; }
+    .pay-in { width:5.5rem; padding:.4rem .5rem; text-align:right; font-size:.85rem; }
+    .pay-in[readonly] { background:var(--header); }
+    .pay-group { margin:1.4rem 0 .6rem; color:var(--warm-meta); font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+    .pay-card { border:1px solid var(--border); border-radius:.85rem; overflow:hidden; background:var(--card); margin-top:.85rem; }
+    .pay-card-bar { padding:.65rem 1rem; background:var(--header); color:var(--warm-label); font-size:.7rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; caption-side:top; text-align:left; }
+    .pay-li { display:flex; justify-content:space-between; gap:1rem; padding:.55rem 1rem; border-bottom:1px solid var(--divider); font-size:.85rem; }
+    .pay-li:last-child { border-bottom:0; }
+    .pay-li.muted { color:var(--warm-meta); }
+    .pay-li.neg { color:#8a4a4a; }
+    .pay-li.total { background:var(--header); font-weight:700; }
+    .pay-combined { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:1rem; padding:1rem 1.2rem; border:1px solid var(--gold); border-radius:.85rem; background:#fdf8ec; }
+    .pay-combined b { margin-left:auto; font-size:1.5rem; color:var(--navy); }
+    .pay-warn { margin-top:1rem; padding:.85rem 1rem; border:1px solid #e4c8c8; border-radius:.6rem; background:#faefef; color:#8a4a4a; font-size:.85rem; }
+    .pay-foot { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:1rem; padding-top:1rem; border-top:1px solid var(--border); }
+    .pay-approve { background:var(--gold); color:#1b1608; }
+    .pay-approve.is-done { background:var(--card); color:var(--navy); border:1px solid var(--border); }
+    #pay-print { display:none; }
+    .pt-header h2 { margin:0; font-size:1.05rem; color:var(--navy); }
+    .pt-period { color:var(--warm-meta); font-size:.75rem; }
+    .pt-section { margin:.85rem 0; }
+    .pt-section-label { font-size:.68rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--warm-meta); border-bottom:1.5px solid var(--border); padding-bottom:.15rem; margin-bottom:.25rem; }
+    .pt-table { width:100%; border-collapse:collapse; font-size:.78rem; }
+    .pt-table th { text-align:left; padding:.2rem .5rem; background:var(--header); font-size:.65rem; text-transform:uppercase; }
+    .pt-table td { padding:.2rem .5rem; }
+    .pt-table .pt-num { text-align:right; font-variant-numeric:tabular-nums; }
+    .pt-table .pt-sub td { font-weight:700; background:var(--header); }
+    .pt-total { display:flex; justify-content:space-between; margin-top:.6rem; padding:.55rem .75rem; border-radius:.5rem; background:var(--navy); color:#fff; font-weight:700; }
+    .pt-warn { margin:0 0 .75rem; padding:.55rem .75rem; border:1px solid #e4c8c8; border-radius:.5rem; background:#faefef; color:#8a4a4a; font-size:.78rem; }
+    @media print {
+      .appbar, nav, .pay-toolbar, form, .status, footer, h1, .eyebrow, main > p:first-of-type { display:none !important; }
+      #pay-print { display:block !important; }
+    }
   </style>
 </head>
 <body>
@@ -503,7 +525,7 @@ function renderShell(metadata, summary, giving, givingSource, section, churchRep
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-      ${renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollStaffResult)}
+      ${renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle)}
     <p><small>Every value besides Giving shown here comes from deterministic synthetic staging fixtures. Giving is ${givingSource === 'live' ? 'fetched live from Connect’s real, aggregate-only contract endpoint' : 'the committed Connect contract example (the live endpoint is not configured or did not answer), validated locally with no network call'}.</small></p>
     <footer>${release}</footer>
   </main>
@@ -608,6 +630,101 @@ export default {
       } });
     }
 
+    // ── PAYROLL WRITES ── every one relays to Website's payroll_* RPCs, and Website's own
+    // proxy is the real, authoritative gate (payroll_manage on the resolved contract-relay
+    // identity, plus the period-lock check on payroll_save_hours) -- these handlers only
+    // orchestrate the calls and redirect back to the page with a status message, the same
+    // 303-redirect-after-POST shape giving-quick-entry-v1 above already uses.
+    if (route.id === 'payroll-hours-save-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try { form = await request.formData(); } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=payroll&status=error&message=Could+not+read+the+form' } });
+      }
+      const periodStart = String(form.get('period') || '');
+      const { period } = resolvePayrollPeriod(periodStart);
+      const workspace = await loadPayrollWorkspace(env, accessJwt, period.start, period.end);
+      const result = await saveAllHours(env, accessJwt, period.start, workspace.churchStaff, workspace.periodEntries, form);
+      const params = new URLSearchParams({ section: 'payroll', period: period.start, view: 'entry' });
+      params.set('status', result.ok ? 'saved' : 'error');
+      if (!result.ok && result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'payroll-period-approve-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try { form = await request.formData(); } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=payroll&status=error&message=Could+not+read+the+form' } });
+      }
+      const periodStart = String(form.get('period') || '');
+      const { period } = resolvePayrollPeriod(periodStart);
+      const workspace = await loadPayrollWorkspace(env, accessJwt, period.start, period.end);
+      const wantsApprove = form.get('action') !== 'unapprove';
+
+      if (wantsApprove && !workspace.periodApproval) {
+        const missing = payrollMissingHours(workspace.churchStaff, workspace.periodEntries);
+        if (missing.length && form.get('confirm_missing') !== '1') {
+          return response(null, { status: 303, headers: { Location: `/?section=payroll&period=${encodeURIComponent(period.start)}&view=entry&needs_confirm=1` } });
+        }
+      }
+      if (!wantsApprove && form.get('confirm_unapprove') !== '1') {
+        return response(null, { status: 303, headers: { Location: `/?section=payroll&period=${encodeURIComponent(period.start)}&view=entry` } });
+      }
+
+      const approvedBy = approverEmailFromJwt(accessJwt) || 'Finance';
+      const result = await approvePeriod(env, accessJwt, period.start, approvedBy, workspace);
+      const params = new URLSearchParams({ section: 'payroll', period: period.start, view: 'entry' });
+      params.set('status', result.ok ? (wantsApprove ? 'approved' : 'unapproved') : 'error');
+      if (!result.ok && result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'payroll-staff-save-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try { form = await request.formData(); } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=payroll&view=staff-form&status=error&message=Could+not+read+the+form' } });
+      }
+      const result = await saveStaffFromForm(env, accessJwt, form);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=payroll&view=entry&status=staff_saved' } });
+      }
+      const params = new URLSearchParams({ section: 'payroll', view: 'staff-form', status: 'error' });
+      if (form.get('id')) params.set('id', String(form.get('id')));
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'payroll-staff-deactivate-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try { form = await request.formData(); } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=payroll&view=entry&status=error&message=Could+not+read+the+form' } });
+      }
+      const result = await deactivateStaffFromForm(env, accessJwt, form);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=payroll&view=entry&status=staff_removed' } });
+      }
+      const params = new URLSearchParams({ section: 'payroll', view: 'staff-form', status: 'error', id: String(form.get('id') || '') });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'payroll-csv-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const { period } = resolvePayrollPeriod(url.searchParams.get('period'));
+      const workspace = await loadPayrollWorkspace(env, accessJwt, period.start, period.end);
+      const csv = buildCsvForPeriod(period, workspace);
+      if (request.method === 'HEAD') {
+        return response(null, { headers: { 'Content-Type': 'text/csv; charset=utf-8' } });
+      }
+      return response(csv, { headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="payroll-${period.start}.csv"`,
+      } });
+    }
+
     if (route.id === 'summary-legacy') {
       try {
         const summary = await readSyntheticSummary(env.FINANCE_DB);
@@ -673,10 +790,10 @@ export default {
         const givingEntryMessage = givingEntryStatus === 'error'
           ? describeGivingEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
-        const payrollStaffResult = section.id === 'payroll'
-          ? await callPayrollProxy(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', 'payroll_get_staff', {})
+        const payrollBundle = section.id === 'payroll'
+          ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
-        return response(renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollStaffResult), {
+        return response(renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {
