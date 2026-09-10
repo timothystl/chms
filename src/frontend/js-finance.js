@@ -7956,8 +7956,11 @@ function finPlanBuildPrintSheetHtml() {
     + finPlanRptSection('Expenses', snap.expRoots, maps, expTotals)
     + finPlanRptNetRow(_finPlanBaseNet.budgetCents || null, netActualCents, netProjCents, netPlanCents);
   var table = (!snap.revRoots.length && !snap.expRoots.length) ? '<p class="fin-plan-rpt-p mut">No Church Budget data found for FY' + _finPlanBaseYear + '.</p>'
+    // table-layout:fixed reads column widths from THIS row alone — the labels wrapped this
+    // section (e.g. "58200 District & Synod Support") mean Category needs real room, the
+    // narrowest bar of every other column is Δ%, everything else money.
     : '<table class="fin-plan-rpt-table"><thead><tr>'
-      + '<th>Category</th><th class="n">FY' + _finPlanBaseYear + ' Budget</th><th class="n">FY' + _finPlanBaseYear + ' Actual</th><th class="n">FY' + _finPlanBaseYear + ' Proj.</th><th class="n">FY' + _finPlanTargetYear + ' Plan</th><th class="n">Change</th><th class="n">&Delta;%</th>'
+      + '<th style="width:24%;">Category</th><th class="n" style="width:13%;">FY' + _finPlanBaseYear + ' Budget</th><th class="n" style="width:13%;">FY' + _finPlanBaseYear + ' Actual</th><th class="n" style="width:13%;">FY' + _finPlanBaseYear + ' Proj.</th><th class="n" style="width:13%;">FY' + _finPlanTargetYear + ' Plan</th><th class="n" style="width:12%;">Change</th><th class="n" style="width:12%;">&Delta;%</th>'
       + '</tr></thead><tbody>' + tableRows + '</tbody></table>';
 
   var excludedCount = Object.keys(_finPlanExcluded).length;
