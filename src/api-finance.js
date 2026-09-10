@@ -1479,6 +1479,38 @@ export function computeEquityReclassification(rows) {
     unclassified,
   };
 }
+// ── Standard nonprofit presentation: Designated Funds shown as Net Assets, not Liabilities ──
+// Confirmed with Pastor Dinger 2026-09-10: the "25000 Funds" group (gifts already given for a
+// specific ministry purpose — Memorial, Food Pantry, missions, etc.) reads as Net Assets in the
+// Balance Sheet tab's stat cards and Full account detail tree, not as a debt owed to an outside
+// party — QuickBooks' chart of accounts files it under Liabilities by default, this church's own
+// books included. Total Assets, and the combined Liabilities+Equity bottom line, are unchanged;
+// only the split between the two moves, by exactly the Funds total.
+//
+// Moves the WHOLE "25000 Funds" branch (its own $0 group row plus every leaf beneath it) by
+// category_path pattern — not via EQUITY_RECLASS_ACCOUNTS above. That table drives a SEPARATE,
+// more granular donor-restriction analysis (computeEquityReclassification) which must keep
+// reading the UNTRANSFORMED rows: its unrestrictedCents is a residual against totalEquityCents,
+// and totalEquityCents there already assumes Designated Funds are NOT part of raw Equity — folding
+// this reclassification into that path first would double-count the Funds dollars into
+// unrestrictedCents instead of leaving it unchanged. So: call this once, on the rows that feed
+// computeBalanceSummary() (and whatever's returned to the frontend as `rows`, so the Full account
+// detail tree nests Designated Funds under Equity too) — never on the rows passed to
+// computeEquityReclassification().
+//
+// A leaf's own account_name/own_balance_cents are untouched (still "25004 Building Fund", same
+// cents) — only classification, category_path and depth move, so every dollar figure downstream
+// (multi-year charts, YoY, the P&L tie-out) still traces straight back to the same imported cents.
+export function applyDesignatedFundsAsEquity(rows) {
+  return (rows || []).map((r) => {
+    if (r.classification !== 'Liabilities') return r;
+    const segments = String(r.category_path || '').split(':');
+    const idx = segments.findIndex((seg) => /^25000\b/.test(seg.trim()));
+    if (idx === -1) return r;
+    const newSegments = ['Equity', ...segments.slice(idx)];
+    return { ...r, classification: 'Equity', category_path: newSegments.join(':'), depth: newSegments.length - 1 };
+  });
+}
 // The real export's trailing footer line names its accounting basis (e.g. "Cash Basis Tuesday,
 // July 28, 2026 03:11 PM GMT-05:00") — 2025's export was run on Accrual while every other year on
 // file is Cash, so this is surfaced rather than silently assumed, per the spec.
@@ -3965,7 +3997,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const year = parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear();
     const rows = (await db.prepare('SELECT * FROM finance_church_balances WHERE fiscal_year=? ORDER BY category_path').bind(year).all()).results || [];
     if (!rows.length) return json({ year, rows: [], summary: null, asOfDate: '', equityReclass: null });
-    return json({ year, rows, summary: computeBalanceSummary(rows), asOfDate: rows[0].as_of_date || '', equityReclass: computeEquityReclassification(rows) });
+    // Both the stat-card summary and the Donor-Restricted breakdown read the SAME reclassified
+    // rows, so "Total Equity" up top always equals Donor-Restricted + Without Donor Restrictions
+    // below it — see applyDesignatedFundsAsEquity's own comment for why this is also the
+    // mathematically correct total once Designated Funds count as Net Assets: real total net
+    // worth is book equity PLUS the funds no longer excluded as a liability.
+    const displayRows = applyDesignatedFundsAsEquity(rows);
+    return json({ year, rows: displayRows, summary: computeBalanceSummary(displayRows), asOfDate: rows[0].as_of_date || '', equityReclass: computeEquityReclassification(displayRows) });
   }
 
   // Multi-year trend: one bulk query + JS grouping (matches this app's existing performance
@@ -4010,9 +4048,14 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const cashByYear = {};
     balanceYears.forEach(y => {
       const yearRows = allRows.filter(r => r.fiscal_year === y);
-      byYear[y] = computeBalanceSummary(yearRows);
+      // Both read the same reclassified rows, so a year's Total Equity always equals that year's
+      // Donor-Restricted + Without Donor Restrictions — see the single-year route above and
+      // applyDesignatedFundsAsEquity's own comment. computeYearCashSummary is Assets-only
+      // (bank/cash accounts), untouched by this Liabilities<->Equity reclassification either way.
+      const displayRows = applyDesignatedFundsAsEquity(yearRows);
+      byYear[y] = computeBalanceSummary(displayRows);
       if (years.includes(y)) {
-        equityReclassByYear[y] = yearRows.length ? computeEquityReclassification(yearRows) : null;
+        equityReclassByYear[y] = yearRows.length ? computeEquityReclassification(displayRows) : null;
         cashByYear[y] = yearRows.length ? computeYearCashSummary(yearRows, cashPolicy.cash_account_code) : null;
       }
     });

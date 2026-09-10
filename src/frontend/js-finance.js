@@ -4321,7 +4321,8 @@ function finRenderBalanceSheetTab(d, multiYear) {
     + '<div style="font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Equity</div>'
     + '<div style="font-size:1.3rem;font-weight:700;color:var(--steel-anchor);">$' + finFmtMoney(s.equityCents / 100) + '</div></div>'
     + '</div>'
-    + '<div style="font-size:.82rem;margin-bottom:18px;">' + checkHtml + '</div>';
+    + '<div style="font-size:.82rem;margin-bottom:6px;">' + checkHtml + '</div>'
+    + '<div style="font-size:.74rem;color:var(--warm-gray);margin-bottom:18px;">Designated &amp; Restricted Funds (Memorial, Food Pantry, missions, etc.) are shown here as Net Assets, not as a Liability &mdash; the standard nonprofit presentation, confirmed 2026-09-10. They’re gifts already given for a specific purpose, not a debt owed to an outside party. QuickBooks&rsquo; own chart of accounts still files them under Liabilities.</div>';
   html += finRenderEquityReclassCard(d.equityReclass);
   var tree = finBuildBalanceTreeFromFlatRows(d.rows);
   var assetPie = finPieItemsFromTree(tree, 'Assets', 'totalBalanceCents');
