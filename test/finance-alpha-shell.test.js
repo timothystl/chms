@@ -141,13 +141,16 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     for (const forbidden of ['kv_namespaces', 'r2_buckets', 'queues', 'triggers']) {
       expect(config[forbidden], `${forbidden} must not exist in the alpha shell`).toBeUndefined();
     }
-    // 'services' is deliberately no longer in the forbidden list above: the one binding this
-    // config carries, CONNECT_SERVICE, is the intentional real connect.giving-summary.v1
-    // connection (see connect-giving-client.js) -- pin exactly that one binding, at exactly
-    // Connect's STAGING Worker, so a future addition of some other outbound service still fails
-    // this test.
+    // 'services' is deliberately no longer in the forbidden list above: the two bindings this
+    // config carries are each an intentional, narrow real connection -- CONNECT_SERVICE for
+    // connect.giving-summary.v1 (see connect-giving-client.js), PAYROLL_SERVICE for Website's
+    // existing payroll proxy (see payroll-proxy-client.js). Pin exactly these two, at exactly
+    // these two Workers -- CONNECT_SERVICE at Connect's STAGING Worker, PAYROLL_SERVICE at
+    // Website's PRODUCTION admin Worker (tlc-newsletter-admin has no staging counterpart) --
+    // so a future addition of some other outbound service still fails this test.
     expect(config.services).toEqual([
       { binding: 'CONNECT_SERVICE', service: 'timothy-connect-staging' },
+      { binding: 'PAYROLL_SERVICE', service: 'tlc-newsletter-admin' },
     ]);
   });
 
