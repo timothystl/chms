@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from '../apps/finance/parity-manifest.js';
 
 describe('Finance interface parity manifest', () => {
-  it('preserves the existing navigation order and permission boundaries', () => {
+  it('preserves the existing navigation order and permission boundaries, plus the new Giving Entry tab', () => {
     expect(FINANCE_PARITY_SECTIONS.map(({ id, label, permission }) => ({ id, label, permission }))).toEqual([
       { id: 'health', label: 'Financial Health', permission: 'finance' },
+      { id: 'giving', label: 'Giving Entry', permission: 'finance' },
       { id: 'church', label: 'Church Report', permission: 'finance' },
       { id: 'balance', label: 'Balance Sheet', permission: 'finance' },
       { id: 'daycare', label: 'Daycare Report', permission: 'finance' },

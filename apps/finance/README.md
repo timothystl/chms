@@ -73,9 +73,13 @@ budgets, excess statements, non-`SELECT` SQL, and incomplete batch results befor
 accepted. This makes query amplification a tested application boundary rather than an informal
 expectation.
 
-The route manifest is the closed inventory for the alpha Worker. Every published path is read-only
-and declares whether it uses no data, the dedicated synthetic D1, or a committed synthetic static
-fixture. Routes that read D1 name their query budget; unknown paths fail closed with `404`.
+The route manifest is the closed inventory for the alpha Worker. Every published path defaults to
+read-only (`GET`/`HEAD`) and declares whether it uses no data, the dedicated synthetic D1, or a
+committed synthetic static fixture. Routes that read D1 name their query budget; unknown paths fail
+closed with `404`. One route is a deliberate exception: `giving-quick-entry-v1` accepts `POST` and
+relays the entry to Connect's own contract endpoint — it never writes to Finance's own database,
+and its own `methods`/`writer` fields in the manifest keep that exception visible in one place
+rather than hidden behind a runtime check.
 
 Alpha.9 begins interface parity with the existing nine-section Finance information architecture.
 Only Financial Health renders synthetic metrics; the other familiar sections are explicit staging

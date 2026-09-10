@@ -1,5 +1,6 @@
 export const FINANCE_PARITY_SECTIONS = Object.freeze([
   { id: 'health', label: 'Financial Health', permission: 'finance', capabilities: ['KPI health', 'giving pace', 'cash runway', 'revenue and expense mix', 'entity overview', 'money flow'] },
+  { id: 'giving', label: 'Giving Entry', permission: 'finance', capabilities: ['record a gift', 'relayed live to Connect, never stored in Finance'] },
   { id: 'church', label: 'Church Report', permission: 'finance', capabilities: ['current year', 'multi-year trends', 'income and expense detail', 'board packet'] },
   { id: 'balance', label: 'Balance Sheet', permission: 'finance', capabilities: ['assets', 'liabilities', 'equity', 'position trends'] },
   { id: 'daycare', label: 'Daycare Report', permission: 'finance', capabilities: ['actuals', 'budgets', 'shared-cost allocations'] },
