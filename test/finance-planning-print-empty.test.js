@@ -96,3 +96,32 @@ describe('Print pagination isn\'t silently clipped to one page (the global overf
     expect(HTML_HEAD).toMatch(/html,body\{height:100%;overflow:hidden;\}/);
   });
 });
+
+// Reported live a third time: with html,body relaxed, the sheet STILL printed as one page in a
+// real browser, even though an isolated repro (the print-sheet content alone, no surrounding app
+// shell) correctly produced multiple pages — the isolation itself was hiding the bug. The real
+// ancestor chain is body > .app-shell > .content-area > #tab-finance(.tab-panel) > ... >
+// #fin-plan-printsheet-root, and .app-shell (height:100vh) / .content-area (overflow:hidden) — the
+// screen shell's own sidebar+content-area flex layout — clip exactly like html,body did, one level
+// deeper, and were equally unscoped to screen-only. Confirmed by reproducing that full ancestor
+// chain (not just the print-sheet content in isolation) and extracting real per-page text from a
+// generated PDF (pdfminer, since vitest has no page-layout engine): hidden siblings (sidebar,
+// topbar, other tabs, the old workspace table) never appeared on any page, and Revenue/Expenses
+// correctly flowed across as many pages as the content needed.
+describe('The app shell itself (.app-shell/.content-area) doesn\'t re-clip print after the html,body fix', () => {
+  it('a print-scoped rule drops .app-shell and .content-area to plain block flow, undoing their fixed-height/overflow-hidden/flex screen layout', () => {
+    const rule = '.app-shell,.content-area{display:block!important;height:auto!important;overflow:visible!important;}';
+    const ruleIndex = HTML_HEAD.indexOf(rule);
+    expect(ruleIndex).toBeGreaterThan(-1);
+    const precedingMediaPrint = HTML_HEAD.lastIndexOf('@media print{', ruleIndex);
+    expect(precedingMediaPrint).toBeGreaterThan(-1);
+    const between = HTML_HEAD.slice(precedingMediaPrint, ruleIndex);
+    const netOpenBraces = (between.match(/\{/g) || []).length - (between.match(/\}/g) || []).length;
+    expect(netOpenBraces).toBe(1);
+  });
+
+  it('the screen-only .app-shell/.content-area rules (the fixed-viewport flex shell) are untouched — this is a print-only reset, not a removal', () => {
+    expect(HTML_HEAD).toMatch(/\.app-shell\{display:flex;height:100vh;height:100dvh;\}/);
+    expect(HTML_HEAD).toMatch(/\.content-area\{flex:1;display:flex;flex-direction:column;overflow:hidden;margin-left:0;\}/);
+  });
+});
