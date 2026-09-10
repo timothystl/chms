@@ -65,11 +65,21 @@ export async function callPayrollProxy(env, accessJwt, fn, params) {
     return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
   }
 
+  let text;
+  try {
+    text = await res.text();
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
   let payload;
   try {
-    payload = await res.json();
+    payload = JSON.parse(text);
   } catch {
-    return { ok: false, reason: 'invalid_json' };
+    // A truncated preview of the real (non-JSON) body -- an HTML error page, a gateway
+    // timeout, etc. -- is far more useful for diagnosing this than a bare "invalid_json"
+    // with no other clue. Capped short since this is surfaced through a diagnostic route.
+    return { ok: false, reason: 'invalid_json', status: res.status, bodyPreview: text.slice(0, 200) };
   }
 
   if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.message || payload?.error };

@@ -32,7 +32,7 @@ describe('Finance payroll relay diagnostic route', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('x-finance-contract')).toBe('finance.payroll-relay-diagnostic.v1');
     expect(await res.json()).toEqual({
-      ok: false, reason: 'not_configured', message: null,
+      ok: false, reason: 'not_configured', message: null, status: null, bodyPreview: null,
       incomingAccessJwt: { present: false },
     });
   });
@@ -40,9 +40,19 @@ describe('Finance payroll relay diagnostic route', () => {
   it('reports no_access_identity when the incoming request carries no Access assertion', async () => {
     const res = await getDiagnostic(liveEnv(async () => new Response('[]')), { accessJwt: undefined });
     expect(await res.json()).toEqual({
-      ok: false, reason: 'no_access_identity', message: null,
+      ok: false, reason: 'no_access_identity', message: null, status: null, bodyPreview: null,
       incomingAccessJwt: { present: false },
     });
+  });
+
+  it('surfaces a preview of a non-JSON response body, to diagnose what Website actually returned', async () => {
+    const env = liveEnv(async () => new Response('<html>Gateway Timeout</html>', { status: 502 }));
+    const res = await getDiagnostic(env, { accessJwt: 'signed.jwt.here' });
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.reason).toBe('invalid_json');
+    expect(body.status).toBe(502);
+    expect(body.bodyPreview).toBe('<html>Gateway Timeout</html>');
   });
 
   it('reports the assertion as present-but-malformed when it is not a real JWT, without ever calling out', async () => {
