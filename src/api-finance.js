@@ -2810,7 +2810,7 @@ export const BOARD_EXPENSE_CATEGORIES = [
 export const BOARD_EXPENSE_KEYS = BOARD_EXPENSE_CATEGORIES.map(c => c.key);
 async function readPlanningBoardCategories(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_planning_board_categories'").first();
-  const empty = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' };
+  const empty = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '', accountLabels: {} };
   if (!row) return empty;
   try {
     const v = JSON.parse(row.value) || {};
@@ -2824,6 +2824,11 @@ async function readPlanningBoardCategories(db) {
       // category keys REVENUE_STREAMS validates below, so it gets its own plain-string field
       // rather than trying to squeeze it into revenueLabels' key allowlist.
       donorWrapperLabel: typeof v.donorWrapperLabel === 'string' ? v.donorWrapperLabel : '',
+      // Leaf-level display renames ("42006 Hattie Blum Endowment-Unrestri" -> something a reader
+      // can place), keyed by the account's own category_path — same shape as revenue/expense
+      // above (any non-empty path is a valid key; category_path is already unique across the
+      // whole chart of accounts, so no fixed allowlist is needed here either).
+      accountLabels: v.accountLabels && typeof v.accountLabels === 'object' ? v.accountLabels : {},
     };
   } catch { return empty; }
 }
@@ -4408,6 +4413,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       revenue: { ...current.revenue }, expense: { ...current.expense },
       revenueLabels: { ...current.revenueLabels }, expenseLabels: { ...current.expenseLabels },
       donorWrapperLabel: current.donorWrapperLabel,
+      accountLabels: { ...current.accountLabels },
     };
     if (b.revenue && typeof b.revenue === 'object') {
       for (const [path, key] of Object.entries(b.revenue)) {
@@ -4441,6 +4447,16 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     }
     if (typeof b.donorWrapperLabel === 'string') {
       merged.donorWrapperLabel = b.donorWrapperLabel.trim();
+    }
+    // Leaf-level renames — no fixed allowlist (any category_path is a valid key, same as
+    // revenue/expense above), so only a non-empty path is required. An empty value clears that
+    // one account back to its real QuickBooks name.
+    if (b.accountLabels && typeof b.accountLabels === 'object') {
+      for (const [path, label] of Object.entries(b.accountLabels)) {
+        if (!path) continue;
+        const clean = String(label || '').trim();
+        if (clean) merged.accountLabels[path] = clean; else delete merged.accountLabels[path];
+      }
     }
     await db.prepare(
       `INSERT INTO chms_config (key,value) VALUES ('finance_planning_board_categories',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`

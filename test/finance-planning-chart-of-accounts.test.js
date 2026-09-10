@@ -527,6 +527,103 @@ describe('Chart of Accounts page', () => {
     expect(fin.__fetchCalls.length).toBe(0);
   });
 
+  // Leaf-level renaming — some raw QuickBooks account names are confusing ("42006 Hattie Blum
+  // Endowment-Unrestri", truncated by QuickBooks itself), so any real leaf can be given a
+  // display-only name, same store/effect pattern as finCoaRename above.
+  it('every leaf label in the Chart of Accounts card is click-to-rename', () => {
+    const { fin, coaRoot } = coaSetup();
+    fin.finRenderChartOfAccounts();
+    expect(coaRoot.innerHTML).toContain('finCoaRenameLeaf(&quot;Income:48001 Altar Guild&quot;,this)');
+    const spanIdx = coaRoot.innerHTML.indexOf('finCoaRenameLeaf(&quot;Income:48001 Altar Guild&quot;,this)');
+    const spanTag = coaRoot.innerHTML.slice(coaRoot.innerHTML.lastIndexOf('<span', spanIdx), spanIdx);
+    expect(spanTag).toContain('contenteditable="true"');
+  });
+
+  it('finCoaRenameLeaf trims/collapses whitespace and saves a custom account label', async () => {
+    const { fin } = coaSetup();
+    let sentBody = null;
+    fin.__setFetchImpl((path, opts) => {
+      sentBody = JSON.parse(opts.body);
+      expect(path).toBe('/admin/api/finance/planning/board-categories');
+      return Promise.resolve({ status: 200, ok: true, json: async () => ({ ok: true, revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, accountLabels: sentBody.accountLabels }) });
+    });
+    fin.finCoaRenameLeaf('Income:48001 Altar Guild', { textContent: '  Altar   Guild  Flowers  ' });
+    await flushPromises();
+    expect(sentBody.accountLabels).toEqual({ 'Income:48001 Altar Guild': 'Altar Guild Flowers' });
+    expect(fin._finPlanBoardCats.accountLabels['Income:48001 Altar Guild']).toBe('Altar Guild Flowers');
+  });
+
+  it('finCoaRenameLeaf with a blank name is a no-op, not a save of an empty string', async () => {
+    const { fin } = coaSetup();
+    fin.finCoaRenameLeaf('Income:48001 Altar Guild', { textContent: '   ' });
+    await flushPromises();
+    expect(fin.__fetchCalls.length).toBe(0);
+  });
+
+  it('a renamed leaf shows its custom name on the Chart of Accounts card', async () => {
+    const { fin, coaRoot } = coaSetup();
+    fin.__setFetchImpl((path, opts) => {
+      const sentBody = JSON.parse(opts.body);
+      return Promise.resolve({ status: 200, ok: true, json: async () => ({ ok: true, revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, accountLabels: sentBody.accountLabels }) });
+    });
+    fin.finCoaRenameLeaf('Income:48001 Altar Guild', { textContent: 'Altar Guild Flowers' });
+    await flushPromises();
+    expect(coaRoot.innerHTML).toContain('Altar Guild Flowers');
+    expect(coaRoot.innerHTML).not.toContain('>48001 Altar Guild<');
+  });
+
+  it('a renamed leaf shows its custom name on the Budget tab\'s own table too, in both Board and QuickBooks-order view', async () => {
+    const root = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+    const coaRoot = { innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+    const fin = loadBundle({ 'fin-plan-root': root, 'fin-coa-root': coaRoot });
+    baseSetup(fin, fixtureTree());
+    fin.__setFetchImpl((path, opts) => {
+      const sentBody = JSON.parse(opts.body);
+      return Promise.resolve({ status: 200, ok: true, json: async () => ({ ok: true, revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, accountLabels: sentBody.accountLabels }) });
+    });
+    fin.finCoaRenameLeaf('Income:48001 Altar Guild', { textContent: 'Altar Guild Flowers' });
+    await flushPromises();
+    expect(root.innerHTML).toContain('Altar Guild Flowers');
+    fin.finPlanSetView('qb');
+    expect(root.innerHTML).toContain('Altar Guild Flowers');
+  });
+
+  it('renaming a leaf does not change which default board category it falls into — classification still reads the real QuickBooks name', async () => {
+    const { fin, coaRoot } = coaSetup();
+    // "48001 Altar Guild" matches the "restricted" rule (/altar guild/i) today. Renaming it to
+    // "Bequest Fund" — which would match the DIFFERENT "passive" rule (/bequest/i) — must not
+    // silently reclassify it, since finBoardCatFor now reads qbRawLabel, not the display label.
+    // (Deliberately not "Endowment Draw": the fixture already has a real, unrelated
+    // "42010 Endowment Draw" leaf under passive, which would collide with a text-based check.)
+    expect(fin.finBoardDefaultRevCat('48001 Altar Guild')).toBe('restricted');
+    expect(fin.finBoardDefaultRevCat('Bequest Fund')).toBe('passive');
+    fin.__setFetchImpl((path, opts) => {
+      const sentBody = JSON.parse(opts.body);
+      return Promise.resolve({ status: 200, ok: true, json: async () => ({ ok: true, revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, accountLabels: sentBody.accountLabels }) });
+    });
+    fin.finCoaRenameLeaf('Income:48001 Altar Guild', { textContent: 'Bequest Fund' });
+    await flushPromises();
+    const leaf = fin.finFlattenLeaves(fin._finPlanBaseTree).find((l) => l.path === 'Income:48001 Altar Guild');
+    expect(leaf.label).toBe('Bequest Fund');
+    expect(leaf.qbRawLabel).toBe('48001 Altar Guild');
+    expect(fin.finBoardCatFor(leaf.path, leaf.qbRawLabel, true)).toBe('restricted');
+    fin.finRenderChartOfAccounts();
+    // Still filed under the Restricted Gifts group, not moved into Passive Income by virtue of
+    // the new display name matching that category's regex. Matching on the heading spans
+    // (">X</span>"), not a bare substring search, since every leaf's own <select> also carries an
+    // <option>Restricted Gifts</option>/<option>Passive Income</option> that would otherwise
+    // pollute a plain split.
+    const restrictedIdx = coaRoot.innerHTML.indexOf('>Restricted Gifts</span>');
+    const passiveIdx = coaRoot.innerHTML.indexOf('>Passive Income</span>');
+    expect(restrictedIdx).toBeGreaterThan(-1);
+    expect(passiveIdx).toBeGreaterThan(-1);
+    const nextCardIdx = coaRoot.innerHTML.indexOf('<div class="fin-card"', restrictedIdx);
+    const restrictedSection = coaRoot.innerHTML.slice(restrictedIdx, nextCardIdx === -1 ? undefined : nextCardIdx);
+    const passiveSection = coaRoot.innerHTML.slice(passiveIdx, restrictedIdx);
+    expect(restrictedSection).toContain('Bequest Fund');
+    expect(passiveSection).not.toContain('Bequest Fund');
+  });
+
   it('the footer states plainly that nothing here touches QuickBooks', () => {
     const { fin, coaRoot } = coaSetup();
     fin.finRenderChartOfAccounts();
@@ -632,6 +729,19 @@ describe('Planning table — Print', () => {
     expect(printRoot.innerHTML).toContain('Pastoral Salaries');
     // Static figures, not the workspace's editable Plan/Projected/Actual <input> cells.
     expect(printRoot.innerHTML).not.toContain('<input');
+  });
+
+  it('a renamed leaf shows its custom name on the printed sheet too — same store the Chart of Accounts rename writes to', async () => {
+    const { fin, printRoot } = printSetup();
+    fin.__setFetchImpl((path, opts) => {
+      const sentBody = JSON.parse(opts.body);
+      return Promise.resolve({ status: 200, ok: true, json: async () => ({ ok: true, revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, accountLabels: sentBody.accountLabels }) });
+    });
+    fin.finCoaRenameLeaf('Expenses:51010 Pastoral Salaries', { textContent: 'Pastor Compensation' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fin.finPlanPrint();
+    expect(printRoot.innerHTML).toContain('Pastor Compensation');
+    expect(printRoot.innerHTML).not.toContain('>51010 Pastoral Salaries<');
   });
 
   it('the "Mark DRAFT" toggle stamps a watermark onto the next printed sheet, and only when checked', () => {

@@ -3026,7 +3026,7 @@ var FIN_BOARD_EXP_ORDER = ['mdo', 'salaries', 'benefits', 'worship', 'property',
 var FIN_BOARD_EXP_DEFAULT_LABEL = { mdo: 'MDO', salaries: 'Salaries', benefits: 'Benefits', worship: 'Worship & Music', property: 'Property & Operations', education: 'Lutheran Education', youth_family: 'Youth & Family', district_synod: 'District & Synod Support', programs: 'Programs' };
 // Empty until finLoadPlanning()'s fetch resolves — every reader below tolerates that (an unset
 // map just means "everything is on its regex default"), so a page opened mid-load never throws.
-var _finPlanBoardCats = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' };
+var _finPlanBoardCats = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '', accountLabels: {} };
 // Purpose tags — a second, optional lens over the same accounts/workers above (Youth, Mission,
 // Internal, etc.), scoped and shipped 2026-09-05. See readPurposeTags in api-finance.js for why
 // this is its own store rather than folded into _finPlanBoardCats, and why a Compensation worker's
@@ -3052,8 +3052,27 @@ function finFlattenLeaves(nodes, out) {
   });
   return out;
 }
+// Renamed leaf display names ("42006 Hattie Blum Endowment-Unrestri" -> something a reader can
+// place) — display-only, exactly like the board category renames above; nothing in QuickBooks
+// changes. Runs over the WHOLE base tree (not just the leaves array some callers already have)
+// because it also has to capture qbRawLabel, and it's the only place that does: the true
+// QuickBooks name, saved once per leaf the first time this runs so a later rename — or clearing
+// one — can always be recomputed without losing what the account is really called upstream.
+// _finPlanBaseTree itself is only ever rebuilt by a fresh finLoadPlanning() fetch, so a stale
+// override from a previous render can't leak into qbRawLabel.
+function finApplyAccountLabelOverrides(nodes) {
+  (nodes || []).forEach(function(n) {
+    if (n.children && n.children.length) { finApplyAccountLabelOverrides(n.children); return; }
+    if (n.qbRawLabel == null) n.qbRawLabel = n.label;
+    var custom = _finPlanBoardCats.accountLabels && _finPlanBoardCats.accountLabels[n.path];
+    n.label = custom || n.qbRawLabel;
+  });
+}
 function finBoardBucket(leaves, key, isRev) {
-  var members = leaves.filter(function(l) { return finBoardCatFor(l.path, l.label, isRev) === key; })
+  // Classify against the true QuickBooks name, not a possibly-renamed display label — otherwise
+  // renaming an account (finApplyAccountLabelOverrides above) could silently knock it out of the
+  // default-category regex it used to match and into "earned"/"programs" instead.
+  var members = leaves.filter(function(l) { return finBoardCatFor(l.path, l.qbRawLabel || l.label, isRev) === key; })
     .map(function(l) { var c = JSON.parse(JSON.stringify(l)); c.children = []; return c; });
   if (!members.length) return null;
   var g = finMakeGroupNode(finBoardLabelFor(key, isRev), isRev ? 'Income' : 'Expenses', members);
@@ -7107,8 +7126,12 @@ function finLoadPlanning() {
     // per-fiscal-year one), so this is re-fetched on every load rather than gated behind a
     // "loaded once" flag like the salary planner — it's a cheap GET either way.
     _finPlanBoardCats = results[3] && typeof results[3] === 'object'
-      ? { revenue: results[3].revenue || {}, expense: results[3].expense || {}, revenueLabels: results[3].revenueLabels || {}, expenseLabels: results[3].expenseLabels || {}, donorWrapperLabel: results[3].donorWrapperLabel || '' }
-      : { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '' };
+      ? { revenue: results[3].revenue || {}, expense: results[3].expense || {}, revenueLabels: results[3].revenueLabels || {}, expenseLabels: results[3].expenseLabels || {}, donorWrapperLabel: results[3].donorWrapperLabel || '', accountLabels: results[3].accountLabels || {} }
+      : { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '', accountLabels: {} };
+    // Swap in any saved leaf renames now that both the fresh tree and the fresh overrides are in
+    // hand — every screen that reads a leaf's .label (Board view, QuickBooks order, the print
+    // sheet, CSV export) shares these same node objects, so this is the one place that needs to.
+    finApplyAccountLabelOverrides(_finPlanBaseTree);
     _finPurposeTags = results[4] && typeof results[4] === 'object'
       ? { tags: Array.isArray(results[4].tags) ? results[4].tags : [], categories: results[4].categories || {} }
       : { tags: [], categories: {} };
@@ -8087,7 +8110,12 @@ function finCoaSaveCategories(patch) {
       revenue: (d && d.revenue) || {}, expense: (d && d.expense) || {},
       revenueLabels: (d && d.revenueLabels) || {}, expenseLabels: (d && d.expenseLabels) || {},
       donorWrapperLabel: (d && d.donorWrapperLabel) || '',
+      accountLabels: (d && d.accountLabels) || {},
     };
+    // Re-derive every leaf's display label from its preserved qbRawLabel + the just-saved
+    // overrides before either screen re-renders, so a leaf rename (or category rename/move) shows
+    // up immediately without a full reload.
+    if (_finPlanBaseTree) finApplyAccountLabelOverrides(_finPlanBaseTree);
     finRenderChartOfAccounts();
     // A moved/renamed category changes what Planning's Board view groups look like too, whenever
     // that page happens to be the one currently mounted — cheap to keep in sync unconditionally
@@ -8151,6 +8179,17 @@ function finCoaRenameWrapper(textEl) {
   if (!clean) { finRenderChartOfAccounts(); if (document.getElementById('fin-plan-root')) finRenderPlanning(); return; }
   finCoaSaveCategories({ donorWrapperLabel: clean });
 }
+// One real leaf account's own display name ("42006 Hattie Blum Endowment-Unrestri" -> something
+// a reader can place at a glance) — same store and "display only" effect as finCoaRename above,
+// but keyed by the leaf's own category_path rather than a fixed board-category key, since any
+// account can carry a rename, not just the nine/four category headings.
+function finCoaRenameLeaf(path, textEl) {
+  var clean = String((textEl && textEl.textContent) || '').replace(/\s+/g, ' ').trim();
+  if (!clean) { finRenderChartOfAccounts(); if (document.getElementById('fin-plan-root')) finRenderPlanning(); return; }
+  var patch = { accountLabels: {} };
+  patch.accountLabels[path] = clean;
+  finCoaSaveCategories(patch);
+}
 // One card (Revenue or Expenses): every real leaf of that kind, grouped by its current board
 // category in the fixed category order, each group carrying a checkbox-select + per-account picker
 // row and a group-level "select all in this category" checkbox + renameable heading, plus its own
@@ -8160,7 +8199,7 @@ function finCoaBuildCard(leaves, isRev, order, title, sub) {
   var cats = order.map(function(k) { return { key: k, label: finBoardLabelFor(k, isRev) }; });
   var selectedCodes = leaves.filter(function(l) { return _finCoaSelected[l.path]; }).map(function(l) { return l.path; });
   var groupsHtml = order.map(function(k) {
-    var members = leaves.filter(function(l) { return finBoardCatFor(l.path, l.label, isRev) === k; })
+    var members = leaves.filter(function(l) { return finBoardCatFor(l.path, l.qbRawLabel || l.label, isRev) === k; })
       .sort(function(a, b) { return a.label < b.label ? -1 : (a.label > b.label ? 1 : 0); });
     var codes = members.map(function(l) { return l.path; });
     var allChecked = codes.length > 0 && codes.every(function(p) { return !!_finCoaSelected[p]; });
@@ -8169,7 +8208,7 @@ function finCoaBuildCard(leaves, isRev, order, title, sub) {
       ? '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:0 32px;">' + members.map(function(l) {
           return '<div style="display:flex;align-items:center;gap:11px;padding:8px 0;border-bottom:1px solid var(--warm-row-divider);">'
             + '<input type="checkbox" ' + (_finCoaSelected[l.path] ? 'checked' : '') + ' onchange="finCoaToggleOne(' + jsAttr(l.path) + ')" style="width:14px;height:14px;flex-shrink:0;">'
-            + '<span style="font-size:.85rem;color:var(--warm-ink-dark);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(l.label) + '</span>'
+            + '<span contenteditable="true" onblur="finCoaRenameLeaf(' + jsAttr(l.path) + ',this)" title="Click to rename this account. Display only — nothing in QuickBooks changes." style="font-size:.85rem;color:var(--warm-ink-dark);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;outline:none;border-radius:6px;padding:1px 4px;margin-left:-4px;cursor:text;border-bottom:1px dashed var(--warm-row-divider);">' + esc(l.label) + '</span>'
             + '<select onchange="finPlanSetBoardCategory(' + jsAttr(l.path) + ',' + (isRev ? 'true' : 'false') + ',this.value)" style="font-size:11.5px;font-weight:600;padding:4px 7px;border-radius:8px;border:1px solid var(--warm-border);background:var(--warm-surface-page);color:var(--warm-ink-label);width:190px;flex-shrink:0;">'
               + cats.map(function(c) { return '<option value="' + c.key + '"' + (c.key === k ? ' selected' : '') + '>' + esc(c.label) + '</option>'; }).join('')
             + '</select>' + finPurposeTagSelectHtml(l.path) + '</div>';
