@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from '../apps/finance/parity-manifest.js';
 
 describe('Finance interface parity manifest', () => {
-  it('preserves the existing navigation order and permission boundaries, plus the new Giving Entry tab', () => {
+  it('preserves the existing navigation order and permission boundaries, plus Giving Entry and Payroll', () => {
     expect(FINANCE_PARITY_SECTIONS.map(({ id, label, permission }) => ({ id, label, permission }))).toEqual([
       { id: 'health', label: 'Financial Health', permission: 'finance' },
       { id: 'giving', label: 'Giving Entry', permission: 'finance' },
@@ -14,6 +14,7 @@ describe('Finance interface parity manifest', () => {
       { id: 'accounts', label: 'Chart of Accounts', permission: 'finance' },
       { id: 'compensation', label: 'Compensation', permission: 'compensation' },
       { id: 'data', label: 'Data & Imports', permission: 'finance' },
+      { id: 'payroll', label: 'Payroll', permission: 'admin' },
     ]);
   });
 

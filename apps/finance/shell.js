@@ -238,7 +238,7 @@ function renderGivingFundOptions(giving) {
   return funds.map((fund) => `<option value="${escapeHtml(fund.fundRef)}">${escapeHtml(fund.fundLabel || fund.fundRef)}</option>`).join('');
 }
 
-function renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage) {
+function renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollStaffResult) {
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     const runway = buildCashRunwayView(cashRunway);
@@ -395,6 +395,15 @@ function renderSectionBody(section, summary, giving, givingSource, churchReport,
       <div class="grid"><div class="card"><small>Last fixture import</small><strong>${escapeHtml(status.lastImportedAt)}</strong></div><div class="card"><small>Age at request</small><strong>${status.ageDays} days</strong><span>Policy window ${status.freshnessWindowDays} days</span></div></div>
     </section>`;
   }
+  if (section.id === 'payroll') {
+    const rows = payrollStaffResult?.ok && Array.isArray(payrollStaffResult.result) ? payrollStaffResult.result : [];
+    return `<section aria-label="Payroll staff roster">
+      <div class="section-heading"><div><div class="eyebrow">Payroll</div><h2>Staff roster</h2></div><span class="badge">Relayed live to Website</span></div>
+      ${renderPayrollStatus(payrollStaffResult)}
+      ${payrollStaffResult?.ok ? `<div class="grid"><div class="card"><small>Staff records</small><strong>${rows.length}</strong><span>Live from Website's payroll data, not stored in Finance</span></div></div>${renderPayrollStaffRows(rows)}` : ''}
+      <p>This reads Website's existing payroll roster through the same live relay Giving Entry uses to reach Connect. Full payroll parity -- hours and PTO entry, rate management, period approval, year totals, exports -- is a separate, larger effort and is not built yet; this is the first read-only slice.</p>
+    </section>`;
+  }
   return `<section class="parity" aria-label="${section.label} staging scaffold">
     <h2>${section.label}</h2>
     <p>This familiar workspace is retained in the parity plan. Its production workflow and data are not connected to staging.</p>
@@ -402,7 +411,27 @@ function renderSectionBody(section, summary, giving, givingSource, churchReport,
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage) {
+// Website's payroll_get_staff RPC shape isn't pinned in this repo -- render whatever columns
+// actually come back rather than assuming specific field names, so a real response (once the
+// relay is authenticated end to end) shows correctly without another code change.
+function renderPayrollStaffRows(rows) {
+  if (!rows.length) return '<p>No staff records were returned.</p>';
+  const columns = Object.keys(rows[0]);
+  const head = columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('');
+  const body = rows.map((row) => `<tr>${columns.map((column) => `<td>${escapeHtml(row[column] ?? '')}</td>`).join('')}</tr>`).join('');
+  return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+// This is an internal admin tool, not a public-facing form -- the raw reason/message from
+// callPayrollProxy is shown directly rather than paraphrased, since whoever sees this page
+// already has payroll_manage and needs the real detail to fix a configuration problem.
+function renderPayrollStatus(result) {
+  if (!result || result.ok) return '';
+  const detail = result.message ? `${result.reason}: ${result.message}` : result.reason;
+  return `<p class="status status-error">Not connected: ${escapeHtml(detail)}</p>`;
+}
+
+function renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollStaffResult) {
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -469,7 +498,7 @@ function renderShell(metadata, summary, giving, givingSource, section, churchRep
     <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
     <div class="status">Environment ready · no production writers attached</div>
     <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
-      ${renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage)}
+      ${renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollStaffResult)}
     <p><small>Every value besides Giving shown here comes from deterministic synthetic staging fixtures. Giving is ${givingSource === 'live' ? 'fetched live from Connect’s real, aggregate-only contract endpoint' : 'the committed Connect contract example (the live endpoint is not configured or did not answer), validated locally with no network call'}.</small></p>
     <footer>${release}</footer>
   </main>
@@ -639,7 +668,10 @@ export default {
         const givingEntryMessage = givingEntryStatus === 'error'
           ? describeGivingEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
-        return response(renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage), {
+        const payrollStaffResult = section.id === 'payroll'
+          ? await callPayrollProxy(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', 'payroll_get_staff', {})
+          : null;
+        return response(renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollStaffResult), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {
