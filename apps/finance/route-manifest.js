@@ -13,6 +13,13 @@ const ROUTES = [
   // not buried in a conditional elsewhere -- see test/finance-route-manifest.test.js's invariant.
   { id: 'giving-quick-entry-v1', paths: ['/api/v1/connect-giving-quick-entry'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.giving-quick-entry-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
+  // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
+  // Website's production payroll proxy end to end, before any real payroll UI is built on top of
+  // it. Read-only from Finance's own perspective (no Finance DB write), but -- like the Giving
+  // relay above -- it is a genuine live call out, not a synthetic fixture, so it gets its own
+  // `dataSource` value rather than borrowing the synthetic ones. Remove once the real payroll
+  // screens exist and exercise this path naturally.
+  { id: 'payroll-relay-diagnostic-v1', paths: ['/api/v1/payroll-relay-diagnostic'], dataSource: 'live-relay-read', contract: 'finance.payroll-relay-diagnostic.v1' },
 ];
 
 export const FINANCE_ROUTE_MANIFEST = Object.freeze(ROUTES.map((route) => Object.freeze({
