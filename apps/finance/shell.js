@@ -4,6 +4,7 @@ import { acceptConnectGivingSummaryV1 } from './connect-giving-consumer.js';
 import { reconcileSyntheticGivingDelivery } from './connect-giving-transport.js';
 import { fetchLiveConnectGivingSummary, defaultLiveGivingPeriod, postConnectGivingQuickEntry } from './connect-giving-client.js';
 import { callPayrollProxy } from './payroll-proxy-client.js';
+import { decodeJwtClaimsUnsafe } from './jwt-decode-unsafe.js';
 import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from './summary-service.js';
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from './parity-manifest.js';
@@ -122,6 +123,15 @@ function summarizePayrollRelayDiagnostic(result) {
   if (!result.ok) return { ok: false, reason: result.reason, message: result.message || null };
   const rows = Array.isArray(result.result) ? result.result : [];
   return { ok: true, staffCount: rows.length, sampleFields: rows[0] ? Object.keys(rows[0]) : [] };
+}
+
+// Shows what the incoming Access JWT *claims* (unverified -- see jwt-decode-unsafe.js) so a
+// verification failure on Website's side, which deliberately never says which check failed, can
+// be narrowed down without any change to Website's auth code. Never used for the actual relay call.
+function describeIncomingAccessJwt(accessJwt) {
+  if (!accessJwt) return { present: false };
+  const claims = decodeJwtClaimsUnsafe(accessJwt);
+  return claims ? { present: true, ...claims } : { present: true, malformed: true };
 }
 
 function todayIsoDate() {
@@ -554,7 +564,10 @@ export default {
     if (route.id === 'payroll-relay-diagnostic-v1') {
       const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
       const result = await callPayrollProxy(env, accessJwt, 'payroll_get_staff', {});
-      const body = request.method === 'HEAD' ? null : JSON.stringify(summarizePayrollRelayDiagnostic(result));
+      const body = request.method === 'HEAD' ? null : JSON.stringify({
+        ...summarizePayrollRelayDiagnostic(result),
+        incomingAccessJwt: describeIncomingAccessJwt(accessJwt),
+      });
       return response(body, { headers: {
         'Content-Type': 'application/json; charset=utf-8',
         'X-Finance-Contract': 'finance.payroll-relay-diagnostic.v1',
