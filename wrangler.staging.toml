@@ -27,7 +27,7 @@ REPLY_TO_EMAIL = "dinger@timothystl.org"
 # secret: they identify which Cloudflare Access application's public keys to check against,
 # not a credential -- see src/access-jwt.js and Zero Trust > Access > Applications >
 # "Timothy Finance Staging" > Overview for the source of truth if these ever need to change.
-FINANCE_ACCESS_TEAM_DOMAIN = "timothystl.cloudflareaccess.com"
+FINANCE_ACCESS_TEAM_DOMAIN = "timothy-digital.cloudflareaccess.com"
 FINANCE_ACCESS_AUD         = "bb8fd2d550bee50a2c49c9fa42d212b4f51aff89e2eae17db9c3088b672274de"
 
 [observability]
