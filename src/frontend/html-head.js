@@ -1600,6 +1600,17 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
      excess simply gone rather than spilling onto pages 2/3. Print is never inside the
      fixed-viewport shell, so this can just be reset outright rather than scoped further. */
   html,body{height:auto!important;overflow:visible!important;}
+  /* Same clipping bug one level deeper, and confirmed live even after the html,body reset above:
+     .app-shell (height:100vh, the sidebar+content flex row) and .content-area (overflow:hidden,
+     the topbar+tab-panel flex column) sit between body and every tab's content and were just as
+     unscoped to screen-only. Worse, both are display:flex — a tab-panel is a flex item of
+     .content-area regardless of its own display:block!important two lines below (a child's own
+     display doesn't remove flex-item participation, only the parent's does), and browsers'
+     support for CSS fragmentation (break-before/-inside) across flex items is unreliable to begin
+     with. Dropping both to plain block flow for print removes the clipping and that unreliability
+     in one move; nothing but the active tab-panel's content is visible during print regardless
+     (.sidebar/.topbar are already hidden below), so there is no flex layout left to preserve. */
+  .app-shell,.content-area{display:block!important;height:auto!important;overflow:visible!important;}
   .sidebar,.topbar,.toolbar,.modal-overlay,#offline-banner{display:none!important;}
   /* Only the currently-active tab prints — a plain window.print() (Finance's Church Report,
      Commercial Property, etc. all just call window.print() with no scoping class) used to force
