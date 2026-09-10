@@ -23,6 +23,10 @@
     {
       "binding": "CONNECT_SERVICE",
       "service": "timothy-connect-staging"
+    },
+    {
+      "binding": "PAYROLL_SERVICE",
+      "service": "tlc-newsletter-admin"
     }
   ],
   "vars": {
