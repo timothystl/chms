@@ -85,9 +85,18 @@ describe('callPayrollProxy', () => {
     expect(result).toEqual({ ok: false, reason: 'http_error', status: 409, message: 'This period is approved and locked.' });
   });
 
-  it('fails closed on malformed JSON instead of assuming success or failure', async () => {
+  it('fails closed on malformed JSON instead of assuming success or failure, keeping a preview of the real body', async () => {
     const env = envWith(async () => new Response('not json', { status: 200 }));
     const result = await callPayrollProxy(env, 'signed.jwt.here', 'payroll_get_staff', {});
-    expect(result).toEqual({ ok: false, reason: 'invalid_json' });
+    expect(result).toEqual({ ok: false, reason: 'invalid_json', status: 200, bodyPreview: 'not json' });
+  });
+
+  it('truncates a long non-JSON body to a short preview', async () => {
+    const env = envWith(async () => new Response('x'.repeat(500), { status: 502 }));
+    const result = await callPayrollProxy(env, 'signed.jwt.here', 'payroll_get_staff', {});
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('invalid_json');
+    expect(result.status).toBe(502);
+    expect(result.bodyPreview).toHaveLength(200);
   });
 });

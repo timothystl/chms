@@ -120,7 +120,12 @@ function describeGivingEntryError(reason, message) {
 // field names are enough to prove the round trip is genuine, and this is deliberately reachable
 // by anyone who can already view it (see the route-manifest.js comment on why this is temporary).
 function summarizePayrollRelayDiagnostic(result) {
-  if (!result.ok) return { ok: false, reason: result.reason, message: result.message || null };
+  if (!result.ok) {
+    return {
+      ok: false, reason: result.reason, message: result.message || null,
+      status: result.status ?? null, bodyPreview: result.bodyPreview ?? null,
+    };
+  }
   const rows = Array.isArray(result.result) ? result.result : [];
   return { ok: true, staffCount: rows.length, sampleFields: rows[0] ? Object.keys(rows[0]) : [] };
 }
