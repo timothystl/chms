@@ -7887,9 +7887,9 @@ function finPlanRptCentsRow(labelHtml, cents, rowCls, showPlan) {
 function finPlanRptNodeCents(node, maps) {
   return { budget: maps.budget[node.path] || 0, actual: maps.actual[node.path] || 0, proj: maps.projected[node.path] || 0, plan: maps.plan[node.path] || 0, hasBudget: maps.hasBudget[node.path] };
 }
-function finPlanRptLeafRow(node, maps, showPlan) { return finPlanRptCentsRow(finTreeLabelCell(node, node.label), finPlanRptNodeCents(node, maps), '', showPlan); }
+function finPlanRptLeafRow(node, maps, showPlan) { return finPlanRptCentsRow(finTreeLabelCell(node, node.label, { padV: '2px' }), finPlanRptNodeCents(node, maps), '', showPlan); }
 function finPlanRptGroupHeaderRow(node, showPlan) { return '<tr class="grp"><td colspan="' + (showPlan ? 7 : 4) + '">' + esc(node.label) + '</td></tr>'; }
-function finPlanRptGroupTotalRow(node, maps, showPlan) { return finPlanRptCentsRow(finTreeLabelCell(node, 'Total ' + node.label, { padV: '6px' }), finPlanRptNodeCents(node, maps), 'sub', showPlan); }
+function finPlanRptGroupTotalRow(node, maps, showPlan) { return finPlanRptCentsRow(finTreeLabelCell(node, 'Total ' + node.label, { padV: '3px' }), finPlanRptNodeCents(node, maps), 'sub', showPlan); }
 // One section (Revenue or Expenses) as a run of per-category <tbody class="cat"> blocks — see the
 // break-inside:avoid rule in html-head.js — followed by the section's own "Total X" row. Board
 // view wraps every root inside one synthetic "Revenue"/"Expenses" node (finBuildBoardTree) that
