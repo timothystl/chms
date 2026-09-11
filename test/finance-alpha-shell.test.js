@@ -118,7 +118,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.39');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.40');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -161,7 +161,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.39',
+      version: '1.0.0-alpha.40',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -174,10 +174,10 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
     expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.39 · alpha');
+    expect(html).toContain('1.0.0-alpha.40 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
-    expect(html).toContain('class="appbar"');
+    expect(html).toContain('class="sidebar-brand"');
     expect(html).toContain('color-scheme: light');
     expect(html).toContain('--warm-meta');
     expect(html).toContain('How are we doing, and what should we decide?');
@@ -213,17 +213,23 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('not donor-to-expense tracing');
     expect(html).toContain('validated locally with no network call');
     expect(html).toContain('deterministic synthetic staging fixtures');
-    expect(statements).toHaveLength(9);
+    expect(html).toContain('class="sidebar-brand"');
+    expect(html).toContain('Are we okay?');
+    expect(html).toContain("Source data hasn't been reviewed in over 30 days");
+    expect(statements).toHaveLength(10);
     expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
   });
 
-  it('renders the familiar Finance navigation and safely falls back to Financial Health', async () => {
+  it('renders the familiar Finance navigation grouped by sidebar section and safely falls back to Financial Health', async () => {
     const res = await worker.fetch(new Request('https://finance.test/?section=missing'), env);
     const html = await res.text();
     for (const label of [
       'Financial Health', 'Church Report', 'Balance Sheet', 'Daycare Report',
       'Commercial Property', 'Budget', 'Chart of Accounts', 'Compensation', 'Data & Imports',
     ]) expect(html).toContain(label);
+    for (const group of ['Dashboard', 'Giving', 'Reports', 'Planning', 'Compensation', 'Payroll', 'Accounts &amp; Data']) {
+      expect(html).toContain(`class="nav-group-label">${group}<`);
+    }
     expect(html).toContain('href="/?section=health" aria-current="page"');
     expect(html).toContain('Synthetic financial health');
   });
@@ -475,7 +481,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.39',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.40',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -559,7 +565,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       dataClassification: 'synthetic',
       scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
       duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
-      release: { version: '1.0.0-alpha.39', releaseSha: 'test-sha' },
+      release: { version: '1.0.0-alpha.40', releaseSha: 'test-sha' },
     });
     expect(body.scenario.totals.netCents).toBe(145000);
     expect(body.scenario.reconciliation.totalsMatch).toBe(true);
