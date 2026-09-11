@@ -3621,7 +3621,7 @@ function finRenderChurchHeader() {
     { key: 'multiyear', label: 'Multi-year' },
   ], _finChurchMode, 'finSetChurchReportMode')
     + '<button class="btn-secondary" onclick="finExportChurchCsv()">Export CSV</button>'
-    + '<button class="btn-secondary" onclick="window.print()">Print</button>';
+    + '<button class="btn-secondary" onclick="finChurchRptPrint()">Print</button>';
   el.innerHTML = finPageHeader('Church Report', sub, actions);
 }
 function finSetChurchReportMode(mode) {
@@ -4085,6 +4085,220 @@ function finRenderChurchMultiYear(d) {
   }
   el.innerHTML = rangePicker + html;
 }
+
+// ── Church Report — print sheet ─────────────────────────────────────────────────────────────
+// Same dedicated-print-sheet idiom as Budget/Financial Health, reused both by this page's own
+// "Print" button (finChurchRptPrint, replacing the old plain window.print()) and by the Full
+// Report picker (see FIN_FULLREPORT_SECTIONS). _finChurchThisYearData is the exact same payload
+// shape as Financial Health's _finHealthData — both are just finFetchChurchYear() results for the
+// current year, so the field names below (d.entries, d.classificationTotals, d.netIncome, d.yoy,
+// d.supplies, d.givingByFund, …) are the same ones finHealthBuildPrintSheetHtml already reads.
+//
+// Most of the year view's own render helpers are already pure report content and are reused
+// unchanged: finChurchSummaryCard, finRenderRevenueSources, finRenderNetIncomeByYearChart,
+// finRenderChurchDetailBody/finRenderNetIncomeBar, finRenderYoyBlock, finRenderSuppliesChart. Two
+// carry an interactive affordance with no print equivalent — finRenderExpensePace's
+// click-to-drill-down rows and finGivingFundGroupRows' click-to-expand fund groups — and get a
+// trimmed finChurchRpt* variant: same figures, always shown, no onclick. finDetailStrip's
+// collapsed-by-default "Show detail" button is dropped entirely here rather than given a variant —
+// every section it wraps on screen (full account detail, YoY, giving by fund, supplies) just
+// prints as a plain always-expanded card, since collapsing has no print meaning either.
+//
+// The multi-year view adds a second physical page (forced via .fin-plan-rpt-newpage, the same
+// unscoped pagination class Budget's own print sheet uses for its own internal page breaks — not
+// .fin-fullreport-section-newpage, which is Full Report's OWN wrapping around each top-level
+// section and would still apply on top of this if Church Report is combined with others) — a
+// board report is more useful with both years-of-trend and this-year's-detail in one document
+// than requiring a second print run. Its own range-picker inputs (from/to year + "Load Range") are
+// dropped for the same reason finDetailStrip's button is: whatever range is already loaded prints,
+// with no live equivalent for "pick a different range" on paper.
+function finChurchRptExpensePace(categories, elapsedPct) {
+  var ranked = (categories || []).map(function(cat) {
+    return { cat: cat, status: finExpensePaceStatus(cat, elapsedPct) };
+  }).sort(function(a, b) { return b.status.diffCents - a.status.diffCents; });
+  if (!ranked.length) return '<p style="font-size:.85rem;color:var(--warm-gray);">No expense categories with budget data yet.</p>';
+  return ranked.map(function(r) {
+    var cat = r.cat, st = r.status;
+    var hasBudget = cat.budgetCents > 0;
+    var spentPct = hasBudget ? cat.actualCents / cat.budgetCents * 100 : 0;
+    var inset = (cat.children && cat.children.length)
+      ? '<div class="fin-pace-inset">' + cat.children.map(function(c) {
+          return '<div class="fin-pace-inset-row"><span>' + esc(c.label) + '</span><span>$' + finFmtMoney(c.actualCents / 100) + (c.budgetCents > 0 ? ' / $' + finFmtMoney(c.budgetCents / 100) : '') + '</span></div>';
+        }).join('') + '</div>'
+      : '';
+    return '<div class="fin-pace-row">'
+      + '<div class="fin-pace-row-hdr">'
+      + '<span class="fin-pace-label">' + esc(cat.label) + '</span>'
+      + '<span style="font-size:12.5px;font-weight:700;color:' + st.color + ';white-space:nowrap;">' + st.label + '</span>'
+      + '</div>'
+      + (hasBudget
+        ? '<div class="fin-pace-bar-track"><div class="fin-pace-bar-fill" style="width:' + Math.min(100, spentPct) + '%;background:' + st.color + ';"></div><div class="fin-pace-marker" style="left:' + (elapsedPct * 100) + '%;"></div></div>'
+        : '')
+      + inset
+      + '</div>';
+  }).join('');
+}
+function finChurchRptGivingFundGroupRows(rows) {
+  var groups = groupRowsByFundCode(rows, function(f) { return f.fundName; }, function(f) { return f.cents; });
+  var money = function(c) { return '<td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums;">$' + finFmtMoney(c / 100) + '</td>'; };
+  return groups.map(function(g) {
+    if (g.rows.length < 2) {
+      return '<tr><td style="padding:3px 8px 3px 0;">' + esc(g.label) + '</td>' + money(g.total) + '</tr>';
+    }
+    var out = '<tr style="font-weight:700;"><td style="padding:3px 8px 3px 0;">' + esc(g.label)
+      + ' <span style="color:var(--warm-gray);font-weight:400;">(' + g.rows.length + ' funds)</span></td>' + money(g.total) + '</tr>';
+    g.rows.forEach(function(f) {
+      out += '<tr><td style="padding:3px 8px 3px 18px;color:var(--warm-gray);">' + esc(f.fundName) + '</td>' + money(f.cents) + '</tr>';
+    });
+    return out;
+  }).join('');
+}
+// Trimmed finRenderChurchMultiYear: drops the From/To range-picker inputs and "Load Range"
+// button, prints whatever range is already loaded, and skips the daycare tie-in table (a
+// for-reference-only cross-check against a separate, not-always-loaded _finDaycare fetch — out of
+// scope for this report's own figures). Everything else — the comparison table, net income row,
+// and grouped-bar chart — is reused via the exact same math as the live multi-year view.
+function finChurchRptMultiYear(md) {
+  if (!md || !md.years || !md.years.length) return '';
+  var years = md.years;
+  var anyData = years.some(function(y) { var s = md.byYear[y]; return s && Object.keys(s.classificationTotals).length; });
+  if (!anyData) return '';
+  var rowsDef = [{ label: 'Total Revenue', key: 'Income' }, { label: 'Cost of Goods Sold', key: 'Cost of Goods Sold' }, { label: 'Total Expenses', key: 'Expenses' }]
+    .filter(function(rd) { return rd.key !== 'Cost of Goods Sold' || finChurchMultiYearClassHasData(md, years, rd.key); });
+  var theadCells = '<th style="text-align:left;padding:6px 8px;"></th>' + years.map(function(y) { return '<th style="text-align:right;padding:6px 8px;">' + y + '</th>'; }).join('');
+  var bodyRows = rowsDef.map(function(rd) {
+    var cells = years.map(function(y) {
+      var c = (md.byYear[y].classificationTotals[rd.key]) || { actualCents: 0 };
+      return '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(c.actualCents / 100) + '</td>';
+    }).join('');
+    return '<tr><td style="padding:5px 8px;">' + rd.label + '</td>' + cells + '</tr>';
+  }).join('');
+  var netRow = '<tr style="font-weight:700;border-top:2px solid var(--navy);"><td style="padding:5px 8px;">Net Income</td>'
+    + years.map(function(y) { return '<td style="text-align:right;padding:5px 8px;">$' + finFmtMoney(md.byYear[y].netIncome.actualCents / 100) + '</td>'; }).join('')
+    + '</tr>';
+  var chart = renderGroupedBarChart({
+    chartH: 220,
+    groups: years.map(function(y) { return { key: y, label: String(y) }; }),
+    series: [
+      { key: 'income', label: 'Revenue', color: '#2E7EA6' },
+      { key: 'expenses', label: 'Expenses', color: '#C9973A' },
+      { key: 'net', label: 'Net Income', color: '#5A9E6F' },
+    ],
+    value: function(y, s) {
+      var yd = md.byYear[y];
+      var cents = s === 'income' ? (yd.classificationTotals['Income'] || { actualCents: 0 }).actualCents
+        : s === 'expenses' ? (yd.classificationTotals['Expenses'] || { actualCents: 0 }).actualCents
+        : yd.netIncome.actualCents;
+      return cents / 100;
+    },
+    tooltip: function(y, s, v) {
+      var sLbl = s === 'income' ? 'Income' : s === 'expenses' ? 'Expenses' : 'Net Income';
+      return y + ' ' + sLbl + ': $' + finFmtMoney(v);
+    },
+    barLabel: function(v) { return '$' + Math.round(v / 1000) + 'k'; },
+  });
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">Multi-year comparison</div>'
+    + '<div class="fin-card-sub">FY' + years[0] + '&ndash;FY' + years[years.length - 1] + '</div>'
+    + chart
+    + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr>' + theadCells + '</tr></thead>'
+    + '<tbody>' + bodyRows + netRow + '</tbody></table></div>'
+    + '</div>';
+}
+function finChurchRptBuildPrintSheetHtml() {
+  var d = _finChurchThisYearData;
+  if (!d || !d.entries || !d.entries.length) {
+    return '<div class="fin-church-rpt"><div class="fin-plan-rpt-page"><p class="fin-plan-rpt-p mut">No church report data for FY' + (d ? d.year : new Date().getFullYear()) + ' yet.</p></div></div>';
+  }
+  var income = d.classificationTotals['Income'] || { actualCents: 0, budgetCents: 0 };
+  var expenses = d.classificationTotals['Expenses'] || { actualCents: 0, budgetCents: 0 };
+  var tree = finReorganizeChurchTree(finBuildTreeFromFlatRows(d.entries));
+  var today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  var asOf = finChurchAsOfDate(d.entries);
+
+  var header = '<div class="fin-plan-rpt-hd"><span>Timothy Lutheran Church &middot; St. Louis</span><span>Church Report &middot; prepared ' + today + '</span></div>'
+    + '<div class="fin-plan-rpt-kicker">Church Report</div>'
+    + '<h1 class="fin-plan-rpt-h1">Fiscal Year ' + d.year + ' Church Report</h1>'
+    + '<div class="fin-plan-rpt-sub">QuickBooks chart of accounts' + (asOf ? ' &middot; YTD actuals as of ' + esc(asOf) : '') + '</div>';
+
+  var kpis = '<div class="fin-grid-3">'
+    + finChurchSummaryCard('Total revenue', income, d.hasBudgetData, 'var(--color-teal)', false)
+    + finChurchSummaryCard('Total expenses', expenses, d.hasBudgetData, 'var(--color-gold)', false)
+    + finChurchSummaryCard('Net income', d.netIncome, d.hasBudgetData, d.netIncome.actualCents < 0 ? 'var(--danger)' : 'var(--sage)', true)
+    + '</div>';
+
+  var elapsedPct = finElapsedYearPct(d.year);
+  var expenseRoot = tree.filter(function(n) { return n.classification === 'Expenses'; })[0];
+  var categories = ((expenseRoot && expenseRoot.children) || []).map(function(n) {
+    return {
+      path: n.path, label: n.label, actualCents: n.totalActualCents, budgetCents: n.totalBudgetCents,
+      children: (n.children || []).map(function(c) { return { label: c.label, actualCents: c.totalActualCents, budgetCents: c.totalBudgetCents }; }),
+    };
+  });
+  var paceCard = '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">Where expenses sit against budget</div>'
+    + '<div class="fin-card-sub">Sorted by variance, not alphabetically. The line marks ' + Math.round(elapsedPct * 100) + '% &mdash; the calendar.</div>'
+    + finChurchRptExpensePace(categories, elapsedPct)
+    + '</div>';
+
+  var fundTable = (d.givingByFund && d.givingByFund.length)
+    ? '<table style="width:100%;border-collapse:collapse;font-size:.82rem;">' + finChurchRptGivingFundGroupRows(d.givingByFund) + '</table>'
+    : '<p style="font-size:.85rem;color:var(--warm-gray);">No giving recorded in ChMS for this year.</p>';
+
+  var detailBody = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead><tr style="background:var(--warm-surface-header);">'
+    + '<th style="text-align:left;padding:8px;" class="fin-th">Account</th>'
+    + '<th style="text-align:right;padding:8px;" class="fin-th">YTD Actual</th>'
+    + '<th style="text-align:right;padding:8px;" class="fin-th">Budget</th>'
+    + '<th style="text-align:right;padding:8px;" class="fin-th">Variance</th></tr></thead>'
+    + '<tbody>' + finRenderChurchDetailBody(tree, d.netIncome, d.hasBudgetData) + '</tbody></table></div>'
+    + finRenderNetIncomeBar(d.netIncome, d.hasBudgetData);
+
+  function card(title, sub, body) {
+    if (!body) return '';
+    return '<div class="fin-card"><div class="fin-card-title" style="font-size:20px;">' + esc(title) + '</div>'
+      + (sub ? '<div class="fin-card-sub">' + sub + '</div>' : '')
+      + body + '</div>';
+  }
+
+  var suppliesChart = finRenderSuppliesChart(d);
+  var yearPage = '<div class="fin-church-rpt">'
+    + header
+    + kpis
+    + '<div class="fin-grid-2">' + finRenderRevenueSources(tree, d) + paceCard + '</div>'
+    + finRenderNetIncomeByYearChart(_finChurchMultiYearData)
+    + card('Full account detail', d.entries.length + ' accounts, YTD vs. budget vs. variance.', detailBody)
+    + card('This year vs. last year', 'Year-to-date against the same point last year, and the year-end projection that follows from it.', finRenderYoyBlock(d.yoy))
+    + card('Giving by fund', 'Per ChMS records &mdash; the reference figure above, broken out by fund.', fundTable)
+    + (suppliesChart ? card('Supplies by month', 'One account pulled out of the Other Expenses catch-all, month by month.', suppliesChart) : '')
+    + '</div>';
+
+  var multiYearBody = finChurchRptMultiYear(_finChurchMultiYearData);
+  var multiYearPage = multiYearBody
+    ? '<div class="fin-church-rpt fin-plan-rpt-newpage">'
+      + '<div class="fin-plan-rpt-kicker">Church Report</div>'
+      + '<h1 class="fin-plan-rpt-h1">Multi-Year Comparison</h1>'
+      + multiYearBody
+      + '</div>'
+    : '';
+
+  return yearPage + multiYearPage;
+}
+function finChurchRptPrint() {
+  var root = document.getElementById('fin-church-printsheet-root');
+  if (!root) return;
+  root.innerHTML = finChurchRptBuildPrintSheetHtml();
+  document.body.classList.add('printing-church');
+  var cleanup = function() {
+    document.body.classList.remove('printing-church');
+    if (root) root.innerHTML = '';
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(function() { window.print(); setTimeout(cleanup, 1000); }, 60);
+}
+
 // ── Balance Sheet view (point-in-time Assets/Liabilities/Equity) ────────────────────────────
 // A structurally different report from This Year/Multi-Year (no actual-vs-budget split, no
 // period — a single as-of-date snapshot), so it gets its own small tree-builder rather than
@@ -8497,14 +8711,15 @@ function finPlanPrint() {
 // same mechanism rather than inventing a second one: build one combined off-screen document out
 // of whichever sections are checked, then call window.print() exactly once.
 //
-// Budget and Financial Health (incl. the money-flow diagram) each have a dedicated "build the
-// printable HTML" function now (finPlanBuildPrintSheetHtml, finHealthBuildPrintSheetHtml) —
-// Church Report, Balance Sheet, and Property still only know how to print whatever's live on
-// screen (a plain window.print() button with no separate off-screen build step), which doesn't
-// compose with anything else into one document. Giving each of those its own print-sheet builder
-// is real, separate work (the same kind of pass Budget's and Financial Health's own redesigns
-// took); this registry is where each one plugs in once that lands, without touching this file's
-// structure again. Compensation is deliberately NOT here yet either — its
+// Budget, Financial Health (incl. the money-flow diagram), and Church Report (incl. its own
+// multi-year comparison) each have a dedicated "build the printable HTML" function now
+// (finPlanBuildPrintSheetHtml, finHealthBuildPrintSheetHtml, finChurchRptBuildPrintSheetHtml) —
+// Balance Sheet and Property still only know how to print whatever's live on screen (a plain
+// window.print() button with no separate off-screen build step), which doesn't compose with
+// anything else into one document. Giving each of those its own print-sheet builder is real,
+// separate work (the same kind of pass the other three sections' own redesigns took); this
+// registry is where each one plugs in once that lands, without touching this file's structure
+// again. Compensation is deliberately NOT here yet either — its
 // "Print for Council" report exists specifically to redact certain figures for a council audience
 // (see finCompIsHiddenFromCouncil), and folding it into a general combined export needs its own
 // access-control pass first, by the user's own choice.
@@ -8518,9 +8733,10 @@ function finPlanPrint() {
 // views a checkbox can select, never a new one.
 var FIN_FULLREPORT_SECTIONS = [
   { key: 'health', label: 'Financial Health (incl. money-flow diagram)', perm: 'finance', build: function() { return finHealthBuildPrintSheetHtml(); } },
+  { key: 'church', label: 'Church Report (incl. multi-year comparison)', perm: 'finance', build: function() { return finChurchRptBuildPrintSheetHtml(); } },
   { key: 'budget', label: 'Budget (Summary, Revenue, Expenses)', perm: 'budget', build: function() { return finPlanBuildPrintSheetHtml(); } },
 ];
-var _finFullReportSelected = { health: true, budget: true };
+var _finFullReportSelected = { health: true, church: true, budget: true };
 function finFullReportToggle(key, on) {
   _finFullReportSelected[key] = !!on;
 }

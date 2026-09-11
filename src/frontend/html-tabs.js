@@ -1720,6 +1720,14 @@ export const HTML_TABS_2 = String.raw`
         <div id="fin-church-header"></div>
         <div id="fin-church-year-view"></div>
         <div id="fin-church-multiyear-view" style="display:none;"></div>
+        <!-- Static, not JS-injected: unlike Budget/Financial Health, no single render function
+             ever rebuilds this whole panel's innerHTML (the three divs above are each managed
+             independently), so there's no one place to inject this the way #fin-plan-printsheet-root
+             is added inside finRenderPlanning()'s own output. A plain sibling here, kept out of the
+             way by .fin-church-printsheet-root{display:none;}, gives finChurchRptPrint() (js-finance.js)
+             a fixed mount and needs only ONE level of print-CSS nesting, not the two levels
+             Budget/Health/Full Report need (see body.printing-church in html-head.js). -->
+        <div id="fin-church-printsheet-root" class="fin-church-printsheet-root"></div>
       </div>
 
       <!-- Balance Sheet & Financial Position — assets/liabilities/equity, its own tab (was a
