@@ -277,8 +277,8 @@ describe('body.printing-property CSS contract', () => {
     expect(HTML_HEAD).toMatch(/\.fin-property-printsheet-root\{display:none;\}/);
   });
 
-  it('collapses .fin-grid-hero/.fin-grid-charts/.fin-grid-3 to one column, and keeps cards from splitting across a page break', () => {
-    expect(HTML_HEAD).toMatch(/\.fin-property-rpt \.fin-grid-3,\.fin-property-rpt \.fin-grid-hero,\.fin-property-rpt \.fin-grid-charts\{grid-template-columns:1fr!important;\}/);
+  it('collapses .fin-grid-hero/.fin-grid-charts/.fin-grid-3/.fin-grid-2 to one column, and keeps cards from splitting across a page break', () => {
+    expect(HTML_HEAD).toMatch(/\.fin-property-rpt \.fin-grid-3,\.fin-property-rpt \.fin-grid-hero,\.fin-property-rpt \.fin-grid-charts,\.fin-property-rpt \.fin-grid-2\{grid-template-columns:1fr!important;\}/);
     const cardRule = HTML_HEAD.match(/\.fin-health-rpt \.fin-card[^{]*\{break-inside:avoid;margin-bottom:14px;\}/);
     expect(cardRule).toBeTruthy();
     expect(cardRule[0]).toContain('.fin-property-rpt .fin-card');

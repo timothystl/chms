@@ -7516,7 +7516,11 @@ function finPropertyRptRentRoll(roll) {
     + '<tbody>' + (rows || '<tr><td colspan="6" style="padding:6px;color:var(--warm-gray);">No units recorded yet.</td></tr>') + '</tbody>'
     + foot + '</table></div>';
 }
-function finPropertyRptValuationWorksheet(d) {
+// valuation is the already-computed finComputePropertyValuation() result the caller built for the
+// cash walk above (pf.valuation) — reused here rather than recomputed a second time from the same
+// meta.valuation inputs, so this can never silently drift from the cash-walk figures it's printed
+// right below.
+function finPropertyRptValuationWorksheet(d, valuation) {
   var val = (d.meta && d.meta.valuation) || {};
   var opCosts = val.operating_costs || {};
   function stat(label, value) {
@@ -7533,7 +7537,7 @@ function finPropertyRptValuationWorksheet(d) {
     + '<div style="font-weight:600;font-size:.82rem;margin:0 0 6px;">Operating Costs</div>'
     + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;">' + opCostStats + '</div>'
     + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;">' + assumptionStats + '</div>'
-    + finRenderValuationOutputBody(finComputePropertyValuation(finPropertyValuationInputsFromMeta(d.meta || {})));
+    + finRenderValuationOutputBody(valuation);
 }
 // Same Reserves card as the live tab, except the "Reserve schedule" detail is a plain always-shown
 // block instead of a collapsed <details> — no print equivalent for a click-to-expand disclosure.
@@ -7629,7 +7633,7 @@ function finPropertyBuildPrintSheetHtml() {
     + finRenderProFormaBody(pf)
     + finRenderCapitalAssumptionEditor(pf.capital, false)
     + '<h4 style="margin:18px 0 8px;font-size:.85rem;">Operating costs, assumptions &amp; valuation worksheet</h4>'
-    + finPropertyRptValuationWorksheet(d)
+    + finPropertyRptValuationWorksheet(d, pf.valuation)
     + '</div>';
 
   var dists = (d.distributions || []).slice().sort(function(a, b) { return a.period < b.period ? 1 : -1; });
