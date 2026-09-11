@@ -1649,6 +1649,12 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
      for Church/Daycare/Giving Reports) hide. Overview has no print button so it never prints. */
   .fin-subnav{display:none!important;}
   #fin-panel-overview{display:none!important;}
+  /* Balance Sheet's "Full account detail" table has no separate print sheet like Planning/
+     Compensation below — window.print() just prints the tab as it renders — so its "Hide zero-
+     balance lines" checkbox, "Hide individual lines"/"Unhide all" buttons, and (while picking) the
+     per-row checkboxes are working-session controls marked .fin-noprint to hide them from paper;
+     the underlying <details> stays open and its already-filtered rows print as plain text. */
+  .fin-noprint{display:none!important;}
   /* Compensation: "Print for Council" renders a purpose-built flowing document into
      #fin-comp-print-root and sets body.printing-comp. That document is the ONLY thing that
      prints — the workspace with its chrome hidden is a different layout entirely (a drafted

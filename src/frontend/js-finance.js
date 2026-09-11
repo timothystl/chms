@@ -3280,6 +3280,19 @@ var _finChurchThisYearData = null;
 var _finChurchMultiYearData = null;
 var _finBalanceData = null;
 var _finBalanceMultiYearData = null;
+// Full account detail table: which lines to leave off (manually hidden, by category_path) and
+// whether a $0.00 line is dropped automatically — both apply to the on-screen table AND to Print,
+// since window.print() here just prints the page as it already renders (no separate print sheet
+// like Planning/Compensation build). Session-only, same rationale as _finPlanExcluded: a "leave
+// this off THIS balance sheet" choice, not a standing chart-of-accounts decision, so it resets on
+// reload. Default hideZero=true since a $0.00 fund balance is the common case worth hiding by
+// default. _finBalanceManaging expands a separate checklist panel (every leaf, checked = shown)
+// so a manually-hidden line can be found and restored — it never changes what the actual detail
+// table itself renders, so the table (and Print, which just prints it) is always exactly what
+// "Hide zero-balance lines" + the hidden set say it should be, whether or not the panel is open.
+var _finBalanceHiddenPaths = {};
+var _finBalanceHideZero = true;
+var _finBalanceManaging = false;
 
 // Shared palette for the category pie charts below (Income sources / Expense categories /
 // Asset composition) — cycles by category rank (largest first) rather than a fixed per-category
@@ -3814,6 +3827,87 @@ function finBuildBalanceTreeFromFlatRows(rows) {
   roots.forEach(computeTotals);
   return roots;
 }
+// Drops any leaf whose category_path is in hiddenPaths, plus (when hideZero) any leaf whose
+// balance is exactly $0.00 — same cascading-drop shape as finPlanFilterExcludedWalk: a group left
+// with no children after that is a dead header and is dropped too, and totals are recomputed on
+// the pruned tree so a manually-hidden line's dollars come out of its parent's subtotal (matching
+// the read "this line isn't part of this sheet"), while an auto-hidden $0.00 line changes nothing
+// since it never contributed. This is the ONLY tree the detail table (and so Print, which just
+// prints the page as rendered) ever shows — the "Hide individual lines…" panel below reads the
+// full, unfiltered tree separately so a hidden line can still be found and restored.
+function finBalanceFilterHiddenWalk(nodes, hiddenPaths, hideZero) {
+  var out = [];
+  (nodes || []).forEach(function(n) {
+    if (!n.children.length) {
+      if (hiddenPaths[n.path] || (hideZero && n.totalBalanceCents === 0)) return;
+      out.push(JSON.parse(JSON.stringify(n)));
+      return;
+    }
+    var kids = finBalanceFilterHiddenWalk(n.children, hiddenPaths, hideZero);
+    if (!kids.length) return;
+    var c = JSON.parse(JSON.stringify(n));
+    c.children = kids;
+    out.push(c);
+  });
+  return out;
+}
+function finBalanceRecomputeTotals(nodes) {
+  (nodes || []).forEach(function(node) {
+    finBalanceRecomputeTotals(node.children);
+    var total = node.ownBalanceCents || 0;
+    node.children.forEach(function(c) { total += c.totalBalanceCents; });
+    node.totalBalanceCents = total;
+  });
+}
+function finBalanceFilterHidden(nodes, hiddenPaths, hideZero) {
+  var out = finBalanceFilterHiddenWalk(nodes, hiddenPaths, hideZero);
+  finBalanceRecomputeTotals(out);
+  return out;
+}
+// Flat list of every leaf (account_path with no children) in tree order, for the "Manage hidden
+// lines" panel — a plain checklist rather than a second copy of the indented tree, since the panel
+// only needs "which lines exist" and never needs to show group subtotals.
+function finBalanceCollectLeaves(nodes, out) {
+  out = out || [];
+  (nodes || []).forEach(function(n) {
+    if (!n.children.length) out.push(n); else finBalanceCollectLeaves(n.children, out);
+  });
+  return out;
+}
+// "Hide individual lines…" panel — one checkbox per account (checked = shown). Independent of
+// "Hide zero-balance lines": a $0.00 leaf can still be checked here (it just stays off the table
+// anyway, noted rather than left unexplained), and a non-zero leaf unchecked here is the only way
+// to drop it. Reads the FULL tree (not the already-filtered one) so a manually-hidden line is
+// still listed and can be found again.
+function finRenderBalanceManagePanel(fullTree) {
+  var leaves = finBalanceCollectLeaves(fullTree);
+  if (!leaves.length) return '';
+  var rows = leaves.map(function(n) {
+    var hidden = !!_finBalanceHiddenPaths[n.path];
+    var zeroNote = (_finBalanceHideZero && n.totalBalanceCents === 0)
+      ? ' <span style="color:var(--warm-gray);">(zero balance — already off the table)</span>' : '';
+    return '<label style="display:flex;align-items:center;gap:6px;font-size:.76rem;padding:2px 0;' + (hidden ? 'color:var(--warm-gray);' : '') + '">'
+      + '<input type="checkbox" ' + (hidden ? '' : 'checked ') + 'onchange="finBalanceToggleHidden(' + jsAttr(n.path) + ')" style="width:13px;height:13px;flex-shrink:0;">'
+      + esc(n.label) + zeroNote + '</label>';
+  }).join('');
+  return '<div style="margin-top:8px;padding:10px 12px;background:var(--warm-surface-page);border-radius:8px;max-height:260px;overflow-y:auto;columns:2;column-gap:20px;">' + rows + '</div>';
+}
+function finBalanceToggleHideZero() {
+  _finBalanceHideZero = !_finBalanceHideZero;
+  finRenderBalanceSheetTab(_finBalanceData, _finBalanceMultiYearData);
+}
+function finBalanceToggleManaging() {
+  _finBalanceManaging = !_finBalanceManaging;
+  finRenderBalanceSheetTab(_finBalanceData, _finBalanceMultiYearData);
+}
+function finBalanceToggleHidden(path) {
+  if (_finBalanceHiddenPaths[path]) delete _finBalanceHiddenPaths[path]; else _finBalanceHiddenPaths[path] = true;
+  finRenderBalanceSheetTab(_finBalanceData, _finBalanceMultiYearData);
+}
+function finBalanceResetHidden() {
+  _finBalanceHiddenPaths = {};
+  finRenderBalanceSheetTab(_finBalanceData, _finBalanceMultiYearData);
+}
 function finRenderBalanceTreeRows(nodes, html) {
   html = html || [];
   (nodes || []).forEach(function(node) {
@@ -4246,7 +4340,8 @@ function finRenderBalanceSheetTab(d, multiYear) {
     + '<div style="font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Equity</div>'
     + '<div style="font-size:1.3rem;font-weight:700;color:var(--steel-anchor);">$' + finFmtMoney(s.equityCents / 100) + '</div></div>'
     + '</div>'
-    + '<div style="font-size:.82rem;margin-bottom:18px;">' + checkHtml + '</div>';
+    + '<div style="font-size:.82rem;margin-bottom:6px;">' + checkHtml + '</div>'
+    + '<div style="font-size:.74rem;color:var(--warm-gray);margin-bottom:18px;">Designated &amp; Restricted Funds (Memorial, Food Pantry, missions, etc.) are shown here as Net Assets, not as a Liability &mdash; the standard nonprofit presentation, confirmed 2026-09-10. They’re gifts already given for a specific purpose, not a debt owed to an outside party. QuickBooks&rsquo; own chart of accounts still files them under Liabilities.</div>';
   html += finRenderEquityReclassCard(d.equityReclass);
   var tree = finBuildBalanceTreeFromFlatRows(d.rows);
   var assetPie = finPieItemsFromTree(tree, 'Assets', 'totalBalanceCents');
@@ -4260,10 +4355,21 @@ function finRenderBalanceSheetTab(d, multiYear) {
   html += finRenderBalanceYoyCard(d.rows, _finBalancePriorYearData, d.year);
   html += finRenderBalanceReconciliation(multiYear);
   html += finRenderEquityReclassMultiYearTable(multiYear);
+  var detailRenderTree = finBalanceFilterHidden(tree, _finBalanceHiddenPaths, _finBalanceHideZero);
+  var hiddenCount = Object.keys(_finBalanceHiddenPaths).length;
+  var detailToolbarHtml = '<div class="fin-noprint" style="padding:8px 8px 10px;border-bottom:1px solid var(--warm-row-divider);">'
+    + '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">'
+    + '<label style="display:flex;align-items:center;gap:5px;font-size:.78rem;color:var(--warm-gray);cursor:pointer;">'
+    + '<input type="checkbox" ' + (_finBalanceHideZero ? 'checked ' : '') + 'onchange="finBalanceToggleHideZero()" style="width:13px;height:13px;">Hide zero-balance lines</label>'
+    + '<button class="btn-secondary" onclick="finBalanceToggleManaging()" style="padding:4px 10px;font-size:.78rem;">' + (_finBalanceManaging ? 'Done managing hidden lines' : 'Hide individual lines&hellip;') + '</button>'
+    + (hiddenCount ? '<button class="btn-secondary" onclick="finBalanceResetHidden()" style="padding:4px 10px;font-size:.78rem;">Unhide all (' + hiddenCount + ')</button>' : '')
+    + '</div>'
+    + (_finBalanceManaging ? finRenderBalanceManagePanel(tree) : '')
+    + '</div>';
   html += '<details open><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
-    + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;margin-top:10px;">' + detailToolbarHtml + '<table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
     + '<thead><tr style="background:var(--warm-surface-header);"><th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Account</th><th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Balance</th></tr></thead>'
-    + '<tbody>' + finRenderBalanceTreeRows(tree).join('') + '</tbody></table></div></details>';
+    + '<tbody>' + finRenderBalanceTreeRows(detailRenderTree).join('') + '</tbody></table></div></details>';
   el.innerHTML = html;
 }
 // CSV export — the full multi-year Assets/Liabilities/Equity/Cash trend, not just the on-screen
