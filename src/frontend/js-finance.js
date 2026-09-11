@@ -1807,7 +1807,7 @@ function finRenderHealth() {
   }
   var rs = d.revenueStreams || { streams: {}, totalCents: 0 };
   var actions = '<button class="btn-secondary" onclick="finExportBoardPacket()">Export board packet</button>'
-    + '<button class="btn-secondary" onclick="window.print()">Print</button>';
+    + '<button class="btn-secondary" onclick="finHealthPrint()">Print</button>';
   var sub = 'FY' + d.year + ' run rate &middot; ' + finMoney0(rs.totalCents) + ' total revenue &middot; all three entities';
   var unmappedNote = (rs.unmapped && rs.unmapped.length && _userRole === 'admin')
     ? '<div class="fin-note-box" style="margin-bottom:0;">' + rs.unmapped.length + ' account group'
@@ -1831,10 +1831,299 @@ function finRenderHealth() {
     + finRenderLeverCards(d)
     + finRenderDecisions(d)
     + '<div class="fin-page-footnote">Imports, QuickBooks connection, daycare sync and manual entry live on a separate <b>Data &amp; Imports</b> tab — off this page entirely.</div>'
-    + '</div>';
+    + '</div>'
+    + '<div id="fin-health-printsheet-root" class="fin-health-printsheet-root"></div>';
 
   // The five-year mix needs the multi-year payload; fetch it once and re-render when it arrives.
   if (!_finChurchMultiYearData) finLoadChurchMultiYear();
+}
+
+// ── Financial Health — print sheet ──────────────────────────────────────────────────────────
+// Same dedicated-print-sheet idiom as Budget's finPlanBuildPrintSheetHtml, reused both by this
+// page's own "Print" button (finHealthPrint, replacing the old plain window.print()) and by the
+// Full Report picker (see FIN_FULLREPORT_SECTIONS in the Full Report section below).
+//
+// Most of finRenderHealth()'s own building blocks are already pure report content — numbers,
+// bars, SVG, no interactivity — and are reused completely unchanged: finRenderRevenueMix,
+// finRenderEntityCards, finRenderGivingPace, finRenderCashRunway, finRenderFiveYearMix,
+// finRenderLeverCards, plus finFlowLayout/finRenderSankey underneath the money-flow diagram
+// below. A handful carry an onclick nav button, a details/summary reveal, or an interactive view
+// toggle with no print equivalent (the Flow/Share chart toggle, the appeal-scope pill group) —
+// those get their own trimmed finHealthRpt* variant below: identical content, just without the
+// affordance a printed page can't use.
+function finHealthRptStreamCards(d) {
+  var rs = d.revenueStreams || { streams: {}, totalCents: 0 };
+  var total = rs.totalCents || 0;
+  function pctOf(cents) { return total ? Math.round(cents / total * 100) : 0; }
+  function subBars(groups, colors) {
+    var max = groups.reduce(function(m, g) { return Math.max(m, g.cents); }, 1);
+    return groups.slice(0, 3).map(function(g, i) {
+      return finBar(esc(g.label), '$' + finFmtMoney(g.cents / 100), g.cents / max * 100, colors[Math.min(i, colors.length - 1)]);
+    }).join('');
+  }
+  var donor = rs.streams.donor || { cents: 0, groups: [] };
+  var earned = rs.streams.earned || { cents: 0, groups: [] };
+  var passive = rs.streams.passive || { cents: 0, groups: [] };
+  var restricted = rs.streams.restricted || { cents: 0, groups: [] };
+  var donorTotal = donor.cents + restricted.cents;
+  var donorMax = Math.max(donor.cents, restricted.cents, 1);
+  var donorCard = '<div class="fin-card fin-stream-card" style="border-top-color:var(--color-teal);">'
+    + '<div><div class="fin-card-hdr-split"><span class="fin-eyebrow">Donor income</span><span class="fin-chip fin-chip-info">Full control</span></div>'
+    + '<div class="fin-stream-val">' + finMoney0(donorTotal) + '</div>'
+    + '<div class="fin-stream-sub">' + pctOf(donorTotal) + '% of revenue &middot; ' + (d.givingHouseholds || 0) + ' giving household' + (d.givingHouseholds === 1 ? '' : 's') + '</div></div>'
+    + '<div style="display:flex;flex-direction:column;gap:9px;">'
+    + (donorTotal
+      ? finBar('Unrestricted', '$' + finFmtMoney(donor.cents / 100), donor.cents / donorMax * 100, 'var(--color-teal)')
+        + finBar('Restricted', '$' + finFmtMoney(restricted.cents / 100), restricted.cents / donorMax * 100, 'var(--ice-blue)')
+        + '<div style="font-size:11.5px;color:var(--warm-gray);">'
+        + (restricted.cents
+          ? 'Restricted gifts are donor-directed but spent on our own ministry, so they do fund the budget. '
+          : '')
+        + 'Designated funds are counted separately below — they never pay a budgeted expense.</div>'
+      : '<div style="font-size:11.5px;color:var(--warm-gray);">No account group is classified as donor income yet.</div>')
+    + '</div></div>';
+
+  var earnedCard = '<div class="fin-card fin-stream-card" style="border-top-color:var(--color-gold);">'
+    + '<div><div class="fin-card-hdr-split"><span class="fin-eyebrow">Earned income</span><span class="fin-chip fin-chip-warn">Reported, not managed</span></div>'
+    + '<div class="fin-stream-val">' + finMoney0(earned.cents) + '</div>'
+    + '<div class="fin-stream-sub">' + pctOf(earned.cents) + '% of revenue'
+    + (earned.cents > 0 && FIN_DISPLAY_STREAM_KEYS.every(function(k) { return earned.cents >= (finDisplayStreams(rs.streams)[k] || { cents: 0 }).cents; }) ? ' &middot; our largest single stream' : '') + '</div></div>'
+    + '<div style="display:flex;flex-direction:column;gap:9px;">'
+    + (earned.groups.length ? subBars(earned.groups, ['var(--color-gold)', 'var(--pale-gold)', 'var(--pale-gold)'])
+      : '<div style="font-size:11.5px;color:var(--warm-gray);">No account group is classified as earned income yet.</div>')
+    + '</div></div>';
+
+  var passiveCard = '<div class="fin-card fin-stream-card" style="border-top-color:var(--sage);">'
+    + '<div><div class="fin-card-hdr-split"><span class="fin-eyebrow">Passive income</span><span class="fin-chip fin-chip-positive">Timing decision</span></div>'
+    + '<div class="fin-stream-val">' + finMoney0(passive.cents) + '</div>'
+    + '<div class="fin-stream-sub">' + pctOf(passive.cents) + '% of revenue &middot; endowment, investments, property</div></div>'
+    + '<div style="display:flex;flex-direction:column;gap:9px;">'
+    + (passive.groups.length ? subBars(passive.groups, ['var(--sage)', 'var(--pale-sage)', 'var(--pale-sage)'])
+      : '<div style="font-size:11.5px;color:var(--warm-gray);">No account group is classified as passive income yet.</div>')
+    + '</div></div>';
+
+  return '<div class="fin-stream-grid fin-grid-start">' + donorCard + earnedCard + passiveCard + '</div>';
+}
+function finHealthRptDesignatedFunds(d) {
+  var g = d.designatedFunds;
+  if (!g || !g.funds || !g.funds.length) return '';
+  var rs = d.revenueStreams || { streams: {} };
+  var ledgerDonorCents = ((rs.streams.donor || {}).cents || 0) + ((rs.streams.restricted || {}).cents || 0);
+  var diff = g.operatingGivenCents - ledgerDonorCents;
+  var hasBal = g.balanceCents != null;
+
+  var rows = g.funds.map(function(f) {
+    return '<tr>'
+      + '<td style="padding:5px 8px;">' + esc(f.label) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;">'
+      + (f.givenCents ? '$' + finFmtMoney(f.givenCents / 100) : '<span style="color:var(--warm-gray);">—</span>') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;">'
+      + (f.balanceCents == null ? '<span style="color:var(--warm-gray);">—</span>' : '$' + finFmtMoney(f.balanceCents / 100)) + '</td>'
+      + '</tr>';
+  }).join('');
+
+  return '<div class="fin-card">'
+    + '<div class="fin-card-hdr-split">'
+      + '<div><div class="fin-card-title" style="font-size:20px;">Designated funds</div>'
+      + '<div class="fin-card-sub" style="margin:0;">Held, not operated on. None of this can pay a budgeted expense, so it is counted apart from revenue.</div></div>'
+      + '<div style="text-align:right;"><div class="fin-eyebrow">Given this year</div>'
+      + '<div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;">' + finMoney0(g.designatedGivenCents) + '</div>'
+      + (hasBal ? '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:3px;">' + finMoney0(g.balanceCents) + ' on hand'
+          + (g.asOfDate ? ' &middot; ' + esc(g.asOfDate) : '') + '</div>' : '')
+    + '</div></div>'
+    + '<div style="margin-top:10px;font-size:12.5px;font-weight:600;color:var(--color-teal);">' + g.funds.length + ' fund' + (g.funds.length === 1 ? '' : 's') + '</div>'
+    + '<div style="overflow-x:auto;margin-top:8px;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;">'
+    + '<thead><tr style="background:var(--linen);">'
+    + '<th style="padding:5px 8px;text-align:left;">Fund</th>'
+    + '<th style="padding:5px 8px;text-align:right;">Given this year</th>'
+    + '<th style="padding:5px 8px;text-align:right;">Balance on hand</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div>'
+    + '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--warm-ink-label);">'
+      + '<b>Does this tie out?</b> Recorded giving ' + finMoney0(d.givingCents || 0)
+      + ' &minus; designated ' + finMoney0(g.designatedGivenCents)
+      + ' = <b>' + finMoney0(g.operatingGivenCents) + '</b> that funds the budget, against '
+      + finMoney0(ledgerDonorCents) + ' of donor income booked in the ledger — a difference of '
+      + '<b>' + finMoney0(Math.abs(diff)) + '</b>. '
+      + (Math.abs(diff) > Math.max(Math.round(ledgerDonorCents * 0.02), 500000)
+        ? 'That is wider than timing alone usually explains; a fund is likely classified differently on one side.'
+        : 'Small differences are normal — a gift recorded in one year and booked in the next.')
+    + '</div></div>';
+}
+// The live page's Flow/Share toggle has no print equivalent, so this just shows the Sankey — the
+// diagram that prompted this whole feature request ("select the graphs ... i want included") —
+// without the toggle buttons, the Share-view donuts, or the visually-hidden a11y data table (not
+// needed once the figures are already on paper). finFlowLayout/finRenderSankey are pure layout
+// math and SVG string-building with no interactivity of their own, so they're reused unchanged.
+function finHealthRptFlow(d) {
+  var diagram = d.flowDiagram;
+  if (!diagram || !diagram.totalRevenueCents) return '';
+  var layout = finFlowLayout(diagram);
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">How the money moves</div>'
+    + '<div class="fin-card-sub">' + finMoney0(diagram.totalRevenueCents) + ' in &middot; ' + finMoney0(diagram.totalExpenseCents) + ' out &middot; net ' + finFmtSigned(diagram.netCents) + ' across all three entities.</div>'
+    + '<div class="fin-flow-sankey" style="display:block;">' + finRenderSankey(diagram, layout) + '</div>'
+    + '</div>';
+}
+// Fixed to the fuller "gap + reserves" framing (the live page's default) rather than reproducing
+// the Gap+reserves/Gap-only pill toggle — see finHealthBuildPrintSheetHtml's _finAppealScope swap.
+function finHealthRptFundraisingCallout(d) {
+  var t = finHealthTargets(d);
+  var rooms = _finDaycareRooms;
+  var waiting = (rooms && rooms.occupancy) ? rooms.occupancy.waitingFamilies : null;
+  function row(label, value, color) {
+    return '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-top:1px solid rgba(255,255,255,.22);padding-top:10px;">'
+      + '<span style="font-size:12.5px;color:rgba(255,255,255,.8);">' + label + '</span>'
+      + '<b style="font-size:17px;font-variant-numeric:tabular-nums;color:' + color + ';">' + value + '</b></div>';
+  }
+  return '<div class="fin-navy-card" style="display:flex;flex-direction:column;gap:14px;">'
+    + '<div><div class="fin-navy-label">What this points to</div>'
+    + '<div style="font-family:var(--font-display);font-size:22px;font-weight:700;line-height:1.15;margin-top:2px;">Donor revenue has to grow, because it&rsquo;s the only stream we can grow.</div></div>'
+    + '<div style="display:flex;flex-direction:column;gap:10px;">'
+    + row('Close the operating gap', t.gapCents ? finMoney0(t.gapCents) : 'none', t.gapCents ? 'var(--negative-on-navy)' : 'var(--positive-on-navy)')
+    + row('Reserves to the policy floor', t.reserveGapCents ? finMoney0(t.reserveGapCents) : 'at floor', t.reserveGapCents ? 'var(--pale-gold)' : 'var(--positive-on-navy)')
+    + row('Room to serve waiting families', waiting ? waiting + ' waiting' : 'needs the daycare API', 'var(--positive-on-navy)')
+    + '</div></div>';
+}
+function finHealthRptAppealCard(d) {
+  var t = finHealthTargets(d);
+  var ladder = finComputeAppealLadder(t.targetCents);
+  if (!t.targetCents) {
+    return '<div class="fin-card">'
+      + '<div class="fin-card-title" style="font-size:20px;">What an appeal would have to look like</div>'
+      + '<div class="fin-card-sub" style="margin:0;">Nothing to close right now — the year is projected to end in surplus and reserves are at or above the policy floor.</div>'
+      + '</div>';
+  }
+  var maxHh = ladder.tiers.reduce(function(m, x) { return Math.max(m, x.households); }, 1);
+  var rows = ladder.tiers.map(function(tier) {
+    return '<div class="fin-ladder-row">'
+      + '<span style="font-size:14px;font-weight:700;">$' + finFmtMoney(tier.askCents / 100) + '</span>'
+      + '<span style="display:flex;align-items:center;gap:9px;"><span style="height:11px;border-radius:6px;background:' + tier.color + ';width:' + (tier.households / maxHh * 88).toFixed(1) + '%;"></span>'
+      + '<span style="font-size:12.5px;color:var(--warm-ink-label);font-weight:600;white-space:nowrap;">' + tier.households + ' household' + (tier.households === 1 ? '' : 's') + '</span></span>'
+      + '<span style="text-align:right;font-size:13.5px;font-weight:700;font-variant-numeric:tabular-nums;">$' + finFmtMoney(tier.raisesCents / 100) + '</span>'
+      + '</div>';
+  }).join('');
+  var hh = d.givingHouseholds || 0;
+  var share = hh ? Math.round(ladder.totalHouseholds / hh * 100) : null;
+  var bands = d.donorBands || [];
+  var maxBand = bands.reduce(function(m, b) { return Math.max(m, b.households); }, 1);
+  var bandColors = ['var(--color-navy)', 'var(--color-teal)', 'var(--color-gold)'];
+  var bandHtml = bands.map(function(b, i) {
+    return '<div style="display:flex;justify-content:space-between;font-size:12.5px;"><span style="color:var(--warm-ink-label);">' + esc(b.label) + '</span><b style="font-variant-numeric:tabular-nums;">' + b.households + ' hh</b></div>'
+      + '<div style="height:8px;border-radius:5px;background:var(--warm-divider);"><div style="width:' + (b.households / maxBand * 100).toFixed(1) + '%;height:100%;border-radius:5px;background:' + bandColors[i % bandColors.length] + ';"></div></div>';
+  }).join('');
+  var topBand = bands[0];
+  var sub = 'Target <b style="color:var(--charcoal);">' + finMoney0(ladder.totalCents) + '</b> — close the ' + finMoney0(t.gapCents) + ' operating gap <i>and</i> rebuild reserves to the policy floor.';
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">What an appeal would have to look like</div>'
+    + '<div class="fin-card-sub" style="margin:0;">' + sub + (hh ? ' ' + hh + ' giving households.' : '') + '</div>'
+    + '<div class="fin-appeal-grid">'
+      + '<div style="display:flex;flex-direction:column;gap:10px;">'
+        + '<div class="fin-ladder-row fin-ladder-head"><span>Ask level</span><span>Households needed</span><span style="text-align:right;">Raises</span></div>'
+        + rows
+        + '<div class="fin-ladder-row fin-ladder-total">'
+        + '<span style="font-size:13px;font-weight:800;color:var(--color-navy);">' + ladder.totalHouseholds + ' households</span>'
+        + '<span style="font-size:12.5px;color:var(--warm-gray);">' + (share != null ? share + '% of everyone who gave this year' : 'no giving records to compare against') + '</span>'
+        + '<span style="text-align:right;font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--color-navy);">' + finMoney0(ladder.totalCents) + '</span>'
+        + '</div>'
+      + '</div>'
+      + '<div class="fin-bands-panel">'
+        + '<div class="fin-eyebrow">Read against real giving bands</div>'
+        + (topBand ? '<div style="font-size:13px;color:var(--warm-ink-label);line-height:1.55;">' + topBand.households + ' households already give above $2,000 a year — the top tier asks ' + ladder.tiers[0].households + ' of them for one extra gift, not a new habit.</div>' : '')
+        + '<div style="display:flex;flex-direction:column;gap:8px;">' + bandHtml + '</div>'
+      + '</div>'
+    + '</div></div>';
+}
+function finHealthRptDecisions(d) {
+  var t = finHealthTargets(d);
+  var p = _finProperty;
+  var latestDist = p ? finComputeLatestDistributionAmount(p) : null;
+  var taken = p ? finComputeDistributedThisYear(p) : { cents: 0, year: d.year };
+  var elapsedPct = finElapsedYearPct(d.year);
+  var tree = finReorganizeChurchTree(finBuildTreeFromFlatRows(d.entries));
+  var expenseRoot = tree.filter(function(n) { return n.classification === 'Expenses'; })[0];
+  var overPace = ((expenseRoot && expenseRoot.children) || []).map(function(n) {
+    return { label: n.label, diff: n.totalActualCents - n.totalBudgetCents * elapsedPct, hasBudget: n.totalBudgetCents > 0 };
+  }).filter(function(x) { return x.hasBudget && x.diff > 150000; }).sort(function(a, b) { return b.diff - a.diff; });
+  function sub(eyebrow, eyebrowColor, headline, body) {
+    return '<div class="fin-decision">'
+      + '<div class="fin-eyebrow" style="color:' + eyebrowColor + ';">' + eyebrow + '</div>'
+      + '<div style="font-size:15px;font-weight:700;color:var(--charcoal);line-height:1.3;">' + headline + '</div>'
+      + '<div style="font-size:12.5px;color:var(--warm-ink-label);line-height:1.5;">' + body + '</div></div>';
+  }
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:20px;">So what do we decide?</div>'
+    + '<div class="fin-card-sub">Three decisions this picture puts in front of the council this month.</div>'
+    + '<div class="fin-grid-3">'
+    + sub('Fundraising', 'var(--color-teal)',
+        t.targetCents ? 'Size an appeal at ' + finMoney0(t.gapCents) + ' — or ' + finMoney0(t.gapCents + t.reserveGapCents) + ' with reserves.' : 'No appeal is needed to balance the year.',
+        t.targetCents ? 'Closes the projected operating gap and rebuilds reserves to the policy floor.' : 'The year is projected to end in surplus with reserves at or above the floor.')
+    + sub('Mid-year adjustment', 'var(--deep-amber)',
+        overPace.length ? (overPace.length === 1 ? 'One category is running ahead of the calendar.' : overPace.length + ' categories are running ahead of the calendar.') : 'Spending is tracking the calendar.',
+        overPace.length
+          ? overPace.slice(0, 3).map(function(x) { return esc(x.label) + ' <b>' + finFmtSigned(x.diff) + '</b> over pace'; }).join('<br>')
+          : 'No expense category with a budget is materially ahead of where the calendar says it should be.')
+    + sub('Ivanhoe distribution', 'var(--sage-text)',
+        latestDist ? finMoney0(latestDist.cents) + ' is distributable without touching reserves.' : 'No current distribution figure on record.',
+        latestDist
+          ? 'We have taken ' + finMoney0(taken.cents) + ' so far in ' + taken.year + (t.gapCents && latestDist.cents - taken.cents >= t.gapCents ? ' — another ' + finMoney0(t.gapCents) + ' would cover the operating gap outright.' : '.')
+          : 'Record the latest AHRA monthly report to see what is available.')
+    + '</div></div>';
+}
+function finHealthBuildPrintSheetHtml() {
+  var d = _finHealthData;
+  if (!d || !d.entries || !d.entries.length) {
+    return '<div class="fin-health-rpt"><div class="fin-plan-rpt-page"><p class="fin-plan-rpt-p mut">No church ledger data for FY' + (d ? d.year : new Date().getFullYear()) + ' yet.</p></div></div>';
+  }
+  var rs = d.revenueStreams || { streams: {}, totalCents: 0 };
+  var today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  // Every section below that reads a target (finHealthTargets, via finRenderLeverCards and the
+  // finHealthRpt* variants above) does so through the same _finAppealScope global the live page's
+  // "Gap + reserves"/"Gap only" pill toggle writes — no print equivalent for a toggle, so the
+  // fuller "gap + reserves" framing is used for the whole sheet, then the live page's own current
+  // choice is restored immediately after so printing never changes what a reader sees back on
+  // screen (this all runs synchronously, so the swap is never observed mid-render elsewhere).
+  var savedScope = _finAppealScope;
+  _finAppealScope = 'gapReserves';
+
+  // Reuses the same masthead classes (.fin-plan-rpt-hd/-kicker/-h1/-sub) Budget's own print sheet
+  // established — shared "report cover" chrome, not Budget-specific, so a combined Full Report
+  // spanning multiple sections still reads as one consistent document.
+  var header = '<div class="fin-plan-rpt-hd"><span>Timothy Lutheran Church &middot; St. Louis</span><span>Financial Health &middot; prepared ' + today + '</span></div>'
+    + '<div class="fin-plan-rpt-kicker">Financial Health</div>'
+    + '<h1 class="fin-plan-rpt-h1">Where the Money Comes From</h1>'
+    + '<div class="fin-plan-rpt-sub">FY' + d.year + ' run rate &middot; ' + finMoney0(rs.totalCents) + ' total revenue &middot; all three entities</div>';
+
+  var html = '<div class="fin-health-rpt">'
+    + header
+    + finRenderRevenueMix(rs.streams, rs.totalCents)
+    + finHealthRptStreamCards(d)
+    + finHealthRptDesignatedFunds(d)
+    + finHealthRptFlow(d)
+    + finRenderEntityCards(d)
+    + finRenderGivingPace(d)
+    + finRenderCashRunway(d)
+    + finRenderFiveYearMix()
+    + finHealthRptFundraisingCallout(d)
+    + finHealthRptAppealCard(d)
+    + finRenderLeverCards(d)
+    + finHealthRptDecisions(d)
+    + '</div>';
+
+  _finAppealScope = savedScope;
+  return html;
+}
+function finHealthPrint() {
+  var root = document.getElementById('fin-health-printsheet-root');
+  if (!root) return;
+  root.innerHTML = finHealthBuildPrintSheetHtml();
+  document.body.classList.add('printing-health');
+  var cleanup = function() {
+    document.body.classList.remove('printing-health');
+    if (root) root.innerHTML = '';
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(function() { window.print(); setTimeout(cleanup, 1000); }, 60);
 }
 
 // The band report lives in the Giving tab's Analysis view ('analysis' is an alias givSetView
@@ -8208,13 +8497,14 @@ function finPlanPrint() {
 // same mechanism rather than inventing a second one: build one combined off-screen document out
 // of whichever sections are checked, then call window.print() exactly once.
 //
-// Only Budget has a dedicated "build the printable HTML" function today (finPlanBuildPrintSheetHtml,
-// above) — Financial Health/the money-flow diagram, Church Report, Balance Sheet, and Property
-// currently only know how to print whatever's live on screen (a plain window.print() button with
-// no separate off-screen build step), which doesn't compose with anything else into one document.
-// Giving each of those its own print-sheet builder is real, separate work (the same kind of pass
-// Budget's own redesign took); this registry is where each one plugs in once that lands, without
-// touching this file's structure again. Compensation is deliberately NOT here yet either — its
+// Budget and Financial Health (incl. the money-flow diagram) each have a dedicated "build the
+// printable HTML" function now (finPlanBuildPrintSheetHtml, finHealthBuildPrintSheetHtml) —
+// Church Report, Balance Sheet, and Property still only know how to print whatever's live on
+// screen (a plain window.print() button with no separate off-screen build step), which doesn't
+// compose with anything else into one document. Giving each of those its own print-sheet builder
+// is real, separate work (the same kind of pass Budget's and Financial Health's own redesigns
+// took); this registry is where each one plugs in once that lands, without touching this file's
+// structure again. Compensation is deliberately NOT here yet either — its
 // "Print for Council" report exists specifically to redact certain figures for a council audience
 // (see finCompIsHiddenFromCouncil), and folding it into a general combined export needs its own
 // access-control pass first, by the user's own choice.
@@ -8227,9 +8517,10 @@ function finPlanPrint() {
 // permissions (finLoadPlanning() etc.) — this only ever gates which of those already-authorized
 // views a checkbox can select, never a new one.
 var FIN_FULLREPORT_SECTIONS = [
+  { key: 'health', label: 'Financial Health (incl. money-flow diagram)', perm: 'finance', build: function() { return finHealthBuildPrintSheetHtml(); } },
   { key: 'budget', label: 'Budget (Summary, Revenue, Expenses)', perm: 'budget', build: function() { return finPlanBuildPrintSheetHtml(); } },
 ];
-var _finFullReportSelected = { budget: true };
+var _finFullReportSelected = { health: true, budget: true };
 function finFullReportToggle(key, on) {
   _finFullReportSelected[key] = !!on;
 }

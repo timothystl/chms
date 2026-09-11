@@ -1183,6 +1183,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
    finPlanRptCentsRow. */
 .fin-plan-printsheet-root{display:none;}
 .fin-fullreport-printsheet-root{display:none;}
+.fin-health-printsheet-root{display:none;}
 .fin-plan-rpt{font-size:9.5pt;color:var(--charcoal);}
 .fin-plan-rpt-page{position:relative;}
 .fin-plan-rpt-hd{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding-bottom:6px;border-bottom:1px solid var(--border);font-size:9pt;color:var(--warm-meta);font-weight:700;letter-spacing:.04em;margin-bottom:14px;}
@@ -1705,8 +1706,8 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
      same two-level nesting trap as body.printing-plan above: #fin-fullreport-printsheet-root is a
      child of #fin-fullreport-root, which is itself a child of #fin-panel-fullreport, so both
      levels are named explicitly rather than trying to reach the print sheet in one rule. Each
-     included section (only Budget today; see FIN_FULLREPORT_SECTIONS) is wrapped in its own
-     .fin-fullreport-section — every one but the first also carries .fin-fullreport-section-newpage
+     included section (Financial Health and Budget today; see FIN_FULLREPORT_SECTIONS) is wrapped
+     in its own .fin-fullreport-section — every one but the first also carries .fin-fullreport-section-newpage
      directly (not a "+ " adjacent-sibling rule; that pattern does not reliably paginate in
      Chrome's print engine — see .fin-plan-rpt-newpage's own history above), forcing it onto a
      fresh page ahead of whatever internal pagination that section already does for itself (e.g.
@@ -1718,6 +1719,26 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
   body.printing-fullreport #fin-fullreport-root > *:not(#fin-fullreport-printsheet-root){display:none!important;}
   body.printing-fullreport #fin-fullreport-printsheet-root{display:block!important;}
   .fin-fullreport-section-newpage{break-before:page;page-break-before:always;}
+  /* Financial Health print sheet (finHealthBuildPrintSheetHtml/finHealthPrint in js-finance.js) —
+     same body.printing-<feature> idiom and two-level nesting fix as body.printing-plan above:
+     #fin-health-printsheet-root is a child of #fin-health-root, itself a child of
+     #fin-panel-health, so both levels are named explicitly. Reuses the live page's own .fin-card/
+     .fin-grid-* screen styling rather than a from-scratch typesetting system (unlike Budget's
+     .fin-plan-rpt-table) — this page is mostly prose/bars/SVG cards already, not a dense table, so
+     the existing component styling prints acceptably once forced to one column and kept from
+     splitting mid-card. */
+  body.printing-health .tab-panel:not(#tab-finance){display:none!important;}
+  body.printing-health #tab-finance{display:block!important;}
+  body.printing-health #tab-finance > div > div > div:not(#fin-panel-health){display:none!important;}
+  body.printing-health #fin-panel-health > *:not(#fin-health-root){display:none!important;}
+  body.printing-health #fin-health-root > *:not(#fin-health-printsheet-root){display:none!important;}
+  body.printing-health #fin-health-printsheet-root{display:block!important;}
+  /* Every multi-column grid on this page (three engines, giving-pace/cash-runway pair,
+     five-year-mix/fundraising-callout pair, the appeal card's ladder+bands pair) is forced to one
+     column in print — same behavior the page's own responsive breakpoint already uses below
+     ~900px screen width, and print-page width is narrower still than that. */
+  .fin-health-rpt .fin-grid-3,.fin-health-rpt .fin-grid-pace,.fin-health-rpt .fin-grid-mix,.fin-health-rpt .fin-stream-grid,.fin-health-rpt .fin-appeal-grid{grid-template-columns:1fr!important;}
+  .fin-health-rpt .fin-card,.fin-health-rpt .fin-navy-card{break-inside:avoid;margin-bottom:14px;}
 }
 /* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
    left-side navy menu column matching the design mockup's inner "TLC Admin"
