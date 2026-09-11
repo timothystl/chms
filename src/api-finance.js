@@ -2865,7 +2865,7 @@ async function readPlanningBoardCategories(db) {
   } catch { return empty; }
 }
 const DEFAULT_CASH_POLICY = { policy_floor_months: 3, cash_on_hand_cents: null, cash_account_code: '', general_fund_budget_code: '' };
-async function readCashPolicy(db) {
+export async function readCashPolicy(db) {
   const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_cash_policy'").first();
   if (!row) return { ...DEFAULT_CASH_POLICY };
   try {

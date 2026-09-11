@@ -2,6 +2,8 @@
 // Uses RESEND_API_KEY and EMAIL_FROM from env (already present for scheduler).
 // Called by the daily cron handler in tlc-volunteer-worker.js and by admin trigger endpoints.
 
+import { esc } from './auth.js';
+
 // ── Brevo helpers (EM1) ──────────────────────────────────────────────────────
 
 export async function brevoUpsertContact(env, email, firstName, lastName) {
@@ -201,11 +203,6 @@ async function alreadySentTodayCentral(db, action) {
 }
 
 // Escape user-provided strings before embedding in email HTML (BG3 defense-in-depth).
-function esc(s) {
-  return String(s || '').replace(/[&<>"']/g, c =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
 export { centralDayOfWeek, centralTodayMMDD };
 
 async function sendResend(env, to, subject, text, htmlBody, replyTo) {
