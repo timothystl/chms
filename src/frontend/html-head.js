@@ -1186,6 +1186,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-health-printsheet-root{display:none;}
 .fin-church-printsheet-root{display:none;}
 .fin-balance-printsheet-root{display:none;}
+.fin-property-printsheet-root{display:none;}
 .fin-plan-rpt{font-size:9.5pt;color:var(--charcoal);}
 .fin-plan-rpt-page{position:relative;}
 .fin-plan-rpt-hd{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding-bottom:6px;border-bottom:1px solid var(--border);font-size:9pt;color:var(--warm-meta);font-weight:700;letter-spacing:.04em;margin-bottom:14px;}
@@ -1744,8 +1745,9 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
      component classes) rather than duplicating them under a second selector. */
   .fin-health-rpt .fin-grid-3,.fin-health-rpt .fin-grid-pace,.fin-health-rpt .fin-grid-mix,.fin-health-rpt .fin-stream-grid,.fin-health-rpt .fin-appeal-grid,.fin-health-rpt .fin-grid-2,
   .fin-church-rpt .fin-grid-3,.fin-church-rpt .fin-grid-pace,.fin-church-rpt .fin-grid-mix,.fin-church-rpt .fin-stream-grid,.fin-church-rpt .fin-appeal-grid,.fin-church-rpt .fin-grid-2,
-  .fin-balance-rpt .fin-grid-3,.fin-balance-rpt .fin-grid-pace,.fin-balance-rpt .fin-grid-mix,.fin-balance-rpt .fin-stream-grid,.fin-balance-rpt .fin-appeal-grid,.fin-balance-rpt .fin-grid-2{grid-template-columns:1fr!important;}
-  .fin-health-rpt .fin-card,.fin-health-rpt .fin-navy-card,.fin-church-rpt .fin-card,.fin-church-rpt .fin-navy-card,.fin-balance-rpt .fin-card,.fin-balance-rpt .fin-navy-card{break-inside:avoid;margin-bottom:14px;}
+  .fin-balance-rpt .fin-grid-3,.fin-balance-rpt .fin-grid-pace,.fin-balance-rpt .fin-grid-mix,.fin-balance-rpt .fin-stream-grid,.fin-balance-rpt .fin-appeal-grid,.fin-balance-rpt .fin-grid-2,
+  .fin-property-rpt .fin-grid-3,.fin-property-rpt .fin-grid-hero,.fin-property-rpt .fin-grid-charts{grid-template-columns:1fr!important;}
+  .fin-health-rpt .fin-card,.fin-health-rpt .fin-navy-card,.fin-church-rpt .fin-card,.fin-church-rpt .fin-navy-card,.fin-balance-rpt .fin-card,.fin-balance-rpt .fin-navy-card,.fin-property-rpt .fin-card,.fin-property-rpt .fin-navy-card{break-inside:avoid;margin-bottom:14px;}
   /* Church Report print sheet (finChurchRptBuildPrintSheetHtml/finChurchRptPrint in js-finance.js)
      — same body.printing-<feature> idiom, but only ONE level of print-CSS nesting is needed here,
      not two: unlike Budget/Health/Full Report, no single render function ever rebuilds the whole
@@ -1770,6 +1772,16 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
   body.printing-balance #fin-panel-balance > *:not(#fin-balance-root){display:none!important;}
   body.printing-balance #fin-balance-root > *:not(#fin-balance-printsheet-root){display:none!important;}
   body.printing-balance #fin-balance-printsheet-root{display:block!important;}
+  /* Commercial Property print sheet (finPropertyBuildPrintSheetHtml/finPropertyPrint in
+     js-finance.js) — same two-level nesting as Balance Sheet: finRenderProperty() rebuilds
+     #fin-property-root's whole innerHTML on every render, so both #fin-panel-property's and
+     #fin-property-root's own children need naming explicitly. */
+  body.printing-property .tab-panel:not(#tab-finance){display:none!important;}
+  body.printing-property #tab-finance{display:block!important;}
+  body.printing-property #tab-finance > div > div > div:not(#fin-panel-property){display:none!important;}
+  body.printing-property #fin-panel-property > *:not(#fin-property-root){display:none!important;}
+  body.printing-property #fin-property-root > *:not(#fin-property-printsheet-root){display:none!important;}
+  body.printing-property #fin-property-printsheet-root{display:block!important;}
 }
 /* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
    left-side navy menu column matching the design mockup's inner "TLC Admin"
