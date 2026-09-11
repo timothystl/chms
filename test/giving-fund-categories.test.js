@@ -150,6 +150,9 @@ function makeTestDb() {
   return {
     prepare(sql) {
       return {
+        async run(...args) { sqlite.prepare(sql).run(...args); },
+        async first(...args) { return sqlite.prepare(sql).get(...args); },
+        async all(...args) { return { results: sqlite.prepare(sql).all(...args) }; },
         bind(...args) {
           return {
             async run() { sqlite.prepare(sql).run(...args); },

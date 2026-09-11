@@ -2,7 +2,7 @@
 import { json } from './auth.js';
 import { makeBreezeClient } from './breeze.js';
 import { isoWeekKey, bucketGivingMethod, projectYearEnd, sundaysElapsedThroughDate, sundaysInYear, nthSundayOfYear, periodAsOfDate, monthElapsedFraction, spreadBudgetYtd, computeConcentration, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeGivingBands, computeGivingDistribution, inflationAdjustCents, CPI_U_ANNUAL, FUND_CATEGORIES, normalizeFundCategory, resolveGeneralFundIds, resolveGeneralFundBudget, buildBoardCategoryBlock, SACRAMENT_YES, csvRow, safeFilenamePart} from './api-utils.js';
-import { resolveChurchYearPrecedence } from './api-finance.js';
+import { resolveChurchYearPrecedence, readCashPolicy } from './api-finance.js';
 import { loadGivingYearTrendRows } from './giving-rollups.js';
 
 // `isFinance` here means "may see an individual's giving". `givingAnon` is the weaker grant
@@ -914,7 +914,7 @@ if (seg === 'reports/giving-board' && method === 'GET') {
   const priorPeriodEnd = nthSundayOfYear(priorYear, sundaysDone);
   const dateExpr = "COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date)";
 
-  const [monthlyRes, fundRes, hhRes, hhPriorRes, methodRes, churchBudgetRes, budgetCodeRow] = await Promise.all([
+  const [monthlyRes, fundRes, hhRes, hhPriorRes, methodRes, churchBudgetRes, cashPolicy] = await Promise.all([
     // Month-by-month sums for current + prior year (chart + budget spread), broken out per fund
     // so a General-Fund-only seasonal shape/projection can be derived in JS alongside the
     // all-funds one, without a second round trip.
@@ -977,12 +977,12 @@ if (seg === 'reports/giving-board' && method === 'GET') {
     db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0`).bind(year).all(),
     // The admin-pinned budget account code, when the ledger files the offering under a code that
     // isn't the fund family's own (Finance → Data & Imports → Classification & policy). Blank
-    // falls back to the fund family's leading code, which is the ordinary case.
-    db.prepare('SELECT value FROM chms_config WHERE key=?').bind('finance_cash_policy').first().catch(() => null),
+    // falls back to the fund family's leading code, which is the ordinary case. Goes through
+    // Finance's own readCashPolicy() accessor rather than a second raw chms_config read, so this
+    // Connect module never has to keep its own copy of that parsing/defaulting logic in sync.
+    readCashPolicy(db),
   ]);
-  let generalFundBudgetCode = '';
-  try { generalFundBudgetCode = String((JSON.parse(budgetCodeRow?.value || '{}') || {}).general_fund_budget_code || '').trim(); }
-  catch { generalFundBudgetCode = ''; }
+  const generalFundBudgetCode = cashPolicy.general_fund_budget_code;
 
   // Which category each fund belongs to (funds.category, migration 0033) — this is what the
   // Reports fund lens switches between. Legacy fallback: on a database where nothing has been

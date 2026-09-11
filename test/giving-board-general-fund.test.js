@@ -13,6 +13,9 @@ function makeTestDb() {
   return {
     prepare(sql) {
       return {
+        async run(...args) { sqlite.prepare(sql).run(...args); },
+        async first(...args) { return sqlite.prepare(sql).get(...args); },
+        async all(...args) { return { results: sqlite.prepare(sql).all(...args) }; },
         bind(...args) {
           return {
             async run() { sqlite.prepare(sql).run(...args); },
@@ -110,6 +113,26 @@ describe('giving-board General Fund split', () => {
     expect(body.general_fund.annual_budget_cents).toBe(600000);
     expect(body.general_fund.budget_ytd_cents).not.toBeNull();
     expect(body.general_fund.budget_variance_cents).toBe(body.general_fund.given_ytd_cents - body.general_fund.budget_ytd_cents);
+  });
+
+  it('honors an admin-pinned budget account code that differs from the fund family\'s own leading code', async () => {
+    const db = makeTestDb();
+    const year = 2026;
+    await seedBoardFixture(db, year);
+    // A budget account filed under a code that does NOT share the General Fund's "40085" leading
+    // code -- without the pin below, resolveGeneralFundBudget's leading-code fallback would not
+    // find it at all.
+    db._raw.prepare(
+      `INSERT INTO finance_church_entries (fiscal_year, period_month, classification, category_path, account_name, own_actual_cents, own_budget_cents, source)
+       VALUES (?,0,'Income','Income:40090 Alternate Offering','40090 Alternate Offering',0,720000,'import')`
+    ).run(year);
+    db._raw.prepare(
+      `INSERT INTO chms_config (key,value) VALUES ('finance_cash_policy',?)`
+    ).run(JSON.stringify({ general_fund_budget_code: '40090' }));
+    const url = new URL(`https://x/admin/api/reports/giving-board?period=${year}-02`);
+    const res = await handleReportsApi({}, {}, url, 'GET', 'reports/giving-board', db, true, true, true, true);
+    const body = await res.json();
+    expect(body.general_fund.annual_budget_cents).toBe(720000);
   });
 
   it('leaves the budget at null (not $0) when no Church Report account matches', async () => {

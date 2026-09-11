@@ -251,8 +251,11 @@ describe('grid layout', () => {
     const bands = [...html.matchAll(/class="gr-band">([^<]+)</g)].map((m) => m[1]);
     expect(bands).toEqual(['8:00 AM', '10:45 AM', 'Both Services']);
     const labels = [...html.matchAll(/class="gr-rowlbl-name">([^<]+)</g)].map((m) => m[1]);
-    const per = ctx.PER_ROLES.map(ctx.roleLabel);
-    const shared = ctx.SHARED_ROLES.map(ctx.roleLabel);
+    // The grid HTML-escapes role labels (e.g. "Children's Message" -> "Children&#39;s Message");
+    // ctx.roleLabel returns the raw, unescaped label, so match the same escaping here.
+    const escApostrophe = (s) => s.replace(/'/g, '&#39;');
+    const per = ctx.PER_ROLES.map(ctx.roleLabel).map(escApostrophe);
+    const shared = ctx.SHARED_ROLES.map(ctx.roleLabel).map(escApostrophe);
     expect(labels).toEqual(per.concat(per, shared));
   });
 
