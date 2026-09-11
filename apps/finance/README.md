@@ -49,7 +49,9 @@ the migration does not copy production data or authorize a new writer.
 - `property-forecast-service.js` — one-query 12-month synthetic property plan with monthly and annual reconciliation.
 - `budget-report-service.js` — one-query synthetic future-plan detail and totals.
 - `accounts-report-service.js` — one-query synthetic account inventory and classification summary.
-- `data-status-service.js` — one-query synthetic import provenance and isolation status.
+- `data-status-service.js` — resolves real-or-synthetic import provenance and isolation status; `resolveDataStatus` tries the live `connect.finance-data-status.v1` contract first, falls back to the one-query synthetic reader on any failure.
+- `finance-data-status-consumer.js` — fail-closed parser for the `connect.finance-data-status.v1` contract.
+- `finance-data-status-client.js` — real transport for the live endpoint, with a fail-closed fallback to the synthetic fixture (same shape as `connect-giving-client.js`).
 - `compensation-report-service.js` — one-query synthetic role-level compensation plan, reconciled totals, and a role-only council review snapshot that cannot imply approval.
 - `compensation-benchmark-service.js` — one-query role-level synthetic benchmark comparison with explicit non-published source classification.
 - `compensation-benefits-service.js` — one-query role-level benefits and employer-tax breakdown with exact plan reconciliation.
@@ -213,6 +215,12 @@ Alpha.35 renders Chart of Accounts as a deterministic hierarchy while preserving
 ledger path, Finance-owned board category, and independent purpose tag. Empty path segments and
 duplicate leaves fail closed. It reuses the existing one-query account reader and adds no
 migration, production mapping, account edit, classification writer, or ledger mutation.
+
+Alpha.36 adds the second real contract, `connect.finance-data-status.v1`: Connect now produces
+real import-log recency and QuickBooks connection presence (never tokens) at
+`/api/contracts/finance-data-status-v1`, and the Data & Imports section tries that live before
+falling back to the synthetic fixture, labeling which happened the same way Giving already does.
+No other section changes; imports, uploads, and administrative tools remain disconnected.
 
 ## Validate
 

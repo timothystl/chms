@@ -21,7 +21,7 @@ import { buildDaycareReportView, readSyntheticDaycareReport, readSyntheticDaycar
 import { buildPropertyReportView, buildPropertyValuationView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers, readSyntheticPropertyValuation } from './property-report-service.js';
 import { buildBudgetReportView, readSyntheticBudgetReport } from './budget-report-service.js';
 import { buildAccountsReportView, readSyntheticAccountsReport } from './accounts-report-service.js';
-import { buildDataStatusView, readSyntheticDataStatus } from './data-status-service.js';
+import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { buildCompensationCouncilSnapshot, buildCompensationReportView, readSyntheticCompensationReport } from './compensation-report-service.js';
 import { buildSyntheticBoardPacket } from './board-packet-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
@@ -398,12 +398,17 @@ function renderSectionBody(section, summary, giving, givingSource, churchReport,
     </section>`;
   }
   if (section.id === 'data') {
-    const status = buildDataStatusView(dataStatus);
-    return `<section class="report" aria-label="Synthetic Data and Imports Status">
-      <div class="section-heading"><div><div class="eyebrow">Data &amp; Imports</div><h2>Source and isolation status</h2></div><span class="badge">Synthetic staging</span></div>
-      <div class="grid"><div class="card"><small>Fixture source</small><strong>${escapeHtml(status.source)}</strong><span>${escapeHtml(status.note)}</span></div><div class="card"><small>Production connection</small><strong>${status.productionConnected ? 'Connected' : 'Disconnected'}</strong></div><div class="card"><small>Application writer</small><strong>${status.writerConnected ? 'Connected' : 'Disconnected'}</strong><span>No competing staging writer</span></div></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Source freshness</div><h2>${status.freshness === 'stale' ? 'Review before relying on this fixture' : 'Fixture is within the review window'}</h2></div><span class="badge">${status.freshness}</span></div>
-      <div class="grid"><div class="card"><small>Last fixture import</small><strong>${escapeHtml(status.lastImportedAt)}</strong></div><div class="card"><small>Age at request</small><strong>${status.ageDays} days</strong><span>Policy window ${status.freshnessWindowDays} days</span></div></div>
+    const isLive = dataStatus.source === 'live';
+    const status = buildDataStatusView(dataStatus.row, new Date(), {
+      productionConnected: dataStatus.productionConnected,
+      writerConnected: dataStatus.writerConnected,
+    });
+    return `<section class="report" aria-label="${isLive ? 'Data and Imports Status' : 'Synthetic Data and Imports Status'}">
+      <div class="section-heading"><div><div class="eyebrow">Data &amp; Imports</div><h2>Source and isolation status</h2></div><span class="badge">${isLive ? 'Live from Connect' : 'Synthetic staging'}</span></div>
+      <div class="grid"><div class="card"><small>${isLive ? 'Import activity' : 'Fixture source'}</small><strong>${escapeHtml(status.source)}</strong><span>${escapeHtml(status.note)}</span></div><div class="card"><small>Production connection</small><strong>${status.productionConnected ? 'Connected' : 'Disconnected'}</strong></div><div class="card"><small>QuickBooks writer</small><strong>${status.writerConnected ? 'Connected' : 'Disconnected'}</strong><span>${isLive ? "Connect's real finance_qb_connection state" : 'No competing staging writer'}</span></div></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Source freshness</div><h2>${status.freshness === 'stale' ? `Review before relying on this ${isLive ? 'data' : 'fixture'}` : `${isLive ? 'Data' : 'Fixture'} is within the review window`}</h2></div><span class="badge">${status.freshness}</span></div>
+      <div class="grid"><div class="card"><small>${isLive ? 'Most recent import' : 'Last fixture import'}</small><strong>${escapeHtml(status.lastImportedAt)}</strong></div><div class="card"><small>Age at request</small><strong>${status.ageDays} days</strong><span>Policy window ${status.freshnessWindowDays} days</span></div></div>
+      <p><small>${isLive ? "Fetched live from Connect's real, aggregate-only finance-data-status contract endpoint." : `The committed synthetic fixture (the live endpoint is not configured or did not answer${dataStatus.fallbackReason ? `: ${escapeHtml(dataStatus.fallbackReason)}` : ''}).`}</small></p>
     </section>`;
   }
   if (section.id === 'payroll') {
@@ -799,7 +804,7 @@ export default {
         const accountsReport = section.id === 'accounts'
           ? await readSyntheticAccountsReport(env.FINANCE_DB) : null;
         const dataStatus = section.id === 'data'
-          ? await readSyntheticDataStatus(env.FINANCE_DB) : null;
+          ? await resolveDataStatus(env, env.FINANCE_DB) : null;
         const compensationReport = section.id === 'compensation'
           ? await readSyntheticCompensationReport(env.FINANCE_DB) : null;
         const compensationBenchmarks = section.id === 'compensation'

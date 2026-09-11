@@ -8,6 +8,11 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
   { id: 'planning', label: 'Budget', permission: 'budget', capabilities: ['budget builder', 'outlook', 'board categories', 'purpose tags'] },
   { id: 'accounts', label: 'Chart of Accounts', permission: 'finance', capabilities: ['account tree', 'board-category presentation'] },
   { id: 'compensation', label: 'Compensation', permission: 'compensation', capabilities: ['salary planning', 'benefits', 'district comparisons', 'council report'] },
+  // 'connection status' and 'staleness' are real now, via the connect.finance-data-status.v1
+  // contract (import-log recency + QuickBooks connection presence, no tokens) -- see
+  // finance-data-status-client.js and data-status-service.js's resolveDataStatus, same
+  // live-with-synthetic-fallback pattern Giving Entry established. File imports,
+  // classification/policy, and administrative tools remain synthetic-only for now.
   { id: 'data', label: 'Data & Imports', permission: 'finance', capabilities: ['connection status', 'file imports', 'staleness', 'classification and policy', 'administrative tools'] },
   // Full payroll parity with Website's admin/payroll.html, relayed live to Website's existing
   // payroll proxy and payroll/email route the same way Giving Entry relays to Connect (never

@@ -6,6 +6,7 @@
 // independent of the much larger People/Giving/Reports handlers.
 import { json } from './auth.js';
 import { validateConnectGivingSummaryV1 } from '../apps/finance/connect-giving-consumer.js';
+import { validateFinanceDataStatusV1 } from '../apps/finance/finance-data-status-consumer.js';
 
 function isValidDateStr(value) {
   if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])-([012]\d|3[01])$/.test(value)) return false;
@@ -115,9 +116,55 @@ export async function respondWithConnectGivingSummaryV1(url, db) {
   return json(summary);
 }
 
+// Second real slice of Finance separation: the Data & Imports section's "productionConnected"/
+// "writerConnected" fields have stood in as hardcoded `false` since the staging rewrite began.
+// This assembles the real answer from two existing production tables — never their secrets. No
+// QuickBooks token, refresh token, or realm ID leaves this function; only connection presence and
+// two timestamps do.
+export async function buildFinanceDataStatusV1(db, { now = new Date() } = {}) {
+  const importsRow = await db.prepare(
+    `SELECT MAX(last_imported_at) AS most_recent, COUNT(*) AS importer_count FROM finance_import_log`
+  ).first();
+  const qbRow = await db.prepare(
+    `SELECT connected_at, last_synced_at FROM finance_qb_connection WHERE id = 1`
+  ).first();
+
+  return {
+    contract: 'connect.finance-data-status.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    imports: {
+      mostRecentImportAt: importsRow?.most_recent || null,
+      importerCount: importsRow?.importer_count || 0,
+    },
+    quickbooks: {
+      connected: Boolean(qbRow),
+      lastSyncedAt: qbRow?.last_synced_at || null,
+    },
+  };
+}
+
+export async function respondWithFinanceDataStatusV1(db) {
+  const status = await buildFinanceDataStatusV1(db, { now: new Date() });
+
+  // Fail closed, same discipline as the Giving contract above: this should never fire against
+  // real data, and if it does, Finance must not see a malformed contract.
+  const validation = validateFinanceDataStatusV1(status);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled data-status failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(status);
+}
+
 export async function handleContractsApi(req, env, url, method, seg, db) {
   if (seg === 'contracts/connect-giving-summary-v1' && method === 'GET') {
     return respondWithConnectGivingSummaryV1(url, db);
+  }
+  if (seg === 'contracts/finance-data-status-v1' && method === 'GET') {
+    return respondWithFinanceDataStatusV1(db);
   }
   return null;
 }

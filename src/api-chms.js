@@ -215,6 +215,11 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // including the anonymous-safe check below, which it is deliberately NOT allowlisted for
     // (a new anonymous endpoint is denied until explicitly allowlisted, same as every other one).
     { match: (s) => s.startsWith('contracts/connect-giving-summary'), item: 'giving' },
+    // The Finance data-status contract exposes only import-log recency and QuickBooks
+    // connection presence (never tokens) -- Finance-scoped, so it inherits the plain 'finance'
+    // item like every other Finance segment (financeSegItems falls through to ['finance'] for
+    // this exact segment, since it isn't one of the special-cased finance/* sub-paths above).
+    { match: (s) => s.startsWith('contracts/finance-data-status'), item: 'finance' },
     { match: (s) => s.startsWith('tuition-aid'), item: 'tuitionaid' },
     { match: (s) => s.startsWith('finance'), item: 'finance' },
     { match: (s) => s.startsWith('attendance'), item: 'attendance' },
