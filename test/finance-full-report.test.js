@@ -99,9 +99,24 @@ describe('Full Report — the picker', () => {
     expect(fullreportRoot.innerHTML).toMatch(/<input type="checkbox" checked [^>]*finFullReportToggle\(&quot;budget&quot;/);
   });
 
-  it('a role with plain "finance" access but no "budget" grant never sees the Budget checkbox — a picker can\'t be the only gate', () => {
+  it('an admin also sees a Financial Health checkbox, checked by default', () => {
+    const { fin, fullreportRoot } = fullReportSetup();
+    fin.finRenderFullReport();
+    expect(fullreportRoot.innerHTML).toContain('Financial Health (incl. money-flow diagram)');
+    expect(fullreportRoot.innerHTML).toMatch(/<input type="checkbox" checked [^>]*finFullReportToggle\(&quot;health&quot;/);
+  });
+
+  it('a role with plain "finance" access but no "budget" grant sees Financial Health but never the Budget checkbox — a picker can\'t be the only gate', () => {
     const { fin, fullreportRoot } = fullReportSetup('staff');
     fin._perm = { finance: 'view' };
+    fin.finRenderFullReport();
+    expect(fullreportRoot.innerHTML).toContain('finFullReportToggle(&quot;health&quot;,this.checked)');
+    expect(fullreportRoot.innerHTML).not.toContain('finFullReportToggle(&quot;budget&quot;,this.checked)');
+  });
+
+  it('a role with neither "finance" nor "budget" access sees no checkboxes at all', () => {
+    const { fin, fullreportRoot } = fullReportSetup('staff');
+    fin._perm = {};
     fin.finRenderFullReport();
     expect(fullreportRoot.innerHTML).not.toContain('finFullReportToggle');
     expect(fullreportRoot.innerHTML).toContain('No reports are available to include yet.');
@@ -128,6 +143,7 @@ describe('Full Report — combined print', () => {
   it('prints nothing and toasts instead, when no section is selected', async () => {
     const { fin, printsheetRoot } = fullReportSetup();
     fin.finFullReportToggle('budget', false);
+    fin.finFullReportToggle('health', false);
     let toasted = '';
     fin.finToast = (m) => { toasted = m; };
     fin.finFullReportPrint();
@@ -135,8 +151,9 @@ describe('Full Report — combined print', () => {
     expect(printsheetRoot.innerHTML).toBe('');
   });
 
-  it('builds the combined document from the Budget print sheet, marks body.printing-fullreport, and cleans up after printing', async () => {
+  it('builds the combined document from just the Budget print sheet when only Budget is selected, marks body.printing-fullreport, and cleans up after printing', async () => {
     const { fin, printsheetRoot } = fullReportSetup();
+    fin.finFullReportToggle('health', false);
     const bodyClasses = [];
     fin.document.body.classList.add = (c) => bodyClasses.push(c);
     fin.document.body.classList.remove = (c) => { const i = bodyClasses.indexOf(c); if (i > -1) bodyClasses.splice(i, 1); };
@@ -157,9 +174,21 @@ describe('Full Report — combined print', () => {
     expect(printsheetRoot.innerHTML).toBe('');
   }, 2000);
 
+  it('combines Financial Health and Budget in registry order (Health first) when both are selected, with the break-before class only on the second section', async () => {
+    const { fin, printsheetRoot } = fullReportSetup();
+    fin.finFullReportPrint();
+    const html = printsheetRoot.innerHTML;
+    expect(html).toContain('fin-health-rpt');
+    expect(html).toContain('fin-plan-rpt');
+    expect(html.indexOf('fin-health-rpt')).toBeLessThan(html.indexOf('fin-plan-rpt'));
+    expect(html).toMatch(/<div class="fin-fullreport-section"><div class="fin-health-rpt">/);
+    expect(html).toMatch(/<div class="fin-fullreport-section fin-fullreport-section-newpage"><div class="fin-plan-rpt">/);
+  });
+
   it('never includes a section the current role no longer has access to, even if it was checked earlier under a different role', () => {
     const { fin, printsheetRoot } = fullReportSetup();
     fin.finFullReportToggle('budget', true);
+    fin.finFullReportToggle('health', false);
     // Role/permissions can change between rendering the picker and clicking print (e.g. a stale
     // tab left open); finFullReportPrint re-checks permView itself rather than trusting whatever
     // was selected earlier under different access.
