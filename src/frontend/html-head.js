@@ -1182,6 +1182,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
    Projected, and (when "Plan for next year" is the active print mode) Plan, Change, Δ% — see
    finPlanRptCentsRow. */
 .fin-plan-printsheet-root{display:none;}
+.fin-fullreport-printsheet-root{display:none;}
 .fin-plan-rpt{font-size:9.5pt;color:var(--charcoal);}
 .fin-plan-rpt-page{position:relative;}
 .fin-plan-rpt-hd{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding-bottom:6px;border-bottom:1px solid var(--border);font-size:9pt;color:var(--warm-meta);font-weight:700;letter-spacing:.04em;margin-bottom:14px;}
@@ -1699,6 +1700,24 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
   .fin-plan-rpt-table tr{break-inside:avoid;}
   .fin-plan-rpt-table tbody.cat{break-inside:avoid;}
   .fin-plan-rpt-tiles{break-inside:avoid;}
+  /* Full Report — combines whichever of the module's own reports are checked into one printed
+     document (finFullReportPrint() in js-finance.js), same body.printing-<feature> idiom and the
+     same two-level nesting trap as body.printing-plan above: #fin-fullreport-printsheet-root is a
+     child of #fin-fullreport-root, which is itself a child of #fin-panel-fullreport, so both
+     levels are named explicitly rather than trying to reach the print sheet in one rule. Each
+     included section (only Budget today; see FIN_FULLREPORT_SECTIONS) is wrapped in its own
+     .fin-fullreport-section — every one but the first also carries .fin-fullreport-section-newpage
+     directly (not a "+ " adjacent-sibling rule; that pattern does not reliably paginate in
+     Chrome's print engine — see .fin-plan-rpt-newpage's own history above), forcing it onto a
+     fresh page ahead of whatever internal pagination that section already does for itself (e.g.
+     Budget's own Summary/Revenue/Expenses breaks keep working unmodified inside its section). */
+  body.printing-fullreport .tab-panel:not(#tab-finance){display:none!important;}
+  body.printing-fullreport #tab-finance{display:block!important;}
+  body.printing-fullreport #tab-finance > div > div > div:not(#fin-panel-fullreport){display:none!important;}
+  body.printing-fullreport #fin-panel-fullreport > *:not(#fin-fullreport-root){display:none!important;}
+  body.printing-fullreport #fin-fullreport-root > *:not(#fin-fullreport-printsheet-root){display:none!important;}
+  body.printing-fullreport #fin-fullreport-printsheet-root{display:block!important;}
+  .fin-fullreport-section-newpage{break-before:page;page-break-before:always;}
 }
 /* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
    left-side navy menu column matching the design mockup's inner "TLC Admin"

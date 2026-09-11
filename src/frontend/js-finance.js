@@ -109,6 +109,7 @@ var FIN_SECTION_LOADERS = {
   planning:     { key: 'planning', load: function() { finLoadPlanning(); } },
   accounts:     { key: 'planning', load: function() { finLoadPlanning(); } },
   compensation: { key: 'planning', load: function() { finLoadPlanning(); } },
+  fullreport:   { key: 'planning', load: function() { finLoadPlanning(); } },
   data:         { key: 'data',     load: function() { finRenderDataImports(); } },
 };
 function finEnsureSection(section) {
@@ -139,7 +140,7 @@ function finRefreshHealthIfLoaded() { if (_finHealthData) finRenderHealth(); }
 // Button active-state is handled by the shared renderFinanceSubnav() (js-core.js) re-render,
 // driven by showTab()'s _finActiveNavId — this only toggles panel visibility.
 function finShowSection(section) {
-  ['health', 'church', 'balance', 'daycare', 'property', 'planning', 'accounts', 'compensation', 'data'].forEach(function(s) {
+  ['health', 'church', 'balance', 'daycare', 'property', 'planning', 'accounts', 'compensation', 'fullreport', 'data'].forEach(function(s) {
     var panel = document.getElementById('fin-panel-' + s);
     if (panel) panel.style.display = (s === section) ? '' : 'none';
   });
@@ -7250,12 +7251,14 @@ function finLoadPlanning() {
         finRenderPlanning();
         finRenderCompensation();
         finRenderChartOfAccounts();
+        finRenderFullReport();
         finLoadPlanningPropertyForecast();
       });
     }
     finRenderPlanning();
     finRenderCompensation();
     finRenderChartOfAccounts();
+    finRenderFullReport();
     finLoadPlanningPropertyForecast();
   }).catch(function(err) {
     if (err && err.message === 'Unauthorized') return;
@@ -8188,6 +8191,84 @@ function finPlanPrint() {
   document.body.classList.add('printing-plan');
   var cleanup = function() {
     document.body.classList.remove('printing-plan');
+    if (root) root.innerHTML = '';
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(function() { window.print(); setTimeout(cleanup, 1000); }, 60);
+}
+
+// ── Full Report ────────────────────────────────────────────────────────────────────────────────
+// Pick which of the module's own reports to include, then print/Save-as-PDF once for the lot —
+// the user's own request, after the Budget print sheet redesign: "select the graphs and reports
+// i want included and then it export as one complete pdf". This app has no PDF-generation
+// capability of its own (no library, no headless-browser endpoint in the Worker) — every existing
+// print feature already works by building an off-screen printable page and handing it to the
+// browser's own print dialog ("Save as PDF" is a standard destination there), so this reuses that
+// same mechanism rather than inventing a second one: build one combined off-screen document out
+// of whichever sections are checked, then call window.print() exactly once.
+//
+// Only Budget has a dedicated "build the printable HTML" function today (finPlanBuildPrintSheetHtml,
+// above) — Financial Health/the money-flow diagram, Church Report, Balance Sheet, and Property
+// currently only know how to print whatever's live on screen (a plain window.print() button with
+// no separate off-screen build step), which doesn't compose with anything else into one document.
+// Giving each of those its own print-sheet builder is real, separate work (the same kind of pass
+// Budget's own redesign took); this registry is where each one plugs in once that lands, without
+// touching this file's structure again. Compensation is deliberately NOT here yet either — its
+// "Print for Council" report exists specifically to redact certain figures for a council audience
+// (see finCompIsHiddenFromCouncil), and folding it into a general combined export needs its own
+// access-control pass first, by the user's own choice.
+//
+// Each entry's perm mirrors whichever permission the section's own tab already requires (see
+// FIN_TOPNAV_ITEMS in js-core.js) — a role without 'budget' can already reach this page (it only needs 'finance'),
+// but must not see a Budget checkbox that would let it bundle Budget figures into an export
+// anyway. UI hiding alone doesn't make that safe by itself, but every section's own build()
+// function reads from data already fetched under that same role's own real, server-checked
+// permissions (finLoadPlanning() etc.) — this only ever gates which of those already-authorized
+// views a checkbox can select, never a new one.
+var FIN_FULLREPORT_SECTIONS = [
+  { key: 'budget', label: 'Budget (Summary, Revenue, Expenses)', perm: 'budget', build: function() { return finPlanBuildPrintSheetHtml(); } },
+];
+var _finFullReportSelected = { budget: true };
+function finFullReportToggle(key, on) {
+  _finFullReportSelected[key] = !!on;
+}
+function finRenderFullReport() {
+  var el = document.getElementById('fin-fullreport-root');
+  if (!el) return;
+  var available = FIN_FULLREPORT_SECTIONS.filter(function(s) { return permView(s.perm); });
+  var rowsHtml = available.length
+    ? available.map(function(s) {
+        return '<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--warm-row-divider);cursor:pointer;">'
+          + '<input type="checkbox" ' + (_finFullReportSelected[s.key] ? 'checked ' : '') + 'onchange="finFullReportToggle(' + jsAttr(s.key) + ',this.checked)" style="width:15px;height:15px;flex-shrink:0;">'
+          + '<span style="font-size:.9rem;color:var(--warm-ink-dark);">' + esc(s.label) + '</span>'
+          + '</label>';
+      }).join('')
+    : '<p style="font-size:.85rem;color:var(--warm-gray);">No reports are available to include yet.</p>';
+  el.innerHTML = finPageHeader('Full Report',
+      'Choose which reports to include below, then print or choose &ldquo;Save as PDF&rdquo; in the print dialog for one combined file.', '')
+    + '<div class="fin-card" style="padding:20px 24px;max-width:560px;">'
+    + rowsHtml
+    + (available.length ? '<button onclick="finFullReportPrint()" style="margin-top:16px;background:var(--color-navy);color:var(--white);border:none;border-radius:8px;padding:10px 18px;font-size:.85rem;font-weight:700;cursor:pointer;">Print combined report</button>' : '')
+    + '</div>'
+    + '<div id="fin-fullreport-printsheet-root" class="fin-fullreport-printsheet-root"></div>';
+}
+function finFullReportPrint() {
+  var selected = FIN_FULLREPORT_SECTIONS.filter(function(s) { return permView(s.perm) && _finFullReportSelected[s.key]; });
+  if (!selected.length) { finToast('Choose at least one report to include first.'); return; }
+  var root = document.getElementById('fin-fullreport-printsheet-root');
+  if (!root) return;
+  root.innerHTML = selected.map(function(s, i) {
+    // Every section but the first is forced onto its own new page. A plain adjacent-sibling rule
+    // (".fin-fullreport-section + .fin-fullreport-section{break-before:page;}") does NOT reliably
+    // paginate in Chrome's print engine — confirmed the hard way on the Budget print sheet's own
+    // pagination (see .fin-plan-rpt-newpage's history) — so, same fix, the break-before class is
+    // applied directly to the element itself instead.
+    return '<div class="fin-fullreport-section' + (i > 0 ? ' fin-fullreport-section-newpage' : '') + '">' + s.build() + '</div>';
+  }).join('');
+  document.body.classList.add('printing-fullreport');
+  var cleanup = function() {
+    document.body.classList.remove('printing-fullreport');
     if (root) root.innerHTML = '';
     window.removeEventListener('afterprint', cleanup);
   };
