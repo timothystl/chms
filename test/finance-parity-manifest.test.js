@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from '../apps/finance/parity-manifest.js';
+import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, groupFinanceSections } from '../apps/finance/parity-manifest.js';
 
 describe('Finance interface parity manifest', () => {
   it('preserves the existing navigation order and permission boundaries, plus Giving Entry and Payroll', () => {
@@ -22,5 +22,23 @@ describe('Finance interface parity manifest', () => {
     expect(resolveFinanceSection('property').label).toBe('Commercial Property');
     expect(resolveFinanceSection('unknown').id).toBe('health');
     expect(resolveFinanceSection(null).id).toBe('health');
+  });
+
+  it('groups sidebar sections into the Finance App redesign categories, in a fixed order', () => {
+    expect(groupFinanceSections().map(({ group, sections }) => ({ group, ids: sections.map((s) => s.id) }))).toEqual([
+      { group: 'Dashboard', ids: ['health'] },
+      { group: 'Giving', ids: ['giving'] },
+      { group: 'Reports', ids: ['church', 'balance', 'daycare', 'property'] },
+      { group: 'Planning', ids: ['planning'] },
+      { group: 'Compensation', ids: ['compensation'] },
+      { group: 'Payroll', ids: ['payroll'] },
+      { group: 'Accounts & Data', ids: ['accounts', 'data'] },
+    ]);
+  });
+
+  it('every section carries a known sidebar group', () => {
+    for (const section of FINANCE_PARITY_SECTIONS) {
+      expect(section.group, `${section.id} is missing a sidebar group`).toBeTruthy();
+    }
   });
 });

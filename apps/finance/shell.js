@@ -13,7 +13,7 @@ import { missingHours as payrollMissingHours } from './payroll-calc.js';
 import { decodeJwtClaimsUnsafe } from './jwt-decode-unsafe.js';
 import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from './summary-service.js';
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
-import { FINANCE_PARITY_SECTIONS, resolveFinanceSection } from './parity-manifest.js';
+import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, groupFinanceSections } from './parity-manifest.js';
 import { buildFinancialHealthView } from './health-view-model.js';
 import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends } from './church-report-service.js';
 import { buildBalanceSheetView, readSyntheticBalanceSheet, readSyntheticBalanceTrends } from './balance-sheet-service.js';
@@ -150,9 +150,13 @@ function todayIsoDate() {
 }
 
 function renderSectionNav(activeSection) {
-  return FINANCE_PARITY_SECTIONS.map((section) =>
-    `<a href="/?section=${section.id}"${section.id === activeSection.id ? ' aria-current="page"' : ''}>${section.label}</a>`
-  ).join('');
+  return groupFinanceSections(FINANCE_PARITY_SECTIONS).map(({ group, sections }) => `
+    <div class="nav-group">
+      <div class="nav-group-label">${escapeHtml(group)}</div>
+      ${sections.map((section) =>
+        `<a href="/?section=${section.id}"${section.id === activeSection.id ? ' aria-current="page"' : ''}>${section.label}</a>`
+      ).join('')}
+    </div>`).join('');
 }
 
 function renderChurchRows(rows) {
@@ -261,7 +265,20 @@ function renderSectionBody(section, summary, giving, givingSource, churchReport,
       property: buildPropertyReportView(propertyReport),
     });
     const bridge = buildOperatingBridge(church);
+    const status = dataStatus ? buildDataStatusView(dataStatus.row, new Date(), {
+      productionConnected: dataStatus.productionConnected,
+      writerConnected: dataStatus.writerConnected,
+    }) : null;
+    const attentionItems = [];
+    if (status?.freshness === 'stale') attentionItems.push(`Source data hasn't been reviewed in over ${status.freshnessWindowDays} days (${status.ageDays} days old) — see Data &amp; Imports.`);
+    if (!health.giving.reconciled) attentionItems.push('Giving totals do not reconcile yet — review before relying on them.');
+    if (health.operating.varianceCents < 0) attentionItems.push(`Operating result is ${formatSignedCents(health.operating.varianceCents)} behind budget.`);
     return `<section aria-label="Synthetic financial health">
+      <div class="dashboard-intro"><div class="eyebrow">Dashboard</div><h2 class="dashboard-title">Are we okay?</h2><p>Four questions the council asks first — each one links to the report it came from.</p></div>
+      <div class="section-heading"><div><div class="eyebrow">Needs your attention</div><h2>${attentionItems.length ? `${attentionItems.length} item${attentionItems.length === 1 ? '' : 's'} flagged` : 'Nothing flagged right now'}</h2></div><span class="badge">${attentionItems.length ? 'Review' : 'Clear'}</span></div>
+      ${attentionItems.length
+        ? `<ul class="attention-list">${attentionItems.map((item) => `<li>${item}</li>`).join('')}</ul>`
+        : '<p class="status">Nothing needs your attention right now.</p>'}
       <div class="section-heading"><div><div class="eyebrow">Financial Health</div><h2>How are we doing, and what should we decide?</h2></div><span class="badge">Synthetic staging</span></div>
       <div class="grid">
         <div class="card"><small>Operating result</small><strong>${formatSignedCents(health.operating.actualNetCents)}</strong><span>Budget ${formatSignedCents(health.operating.budgetNetCents)} · variance ${formatSignedCents(health.operating.varianceCents)}</span></div>
@@ -433,11 +450,12 @@ function renderShell(metadata, summary, giving, givingSource, section, churchRep
     :root { color-scheme: light; font-family: "DM Sans", "Source Sans 3", Arial, sans-serif; --navy:#1e2d4a; --teal:#2e7ea6; --gold:#c9973a; --charcoal:#1a1a2a; --warm-gray:#8a8377; --warm-meta:#8a7a5c; --warm-label:#5c4b2e; --border:#e5d9be; --divider:#f1e7d2; --page:#fbf8f1; --header:#fbf3e1; --card:#fffdf9; --sage:#6b8f71; }
     * { box-sizing: border-box; }
     body { min-height: 100vh; margin: 0; background: var(--page); color: var(--charcoal); }
-    .appbar { min-height:4.5rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.8rem max(1rem,calc((100% - 72rem)/2)); background:var(--navy); color:#fff; box-shadow:0 3px 14px rgba(30,45,74,.18); }
-    .brand { display:flex; align-items:center; gap:.75rem; font-family:Georgia,serif; font-size:1.08rem; font-weight:700; }
-    .brand small { display:block; color:rgba(255,255,255,.65); font-family:Arial,sans-serif; font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; margin-top:.12rem; }
-    .mark { width:2.3rem; height:2.3rem; display:grid; place-items:center; border:1px solid rgba(255,255,255,.45); border-radius:50%; color:#f5e0b0; font-size:1.25rem; }
-    .environment { padding:.35rem .7rem; border:1px solid rgba(255,255,255,.25); border-radius:99px; color:#f5e0b0; font-size:.72rem; font-weight:700; }
+    .app-shell { display:grid; grid-template-columns:15.5rem minmax(0,1fr); min-height:100vh; }
+    .app-sidebar { background:var(--navy); color:#fff; display:flex; flex-direction:column; position:sticky; top:0; height:100vh; overflow-y:auto; }
+    .sidebar-brand { min-height:4.5rem; display:flex; align-items:center; gap:.75rem; padding:.9rem 1.1rem; border-bottom:1px solid rgba(255,255,255,.12); font-family:Georgia,serif; font-size:1.02rem; font-weight:700; }
+    .sidebar-brand small { display:block; color:rgba(255,255,255,.65); font-family:Arial,sans-serif; font-size:.66rem; letter-spacing:.12em; text-transform:uppercase; margin-top:.12rem; }
+    .mark { width:2.2rem; height:2.2rem; flex:0 0 auto; display:grid; place-items:center; border:1px solid rgba(255,255,255,.45); border-radius:50%; color:#f5e0b0; font-size:1.2rem; }
+    .sidebar-foot { margin-top:auto; padding:.85rem 1.1rem; border-top:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.55); font-size:.68rem; line-height:1.5; }
     main { width:min(72rem,calc(100% - 2rem)); margin:0 auto; padding:2.3rem 0 3rem; }
     .eyebrow { color:var(--warm-meta); font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
     h1 { margin:.35rem 0 .55rem; color:var(--navy); font-family:Georgia,serif; font-size:clamp(2.1rem,6vw,3.2rem); line-height:1; }
@@ -470,14 +488,20 @@ function renderShell(metadata, summary, giving, givingSource, section, churchRep
     th, td { padding:.75rem .85rem; border-bottom:1px solid var(--divider); text-align:left; }
     th:nth-child(n+3), td:nth-child(n+3) { text-align:right; font-variant-numeric:tabular-nums; }
     th { color:var(--warm-label); background:var(--header); font-size:.68rem; letter-spacing:.05em; text-transform:uppercase; }
-    nav { display:flex; gap:.15rem; overflow-x:auto; padding:.45rem 0 0; margin-top:1.25rem; border-bottom:1px solid var(--border); }
-    nav a { flex:0 0 auto; padding:.7rem .82rem; border-bottom:2px solid transparent; color:var(--warm-meta); text-decoration:none; font-size:.8rem; font-weight:700; }
-    nav a[aria-current="page"] { border-bottom-color:var(--navy); color:var(--navy); }
+    nav { flex:1; overflow-y:auto; padding:.6rem .55rem 1rem; }
+    .nav-group { margin-bottom:.35rem; }
+    .nav-group-label { padding:.5rem .65rem .3rem; color:rgba(255,255,255,.5); font-size:.66rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+    nav a { display:block; padding:.55rem .65rem; margin:1px 0; border-radius:.5rem; color:rgba(255,255,255,.78); text-decoration:none; font-size:.82rem; font-weight:600; }
+    nav a[aria-current="page"] { background:rgba(255,255,255,.14); color:#fff; }
+    .dashboard-intro { margin-bottom:.25rem; }
+    .dashboard-title { margin:.25rem 0 0; color:var(--navy); font-family:Georgia,serif; font-size:clamp(1.8rem,5vw,2.6rem); line-height:1.1; }
+    .attention-list { margin:.75rem 0 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:.5rem; }
+    .attention-list li { padding:.75rem 1rem; border:1px solid var(--border); border-left:4px solid var(--gold); border-radius:.55rem; background:var(--card); color:var(--warm-label); font-size:.84rem; }
     .parity { margin-top:1.25rem; padding:1.25rem; border:1px solid var(--border); border-radius:.85rem; background:var(--card); }
     .parity h2 { margin:0 0 .5rem; }
     .parity ul { columns:2; color:var(--warm-gray); line-height:1.8; }
     footer { margin-top:2rem; padding-top:1rem; border-top:1px solid var(--border); color:var(--warm-meta); font-size:.75rem; }
-    @media(max-width:767px){.appbar{padding:.75rem 1rem}.brand{font-size:.92rem}.environment{display:none}main{width:min(100% - 1.2rem,72rem);padding-top:1.4rem}.section-heading{align-items:start;flex-direction:column}.grid{grid-template-columns:1fr}.parity ul{columns:1}}
+    @media(max-width:767px){.app-shell{grid-template-columns:1fr}.app-sidebar{position:static;height:auto}nav{display:flex;flex-wrap:wrap;gap:.25rem;padding:.6rem}.nav-group{display:contents}.nav-group-label{display:none}main{width:min(100% - 1.2rem,72rem);padding-top:1.4rem}.section-heading{align-items:start;flex-direction:column}.grid{grid-template-columns:1fr}.parity ul{columns:1}}
     /* ── Payroll ── */
     .pay-toolbar { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:1rem; }
     .pay-toolbar select { min-width:14rem; }
@@ -517,23 +541,29 @@ function renderShell(metadata, summary, giving, givingSource, section, churchRep
     .pt-total { display:flex; justify-content:space-between; margin-top:.6rem; padding:.55rem .75rem; border-radius:.5rem; background:var(--navy); color:#fff; font-weight:700; }
     .pt-warn { margin:0 0 .75rem; padding:.55rem .75rem; border:1px solid #e4c8c8; border-radius:.5rem; background:#faefef; color:#8a4a4a; font-size:.78rem; }
     @media print {
-      .appbar, nav, .pay-toolbar, form, .status, footer, h1, .eyebrow, main > p:first-of-type { display:none !important; }
+      .app-sidebar, nav, .pay-toolbar, form, .status, footer, h1, .eyebrow, main > p:first-of-type { display:none !important; }
+      .app-shell { display:block; }
       #pay-print { display:block !important; }
     }
   </style>
 </head>
 <body>
-  <header class="appbar"><div class="brand"><span class="mark" aria-hidden="true">T</span><div>Timothy Lutheran Church<small>Finance workspace</small></div></div><span class="environment">Isolated staging</span></header>
-  <main>
-    <div class="eyebrow">Isolated staging environment</div>
-    <h1>Timothy Finance</h1>
-    <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
-    <div class="status">Environment ready · no production writers attached</div>
-    <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <div class="sidebar-brand"><span class="mark" aria-hidden="true">T</span><div>Timothy Finance<small>Standalone · alpha</small></div></div>
+      <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
+      <div class="sidebar-foot">Synthetic staging data<br>No production writers attached</div>
+    </aside>
+    <main>
+      <div class="eyebrow">Isolated staging environment</div>
+      <h1>Timothy Finance</h1>
+      <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
+      <div class="status">Environment ready · no production writers attached</div>
       ${renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle)}
-    <p><small>Every value besides Giving shown here comes from deterministic synthetic staging fixtures. Giving is ${givingSource === 'live' ? 'fetched live from Connect’s real, aggregate-only contract endpoint' : 'the committed Connect contract example (the live endpoint is not configured or did not answer), validated locally with no network call'}.</small></p>
-    <footer>${release}</footer>
-  </main>
+      <p><small>Every value besides Giving shown here comes from deterministic synthetic staging fixtures. Giving is ${givingSource === 'live' ? 'fetched live from Connect’s real, aggregate-only contract endpoint' : 'the committed Connect contract example (the live endpoint is not configured or did not answer), validated locally with no network call'}.</small></p>
+      <footer>Timothy Lutheran Church · ${release}</footer>
+    </main>
+  </div>
 </body>
 </html>`;
 }
@@ -803,7 +833,7 @@ export default {
           ? await readSyntheticBudgetReport(env.FINANCE_DB) : null;
         const accountsReport = section.id === 'accounts'
           ? await readSyntheticAccountsReport(env.FINANCE_DB) : null;
-        const dataStatus = section.id === 'data'
+        const dataStatus = section.id === 'data' || section.id === 'health'
           ? await resolveDataStatus(env, env.FINANCE_DB) : null;
         const compensationReport = section.id === 'compensation'
           ? await readSyntheticCompensationReport(env.FINANCE_DB) : null;
