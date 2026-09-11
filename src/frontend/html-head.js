@@ -1184,6 +1184,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-plan-printsheet-root{display:none;}
 .fin-fullreport-printsheet-root{display:none;}
 .fin-health-printsheet-root{display:none;}
+.fin-church-printsheet-root{display:none;}
 .fin-plan-rpt{font-size:9.5pt;color:var(--charcoal);}
 .fin-plan-rpt-page{position:relative;}
 .fin-plan-rpt-hd{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding-bottom:6px;border-bottom:1px solid var(--border);font-size:9pt;color:var(--warm-meta);font-weight:700;letter-spacing:.04em;margin-bottom:14px;}
@@ -1706,8 +1707,8 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
      same two-level nesting trap as body.printing-plan above: #fin-fullreport-printsheet-root is a
      child of #fin-fullreport-root, which is itself a child of #fin-panel-fullreport, so both
      levels are named explicitly rather than trying to reach the print sheet in one rule. Each
-     included section (Financial Health and Budget today; see FIN_FULLREPORT_SECTIONS) is wrapped
-     in its own .fin-fullreport-section — every one but the first also carries .fin-fullreport-section-newpage
+     included section (Financial Health, Church Report, and Budget today; see FIN_FULLREPORT_SECTIONS)
+     is wrapped in its own .fin-fullreport-section — every one but the first also carries .fin-fullreport-section-newpage
      directly (not a "+ " adjacent-sibling rule; that pattern does not reliably paginate in
      Chrome's print engine — see .fin-plan-rpt-newpage's own history above), forcing it onto a
      fresh page ahead of whatever internal pagination that section already does for itself (e.g.
@@ -1736,9 +1737,25 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
   /* Every multi-column grid on this page (three engines, giving-pace/cash-runway pair,
      five-year-mix/fundraising-callout pair, the appeal card's ladder+bands pair) is forced to one
      column in print — same behavior the page's own responsive breakpoint already uses below
-     ~900px screen width, and print-page width is narrower still than that. */
-  .fin-health-rpt .fin-grid-3,.fin-health-rpt .fin-grid-pace,.fin-health-rpt .fin-grid-mix,.fin-health-rpt .fin-stream-grid,.fin-health-rpt .fin-appeal-grid{grid-template-columns:1fr!important;}
-  .fin-health-rpt .fin-card,.fin-health-rpt .fin-navy-card{break-inside:avoid;margin-bottom:14px;}
+     ~900px screen width, and print-page width is narrower still than that. .fin-church-rpt shares
+     these same rules (Church Report's print sheet, below, reuses the identical .fin-card/.fin-grid-*
+     component classes) rather than duplicating them under a second selector. */
+  .fin-health-rpt .fin-grid-3,.fin-health-rpt .fin-grid-pace,.fin-health-rpt .fin-grid-mix,.fin-health-rpt .fin-stream-grid,.fin-health-rpt .fin-appeal-grid,.fin-health-rpt .fin-grid-2,
+  .fin-church-rpt .fin-grid-3,.fin-church-rpt .fin-grid-pace,.fin-church-rpt .fin-grid-mix,.fin-church-rpt .fin-stream-grid,.fin-church-rpt .fin-appeal-grid,.fin-church-rpt .fin-grid-2{grid-template-columns:1fr!important;}
+  .fin-health-rpt .fin-card,.fin-health-rpt .fin-navy-card,.fin-church-rpt .fin-card,.fin-church-rpt .fin-navy-card{break-inside:avoid;margin-bottom:14px;}
+  /* Church Report print sheet (finChurchRptBuildPrintSheetHtml/finChurchRptPrint in js-finance.js)
+     — same body.printing-<feature> idiom, but only ONE level of print-CSS nesting is needed here,
+     not two: unlike Budget/Health/Full Report, no single render function ever rebuilds the whole
+     #fin-panel-church panel's innerHTML (its header/year-view/multi-year-view are three
+     independently-managed siblings — see the comment on #fin-church-printsheet-root in
+     html-tabs.js), so the print-sheet mount is a plain STATIC sibling of those three rather than a
+     dynamically-injected grandchild, and ":not(#fin-church-printsheet-root)" on #fin-panel-church's
+     own children already reaches all three without a second level. */
+  body.printing-church .tab-panel:not(#tab-finance){display:none!important;}
+  body.printing-church #tab-finance{display:block!important;}
+  body.printing-church #tab-finance > div > div > div:not(#fin-panel-church){display:none!important;}
+  body.printing-church #fin-panel-church > *:not(#fin-church-printsheet-root){display:none!important;}
+  body.printing-church #fin-church-printsheet-root{display:block!important;}
 }
 /* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
    left-side navy menu column matching the design mockup's inner "TLC Admin"
