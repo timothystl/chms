@@ -6,6 +6,7 @@ import { LOGIN_HTML } from './html-templates.js';
 import { randHex, authCardPage, getRolePermissions, permissionsForRole, csvRow } from './api-utils.js';
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './api-emails.js';
 import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail, handleSchedulerVolunteersApi, findDuplicateSignupGroups, mergeDuplicateSignupGroup, findPossibleDuplicateSignupGroups, mergeSignupsByIds } from './api-scheduler.js';
+import { wrapEnvForDbAttribution, logDbAttribution } from './db-attribution.js';
 
 function safeParseArr(json) { try { const v = JSON.parse(json || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } }
 
@@ -252,7 +253,20 @@ export async function handleAdminLogin(req, env) {
 }
 
 // ── ADMIN API ─────────────────────────────────────────────────────────
+// Thin wrapper around the real dispatcher below: attributes every D1 query this request makes
+// (across every handler it reaches — old Finance included) to this route segment, and logs it
+// if notable. See src/db-attribution.js for why this is the single chokepoint for that.
 export async function handleAdminApi(req, env, url, method) {
+  const seg = url.pathname.replace('/admin/api/', '');
+  const { env: attributedEnv, counter } = wrapEnvForDbAttribution(env);
+  try {
+    return await handleAdminApiRoutes(req, attributedEnv, url, method);
+  } finally {
+    logDbAttribution(seg, method, counter);
+  }
+}
+
+async function handleAdminApiRoutes(req, env, url, method) {
   const seg = url.pathname.replace('/admin/api/', '');
 
   // ── Current user info ─────────────────────────────────────────────
