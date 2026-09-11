@@ -1746,7 +1746,7 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
   .fin-health-rpt .fin-grid-3,.fin-health-rpt .fin-grid-pace,.fin-health-rpt .fin-grid-mix,.fin-health-rpt .fin-stream-grid,.fin-health-rpt .fin-appeal-grid,.fin-health-rpt .fin-grid-2,
   .fin-church-rpt .fin-grid-3,.fin-church-rpt .fin-grid-pace,.fin-church-rpt .fin-grid-mix,.fin-church-rpt .fin-stream-grid,.fin-church-rpt .fin-appeal-grid,.fin-church-rpt .fin-grid-2,
   .fin-balance-rpt .fin-grid-3,.fin-balance-rpt .fin-grid-pace,.fin-balance-rpt .fin-grid-mix,.fin-balance-rpt .fin-stream-grid,.fin-balance-rpt .fin-appeal-grid,.fin-balance-rpt .fin-grid-2,
-  .fin-property-rpt .fin-grid-3,.fin-property-rpt .fin-grid-hero,.fin-property-rpt .fin-grid-charts{grid-template-columns:1fr!important;}
+  .fin-property-rpt .fin-grid-3,.fin-property-rpt .fin-grid-hero,.fin-property-rpt .fin-grid-charts,.fin-property-rpt .fin-grid-2{grid-template-columns:1fr!important;}
   .fin-health-rpt .fin-card,.fin-health-rpt .fin-navy-card,.fin-church-rpt .fin-card,.fin-church-rpt .fin-navy-card,.fin-balance-rpt .fin-card,.fin-balance-rpt .fin-navy-card,.fin-property-rpt .fin-card,.fin-property-rpt .fin-navy-card{break-inside:avoid;margin-bottom:14px;}
   /* Church Report print sheet (finChurchRptBuildPrintSheetHtml/finChurchRptPrint in js-finance.js)
      — same body.printing-<feature> idiom, but only ONE level of print-CSS nesting is needed here,
