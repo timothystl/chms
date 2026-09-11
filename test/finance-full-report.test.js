@@ -9,8 +9,8 @@ import { HTML_HEAD } from '../src/frontend/html-head.js';
 // feature already relies on (build an off-screen printable document, hand it to the browser's
 // own print dialog) rather than inventing a second one — see finFullReportPrint in js-finance.js.
 //
-// Budget, Financial Health, Church Report, and Balance Sheet are wired into FIN_FULLREPORT_SECTIONS
-// today; Property still needs its own dedicated print-sheet builder (separate work), and
+// Budget, Financial Health, Church Report, Balance Sheet, and Commercial Property are wired into
+// FIN_FULLREPORT_SECTIONS — the user's full original four-section scope, now complete.
 // Compensation is deliberately excluded pending its own access-control pass (its "Print for
 // Council" report exists specifically to redact figures for a council audience).
 
@@ -120,13 +120,21 @@ describe('Full Report — the picker', () => {
     expect(fullreportRoot.innerHTML).toMatch(/<input type="checkbox" checked [^>]*finFullReportToggle\(&quot;balance&quot;/);
   });
 
-  it('a role with plain "finance" access but no "budget" grant sees Financial Health, Church Report and Balance Sheet but never the Budget checkbox — a picker can\'t be the only gate', () => {
+  it('an admin also sees a Commercial Property checkbox, checked by default', () => {
+    const { fin, fullreportRoot } = fullReportSetup();
+    fin.finRenderFullReport();
+    expect(fullreportRoot.innerHTML).toContain('Commercial Property (3277 Ivanhoe)');
+    expect(fullreportRoot.innerHTML).toMatch(/<input type="checkbox" checked [^>]*finFullReportToggle\(&quot;property&quot;/);
+  });
+
+  it('a role with plain "finance" access but no "budget" grant sees Financial Health, Church Report, Balance Sheet and Property but never the Budget checkbox — a picker can\'t be the only gate', () => {
     const { fin, fullreportRoot } = fullReportSetup('staff');
     fin._perm = { finance: 'view' };
     fin.finRenderFullReport();
     expect(fullreportRoot.innerHTML).toContain('finFullReportToggle(&quot;health&quot;,this.checked)');
     expect(fullreportRoot.innerHTML).toContain('finFullReportToggle(&quot;church&quot;,this.checked)');
     expect(fullreportRoot.innerHTML).toContain('finFullReportToggle(&quot;balance&quot;,this.checked)');
+    expect(fullreportRoot.innerHTML).toContain('finFullReportToggle(&quot;property&quot;,this.checked)');
     expect(fullreportRoot.innerHTML).not.toContain('finFullReportToggle(&quot;budget&quot;,this.checked)');
   });
 
@@ -162,6 +170,7 @@ describe('Full Report — combined print', () => {
     fin.finFullReportToggle('health', false);
     fin.finFullReportToggle('church', false);
     fin.finFullReportToggle('balance', false);
+    fin.finFullReportToggle('property', false);
     let toasted = '';
     fin.finToast = (m) => { toasted = m; };
     fin.finFullReportPrint();
@@ -174,6 +183,7 @@ describe('Full Report — combined print', () => {
     fin.finFullReportToggle('health', false);
     fin.finFullReportToggle('church', false);
     fin.finFullReportToggle('balance', false);
+    fin.finFullReportToggle('property', false);
     const bodyClasses = [];
     fin.document.body.classList.add = (c) => bodyClasses.push(c);
     fin.document.body.classList.remove = (c) => { const i = bodyClasses.indexOf(c); if (i > -1) bodyClasses.splice(i, 1); };
@@ -198,6 +208,7 @@ describe('Full Report — combined print', () => {
     const { fin, printsheetRoot } = fullReportSetup();
     fin.finFullReportToggle('church', false);
     fin.finFullReportToggle('balance', false);
+    fin.finFullReportToggle('property', false);
     fin.finFullReportPrint();
     const html = printsheetRoot.innerHTML;
     expect(html).toContain('fin-health-rpt');
@@ -207,28 +218,31 @@ describe('Full Report — combined print', () => {
     expect(html).toMatch(/<div class="fin-fullreport-section fin-fullreport-section-newpage"><div class="fin-plan-rpt">/);
   });
 
-  it('combines all four sections in registry order (Health, Church, Balance, Budget) when all are selected by default', async () => {
+  it('combines all five sections in registry order (Health, Church, Balance, Property, Budget) when all are selected by default', async () => {
     const { fin, printsheetRoot } = fullReportSetup();
     fin.finFullReportPrint();
     const html = printsheetRoot.innerHTML;
     expect(html).toContain('fin-health-rpt');
     expect(html).toContain('fin-church-rpt');
     expect(html).toContain('fin-balance-rpt');
+    expect(html).toContain('fin-property-rpt');
     expect(html).toContain('fin-plan-rpt-table');
-    // Church Report's and Balance Sheet's own no-data fallbacks (there's no _finChurchThisYearData
-    // or _finBalanceData in this fixture) reuse Budget's .fin-plan-rpt-page/.fin-plan-rpt-p classes
-    // for consistency, so a bare "fin-plan-rpt" substring search would find those fallbacks rather
-    // than Budget's real content — "fin-plan-rpt-table" only ever appears inside Budget's own
-    // actual print sheet.
+    // Church Report's, Balance Sheet's and Property's own no-data fallbacks (there's no
+    // _finChurchThisYearData/_finBalanceData/_finProperty in this fixture) reuse Budget's
+    // .fin-plan-rpt-page/.fin-plan-rpt-p classes for consistency, so a bare "fin-plan-rpt"
+    // substring search would find those fallbacks rather than Budget's real content —
+    // "fin-plan-rpt-table" only ever appears inside Budget's own actual print sheet.
     expect(html.indexOf('fin-health-rpt')).toBeLessThan(html.indexOf('fin-church-rpt'));
     expect(html.indexOf('fin-church-rpt')).toBeLessThan(html.indexOf('fin-balance-rpt'));
-    expect(html.indexOf('fin-balance-rpt')).toBeLessThan(html.indexOf('fin-plan-rpt-table'));
+    expect(html.indexOf('fin-balance-rpt')).toBeLessThan(html.indexOf('fin-property-rpt'));
+    expect(html.indexOf('fin-property-rpt')).toBeLessThan(html.indexOf('fin-plan-rpt-table'));
     // Only the section after the first carries the break-before class at its own top level —
     // Church Report's own build() output already carries an INTERNAL .fin-plan-rpt-newpage on its
     // multi-year page, which is a separate concern from Full Report's own section-to-section break.
     expect(html).toMatch(/<div class="fin-fullreport-section"><div class="fin-health-rpt">/);
     expect(html).toMatch(/<div class="fin-fullreport-section fin-fullreport-section-newpage"><div class="fin-church-rpt">/);
     expect(html).toMatch(/<div class="fin-fullreport-section fin-fullreport-section-newpage"><div class="fin-balance-rpt">/);
+    expect(html).toMatch(/<div class="fin-fullreport-section fin-fullreport-section-newpage"><div class="fin-property-rpt">/);
     expect(html).toMatch(/<div class="fin-fullreport-section fin-fullreport-section-newpage"><div class="fin-plan-rpt">/);
   });
 
@@ -238,6 +252,7 @@ describe('Full Report — combined print', () => {
     fin.finFullReportToggle('health', false);
     fin.finFullReportToggle('church', false);
     fin.finFullReportToggle('balance', false);
+    fin.finFullReportToggle('property', false);
     // Role/permissions can change between rendering the picker and clicking print (e.g. a stale
     // tab left open); finFullReportPrint re-checks permView itself rather than trusting whatever
     // was selected earlier under different access.

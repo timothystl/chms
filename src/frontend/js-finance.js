@@ -7193,7 +7193,7 @@ function finRenderProperty(d) {
     .reduce(function(s, c) { return s + (c.amount_cents || 0); }, 0);
   var recentDists = dists.slice(0, 2).map(function(dd) { return esc(dd.period) + ' $' + finFmtMoney(dd.amount_cents / 100); }).join(' &middot; ');
 
-  el.innerHTML = finPageHeader(esc(prop.name || '3277 Ivanhoe'), subParts.join(' &middot; '), '<button class="btn-secondary" onclick="window.print()">Print</button>')
+  el.innerHTML = finPageHeader(esc(prop.name || '3277 Ivanhoe'), subParts.join(' &middot; '), '<button class="btn-secondary" onclick="finPropertyPrint()">Print</button>')
     + '<div class="fin-grid-hero">'
       + finRenderPropertyDistributionHero(d, isAdminUI)
       + finRenderPropertyFundsItself(d)
@@ -7212,7 +7212,8 @@ function finRenderProperty(d) {
           finRenderCapitalImprovements(d, isAdminUI) + finRenderRepairs(d, isAdminUI))
       + finLedgerStrip('dists', 'Distributions to church', recentDists || 'none recorded', distHtml)
     + '</div>'
-    + finRenderInsuranceAllocation(d);
+    + finRenderInsuranceAllocation(d)
+    + '<div id="fin-property-printsheet-root" class="fin-property-printsheet-root"></div>';
 }
 // The bulk admin tools, rendered onto the Data & Imports tab rather than this report — an upload
 // control has no business on a page the council reads from.
@@ -7470,6 +7471,209 @@ function finRenderInsuranceAllocation(d) {
     + '</div>'
     + (alloc.estimate_note ? '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;"><i>' + esc(alloc.estimate_note) + '</i></p>' : '');
   return '<h4 style="margin:18px 0 8px;font-size:.9rem;">Insurance Allocation (Estimate)</h4>' + html;
+}
+
+// ── Property print sheet ─────────────────────────────────────────────────────────────────────
+// Print sheet for the Commercial Property tab (see FIN_FULLREPORT_SECTIONS) — the last of the
+// user's original four-section scope. Most of the tab's own render functions already accept an
+// isAdminUI flag and produce plain read-only markup when it's false (finRenderPropertyTaxReserve,
+// finRenderCapitalImprovements, finRenderRepairs, finRenderCapitalAssumptionEditor all drop their
+// Add/Delete affordances that way already), so this reuses those unchanged with isAdminUI forced
+// to false. Three genuinely screen-only pieces have no such flag and get trimmed finPropertyRpt*
+// variants instead: the rent-roll table and the valuation worksheet are editable <input> grids on
+// screen (finRenderRentRollTable/finRenderValuationWorksheet) with no print equivalent, and the
+// Monthly financials/Capital & repairs/Distributions sections are collapsed-by-default
+// finLedgerStrip() toggles (Show/Hide button, no print equivalent either) — same "always shows
+// everything expanded, no click affordance" rule Church Report established for its own
+// click-to-expand pieces.
+function finPropertyRptRentRoll(roll) {
+  var rows = roll.units.map(function(u) {
+    return '<tr>'
+      + '<td style="padding:3px 6px;">' + (esc(u.tenant) || '<span style="color:var(--warm-gray);">(unnamed unit)</span>') + '</td>'
+      + '<td style="padding:3px 6px;">' + u.sqft.toLocaleString('en-US') + '</td>'
+      + '<td style="padding:3px 6px;">$' + finFmtMoney(u.monthlyRentCents / 100) + '</td>'
+      + '<td style="padding:3px 6px;">$' + finFmtMoney(u.annualRentCents / 100) + '</td>'
+      + '<td style="padding:3px 6px;text-align:right;">' + (u.rentPerSqftCents != null ? '$' + (u.rentPerSqftCents / 100).toFixed(2) : '&mdash;') + '</td>'
+      + '<td style="padding:3px 6px;text-align:right;">' + (u.vacant ? '<span style="color:var(--danger);font-weight:600;">vacant</span>' : (u.sharePct * 100).toFixed(0) + '%') + '</td>'
+      + '</tr>';
+  }).join('');
+  var foot = roll.count
+    ? '<tfoot><tr style="border-top:2px solid var(--color-navy);font-weight:700;">'
+      + '<td style="padding:5px 6px;">Total</td>'
+      + '<td style="padding:5px 6px;">' + roll.totalSqft.toLocaleString('en-US') + '</td>'
+      + '<td style="padding:5px 6px;">$' + finFmtMoney(roll.totalMonthlyCents / 100) + '</td>'
+      + '<td style="padding:5px 6px;">$' + finFmtMoney(roll.totalAnnualCents / 100) + '</td>'
+      + '<td colspan="2"></td></tr></tfoot>'
+    : '';
+  return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead style="border-bottom:1px solid var(--border);"><tr>'
+    + '<th style="text-align:left;padding:4px 6px;">Unit / tenant</th>'
+    + '<th style="text-align:left;padding:4px 6px;">SF</th>'
+    + '<th style="text-align:left;padding:4px 6px;">Rent ($/mo)</th>'
+    + '<th style="text-align:left;padding:4px 6px;">Rent ($/yr)</th>'
+    + '<th style="text-align:right;padding:4px 6px;">$/SF</th>'
+    + '<th style="text-align:right;padding:4px 6px;">Share</th></tr></thead>'
+    + '<tbody>' + (rows || '<tr><td colspan="6" style="padding:6px;color:var(--warm-gray);">No units recorded yet.</td></tr>') + '</tbody>'
+    + foot + '</table></div>';
+}
+function finPropertyRptValuationWorksheet(d) {
+  var val = (d.meta && d.meta.valuation) || {};
+  var opCosts = val.operating_costs || {};
+  function stat(label, value) {
+    return '<div style="min-width:120px;"><div style="font-size:.7rem;color:var(--warm-gray);">' + label + '</div><div style="font-size:.85rem;font-weight:600;">' + value + '</div></div>';
+  }
+  var opCostStats = FIN_VAL_OP_COST_FIELDS.map(function(f) {
+    return stat(f[1], '$' + finFmtMoney((opCosts[f[0]] || 0) / 100) + '/yr');
+  }).join('');
+  var assumptionStats = stat('Utility Reimbursement', '$' + finFmtMoney((val.utility_reimbursement_cents || 0) / 100) + '/yr')
+    + stat('Vacancy Rate', ((val.vacancy_rate_pct || 0) * 100).toFixed(1) + '%')
+    + stat('Management Fee', ((val.management_fee_pct || 0) * 100).toFixed(1) + '%')
+    + stat('Cap Rate', String(val.cap_rate || 0));
+  return '<p style="font-size:.75rem;color:var(--warm-gray);margin:0 0 8px;">AHRA&rsquo;s income-capitalization worksheet. These same costs and assumptions feed the cash walk above.</p>'
+    + '<div style="font-weight:600;font-size:.82rem;margin:0 0 6px;">Operating Costs</div>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;">' + opCostStats + '</div>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;">' + assumptionStats + '</div>'
+    + finRenderValuationOutputBody(finComputePropertyValuation(finPropertyValuationInputsFromMeta(d.meta || {})));
+}
+// Same Reserves card as the live tab, except the "Reserve schedule" detail is a plain always-shown
+// block instead of a collapsed <details> — no print equivalent for a click-to-expand disclosure.
+function finPropertyRptReservesCard(d) {
+  var taxRows = ((d.reserves && d.reserves.property_tax) || []).slice().sort(function(a, b) { return a.report_month < b.report_month ? 1 : -1; });
+  var taxCents = taxRows.length ? (taxRows[0].reserve_after_cents || 0) : 0;
+  var baseCents = (d.meta && d.meta.reserves && d.meta.reserves.base_minimum_cents) || 0;
+  var latestMonth = finPropertyLatestReserveMonth(d);
+  var totalCents = finComputePropertyReservesOnHandCents(d);
+  function line(label, cents, bold) {
+    return '<div style="display:flex;justify-content:space-between;' + (bold ? 'border-top:1px solid var(--warm-border);padding-top:8px;' : '') + '">'
+      + '<span style="' + (bold ? 'font-weight:800;color:var(--color-navy);' : 'color:var(--warm-ink-label);font-weight:600;') + '">' + label + '</span>'
+      + '<b style="font-variant-numeric:tabular-nums;">$' + finFmtMoney(cents / 100) + '</b></div>';
+  }
+  return '<div class="fin-card">'
+    + '<div class="fin-card-title" style="font-size:19px;">Reserves</div>'
+    + '<div class="fin-card-sub">' + (latestMonth ? 'AHRA&rsquo;s total property reserve, ' + esc(latestMonth.period) + '.' : 'Reconstructed from the reserve ledger plus the base minimum &mdash; no AHRA total recorded yet.') + '</div>'
+    + '<div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px;">'
+    + line('Property tax reserve', taxCents, false)
+    + line('Base minimum reserve', baseCents, false)
+    + line('Total', totalCents, true)
+    + '</div>'
+    + '<div style="font-size:11.5px;color:var(--warm-gray);margin-top:10px;line-height:1.45;">The tax reserve zeroes each November when the bill is paid, then rebuilds.</div>'
+    + '<h4 style="margin:14px 0 6px;font-size:.82rem;">Reserve schedule</h4>'
+    + finRenderPropertyTaxReserve(d, false)
+    + '</div>';
+}
+// Trimmed twins of the Monthly financials / Distributions tables finRenderProperty() builds
+// inline — same cells, minus the isAdminUI-only Edit/Delete column.
+function finPropertyRptMonthlyTable(monthly) {
+  function cell(cents) { return cents == null ? '<span style="color:var(--warm-gray);">&mdash;</span>' : '$' + finFmtMoney(cents / 100); }
+  var rows = monthly.map(function(m) {
+    return '<tr><td style="padding:5px 8px;font-weight:600;">' + esc(m.period) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + (m.occupancy_pct != null ? (m.occupancy_pct * 100).toFixed(1) + '%' : '&mdash;') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + cell(m.total_revenue_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + cell(m.total_expenses_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + cell(m.net_income_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + cell(m.net_operating_income_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + cell(m.reserve_balance_cents) + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;">' + cell(m.available_for_distribution_cents) + '</td></tr>';
+  }).join('');
+  return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:5px 8px;">Period</th><th style="text-align:right;padding:5px 8px;">Occ.</th><th style="text-align:right;padding:5px 8px;">Revenue</th><th style="text-align:right;padding:5px 8px;">Expenses</th><th style="text-align:right;padding:5px 8px;">Net Income</th><th style="text-align:right;padding:5px 8px;">NOI</th><th style="text-align:right;padding:5px 8px;">Reserve</th><th style="text-align:right;padding:5px 8px;">Distribution</th></tr></thead>'
+    + '<tbody>' + (rows || '<tr><td colspan="8" style="padding:10px;color:var(--warm-gray);">No months recorded yet.</td></tr>') + '</tbody></table></div>';
+}
+function finPropertyRptDistTable(dists) {
+  var rows = dists.map(function(dd) {
+    return '<tr><td style="padding:5px 8px;">' + esc(dd.period) + '</td><td style="padding:5px 8px;text-align:right;">$' + finFmtMoney(dd.amount_cents / 100) + '</td></tr>';
+  }).join('');
+  return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr><th style="text-align:left;padding:6px 8px;">Period</th><th style="text-align:right;padding:6px 8px;">Amount</th></tr></thead>'
+    + '<tbody>' + (rows || '<tr><td colspan="2" style="padding:10px;color:var(--warm-gray);">No distributions recorded yet.</td></tr>') + '</tbody></table></div>';
+}
+// Same fin-card/fin-ledger-strip chrome as finLedgerStrip(), minus the Show/Hide toggle button —
+// a print sheet always shows the body, so there's nothing to toggle.
+function finPropertyRptSection(title, sub, bodyHtml) {
+  return '<div class="fin-card fin-ledger-strip">'
+    + '<div class="fin-ledger-strip-hdr"><div><div class="fin-ledger-strip-title">' + title + '</div><div class="fin-ledger-strip-sub">' + sub + '</div></div></div>'
+    + '<div style="margin-top:14px;">' + bodyHtml + '</div>'
+    + '</div>';
+}
+function finPropertyBuildPrintSheetHtml() {
+  var d = _finProperty;
+  if (!d) {
+    return '<div class="fin-property-rpt"><div class="fin-plan-rpt-page"><p class="fin-plan-rpt-p mut">No property data loaded yet.</p></div></div>';
+  }
+  var meta = d.meta || {};
+  var prop = meta.property || {};
+  var monthly = (d.monthly || []).slice().sort(function(a, b) { return a.period < b.period ? 1 : -1; });
+  var latestPeriod = monthly.length ? monthly[0].period : '';
+  var today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  var subParts = [];
+  if (prop.type) subParts.push(esc(prop.type));
+  subParts.push('owned by ' + esc(prop.owner || 'Timothy Lutheran Church'));
+  if (prop.property_manager) subParts.push('managed by ' + esc(prop.property_manager));
+  if (latestPeriod) subParts.push('report through ' + esc(latestPeriod));
+
+  var header = '<div class="fin-plan-rpt-hd"><span>Timothy Lutheran Church &middot; St. Louis</span><span>Commercial Property &middot; prepared ' + today + '</span></div>'
+    + '<div class="fin-plan-rpt-kicker">Commercial Property</div>'
+    + '<h1 class="fin-plan-rpt-h1">' + esc(prop.name || '3277 Ivanhoe') + '</h1>'
+    + '<div class="fin-plan-rpt-sub">' + subParts.join(' &middot; ') + '</div>';
+
+  var pf = finComputePropertyProForma(d);
+  var incomeSub = pf.roll.count + ' unit' + (pf.roll.count === 1 ? '' : 's') + ' &middot; '
+    + (pf.roll.leasedPct != null ? (pf.roll.leasedPct * 100).toFixed(0) + '% of the square footage leased' : 'no square footage recorded')
+    + ' &middot; ' + finMoney0(pf.roll.totalAnnualCents) + ' of contract rent a year';
+  var valAsOfDate = (meta.valuation && meta.valuation.as_of_date) || '';
+  var incomeCard = '<div class="fin-card" style="margin-bottom:22px;">'
+    + '<div class="fin-card-title" style="font-size:20px;">What the units earn</div>'
+    + '<div class="fin-card-sub">' + incomeSub + (valAsOfDate ? ' &middot; worksheet last saved ' + esc(valAsOfDate) : '') + '</div>'
+    + finPropertyRptRentRoll(pf.roll)
+    + finRenderProFormaBody(pf)
+    + finRenderCapitalAssumptionEditor(pf.capital, false)
+    + '<h4 style="margin:18px 0 8px;font-size:.85rem;">Operating costs, assumptions &amp; valuation worksheet</h4>'
+    + finPropertyRptValuationWorksheet(d)
+    + '</div>';
+
+  var dists = (d.distributions || []).slice().sort(function(a, b) { return a.period < b.period ? 1 : -1; });
+  var thisYear = String(new Date().getFullYear());
+  var capitalThisYear = (d.capitalLedger || []).filter(function(c) { return String(c.entry_date || '').slice(0, 4) === thisYear; })
+    .reduce(function(s, c) { return s + (c.amount_cents || 0); }, 0);
+  var recentDists = dists.slice(0, 2).map(function(dd) { return esc(dd.period) + ' $' + finFmtMoney(dd.amount_cents / 100); }).join(' &middot; ');
+
+  return '<div class="fin-property-rpt">'
+    + header
+    + '<div class="fin-grid-hero">'
+      + finRenderPropertyDistributionHero(d, false)
+      + finRenderPropertyFundsItself(d)
+    + '</div>'
+    + '<div class="fin-grid-charts">'
+      + '<div class="fin-card">' + finRenderPropertyCharts(d) + '</div>'
+      + '<div style="display:flex;flex-direction:column;gap:16px;">'
+        + finRenderPropertyValuationCard(d)
+        + finPropertyRptReservesCard(d)
+      + '</div>'
+    + '</div>'
+    + incomeCard
+    + finRenderPropertyForecast(d)
+    + '<div class="fin-grid-3">'
+      + finPropertyRptSection('Monthly financials', monthly.length + ' month' + (monthly.length === 1 ? '' : 's') + ' on record', finPropertyRptMonthlyTable(monthly))
+      + finPropertyRptSection('Capital &amp; repairs ledger', capitalThisYear ? '$' + finFmtMoney(capitalThisYear / 100) + ' this year' : 'nothing capitalized this year',
+          finRenderCapitalImprovements(d, false) + finRenderRepairs(d, false))
+      + finPropertyRptSection('Distributions to church', recentDists || 'none recorded', finPropertyRptDistTable(dists))
+    + '</div>'
+    + finRenderInsuranceAllocation(d)
+    + '</div>';
+}
+function finPropertyPrint() {
+  var root = document.getElementById('fin-property-printsheet-root');
+  if (!root) return;
+  root.innerHTML = finPropertyBuildPrintSheetHtml();
+  document.body.classList.add('printing-property');
+  var cleanup = function() {
+    document.body.classList.remove('printing-property');
+    if (root) root.innerHTML = '';
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(function() { window.print(); setTimeout(cleanup, 1000); }, 60);
 }
 function finPropertyOpenMonthModal(period) {
   var m = period ? (_finProperty.monthly || []).filter(function(r){ return r.period === period; })[0] : null;
@@ -8791,18 +8995,15 @@ function finPlanPrint() {
 // of whichever sections are checked, then call window.print() exactly once.
 //
 // Budget, Financial Health (incl. the money-flow diagram), Church Report (incl. its own
-// multi-year comparison), and Balance Sheet (incl. its own multi-year trend) each have a
-// dedicated "build the printable HTML" function now (finPlanBuildPrintSheetHtml,
-// finHealthBuildPrintSheetHtml, finChurchRptBuildPrintSheetHtml, finBalanceBuildPrintSheetHtml) —
-// Property still only knows how to print whatever's live on screen (a plain window.print()
-// button with no separate off-screen build step), which doesn't compose with anything else into
-// one document. Giving it its own print-sheet builder is real, separate work (the same kind of
-// pass the other four sections' own redesigns took); this registry is where it plugs in once
-// that lands, without touching this file's structure again. Compensation is deliberately NOT
-// here yet either — its
-// "Print for Council" report exists specifically to redact certain figures for a council audience
-// (see finCompIsHiddenFromCouncil), and folding it into a general combined export needs its own
-// access-control pass first, by the user's own choice.
+// multi-year comparison), Balance Sheet (incl. its own multi-year trend), and Commercial
+// Property each have a dedicated "build the printable HTML" function now
+// (finPlanBuildPrintSheetHtml, finHealthBuildPrintSheetHtml, finChurchRptBuildPrintSheetHtml,
+// finBalanceBuildPrintSheetHtml, finPropertyBuildPrintSheetHtml) — this was the user's full
+// original four-section scope (Budget, Financial Health, Church Report, Balance Sheet/Property),
+// now complete. Compensation is deliberately NOT here — its "Print for Council" report exists
+// specifically to redact certain figures for a council audience (see finCompIsHiddenFromCouncil),
+// and folding it into a general combined export needs its own access-control pass first, by the
+// user's own choice.
 //
 // Each entry's perm mirrors whichever permission the section's own tab already requires (see
 // FIN_TOPNAV_ITEMS in js-core.js) — a role without 'budget' can already reach this page (it only needs 'finance'),
@@ -8815,9 +9016,10 @@ var FIN_FULLREPORT_SECTIONS = [
   { key: 'health', label: 'Financial Health (incl. money-flow diagram)', perm: 'finance', build: function() { return finHealthBuildPrintSheetHtml(); } },
   { key: 'church', label: 'Church Report (incl. multi-year comparison)', perm: 'finance', build: function() { return finChurchRptBuildPrintSheetHtml(); } },
   { key: 'balance', label: 'Balance Sheet (incl. multi-year trend)', perm: 'finance', build: function() { return finBalanceBuildPrintSheetHtml(); } },
+  { key: 'property', label: 'Commercial Property (3277 Ivanhoe)', perm: 'finance', build: function() { return finPropertyBuildPrintSheetHtml(); } },
   { key: 'budget', label: 'Budget (Summary, Revenue, Expenses)', perm: 'budget', build: function() { return finPlanBuildPrintSheetHtml(); } },
 ];
-var _finFullReportSelected = { health: true, church: true, balance: true, budget: true };
+var _finFullReportSelected = { health: true, church: true, balance: true, property: true, budget: true };
 function finFullReportToggle(key, on) {
   _finFullReportSelected[key] = !!on;
 }
