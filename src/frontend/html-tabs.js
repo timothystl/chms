@@ -1771,6 +1771,13 @@ export const HTML_TABS_2 = String.raw`
         <div id="fin-comp-root">Loading…</div>
       </div>
 
+      <!-- Full Report — pick which of the module's own reports to include, then print/Save-as-PDF
+           once for all of them combined. Rendered by finRenderFullReport(), same lazy-load timing
+           as Chart of Accounts/Compensation above (one shared finLoadPlanning() fetch). -->
+      <div id="fin-panel-fullreport" style="display:none;">
+        <div id="fin-fullreport-root"><p style="font-size:.85rem;color:var(--warm-gray);">Loading&hellip;</p></div>
+      </div>
+
     </div>
   </div>
 </div>

@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.235.1';
+export const DEPLOY_VERSION = '1.236.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -323,6 +323,7 @@ var FIN_TOPNAV_ITEMS = [
   { id: 'planning', label: 'Budget', finSection: 'planning', perm: 'budget' },
   { id: 'accounts', label: 'Chart of Accounts', finSection: 'accounts', perm: 'finance' },
   { id: 'compensation', label: 'Compensation', finSection: 'compensation', perm: 'compensation' },
+  { id: 'fullreport', label: 'Full Report', finSection: 'fullreport', perm: 'finance' },
   { divider: true },
   // Everything that used to be interleaved with the reports — connections, file imports,
   // hand-entered adjustments, the danger zone — lives behind this divider, off the reading pages.
