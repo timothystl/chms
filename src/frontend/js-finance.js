@@ -4814,8 +4814,9 @@ function finRenderBalanceSheetTab(d, multiYear) {
   var header = finPageHeader('Balance Sheet &amp; Financial Position',
     'Assets, liabilities and equity &mdash; a point-in-time snapshot, trended and compared year over year.',
     '<button class="btn-secondary" onclick="finExportBalanceCsv()">Export CSV</button>'
-      + '<button class="btn-secondary" onclick="window.print()">Print</button>');
+      + '<button class="btn-secondary" onclick="finBalancePrint()">Print</button>');
   var picker = finRenderBalanceRangePicker(d, multiYear);
+  var printsheetRoot = '<div id="fin-balance-printsheet-root" class="fin-balance-printsheet-root"></div>';
   if (!d || !d.rows || !d.rows.length) {
     el.innerHTML = header + picker
       + '<p style="font-size:.85rem;color:var(--warm-gray);">No balance sheet imported yet for ' + ((d && d.year) || '') + '. Upload one from <b>Data &amp; Imports</b> (Balance Sheet, or Financial Position for a file covering several years), or pick another year above.</p>'
@@ -4823,7 +4824,8 @@ function finRenderBalanceSheetTab(d, multiYear) {
       + finRenderCashTrendChart(multiYear)
       + finRenderNetWorthGrowthTable(multiYear)
       + finRenderAssetGrowthTable(multiYear)
-      + finRenderBalanceReconciliation(multiYear);
+      + finRenderBalanceReconciliation(multiYear)
+      + printsheetRoot;
     return;
   }
   var s = d.summary;
@@ -4873,7 +4875,8 @@ function finRenderBalanceSheetTab(d, multiYear) {
   html += '<details open><summary style="font-size:.82rem;color:var(--warm-gray);cursor:pointer;">Full account detail</summary>'
     + '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;margin-top:10px;">' + detailToolbarHtml + '<table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
     + '<thead><tr style="background:var(--warm-surface-header);"><th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Account</th><th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Balance</th></tr></thead>'
-    + '<tbody>' + finRenderBalanceTreeRows(detailRenderTree).join('') + '</tbody></table></div></details>';
+    + '<tbody>' + finRenderBalanceTreeRows(detailRenderTree).join('') + '</tbody></table></div></details>'
+    + printsheetRoot;
   el.innerHTML = html;
 }
 // CSV export — the full multi-year Assets/Liabilities/Equity/Cash trend, not just the on-screen
@@ -4912,6 +4915,82 @@ function finRenderEquityReclassMultiYearTable(multiYear) {
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Without Restrictions</th>'
     + '<th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Total Equity</th><th></th></tr></thead>'
     + '<tbody>' + rows + '</tbody></table></div></div>';
+}
+// Print sheet for the Balance Sheet tab (see FIN_FULLREPORT_SECTIONS). Unlike Church Report,
+// every helper this reuses (finRenderBalanceTreeRows, the chart/table builders) is already pure —
+// the only screen-only pieces are the Year/Trend range picker and the "Hide zero-balance lines" /
+// "Hide individual lines…" detail toolbar, both plain interactive controls with no print
+// equivalent, so this orchestrator simply never calls finRenderBalanceRangePicker or
+// finRenderBalanceManagePanel and skips straight to the detail table. The reader's current
+// hide-zero/hidden-lines choices still apply (finBalanceFilterHidden reads the same globals the
+// live tab does) — printing what you're currently looking at, not a reset view.
+function finBalanceBuildPrintSheetHtml() {
+  var d = _finBalanceData;
+  var multiYear = _finBalanceMultiYearData;
+  var year = (d && d.year) || _finBalanceYear || new Date().getFullYear();
+  if (!d || !d.rows || !d.rows.length) {
+    return '<div class="fin-balance-rpt"><div class="fin-plan-rpt-page"><p class="fin-plan-rpt-p mut">No balance sheet imported yet for ' + year + '.</p></div></div>';
+  }
+  var today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  var header = '<div class="fin-plan-rpt-hd"><span>Timothy Lutheran Church &middot; St. Louis</span><span>Balance Sheet &middot; prepared ' + today + '</span></div>'
+    + '<div class="fin-plan-rpt-kicker">Balance Sheet &amp; Financial Position</div>'
+    + '<h1 class="fin-plan-rpt-h1">As of ' + esc(d.asOfDate || year) + '</h1>'
+    + '<div class="fin-plan-rpt-sub">A point-in-time snapshot, trended and compared year over year.</div>';
+
+  var s = d.summary;
+  var offCents = s.balancedCents;
+  var checkHtml = Math.abs(offCents) < 1
+    ? '<span style="color:var(--sage);">&#10003; Balances (Assets = Liabilities + Equity)</span>'
+    : '<span style="color:var(--danger);">&#9888; Off by $' + finFmtMoney(Math.abs(offCents) / 100) + '</span>';
+  function kpi(label, cents) {
+    return '<div style="flex:1;min-width:170px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">'
+      + '<div style="font-size:.7rem;color:var(--warm-gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">' + label + '</div>'
+      + '<div style="font-size:1.3rem;font-weight:700;color:var(--steel-anchor);">$' + finFmtMoney(cents / 100) + '</div></div>';
+  }
+  var kpis = '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;">'
+    + kpi('Assets', s.assetsCents) + kpi('Liabilities', s.liabilitiesCents) + kpi('Equity', s.equityCents) + '</div>'
+    + '<div style="font-size:.82rem;margin-bottom:18px;">' + checkHtml + '</div>';
+
+  var tree = finBuildBalanceTreeFromFlatRows(d.rows);
+  var assetPie = finPieItemsFromTree(tree, 'Assets', 'totalBalanceCents');
+  var pieHtml = assetPie.length
+    ? '<div style="margin-bottom:18px;"><h4 style="margin:0 0 8px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Asset Composition</h4>' + renderPieChart(assetPie, 170) + '</div>'
+    : '';
+
+  var detailRenderTree = finBalanceFilterHidden(tree, _finBalanceHiddenPaths, _finBalanceHideZero);
+  var detailCard = '<div class="fin-card" style="padding:0;overflow:hidden;overflow-x:auto;margin-top:10px;">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead><tr style="background:var(--warm-surface-header);"><th style="text-align:left;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Account</th><th style="text-align:right;padding:8px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--warm-meta);">Balance</th></tr></thead>'
+    + '<tbody>' + finRenderBalanceTreeRows(detailRenderTree).join('') + '</tbody></table></div>';
+
+  return '<div class="fin-balance-rpt">'
+    + header + kpis
+    + '<div style="font-size:.74rem;color:var(--warm-gray);margin:-8px 0 18px;">Designated &amp; Restricted Funds are shown here as Net Assets, not as a Liability.</div>'
+    + finRenderEquityReclassCard(d.equityReclass)
+    + pieHtml
+    + finRenderBalanceMultiYearChart(multiYear)
+    + finRenderCashTrendChart(multiYear)
+    + finRenderNetWorthGrowthTable(multiYear)
+    + finRenderAssetGrowthTable(multiYear)
+    + finRenderBalanceYoyCard(d.rows, _finBalancePriorYearData, year)
+    + finRenderBalanceReconciliation(multiYear)
+    + finRenderEquityReclassMultiYearTable(multiYear)
+    + '<h4 style="margin:18px 0 4px;font-family:var(--font-head);color:var(--steel-anchor);font-size:.9rem;">Full Account Detail</h4>'
+    + detailCard
+    + '</div>';
+}
+function finBalancePrint() {
+  var root = document.getElementById('fin-balance-printsheet-root');
+  if (!root) return;
+  root.innerHTML = finBalanceBuildPrintSheetHtml();
+  document.body.classList.add('printing-balance');
+  var cleanup = function() {
+    document.body.classList.remove('printing-balance');
+    if (root) root.innerHTML = '';
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(function() { window.print(); setTimeout(cleanup, 1000); }, 60);
 }
 
 // ── Balance Sheet import: preview-then-commit (same pattern as the Budget import below) ─────
@@ -8711,15 +8790,16 @@ function finPlanPrint() {
 // same mechanism rather than inventing a second one: build one combined off-screen document out
 // of whichever sections are checked, then call window.print() exactly once.
 //
-// Budget, Financial Health (incl. the money-flow diagram), and Church Report (incl. its own
-// multi-year comparison) each have a dedicated "build the printable HTML" function now
-// (finPlanBuildPrintSheetHtml, finHealthBuildPrintSheetHtml, finChurchRptBuildPrintSheetHtml) —
-// Balance Sheet and Property still only know how to print whatever's live on screen (a plain
-// window.print() button with no separate off-screen build step), which doesn't compose with
-// anything else into one document. Giving each of those its own print-sheet builder is real,
-// separate work (the same kind of pass the other three sections' own redesigns took); this
-// registry is where each one plugs in once that lands, without touching this file's structure
-// again. Compensation is deliberately NOT here yet either — its
+// Budget, Financial Health (incl. the money-flow diagram), Church Report (incl. its own
+// multi-year comparison), and Balance Sheet (incl. its own multi-year trend) each have a
+// dedicated "build the printable HTML" function now (finPlanBuildPrintSheetHtml,
+// finHealthBuildPrintSheetHtml, finChurchRptBuildPrintSheetHtml, finBalanceBuildPrintSheetHtml) —
+// Property still only knows how to print whatever's live on screen (a plain window.print()
+// button with no separate off-screen build step), which doesn't compose with anything else into
+// one document. Giving it its own print-sheet builder is real, separate work (the same kind of
+// pass the other four sections' own redesigns took); this registry is where it plugs in once
+// that lands, without touching this file's structure again. Compensation is deliberately NOT
+// here yet either — its
 // "Print for Council" report exists specifically to redact certain figures for a council audience
 // (see finCompIsHiddenFromCouncil), and folding it into a general combined export needs its own
 // access-control pass first, by the user's own choice.
@@ -8734,9 +8814,10 @@ function finPlanPrint() {
 var FIN_FULLREPORT_SECTIONS = [
   { key: 'health', label: 'Financial Health (incl. money-flow diagram)', perm: 'finance', build: function() { return finHealthBuildPrintSheetHtml(); } },
   { key: 'church', label: 'Church Report (incl. multi-year comparison)', perm: 'finance', build: function() { return finChurchRptBuildPrintSheetHtml(); } },
+  { key: 'balance', label: 'Balance Sheet (incl. multi-year trend)', perm: 'finance', build: function() { return finBalanceBuildPrintSheetHtml(); } },
   { key: 'budget', label: 'Budget (Summary, Revenue, Expenses)', perm: 'budget', build: function() { return finPlanBuildPrintSheetHtml(); } },
 ];
-var _finFullReportSelected = { health: true, church: true, budget: true };
+var _finFullReportSelected = { health: true, church: true, balance: true, budget: true };
 function finFullReportToggle(key, on) {
   _finFullReportSelected[key] = !!on;
 }

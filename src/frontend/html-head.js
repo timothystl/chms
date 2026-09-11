@@ -1185,6 +1185,7 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-fullreport-printsheet-root{display:none;}
 .fin-health-printsheet-root{display:none;}
 .fin-church-printsheet-root{display:none;}
+.fin-balance-printsheet-root{display:none;}
 .fin-plan-rpt{font-size:9.5pt;color:var(--charcoal);}
 .fin-plan-rpt-page{position:relative;}
 .fin-plan-rpt-hd{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding-bottom:6px;border-bottom:1px solid var(--border);font-size:9pt;color:var(--warm-meta);font-weight:700;letter-spacing:.04em;margin-bottom:14px;}
@@ -1707,7 +1708,8 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
      same two-level nesting trap as body.printing-plan above: #fin-fullreport-printsheet-root is a
      child of #fin-fullreport-root, which is itself a child of #fin-panel-fullreport, so both
      levels are named explicitly rather than trying to reach the print sheet in one rule. Each
-     included section (Financial Health, Church Report, and Budget today; see FIN_FULLREPORT_SECTIONS)
+     included section (Financial Health, Church Report, Balance Sheet, and Budget today; see
+     FIN_FULLREPORT_SECTIONS)
      is wrapped in its own .fin-fullreport-section — every one but the first also carries .fin-fullreport-section-newpage
      directly (not a "+ " adjacent-sibling rule; that pattern does not reliably paginate in
      Chrome's print engine — see .fin-plan-rpt-newpage's own history above), forcing it onto a
@@ -1741,8 +1743,9 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
      these same rules (Church Report's print sheet, below, reuses the identical .fin-card/.fin-grid-*
      component classes) rather than duplicating them under a second selector. */
   .fin-health-rpt .fin-grid-3,.fin-health-rpt .fin-grid-pace,.fin-health-rpt .fin-grid-mix,.fin-health-rpt .fin-stream-grid,.fin-health-rpt .fin-appeal-grid,.fin-health-rpt .fin-grid-2,
-  .fin-church-rpt .fin-grid-3,.fin-church-rpt .fin-grid-pace,.fin-church-rpt .fin-grid-mix,.fin-church-rpt .fin-stream-grid,.fin-church-rpt .fin-appeal-grid,.fin-church-rpt .fin-grid-2{grid-template-columns:1fr!important;}
-  .fin-health-rpt .fin-card,.fin-health-rpt .fin-navy-card,.fin-church-rpt .fin-card,.fin-church-rpt .fin-navy-card{break-inside:avoid;margin-bottom:14px;}
+  .fin-church-rpt .fin-grid-3,.fin-church-rpt .fin-grid-pace,.fin-church-rpt .fin-grid-mix,.fin-church-rpt .fin-stream-grid,.fin-church-rpt .fin-appeal-grid,.fin-church-rpt .fin-grid-2,
+  .fin-balance-rpt .fin-grid-3,.fin-balance-rpt .fin-grid-pace,.fin-balance-rpt .fin-grid-mix,.fin-balance-rpt .fin-stream-grid,.fin-balance-rpt .fin-appeal-grid,.fin-balance-rpt .fin-grid-2{grid-template-columns:1fr!important;}
+  .fin-health-rpt .fin-card,.fin-health-rpt .fin-navy-card,.fin-church-rpt .fin-card,.fin-church-rpt .fin-navy-card,.fin-balance-rpt .fin-card,.fin-balance-rpt .fin-navy-card{break-inside:avoid;margin-bottom:14px;}
   /* Church Report print sheet (finChurchRptBuildPrintSheetHtml/finChurchRptPrint in js-finance.js)
      — same body.printing-<feature> idiom, but only ONE level of print-CSS nesting is needed here,
      not two: unlike Budget/Health/Full Report, no single render function ever rebuilds the whole
@@ -1756,6 +1759,17 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
   body.printing-church #tab-finance > div > div > div:not(#fin-panel-church){display:none!important;}
   body.printing-church #fin-panel-church > *:not(#fin-church-printsheet-root){display:none!important;}
   body.printing-church #fin-church-printsheet-root{display:block!important;}
+  /* Balance Sheet print sheet (finBalanceBuildPrintSheetHtml/finBalancePrint in js-finance.js) —
+     back to the two-level nesting trap: finRenderBalanceSheetTab() rebuilds #fin-balance-root's
+     whole innerHTML on every render/toggle, same as Health and Budget, so
+     #fin-balance-printsheet-root (appended inside that innerHTML) needs both #fin-panel-balance's
+     and #fin-balance-root's own children named explicitly. */
+  body.printing-balance .tab-panel:not(#tab-finance){display:none!important;}
+  body.printing-balance #tab-finance{display:block!important;}
+  body.printing-balance #tab-finance > div > div > div:not(#fin-panel-balance){display:none!important;}
+  body.printing-balance #fin-panel-balance > *:not(#fin-balance-root){display:none!important;}
+  body.printing-balance #fin-balance-root > *:not(#fin-balance-printsheet-root){display:none!important;}
+  body.printing-balance #fin-balance-printsheet-root{display:block!important;}
 }
 /* ── Volunteers tab sub-navigation (Signups / Ministry Roles / Events) — a
    left-side navy menu column matching the design mockup's inner "TLC Admin"
