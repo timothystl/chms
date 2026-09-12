@@ -3,6 +3,7 @@ import givingFixture from '../../contracts/examples/giving-summary-v1.synthetic.
 import { acceptConnectGivingSummaryV1 } from './connect-giving-consumer.js';
 import { reconcileSyntheticGivingDelivery } from './connect-giving-transport.js';
 import { fetchLiveConnectGivingSummary, defaultLiveGivingPeriod, postConnectGivingQuickEntry } from './connect-giving-client.js';
+import { fetchVerifiedRole, roleCanAccessSection } from './connect-role-client.js';
 import { callPayrollProxy } from './payroll-proxy-client.js';
 import {
   buildPayrollSectionBundle, renderPayrollSection, saveAllHours, approvePeriod,
@@ -300,7 +301,7 @@ function renderSectionBody(ctx) {
 }
 
 function renderShell(ctx) {
-  const { metadata, section, pageId, givingSource, councilPreview } = ctx;
+  const { metadata, section, pageId, givingSource, councilPreview, roleResult } = ctx;
   const page = resolveFinancePage(section, pageId);
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
@@ -432,6 +433,14 @@ function renderShell(ctx) {
       <h1>Timothy Finance</h1>
       <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
       <div class="status">Environment ready · no production writers attached</div>
+      <div class="council-banner">
+        <span class="council-pill">Role check</span>
+        ${!roleResult || !roleResult.ok
+          ? `<span>Role verification unavailable in this environment${roleResult && roleResult.reason ? ` (reason: ${escapeHtml(roleResult.reason)})` : ''} -- section access is not currently restricted by verified role for this request.</span>`
+          : roleResult.role === 'compensation'
+            ? `<span>Verified via Connect as role “compensation” -- restricted to the Compensation Planner section only.</span>`
+            : `<span>Verified via Connect as role “${escapeHtml(roleResult.role)}”.</span>`}
+      </div>
       <div class="council-banner">
         <span class="council-pill">Council view</span>
         ${councilPreview
@@ -686,6 +695,27 @@ export default {
         const section = resolveFinanceSection(url.searchParams.get('section'));
         const pageId = url.searchParams.get('page');
         const councilPreview = url.searchParams.get('council') === '1';
+        const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+        const roleResult = await fetchVerifiedRole(env, accessJwt);
+        // Only tightens what this pass has real, verified evidence for -- member/volunteer get
+        // nothing, compensation gets only the compensation-tagged section -- and only when a
+        // role was actually verified. See connect-role-client.js's own comment for why this
+        // deliberately stops short of replicating the full legacy permission matrix, and the
+        // council-banner markup below for how the unconfigured/unverified case is disclosed
+        // rather than silently treated as fully open.
+        if (roleResult.ok && !roleCanAccessSection(roleResult.role, section)) {
+          // Not just "/" -- the default section (Financial Health) is itself off-limits to a
+          // role this narrow, so that would only bounce straight back into another denial.
+          const availableSection = FINANCE_PARITY_SECTIONS.find((s) => roleCanAccessSection(roleResult.role, s));
+          const returnLink = availableSection
+            ? `<p><a href="/?section=${escapeHtml(availableSection.id)}">Return to your available section</a></p>` : '';
+          return response(
+            `<!doctype html><html><body style="font-family:Arial,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1.5rem;color:#1a1a2a">`
+            + `<h1>Access denied</h1><p>Your verified Connect role does not have access to this section of Finance.</p>`
+            + `${returnLink}</body></html>`,
+            { status: 403, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+          );
+        }
         const summary = ['health', 'church', 'packet'].includes(section.id)
           ? await readSyntheticSummary(env.FINANCE_DB) : null;
         const churchReport = ['church', 'health', 'charts', 'packet'].includes(section.id)
@@ -736,7 +766,7 @@ export default {
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
         return response(renderShell({
-          metadata, summary, giving, givingSource, section, pageId, councilPreview, churchReport, churchTrends,
+          metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchTrends,
           balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves,
           propertyLedgers, propertyValuation, propertyForecast, propertyDistributions, budgetReport, accountsReport,
           dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway,
