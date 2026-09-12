@@ -37,6 +37,7 @@ function makeDb() {
     last_login TEXT
   )`);
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT)`);
+  sqlite.exec(`CREATE TABLE finance_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')))`);
   sqlite.exec(`CREATE TABLE finance_church_balances (
     fiscal_year INTEGER,
     category_path TEXT,
@@ -212,7 +213,7 @@ describe('council role — saving the plan', () => {
       targetCategory: 'Smuggled Category',
     });
     expect(r.status).toBe(200);
-    const stored = JSON.parse(sqlite.prepare("SELECT value FROM chms_config WHERE key='finance_salary_planner_council_elder1'").get().value);
+    const stored = JSON.parse(sqlite.prepare("SELECT value FROM finance_settings WHERE key='finance_salary_planner_council_elder1'").get().value);
     expect(stored.compMethod).toBe('custom');
     expect(stored.compCustomPct).toBe(4.25);
     expect(stored.compBaselineRosterOnly).toBe(true);
@@ -221,7 +222,7 @@ describe('council role — saving the plan', () => {
     expect(stored.compOverrides).toBeUndefined();
     expect(stored.targetCategory).toBeUndefined();
     // And the shared admin/finance roster was never touched.
-    expect(sqlite.prepare("SELECT value FROM chms_config WHERE key='finance_salary_planner'").get()).toBeFalsy();
+    expect(sqlite.prepare("SELECT value FROM finance_settings WHERE key='finance_salary_planner'").get()).toBeFalsy();
   });
 
   it('never lets a council save overwrite the real admin/finance plan', async () => {

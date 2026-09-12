@@ -142,7 +142,7 @@ describe('buildBoardCategoryBlock', () => {
 // ── The lens against a real database ─────────────────────────────────────────
 function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
-  for (const f of ['0001_baseline', '0018_finance_church_entries', '0028_fund_budget', '0033_fund_category']) {
+  for (const f of ['0001_baseline', '0018_finance_church_entries', '0028_fund_budget', '0033_fund_category', '0050_finance_settings']) {
     sqlite.exec(readFileSync(new URL(`../migrations/${f}.sql`, import.meta.url), 'utf8'));
   }
   // Bound statements carry their own run/first/all AND stay awaitable as a batch member, so

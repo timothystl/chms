@@ -29,6 +29,7 @@ function makeDb() {
     last_login TEXT
   )`);
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT)`);
+  sqlite.exec(`CREATE TABLE finance_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')))`);
   sqlite.exec(`CREATE TABLE finance_qb_connection (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     realm_id TEXT NOT NULL DEFAULT '',
@@ -113,8 +114,8 @@ describe('compensation role — Compensation Planner access', () => {
   it('can save the salary planner, and it is stored under its own key, not the shared one', async () => {
     const r = await call('compensation', 'finance/planning/salary', 'PUT', { roster: [{ name: 'Test Worker' }] });
     expect(r.status).toBe(200);
-    expect(sqlite.prepare("SELECT value FROM chms_config WHERE key='finance_salary_planner_compensation'").get()).toBeTruthy();
-    expect(sqlite.prepare("SELECT value FROM chms_config WHERE key='finance_salary_planner'").get()).toBeFalsy();
+    expect(sqlite.prepare("SELECT value FROM finance_settings WHERE key='finance_salary_planner_compensation'").get()).toBeTruthy();
+    expect(sqlite.prepare("SELECT value FROM finance_settings WHERE key='finance_salary_planner'").get()).toBeFalsy();
   });
 
   it('a compensation save never overwrites the shared admin/finance roster', async () => {

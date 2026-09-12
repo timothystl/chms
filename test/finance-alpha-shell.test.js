@@ -262,6 +262,54 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(on).toContain('body.council-preview form[method="POST"] { display:none; }');
   });
 
+  it('discloses that role verification is unconfigured/unreachable rather than pretending to enforce it', async () => {
+    const html = await (await worker.fetch(new Request('https://finance.test/?section=health'), env)).text();
+    expect(html).toContain('Role verification unavailable in this environment (reason: not_configured)');
+  });
+
+  function envWithRoleService(fetchImpl) {
+    return { ...env, CONNECT_SERVICE: { fetch: fetchImpl }, FINANCE_CONTRACT_API_KEY: 'test-secret' };
+  }
+
+  it('restricts a verified compensation-role identity to the Compensation section, denying everything else', async () => {
+    const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role: 'compensation' }), { status: 200 }));
+    const req = (url) => new Request(url, { headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' } });
+
+    const denied = await worker.fetch(req('https://finance.test/?section=health'), roleEnv);
+    expect(denied.status).toBe(403);
+    const deniedHtml = await denied.text();
+    expect(deniedHtml).toContain('Access denied');
+    // Bounced toward a section it CAN see, not back into another denial.
+    expect(deniedHtml).toContain('href="/?section=compensation"');
+
+    const allowed = await worker.fetch(req('https://finance.test/?section=compensation'), roleEnv);
+    expect(allowed.status).toBe(200);
+    const allowedHtml = await allowed.text();
+    expect(allowedHtml).toContain('Verified via Connect as role “compensation” -- restricted to the Compensation Planner section only.');
+  });
+
+  it('denies member and volunteer roles every Finance section', async () => {
+    for (const role of ['member', 'volunteer']) {
+      const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role }), { status: 200 }));
+      const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+        headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+      }), roleEnv);
+      expect(res.status, role).toBe(403);
+    }
+  });
+
+  it('leaves admin/finance/staff/council unrestricted and discloses the verified role', async () => {
+    for (const role of ['admin', 'finance', 'staff', 'council']) {
+      const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role }), { status: 200 }));
+      const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+        headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+      }), roleEnv);
+      expect(res.status, role).toBe(200);
+      const html = await res.text();
+      expect(html, role).toContain(`Verified via Connect as role “${role}”.`);
+    }
+  });
+
   it('renders a synthetic Church Report overview, its sub-pages, and a separate read budget', async () => {
     statements.length = 0;
     const overview = await worker.fetch(new Request('https://finance.test/?section=church'), env);

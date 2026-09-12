@@ -103,6 +103,7 @@ function makeTestDb() {
   // The multi-year balances route now also reads the cash policy (Balance Sheet's new "Cash &
   // Bank Accounts Over Time" trend, 2026-09-04) via readCashPolicy(), which queries this table.
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
+  sqlite.exec(`CREATE TABLE finance_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')))`);
   return {
     prepare(sql) {
       return {
@@ -182,7 +183,7 @@ describe('GET finance/church/balances/multi-year — tie-out against the income 
   it('includes a per-year cash summary, reading the pinned operating cash account code', async () => {
     const db = makeTestDb();
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_cash_policy',?)`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_cash_policy',?)`
     ).bind(JSON.stringify({ cash_account_code: '11027' })).run();
     insertBalance(db, 2025, 'Equity', 500000);
     db._raw.prepare(`INSERT INTO finance_church_balances

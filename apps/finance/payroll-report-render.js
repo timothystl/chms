@@ -161,12 +161,19 @@ export function renderPrintTable(report) {
 // text '-118.00, breaking the bookkeeper's column sum. csvText() is for
 // anything a person typed; csvNum() is for figures already known to be
 // digits, a dot and a minus.
-function csvText(v) {
+//
+// Deliberately its own copy, not an import of src/api-utils.js's csvCell — apps/finance is kept
+// free of any dependency on src/ so it can be lifted out as its own application later without
+// having to untangle imports first (same reasoning as scheduler-html.js's standalone
+// schedCsvCell). test/csv-export-escaping.test.js's file walk covers apps/** too, specifically
+// so this copy is checked for drift against the canonical quoting/formula-guard rules rather
+// than trusted to stay in sync silently.
+export function csvText(v) {
   const s = String(v === null || v === undefined ? '' : v);
   const guarded = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
   return `"${guarded.replace(/"/g, '""')}"`;
 }
-function csvNum(v) {
+export function csvNum(v) {
   return `"${v === null || v === undefined ? '' : String(v)}"`;
 }
 

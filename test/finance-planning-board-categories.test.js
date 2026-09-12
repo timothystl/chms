@@ -8,6 +8,7 @@ import { handleFinanceApi, REVENUE_STREAMS, BOARD_EXPENSE_KEYS } from '../src/ap
 function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
+  sqlite.exec(`CREATE TABLE finance_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')))`);
   return {
     prepare(sql) {
       return {

@@ -30,7 +30,34 @@ export async function handleContractsServiceApi(req, env, path) {
     return handleGivingQuickEntryContract(req, env);
   }
 
+  if (path === '/api/contracts/staff-role-v1' && req.method === 'GET') {
+    return handleStaffRoleContract(req, env);
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+// ── Verified staff role, relayed from Finance's own shell ───────────────────
+// The X-Contract-Key check above only proves the CALL came from Finance's Worker. This proves
+// WHO Finance says is acting -- same Cf-Access-Jwt-Assertion forwarding + independent signature
+// verification as handleGivingQuickEntryContract above -- and hands back ONLY the caller's role
+// (never username, email, or anything else from app_users), the minimum Finance needs to enforce
+// its own per-section access (see apps/finance/parity-manifest.js's `permission` field) without
+// Finance re-implementing session verification or holding its own copy of app_users.
+async function handleStaffRoleContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const user = await env.DB.prepare(
+    `SELECT role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`
+  ).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  return json({ role: user.role });
 }
 
 // ── Giving quick-entry, relayed from Finance's own UI ───────────────────────
