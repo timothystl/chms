@@ -18,6 +18,7 @@ export const FINANCE_QUERY_BUDGETS = Object.freeze({
   compensationBenchmark: 1,
   compensationBenefits: 1,
   cashRunway: 2,
+  propertyDistributions: 1,
 });
 
 export async function runBudgetedReadBatch(db, budgetName, statements) {

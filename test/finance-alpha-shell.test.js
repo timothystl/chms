@@ -45,6 +45,9 @@ const env = {
           property_key: 'synthetic-property', period: `2027-${String(index + 1).padStart(2, '0')}`,
           revenue_cents: 2200000, expenses_cents: 1300000, net_income_cents: 900000, source: 'synthetic_fixture',
         })) }];
+        if (batchStatements[0].sql.includes('finance_property_distributions')) return [{ results: [
+          { period: '2026-01', amount_cents: 500000 },
+        ] }];
         if (batchStatements[0].sql.includes('finance_property_reserves')) return [{ results: [
           { reserve_key: 'property_tax', report_month: '2026-01', tax_year: 2026, target_estimate_cents: 6000000, reserve_before_cents: 2000000, contribution_cents: 500000, reserve_after_cents: 2500000, note: 'Synthetic fixture' },
           { reserve_key: 'property_tax', report_month: '2026-02', tax_year: 2026, target_estimate_cents: 6000000, reserve_before_cents: 2500000, contribution_cents: 500000, reserve_after_cents: 3000000, note: 'Synthetic monthly contribution' },
@@ -118,7 +121,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.40');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.41');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -161,7 +164,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.40',
+      version: '1.0.0-alpha.41',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -174,7 +177,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
     expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.40 · alpha');
+    expect(html).toContain('1.0.0-alpha.41 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="sidebar-brand"');
@@ -223,91 +226,146 @@ describe('Finance 1.0.0 alpha staging shell', () => {
   it('renders the familiar Finance navigation grouped by sidebar section and safely falls back to Financial Health', async () => {
     const res = await worker.fetch(new Request('https://finance.test/?section=missing'), env);
     const html = await res.text();
-    for (const label of [
-      'Financial Health', 'Church Report', 'Balance Sheet', 'Daycare Report',
-      'Commercial Property', 'Budget', 'Chart of Accounts', 'Compensation', 'Data & Imports',
-    ]) expect(html).toContain(label);
-    for (const group of ['Dashboard', 'Giving', 'Reports', 'Planning', 'Compensation', 'Payroll', 'Accounts &amp; Data']) {
+    // Financial Health kept its flat single-page link (only Dashboard/Payroll/Board packet do);
+    // every other former flat-tab section is now a page picker under its own group label.
+    expect(html).toContain('Financial Health');
+    expect(html).toContain('Data & Imports');
+    for (const group of [
+      'Dashboard', 'Gift Entry', 'Giving', 'Charts', 'Church', 'Balance Sheet', 'Daycare',
+      'Commercial Property', 'Planning', 'Compensation', 'Payroll', 'QuickBooks', 'Board packet',
+      'Accounts &amp; Data',
+    ]) {
       expect(html).toContain(`class="nav-group-label">${group}<`);
     }
+    // A representative page link from each of those groups actually renders under it.
+    for (const pageLabel of [
+      'Overview', 'Income &amp; expense detail', 'Position', 'Actuals detail', 'Rent roll',
+      'Budget builder', 'Plan', 'Sync status', 'Chart of accounts',
+    ]) expect(html).toContain(pageLabel);
     expect(html).toContain('href="/?section=health" aria-current="page"');
     expect(html).toContain('Synthetic financial health');
   });
 
-  it('renders a synthetic Church Report with account detail and a separate read budget', async () => {
+  it('offers a clearly-labeled, non-authoritative council-view preview that hides write forms', async () => {
+    const off = await (await worker.fetch(new Request('https://finance.test/?section=giving'), env)).text();
+    expect(off).not.toContain('class="council-preview"');
+    expect(off).toContain('Not a real access boundary yet');
+    expect(off).toContain('href="/?section=giving&amp;page=quick-entry&amp;council=1"');
+    expect(off).toContain('<form method="POST" action="/api/v1/connect-giving-quick-entry">');
+
+    const on = await (await worker.fetch(new Request('https://finance.test/?section=giving&council=1'), env)).text();
+    expect(on).toContain('<body class="council-preview">');
+    expect(on).toContain('Previewing what a view-only council/auditor login would see');
+    expect(on).toContain('Editing controls are hidden');
+    expect(on).toContain('Exit preview');
+    // The form itself still renders (its fields are real content); council-preview.css hides it.
+    expect(on).toContain('body.council-preview form[method="POST"] { display:none; }');
+  });
+
+  it('renders a synthetic Church Report overview, its sub-pages, and a separate read budget', async () => {
     statements.length = 0;
-    const res = await worker.fetch(new Request('https://finance.test/?section=church'), env);
-    const html = await res.text();
-    expect(res.status).toBe(200);
-    expect(html).toContain('Synthetic Church Report');
-    expect(html).toContain('Fiscal year 2026');
-    expect(html).toContain('Synthetic Contributions');
-    expect(html).toContain('Synthetic Programs');
-    expect(html).toContain('Favorable variance');
-    expect(html).toContain('$120,000');
-    expect(html).toContain('$80,000');
-    expect(html).toContain('Multi-year operating trend');
-    expect(html).toContain('$110,000');
-    expect(html).toContain('Board packet snapshot');
+    const overview = await worker.fetch(new Request('https://finance.test/?section=church'), env);
+    const overviewHtml = await overview.text();
+    expect(overview.status).toBe(200);
+    expect(overviewHtml).toContain('Synthetic Church Report');
+    expect(overviewHtml).toContain('Fiscal year 2026');
+    expect(overviewHtml).toContain('$120,000');
+    expect(overviewHtml).toContain('$80,000');
+    expect(statements).toHaveLength(6);
+    expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
+
+    statements.length = 0;
+    const detailHtml = await (await worker.fetch(new Request('https://finance.test/?section=church&page=income-expense'), env)).text();
+    expect(detailHtml).toContain('Income &amp; expense detail');
+    expect(detailHtml).toContain('Synthetic Contributions');
+    expect(detailHtml).toContain('Synthetic Programs');
+    expect(detailHtml).toContain('Favorable variance');
+    expect(statements).toHaveLength(6);
+
+    const trendHtml = await (await worker.fetch(new Request('https://finance.test/?section=church&page=trend'), env)).text();
+    expect(trendHtml).toContain('Multi-year operating trend');
+    expect(trendHtml).toContain('$110,000');
+
+    const budgetActualHtml = await (await worker.fetch(new Request('https://finance.test/?section=church&page=budget-actual'), env)).text();
+    expect(budgetActualHtml).toContain('Budget vs actual');
+    expect(budgetActualHtml).toContain('Favorable');
+  });
+
+  it('renders the board packet from the same real inputs as Church Report', async () => {
+    const html = await (await worker.fetch(new Request('https://finance.test/?section=packet'), env)).text();
+    expect(html).toContain('Board packet');
     expect(html).toContain('Decision-ready FY2026 summary');
     expect(html).toContain('Reconciled');
     expect(html).toContain('FY2025 to FY2026');
-    expect(html).toContain('Prepared from the same bounded synthetic reads shown above');
-    expect(html).toContain('$78,000');
-    expect(html).toContain('$32,000');
-    expect(statements).toHaveLength(6);
-    expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
+    expect(html).toContain('Prepared from the same bounded synthetic reads shown across Church Report, Balance Sheet, and Giving Entry');
+    expect(html).toContain('$40,000');
+    expect(html).toContain('$200,000');
+    expect(html).toContain('$1,450');
+    expect(html).toContain('Not saved');
   });
 
-  it('renders a synthetic Balance Sheet with equation reconciliation and its own read budget', async () => {
+  it('renders a synthetic Balance Sheet position, its sub-pages, and its own read budget', async () => {
     statements.length = 0;
     const res = await worker.fetch(new Request('https://finance.test/?section=balance'), env);
     const html = await res.text();
     expect(res.status).toBe(200);
     expect(html).toContain('Synthetic Balance Sheet');
     expect(html).toContain('Financial position as of 2026-12-31');
-    expect(html).toContain('Synthetic Cash');
-    expect(html).toContain('Synthetic Note');
-    expect(html).toContain('Synthetic Net Assets');
     expect(html).toContain('$300,000');
     expect(html).toContain('$100,000');
     expect(html).toContain('$200,000');
     expect(html).toContain('Equation difference $0');
-    expect(html).toContain('Multi-year financial position');
-    expect(html).toContain('$270,000');
-    expect(html).toContain('$110,000');
-    expect(html).toContain('$160,000');
     expect(statements).toHaveLength(2);
     expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
+
+    const detailHtml = await (await worker.fetch(new Request('https://finance.test/?section=balance&page=account-detail'), env)).text();
+    expect(detailHtml).toContain('Account detail');
+    expect(detailHtml).toContain('Synthetic Cash');
+    expect(detailHtml).toContain('Synthetic Note');
+    expect(detailHtml).toContain('Synthetic Net Assets');
+
+    const trendHtml = await (await worker.fetch(new Request('https://finance.test/?section=balance&page=multi-year'), env)).text();
+    expect(trendHtml).toContain('Multi-year financial position');
+    expect(trendHtml).toContain('$270,000');
+    expect(trendHtml).toContain('$110,000');
+    expect(trendHtml).toContain('$160,000');
   });
 
-  it('renders a synthetic Daycare Report with operating result and its own read budget', async () => {
+  it('renders a synthetic Daycare Report overview, its sub-pages, and its own read budget', async () => {
     statements.length = 0;
     const res = await worker.fetch(new Request('https://finance.test/?section=daycare'), env);
     const html = await res.text();
     expect(res.status).toBe(200);
     expect(html).toContain('Synthetic Daycare Report');
     expect(html).toContain('Operating report for 2026-01');
-    expect(html).toContain('Synthetic Tuition');
-    expect(html).toContain('Synthetic Labor');
     expect(html).toContain('$40,000');
     expect(html).toContain('$33,500');
     expect(html).toContain('$6,500');
     expect(html).toContain('Budget $16,000 · variance −$9,500');
-    expect(html).toContain('Utilities and insurance allocation');
-    expect(html).toContain('50% utilities · 50% insurance');
-    expect(html).toContain('Daycare share $6,000');
-    expect(html).toContain('Daycare share $2,500');
     expect(statements).toHaveLength(3);
     expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
+
+    const actualsHtml = await (await worker.fetch(new Request('https://finance.test/?section=daycare&page=actuals'), env)).text();
+    expect(actualsHtml).toContain('Actuals detail');
+    expect(actualsHtml).toContain('Synthetic Tuition');
+    expect(actualsHtml).toContain('Synthetic Labor');
+
+    const comparisonHtml = await (await worker.fetch(new Request('https://finance.test/?section=daycare&page=budget-comparison'), env)).text();
+    expect(comparisonHtml).toContain('Budget comparison');
+
+    const sharedCostsHtml = await (await worker.fetch(new Request('https://finance.test/?section=daycare&page=shared-costs'), env)).text();
+    expect(sharedCostsHtml).toContain('Utilities and insurance allocation');
+    expect(sharedCostsHtml).toContain('50% utilities · 50% insurance');
+    expect(sharedCostsHtml).toContain('Daycare share $6,000');
+    expect(sharedCostsHtml).toContain('Daycare share $2,500');
   });
 
-  it('renders a synthetic Commercial Property report with monthly performance and its own read budget', async () => {
+  it('renders a synthetic Commercial Property overview, its live sub-pages, and its own read budget', async () => {
     statements.length = 0;
     const res = await worker.fetch(new Request('https://finance.test/?section=property'), env);
     const html = await res.text();
     expect(res.status).toBe(200);
-    expect(html).toContain('Synthetic Commercial Property Report');
+    expect(html).toContain('Synthetic Commercial Property overview');
     expect(html).toContain('Property performance through 2026-01');
     expect(html).toContain('Average occupancy 90%');
     expect(html).toContain('$20,000');
@@ -315,33 +373,72 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('$8,000');
     expect(html).toContain('Available for distribution $5,000');
     expect(html).toContain('Reserve balance $25,000');
-    expect(html).toContain('Monthly reserve schedule');
-    expect(html).toContain('58.3% funded');
-    expect(html).toContain('$60,000');
-    expect(html).toContain('$35,000');
-    expect(html).toContain('Capital and repairs ledgers');
-    expect(html).toContain('Synthetic Project');
-    expect(html).toContain('Synthetic repair item');
-    expect(html).toContain('$1,000');
-    expect(html).toContain('$250');
-    expect(html).toContain('Income approach');
-    expect(html).toContain('8.0% cap rate');
-    expect(html).toContain('Synthetic Unit A');
-    expect(html).toContain('$62,700');
-    expect(html).toContain('$28,938');
-    expect(html).toContain('$361,725');
-    expect(html).toContain('Income and cost walk reconciles · read-only');
-    expect(html).toContain('Property forecast');
-    expect(html).toContain('Fiscal year 2027 monthly plan');
-    expect(html).toContain('12 months · reconciled');
-    expect(html).toContain('$264,000');
-    expect(html).toContain('$156,000');
-    expect(html).toContain('$108,000');
-    expect(html).toContain('2027-01');
-    expect(html).toContain('2027-12');
-    expect(html).toContain('Read-only synthetic plan');
-    expect(statements).toHaveLength(8);
+    expect(statements).toHaveLength(9);
     expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
+
+    const operatingHtml = await (await worker.fetch(new Request('https://finance.test/?section=property&page=operating-results'), env)).text();
+    expect(operatingHtml).toContain('Operating results');
+
+    const rentRollHtml = await (await worker.fetch(new Request('https://finance.test/?section=property&page=rent-roll'), env)).text();
+    expect(rentRollHtml).toContain('Rent roll');
+    expect(rentRollHtml).toContain('Synthetic Unit A');
+    expect(rentRollHtml).toContain('$24,000');
+    expect(rentRollHtml).toContain('$36,000');
+
+    const workOrdersHtml = await (await worker.fetch(new Request('https://finance.test/?section=property&page=work-orders'), env)).text();
+    expect(workOrdersHtml).toContain('Repairs & maintenance ledger');
+    expect(workOrdersHtml).toContain('Synthetic repair item');
+    expect(workOrdersHtml).toContain('$250');
+    expect(workOrdersHtml).toContain('no work-order number or open/closed status');
+
+    const reserveHtml = await (await worker.fetch(new Request('https://finance.test/?section=property&page=reserve-distribution'), env)).text();
+    expect(reserveHtml).toContain('Monthly reserve schedule');
+    expect(reserveHtml).toContain('58.3% funded');
+    expect(reserveHtml).toContain('$60,000');
+    expect(reserveHtml).toContain('$35,000');
+    expect(reserveHtml).toContain('Distribution history');
+    expect(reserveHtml).toContain('$5,000');
+
+    const capitalHtml = await (await worker.fetch(new Request('https://finance.test/?section=property&page=capital'), env)).text();
+    expect(capitalHtml).toContain('Capital improvements');
+    expect(capitalHtml).toContain('Synthetic Project');
+    expect(capitalHtml).toContain('$1,000');
+
+    const valuationHtml = await (await worker.fetch(new Request('https://finance.test/?section=property&page=valuation'), env)).text();
+    expect(valuationHtml).toContain('Income approach');
+    expect(valuationHtml).toContain('8.0% cap rate');
+    expect(valuationHtml).toContain('$28,938');
+    expect(valuationHtml).toContain('$361,725');
+    expect(valuationHtml).toContain('Income and cost walk reconciles');
+
+    const forecastHtml = await (await worker.fetch(new Request('https://finance.test/?section=property&page=forecast'), env)).text();
+    expect(forecastHtml).toContain('Run-rate forecast');
+    expect(forecastHtml).toContain('Fiscal year 2027 monthly plan');
+    expect(forecastHtml).toContain('12 months · reconciled');
+    expect(forecastHtml).toContain('$264,000');
+    expect(forecastHtml).toContain('$156,000');
+    expect(forecastHtml).toContain('$108,000');
+    expect(forecastHtml).toContain('2027-01');
+    expect(forecastHtml).toContain('2027-12');
+    expect(forecastHtml).toContain('Read-only synthetic plan');
+
+    const distributionsHtml = await (await worker.fetch(new Request('https://finance.test/?section=property&page=distributions'), env)).text();
+    expect(distributionsHtml).toContain('Distributions');
+    expect(distributionsHtml).toContain('$5,000');
+    expect(distributionsHtml).toContain('2026-01');
+  });
+
+  it('renders honestly-labeled "not yet available" pages for the Commercial Property gaps', async () => {
+    for (const [pageId, phrase] of [
+      ['receivables', 'no tenant-receivable'],
+      ['bank-rec', 'no balance sheet or bank account'],
+      ['debt', 'loan-payment and interest-expense columns'],
+      ['acquisition', 'no purchase-price or pro-forma'],
+    ]) {
+      const html = await (await worker.fetch(new Request(`https://finance.test/?section=property&page=${pageId}`), env)).text();
+      expect(html).toContain('Not yet available');
+      expect(html).toContain(phrase);
+    }
   });
 
   it('renders a reconciled synthetic Budget outlook with base and growth assumptions', async () => {
@@ -350,7 +447,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
     expect(html).toContain('Synthetic Budget Report');
-    expect(html).toContain('Budget outlook');
+    expect(html).toContain('Budget builder');
     expect(html).toContain('Plan for fiscal year 2027');
     expect(html).toContain('Synthetic Contributions');
     expect(html).toContain('Synthetic Programs');
@@ -412,7 +509,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(statements[0]).toMatch(/^SELECT\b/i);
   });
 
-  it('renders a synthetic role-level Compensation report with its own read budget', async () => {
+  it('renders a synthetic role-level Compensation plan, its sub-pages, and its own read budget', async () => {
     statements.length = 0;
     const res = await worker.fetch(new Request('https://finance.test/?section=compensation'), env);
     const html = await res.text();
@@ -425,27 +522,33 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('$21,000');
     expect(html).toContain('$126,000');
     expect(html).toContain('No personal identities');
-    expect(html).toContain('Council review snapshot');
-    expect(html).toContain('Plan-level decision context');
-    expect(html).toContain('Role-only · review-only · not approved');
-    expect(html).toContain('Benefits share');
-    expect(html).toContain('16.7%');
-    expect(html).toContain('Weighted adjustment');
-    expect(html).toContain('3.0%');
-    expect(html).toContain('Benchmark comparison');
-    expect(html).toContain('Synthetic · not published guidance');
-    expect(html).toContain('$110,000');
-    expect(html).toContain('95.5% of benchmark');
-    expect(html).toContain('$5,000');
-    expect(html).toContain('Salary only · alternative, not the plan');
-    expect(html).toContain('Benefits &amp; taxes');
-    expect(html).toContain('What the benefits plan contains');
-    expect(html).toContain('Group health plan');
-    expect(html).toContain('$10,000');
-    expect(html).toContain('47.6%');
-    expect(html).toContain('must exactly match the benefits plan above');
     expect(statements).toHaveLength(3);
     expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
+
+    const councilHtml = await (await worker.fetch(new Request('https://finance.test/?section=compensation&page=council'), env)).text();
+    expect(councilHtml).toContain('Council review snapshot');
+    expect(councilHtml).toContain('Plan-level decision context');
+    expect(councilHtml).toContain('Role-only · review-only · not approved');
+    expect(councilHtml).toContain('Benefits share');
+    expect(councilHtml).toContain('16.7%');
+    expect(councilHtml).toContain('Weighted adjustment');
+    expect(councilHtml).toContain('3.0%');
+
+    const benchmarkHtml = await (await worker.fetch(new Request('https://finance.test/?section=compensation&page=benchmarks'), env)).text();
+    expect(benchmarkHtml).toContain('Benchmark comparison');
+    expect(benchmarkHtml).toContain('Synthetic · not published guidance');
+    expect(benchmarkHtml).toContain('$110,000');
+    expect(benchmarkHtml).toContain('95.5% of benchmark');
+    expect(benchmarkHtml).toContain('$5,000');
+    expect(benchmarkHtml).toContain('Salary only · alternative, not the plan');
+
+    const benefitsHtml = await (await worker.fetch(new Request('https://finance.test/?section=compensation&page=benefits'), env)).text();
+    expect(benefitsHtml).toContain('Benefits &amp; taxes');
+    expect(benefitsHtml).toContain('What the benefits plan contains');
+    expect(benefitsHtml).toContain('Group health plan');
+    expect(benefitsHtml).toContain('$10,000');
+    expect(benefitsHtml).toContain('47.6%');
+    expect(benefitsHtml).toContain('must exactly match the benefits plan');
   });
 
   it('serves only synthetic read-only summary data', async () => {
@@ -460,7 +563,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
   });
 
   it('enforces the named summary query budget and read-only statements', async () => {
-    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, propertyValuation: 3, propertyForecast: 1, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1, compensationBenchmark: 1, compensationBenefits: 1, cashRunway: 2 });
+    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, propertyValuation: 3, propertyForecast: 1, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1, compensationBenchmark: 1, compensationBenefits: 1, cashRunway: 2, propertyDistributions: 1 });
     await expect(runBudgetedReadBatch(env.FINANCE_DB, 'summary', [
       'SELECT 1', 'SELECT 2', 'SELECT 3', 'SELECT 4', 'SELECT 5',
     ])).rejects.toThrow('Finance query budget exceeded: summary');
@@ -481,7 +584,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.40',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.41',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -565,7 +668,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       dataClassification: 'synthetic',
       scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
       duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
-      release: { version: '1.0.0-alpha.40', releaseSha: 'test-sha' },
+      release: { version: '1.0.0-alpha.41', releaseSha: 'test-sha' },
     });
     expect(body.scenario.totals.netCents).toBe(145000);
     expect(body.scenario.reconciliation.totalsMatch).toBe(true);
