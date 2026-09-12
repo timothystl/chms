@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import vm from 'node:vm';
-import { csvCell, csvRow, safeFilenamePart } from '../src/api-utils.js';
+import { csvCell, csvRow, safeFilenamePart, parseCsvRows } from '../src/api-utils.js';
 import { handleReportsApi } from '../src/api-reports.js';
 import {
   CHMS_APP_MEMBER_JS, CHMS_APP_STAFF_JS, CHMS_APP_EXT_JS, CHMS_SCHEDULER_JS,
 } from '../src/html-chms.js';
+import { csvText as financeCsvText, csvNum as financeCsvNum } from '../apps/finance/payroll-report-render.js';
 
 // SEC18 / P22-C, 2026-08-19. The spreadsheet formula guard SW15 added lived on the three
 // FRONTEND csv builders and on none of the four server-side ones — and the giving-statement
@@ -59,6 +60,42 @@ describe('csvCell', () => {
     expect(csvCell(null)).toBe('');
     expect(csvCell(undefined)).toBe('');
     expect(csvRow([null, undefined, ''])).toBe(',,');
+  });
+});
+
+describe('parseCsvRows', () => {
+  it('splits a plain CSV into rows of cells', () => {
+    expect(parseCsvRows('a,b\n1,2\n3,4')).toEqual([['a', 'b'], ['1', '2'], ['3', '4']]);
+  });
+
+  it('does not split a quoted field on an embedded comma', () => {
+    expect(parseCsvRows('a,b\n"1,000",2')).toEqual([['a', 'b'], ['1,000', '2']]);
+  });
+
+  it('does not split a ROW on a newline embedded inside a quoted field', () => {
+    // The exact bug parsePropertyMonthlyCsv used to have: splitting into "lines" before
+    // tokenizing quotes would cut this into three bogus rows instead of two real ones.
+    expect(parseCsvRows('a,b\n"line one\nline two",2\nx,y')).toEqual([
+      ['a', 'b'], ['line one\nline two', '2'], ['x', 'y'],
+    ]);
+  });
+
+  it('unescapes a doubled quote inside a quoted field', () => {
+    expect(parseCsvRows('a\n"say ""hi"""')).toEqual([['a'], ['say "hi"']]);
+  });
+
+  it('handles CRLF, bare CR, and bare LF line endings', () => {
+    expect(parseCsvRows('a,b\r\n1,2\rx,y\n')).toEqual([['a', 'b'], ['1', '2'], ['x', 'y']]);
+  });
+
+  it('drops genuinely blank lines, matching the historical line-split + filter(Boolean) behavior', () => {
+    expect(parseCsvRows('a,b\n\n1,2\n\n')).toEqual([['a', 'b'], ['1', '2']]);
+  });
+
+  it('returns an empty array for empty input', () => {
+    expect(parseCsvRows('')).toEqual([]);
+    expect(parseCsvRows(null)).toEqual([]);
+    expect(parseCsvRows(undefined)).toEqual([]);
   });
 });
 
@@ -166,27 +203,49 @@ describe('there is one CSV escaper per runtime boundary', () => {
     }
   });
 
-  it('no hand-rolled quote-doubling survives in the app or on the server', async () => {
+  it('no hand-rolled quote-doubling survives in the app, the server, or apps/**', async () => {
     // The shape every one of the five copies had: '"' + s.replace(/"/g,'""') + '"'.
     const fs = await import('node:fs');
-    const dir = new URL('../src/', import.meta.url);
     const offenders = [];
-    const walk = (rel) => {
+    const walk = (dir, rel, exclude) => {
       for (const name of fs.readdirSync(new URL(rel, dir))) {
         const p = rel + name;
-        if (fs.statSync(new URL(p, dir)).isDirectory()) { walk(p + '/'); continue; }
+        if (fs.statSync(new URL(p, dir)).isDirectory()) { walk(dir, p + '/', exclude); continue; }
         if (!name.endsWith('.js')) continue;
-        // api-utils owns the one real implementation; scheduler-html keeps a documented local
-        // copy because it must stand alone as scheduler/index.html.
-        if (p === 'api-utils.js' || p === 'scheduler-html.js' || p === 'frontend/js-core.js') continue;
+        if (exclude.includes(p)) continue;
         const src = fs.readFileSync(new URL(p, dir), 'utf8');
         src.split('\n').forEach((line, i) => {
           if (/replace\(\/"\/g\s*,\s*'""'\)/.test(line)) offenders.push(p + ':' + (i + 1));
         });
       }
     };
-    walk('');
-    expect(offenders, 'hand-rolled CSV quoting outside the shared helpers').toEqual([]);
+    // api-utils owns the one real implementation; scheduler-html and apps/finance's payroll
+    // report keep documented local copies because each must stand alone (scheduler/index.html,
+    // and apps/finance being deliberately free of any src/ dependency so it can be lifted out as
+    // its own application) — the comparison test right below checks THIS copy for drift instead.
+    walk(new URL('../src/', import.meta.url), '', ['api-utils.js', 'scheduler-html.js', 'frontend/js-core.js']);
+    walk(new URL('../apps/', import.meta.url), '', ['finance/payroll-report-render.js']);
+    expect(offenders, 'hand-rolled CSV quoting outside the shared/documented helpers').toEqual([]);
+  });
+
+  it('apps/finance\'s payroll CSV copy agrees with the canonical csvCell on every case that matters', () => {
+    // Excludes csvCell's plain-number carve-out (e.g. '-1234.56' staying unguarded text) —
+    // csvText is documented as being for text a person TYPED, never a figure this file computed
+    // itself; that carve-out is csvNum's job instead (see the second half of this test), so a
+    // bare negative number is not a case csvText is meant to agree with csvCell on.
+    const cases = ['plain', 'a,b', 'say "hi"', FORMULA, '-1+1', '1234', '', '@x', '+1', 'two\nlines', null, undefined];
+    for (const c of cases) {
+      // financeCsvText always quotes (csvCell only quotes when needed) — compare on the
+      // unquoted, unescaped content instead of the raw string.
+      const canonical = csvCell(c).replace(/^"|"$/g, '').replace(/""/g, '"');
+      const finance = financeCsvText(c).replace(/^"|"$/g, '').replace(/""/g, '"');
+      expect(finance, JSON.stringify(c)).toBe(canonical);
+    }
+    // csvNum deliberately never applies the formula guard (see payroll-report-render.js's own
+    // comment): a negative figure this file computed itself must stay a real number, not text.
+    expect(financeCsvNum('-118.00')).toBe('"-118.00"');
+    expect(financeCsvNum(null)).toBe('""');
+    expect(financeCsvNum(undefined)).toBe('""');
   });
 
   it('the browser copy agrees with the server copy on every case that matters', () => {

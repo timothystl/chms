@@ -6,7 +6,7 @@
 // app's integer-cents convention — they're display-only, never combined arithmetically with
 // giving_entries/tuition figures.
 import { json, getAuthInfo } from './auth.js';
-import { resolveGeneralFundIds, resolveGeneralFundBudget } from './api-utils.js';
+import { resolveGeneralFundIds, resolveGeneralFundBudget, parseCsvRows } from './api-utils.js';
 import { getAuthorizeUrl, exchangeCodeForTokens, refreshTokens, revokeToken, makeQboClient, qboConfigured } from './quickbooks.js';
 import { makeDaycareClient, daycareConfigured } from './daycare.js';
 import { ensureGivingYearRollups } from './giving-rollups.js';
@@ -171,7 +171,11 @@ export function mergeProfitAndLossTree(rows, ctx) {
 const RUNNING_SUBTOTAL_LABEL_RE = /^(Gross Profit|Net Operating (Income|Revenue)|Net Other (Income|Revenue)|Net (Income|Revenue))$/i;
 
 function dollarsToCents(v) {
-  const n = parseFloat(v);
+  // Strips thousands-separator commas ("9,765.27") before parsing — parseFloat alone stops at
+  // the first comma, silently truncating a pasted report figure down to its leading digits
+  // (e.g. "9,765.27" -> 9) rather than failing loudly. A real property-report copy/paste is
+  // exactly the kind of input this needs to tolerate.
+  const n = parseFloat(String(v == null ? '' : v).replace(/,/g, ''));
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
@@ -986,33 +990,23 @@ export function parsePropertyBudgetDetailGrid(grid) {
 // for them) and are intentionally ignored, same as `total_revenue_ytd` etc. — this app derives
 // YTD figures itself from the stored monthly rows rather than storing a redundant snapshot.
 const PROPERTY_MONTHLY_CSV_REQUIRED_COLS = ['period', 'total_revenue', 'operating_expenses', 'net_operating_income', 'non_operating_expenses', 'net_income'];
-function parseCsvLine(line) {
-  const out = [];
-  let cur = '', inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (inQuotes) {
-      if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else inQuotes = false; }
-      else cur += ch;
-    } else if (ch === '"') inQuotes = true;
-    else if (ch === ',') { out.push(cur); cur = ''; }
-    else cur += ch;
-  }
-  out.push(cur);
-  return out;
-}
 export function parsePropertyMonthlyCsv(text) {
-  const lines = (text || '').split(/\r\n|\r|\n/).map(l => l.trim()).filter(l => l.length);
-  if (!lines.length) return { rows: [], error: 'Empty file.' };
-  const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+  // parseCsvRows tokenizes the WHOLE pasted text at once, quote-aware — a naive split into
+  // "lines" first (the previous approach) corrupts a quoted field containing its own newline
+  // into extra bogus rows, since the split runs before anything knows the newline is inside
+  // quotes. This report-paste workflow is exactly the kind of copy/paste where that can happen
+  // (e.g. a multi-line note column).
+  const allRows = parseCsvRows(text);
+  if (!allRows.length) return { rows: [], error: 'Empty file.' };
+  const header = allRows[0].map(h => h.trim().toLowerCase());
   const idx = {};
   header.forEach((h, i) => { idx[h] = i; });
   for (const col of PROPERTY_MONTHLY_CSV_REQUIRED_COLS) {
     if (!(col in idx)) return { rows: [], error: `Missing required column "${col}".` };
   }
   const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cells = parseCsvLine(lines[i]);
+  for (let i = 1; i < allRows.length; i++) {
+    const cells = allRows[i];
     const get = col => (idx[col] != null ? cells[idx[col]] : undefined);
     const period = (get('period') || '').trim();
     if (!/^\d{4}-\d{2}$/.test(period)) return { rows: [], error: `Row ${i + 1}: "period" must be YYYY-MM (got "${period}").` };

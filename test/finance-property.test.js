@@ -430,6 +430,33 @@ describe('parsePropertyMonthlyCsv', () => {
     expect(rows.map(r => r.period)).toEqual(['2026-05', '2026-06']);
   });
 
+  it('tolerates a thousands-separator comma in a quoted dollar figure', () => {
+    // A bookkeeper copy/pasting straight from a formatted report (e.g. Excel/AHRA's own export)
+    // gets "9,765.27", not "9765.27" — parseFloat alone would truncate that at the comma (9765.27
+    // -> 9), so dollarsToCents must strip commas before parsing. Quoted here because an
+    // unquoted "9,765.27" would already be split into two CSV cells upstream of dollarsToCents.
+    const csv = 'period,total_revenue,operating_expenses,net_operating_income,non_operating_expenses,net_income\n'
+      + '2026-06,"9,765.27",-3505.43,6259.84,-957.05,5302.79\n';
+    const { rows, error } = parsePropertyMonthlyCsv(csv);
+    expect(error).toBeUndefined();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].total_revenue_cents).toBe(976527);
+  });
+
+  it('does not corrupt row alignment when a quoted field contains an embedded newline', () => {
+    // parseCsvRows tokenizes the whole paste at once — a naive split into "lines" first (the
+    // previous implementation) would have cut this quoted note in two, turning one real data
+    // row into a bogus extra row and misaligning every column after it.
+    const csv = 'period,total_revenue,operating_expenses,net_operating_income,non_operating_expenses,net_income,notes\n'
+      + '2026-05,9000,-3000,6000,-500,5500,"first line\nsecond line"\n'
+      + '2026-06,9765.27,-3505.43,6259.84,-957.05,5302.79,ok\n';
+    const { rows, error } = parsePropertyMonthlyCsv(csv);
+    expect(error).toBeUndefined();
+    expect(rows.map(r => r.period)).toEqual(['2026-05', '2026-06']);
+    expect(rows[0].total_revenue_cents).toBe(900000);
+    expect(rows[1].total_revenue_cents).toBe(976527);
+  });
+
   it('rejects a CSV missing required columns', () => {
     const { rows, error } = parsePropertyMonthlyCsv('period,total_revenue\n2026-06,9765.27\n');
     expect(rows).toHaveLength(0);
