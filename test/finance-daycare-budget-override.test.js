@@ -7,6 +7,7 @@ import { handleFinanceApi } from '../src/api-finance.js';
 function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
+  sqlite.exec(`CREATE TABLE finance_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')))`);
   sqlite.exec(readFileSync(new URL('../migrations/0018_finance_church_entries.sql', import.meta.url), 'utf8'));
   sqlite.exec(`CREATE TABLE finance_daycare_entries (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,

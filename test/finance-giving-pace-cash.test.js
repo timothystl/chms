@@ -53,6 +53,7 @@ function makeTestDb() {
   sqlite.exec(readFileSync(new URL('../migrations/0045_giving_year_person_totals.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0047_giving_rollup_claims.sql', import.meta.url), 'utf8'));
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
+  sqlite.exec(`CREATE TABLE finance_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')))`);
   sqlite.exec(`CREATE TABLE finance_qb_snapshot (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   sqlite.exec(`CREATE TABLE finance_daycare_entries (id INTEGER PRIMARY KEY, period TEXT, category TEXT, entry_type TEXT, amount_cents INTEGER, notes TEXT, source TEXT)`);
   return {
@@ -170,7 +171,7 @@ describe('GET finance/church/this-year — giving pace scoped to the General Fun
   it('uses the admin-pinned budget code over the fund family\'s own', async () => {
     const db = makeTestDb();
     seedGiving(db); seedChurchEntries(db);
-    db._raw.prepare('INSERT INTO chms_config (key,value) VALUES (?,?)')
+    db._raw.prepare('INSERT INTO finance_settings (key,value) VALUES (?,?)')
       .run('finance_cash_policy', JSON.stringify({ policy_floor_months: 3, general_fund_budget_code: '57' }));
     const d = await getHealth(db);
     expect(d.givingPace.budgetCents, 'the pinned 57 MDO account, not the 40085 pair').toBe(30000000);
@@ -213,7 +214,7 @@ describe('GET finance/church/this-year — operating cash from the balance sheet
   it('reads the pinned operating account and names it', async () => {
     const db = makeTestDb();
     seedGiving(db); seedChurchEntries(db); seedBalances(db);
-    db._raw.prepare("INSERT INTO chms_config (key,value) VALUES ('finance_cash_policy',?)")
+    db._raw.prepare("INSERT INTO finance_settings (key,value) VALUES ('finance_cash_policy',?)")
       .run(JSON.stringify({ policy_floor_months: 3, cash_on_hand_cents: null, cash_account_code: '11027' }));
     const d = await getHealth(db);
     expect(d.cash.source).toBe('balance_sheet');
@@ -236,7 +237,7 @@ describe('GET finance/church/this-year — operating cash from the balance sheet
   it('still lets an admin override the balance sheet by hand', async () => {
     const db = makeTestDb();
     seedGiving(db); seedChurchEntries(db); seedBalances(db);
-    db._raw.prepare("INSERT INTO chms_config (key,value) VALUES ('finance_cash_policy',?)")
+    db._raw.prepare("INSERT INTO finance_settings (key,value) VALUES ('finance_cash_policy',?)")
       .run(JSON.stringify({ policy_floor_months: 3, cash_on_hand_cents: 5000000, cash_account_code: '11027' }));
     const d = await getHealth(db);
     expect(d.cash.source).toBe('manual');

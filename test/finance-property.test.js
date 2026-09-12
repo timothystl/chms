@@ -8,6 +8,7 @@ import { handleFinanceApi, computePropertyAnnualSummary, parsePropertyMonthlyCsv
 function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(`CREATE TABLE chms_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
+  sqlite.exec(`CREATE TABLE finance_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')))`);
   sqlite.exec(readFileSync(new URL('../migrations/0022_finance_property.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0023_finance_property_reserves.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0025_finance_property_budget.sql', import.meta.url), 'utf8'));
@@ -90,7 +91,7 @@ describe('handleFinanceApi — commercial property routes', () => {
   it('POST monthly converts dollars to cents and GET returns them back, with the equity computed from meta', async () => {
     const db = makeTestDb();
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?)`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_meta',?)`
     ).bind(JSON.stringify({ valuation: { capitalized_value_cents: 68631486 }, loan: { balance_cents: 29733600 } })).run();
 
     const postReq = makeReq({ period: '2026-06', occupancy_pct: 95, total_revenue: '9000.50', total_expenses: '3000.25', net_income: '6000.25', net_operating_income: '', available_for_distribution: '', reserve_balance: '', source_report: 'test.pdf' });
@@ -145,7 +146,7 @@ describe('handleFinanceApi — commercial property routes', () => {
   it('PATCH meta merges into the existing loan/valuation sections without clobbering other keys', async () => {
     const db = makeTestDb();
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?)`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_meta',?)`
     ).bind(JSON.stringify({ loan: { balance_cents: 29733600, lender: 'LCEF' }, property: { name: '3277 Ivanhoe' } })).run();
     const res = await handleFinanceApi(makeReq({ loan: { balance_cents: 29000000 } }), {}, new URL('https://x/'), 'PATCH', 'finance/property/ivanhoe/meta', db, true, true);
     expect(res.status).toBe(200);
@@ -164,7 +165,7 @@ describe('handleFinanceApi — commercial property routes', () => {
   it('PATCH meta merges the reserves section (base_minimum_cents) without clobbering other sections', async () => {
     const db = makeTestDb();
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?)`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_meta',?)`
     ).bind(JSON.stringify({ loan: { balance_cents: 29733600 }, reserves: { base_minimum_cents: 100000 } })).run();
     const res = await handleFinanceApi(makeReq({ reserves: { base_minimum_cents: 450000 } }), {}, new URL('https://x/'), 'PATCH', 'finance/property/ivanhoe/meta', db, true, true);
     expect(res.status).toBe(200);

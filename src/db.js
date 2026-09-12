@@ -178,6 +178,15 @@ export const DB_INIT = [
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
   )`,
+  // Finance's own settings store, split out of chms_config (see migrateFinanceSettingsFromConfig
+  // below) so Finance-owned JSON blobs aren't mixed into Connect's shared global config table —
+  // same shape as apps/finance/migrations/0001_finance_foundation.sql's finance_settings, so the
+  // eventual physical split has one less schema to reconcile.
+  `CREATE TABLE IF NOT EXISTS finance_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
   `CREATE TABLE IF NOT EXISTS church_register (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     type       TEXT    NOT NULL DEFAULT '',
@@ -929,6 +938,62 @@ const FINANCE_PROPERTY_IVANHOE_META = {
     },
   },
 };
+// One-time move of every Finance-owned JSON setting out of the shared chms_config table into
+// finance_settings (see the table's own comment above). Guarded by a marker in chms_config
+// itself, same convention as every other one-time migration below — chms_config still holds
+// genuinely shared/system markers (schema_fingerprint, giving_breeze_dedupe_v1, etc.), so this
+// marker belongs there, not in the table being migrated out of. Must run before any of the
+// seedIvanhoeProperty* functions below, which now read/write finance_settings directly — on an
+// existing DB, those would otherwise find nothing yet and re-seed defaults over real edits.
+const FINANCE_CONFIG_KEYS = [
+  'finance_property_ivanhoe_reserves_v2_seeded',
+  'finance_property_ivanhoe_valuation_v3_seeded',
+  'finance_property_ivanhoe_2026_06_seeded',
+  'finance_property_ivanhoe_2026_06_notes_seeded',
+  'finance_property_ivanhoe_base_minimum_seeded',
+  'finance_property_ivanhoe_2026_07_seeded',
+  'finance_revenue_streams',
+  'finance_flow_expense_map',
+  'finance_planning_board_categories',
+  'finance_planning_purpose_tags',
+  'finance_cash_policy',
+  'finance_base_proj_overrides',
+  'finance_qb_selected_budget_id',
+  'daycare_last_synced_at',
+  'finance_daycare_allocation_config',
+  'finance_salary_planner',
+  'finance_salary_planner_compensation',
+];
+export async function migrateFinanceSettingsFromConfig(db) {
+  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_settings_migrated_v1'").first();
+  if (marker) return;
+  const placeholders = FINANCE_CONFIG_KEYS.map(() => '?').join(',');
+  // `finance_budget_council_<username>` and `finance_salary_planner_council_<username>` are
+  // dynamic per-user overlay keys (see councilBudgetKey()/councilPlannerKey() in
+  // api-finance.js) — matched by prefix rather than listed by name. `finance_property_*_meta`
+  // is similarly wildcarded (not just the one 'ivanhoe' key that exists today) so a future
+  // second property's meta key is carried over automatically too.
+  const DYNAMIC_KEY_CLAUSE = `(key LIKE 'finance_budget_council_%' OR key LIKE 'finance_salary_planner_council_%' OR key LIKE 'finance_property_%_meta')`;
+  const rows = await db.prepare(
+    `SELECT key, value FROM chms_config WHERE key IN (${placeholders}) OR ${DYNAMIC_KEY_CLAUSE}`
+  ).bind(...FINANCE_CONFIG_KEYS).all();
+  const moved = rows.results || [];
+  for (const row of moved) {
+    await db.prepare(
+      `INSERT INTO finance_settings (key,value,updated_at) VALUES (?,?,datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
+    ).bind(row.key, row.value).run();
+  }
+  if (moved.length) {
+    await db.prepare(
+      `DELETE FROM chms_config WHERE key IN (${placeholders}) OR ${DYNAMIC_KEY_CLAUSE}`
+    ).bind(...FINANCE_CONFIG_KEYS).run();
+  }
+  await db.prepare(
+    `INSERT INTO chms_config (key,value) VALUES ('finance_settings_migrated_v1','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).run();
+}
+
 async function seedIvanhoeProperty(db) {
   const existing = await db.prepare("SELECT COUNT(*) as n FROM finance_property_monthly WHERE property_key='ivanhoe'").first();
   if (!existing || existing.n > 0) return;
@@ -947,7 +1012,7 @@ async function seedIvanhoeProperty(db) {
     ).bind(period, cents));
   }
   ops.push(db.prepare(
-    `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   ).bind(JSON.stringify(FINANCE_PROPERTY_IVANHOE_META)));
   await db.batch(ops);
 }
@@ -1024,7 +1089,7 @@ const FINANCE_PROPERTY_REPAIRS = [
   ['2026-05-11', 'Roof', 'Roof-leak inspection in response to tenant report', null, '', 0],
 ];
 async function seedIvanhoePropertyReservesV2(db) {
-  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_reserves_v2_seeded'").first();
+  const marker = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_property_ivanhoe_reserves_v2_seeded'").first();
   if (marker) return;
   const ops = [];
   let sortOrder = 0;
@@ -1058,7 +1123,7 @@ async function seedIvanhoePropertyReservesV2(db) {
   // (capital_improvements/insurance/church_building_shared_costs) on an existing DB that already
   // seeded the original (now-stale) meta blob — a shallow merge so any admin edits to other
   // sections (property/valuation) survive.
-  const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_meta'").first();
+  const metaRow = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_property_ivanhoe_meta'").first();
   let meta = {};
   if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
   meta.loan = FINANCE_PROPERTY_IVANHOE_META.loan;
@@ -1066,10 +1131,10 @@ async function seedIvanhoePropertyReservesV2(db) {
   meta.insurance = FINANCE_PROPERTY_IVANHOE_META.insurance;
   meta.church_building_shared_costs = FINANCE_PROPERTY_IVANHOE_META.church_building_shared_costs;
   ops.push(db.prepare(
-    `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   ).bind(JSON.stringify(meta)));
   ops.push(db.prepare(
-    `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_reserves_v2_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_reserves_v2_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   ));
   await db.batch(ops);
 }
@@ -1081,15 +1146,15 @@ async function seedIvanhoePropertyReservesV2(db) {
 // FINANCE_PROPERTY_IVANHOE_META.valuation literal above). Its own marker, separate from the v2
 // reserves marker, since it can land independently of that upgrade.
 async function seedIvanhoePropertyValuationV3(db) {
-  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_valuation_v3_seeded'").first();
+  const marker = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_property_ivanhoe_valuation_v3_seeded'").first();
   if (marker) return;
-  const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_meta'").first();
+  const metaRow = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_property_ivanhoe_meta'").first();
   let meta = {};
   if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
   meta.valuation = FINANCE_PROPERTY_IVANHOE_META.valuation;
   await db.batch([
-    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(meta)),
-    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_valuation_v3_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
+    db.prepare(`INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(meta)),
+    db.prepare(`INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_valuation_v3_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
   ]);
 }
 
@@ -1102,7 +1167,7 @@ async function seedIvanhoePropertyValuationV3(db) {
 // per FIN9's own marker-gated fix); this report's own $100,785.68 MRI-migration figure is
 // explicitly NOT used, per the source's own flag.
 async function seedIvanhoePropertyJune2026(db) {
-  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_2026_06_seeded'").first();
+  const marker = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_property_ivanhoe_2026_06_seeded'").first();
   if (marker) return;
   const ops = [];
   // total_expenses_cents = operating + non-operating expenses combined (matches how every prior
@@ -1129,7 +1194,7 @@ async function seedIvanhoePropertyJune2026(db) {
      VALUES ('ivanhoe','property_tax','2026-07',2026,1140000,475000,110833,585833,?)
      ON CONFLICT(property_key,reserve_key,report_month) DO NOTHING`
   ).bind('From the June 2026 report (generated 7/23/2026); its own reserve section computes July’s contribution, recalculated as the remaining $6,650.00 gap spread over the 6 months left before the tax is due ($1,108.33/mo) rather than the flat $950/mo used earlier in the year. No distinct June-2026 contribution row appears anywhere in this source — the $4,750.00 "before" balance is identical to April and May, the same carryover pattern already flagged on the 2026-05 row.'));
-  const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_meta'").first();
+  const metaRow = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_property_ivanhoe_meta'").first();
   let meta = {};
   if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
   meta.open_items_2026_06 = [
@@ -1138,10 +1203,10 @@ async function seedIvanhoePropertyJune2026(db) {
     'Two open plumbing work orders for Emma Taylor (suite 3275) as of this report: a 2nd-bathroom faucet issue and a running master-bathroom toilet, both dated 6/17/2026, still open.',
   ];
   ops.push(db.prepare(
-    `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   ).bind(JSON.stringify(meta)));
   ops.push(db.prepare(
-    `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_2026_06_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_2026_06_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   ));
   await db.batch(ops);
 }
@@ -1163,9 +1228,9 @@ async function seedIvanhoePropertyJune2026(db) {
 // refunded amount with AHRA, but resolves the "who is this and why" question. Separate marker
 // from the June financials seed above so it's safe regardless of whether that one already ran.
 async function seedIvanhoePropertyJune2026Notes(db) {
-  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_2026_06_notes_seeded'").first();
+  const marker = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_property_ivanhoe_2026_06_notes_seeded'").first();
   if (marker) return;
-  const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_meta'").first();
+  const metaRow = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_property_ivanhoe_meta'").first();
   let meta = {};
   if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
   meta.loan = meta.loan || {};
@@ -1181,8 +1246,8 @@ async function seedIvanhoePropertyJune2026Notes(db) {
       : item);
   }
   await db.batch([
-    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(meta)),
-    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_2026_06_notes_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
+    db.prepare(`INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(meta)),
+    db.prepare(`INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_2026_06_notes_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
     // Backfill the same figures onto the real loan_payment_cents/interest_expense_cents columns
     // (added by the same migration this seed ships alongside) so the automatic mortgage-balance
     // rollforward (finComputeMortgageRemainingCents) has real data for June, not just a meta note.
@@ -1201,15 +1266,15 @@ async function seedIvanhoePropertyJune2026Notes(db) {
 // own total (see finComputePropertyReservesOnHandCents in js-finance.js); admin-editable
 // afterward via the new "Base Minimum Reserve" card.
 async function seedIvanhoePropertyBaseMinimumReserve(db) {
-  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_base_minimum_seeded'").first();
+  const marker = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_property_ivanhoe_base_minimum_seeded'").first();
   if (marker) return;
-  const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_meta'").first();
+  const metaRow = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_property_ivanhoe_meta'").first();
   let meta = {};
   if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
   meta.reserves = { ...(meta.reserves || {}), base_minimum_cents: 450000 };
   await db.batch([
-    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(meta)),
-    db.prepare(`INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_base_minimum_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
+    db.prepare(`INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_meta',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).bind(JSON.stringify(meta)),
+    db.prepare(`INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_base_minimum_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
   ]);
 }
 
@@ -1222,7 +1287,7 @@ async function seedIvanhoePropertyBaseMinimumReserve(db) {
 // The reserve row's report_month is '2026-08': this report's own reserve section computes
 // AUGUST's contribution off July's activity, same one-month-ahead convention as June's row.
 async function seedIvanhoePropertyJuly2026(db) {
-  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='finance_property_ivanhoe_2026_07_seeded'").first();
+  const marker = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_property_ivanhoe_2026_07_seeded'").first();
   if (marker) return;
   const ops = [];
   ops.push(db.prepare(
@@ -1242,7 +1307,7 @@ async function seedIvanhoePropertyJuly2026(db) {
      ON CONFLICT(property_key,reserve_key,report_month) DO NOTHING`
   ).bind('From the July 2026 report (generated 8/20/2026); its own reserve section computes August’s contribution off July’s activity, same one-month-ahead convention as the June report. 5 months remain until the property tax is due.'));
   ops.push(db.prepare(
-    `INSERT INTO chms_config (key,value) VALUES ('finance_property_ivanhoe_2026_07_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_property_ivanhoe_2026_07_seeded','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   ));
   await db.batch(ops);
 }
@@ -1266,7 +1331,7 @@ async function seedIvanhoePropertyJuly2026(db) {
 // than the slow start this replaces.
 function _schemaFingerprint() {
   const parts = [
-    _doInitDb, seedChmsDefaults, seedEvents, seedIvanhoeProperty,
+    _doInitDb, migrateFinanceSettingsFromConfig, seedChmsDefaults, seedEvents, seedIvanhoeProperty,
     seedIvanhoePropertyBaseMinimumReserve, seedIvanhoePropertyJune2026,
     seedIvanhoePropertyJune2026Notes, seedIvanhoePropertyJuly2026,
     seedIvanhoePropertyReservesV2,
@@ -2078,6 +2143,7 @@ async function _doInitDb(db) {
   await seedTuitionAid(db);
   await seedTuitionYearRates(db);
   await seedStudentTuitionHistory(db);
+  await migrateFinanceSettingsFromConfig(db);
   await seedIvanhoeProperty(db);
   await seedIvanhoePropertyReservesV2(db);
   await seedIvanhoePropertyValuationV3(db);

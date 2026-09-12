@@ -2002,7 +2002,7 @@ export function computeIncomeExpenseMonthlyTrend(curYearMonthlyRows, throughMont
 //
 // The mapping is per income GROUP (a top-level child of the Income/Other Income classification,
 // e.g. "40 Offerings & Contributions"), keyed by that group's exact label, and is stored in
-// chms_config so an admin can correct it without a deploy — the classification of a church's own
+// finance_settings so an admin can correct it without a deploy — the classification of a church's own
 // chart of accounts is a judgment call this code cannot make for every church. The regex rules
 // below are only the DEFAULT applied to a group nobody has mapped yet; every group resolved that
 // way is also returned in `unmapped` so the Data & Imports tab can show what still needs a human
@@ -2189,7 +2189,7 @@ export function expenseGroupLabel(categoryPath, accountName) {
   return segs[0] || '';
 }
 // The board's five expense categories are its own vocabulary, not the chart of accounts, so the
-// GL-account → category mapping is config-driven and admin-maintainable (chms_config key
+// GL-account → category mapping is config-driven and admin-maintainable (finance_settings key
 // finance_flow_expense_map), exactly like the revenue-stream mapping above. The regexes below are
 // only the DEFAULT for an account nobody has mapped yet, and every account resolved that way is
 // returned in `unmapped` so the validation report the handoff asks for has something to show.
@@ -2523,7 +2523,7 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   if (seg === `finance/property/${propertyKey}` && method === 'GET') {
     const monthly = (await db.prepare('SELECT * FROM finance_property_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
     const distributions = (await db.prepare('SELECT period, amount_cents FROM finance_property_distributions WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
-    const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
+    const metaRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
     let meta = null;
     if (metaRow) { try { meta = JSON.parse(metaRow.value); } catch { meta = null; } }
     const annualSummary = computePropertyAnnualSummary(monthly, distributions, meta?.annual_notes);
@@ -2666,14 +2666,14 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   if (seg === `finance/property/${propertyKey}/meta` && method === 'PATCH') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const metaRow = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
+    const metaRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
     let meta = {};
     if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
     for (const section of ['property', 'valuation', 'loan', 'reserves', 'capital']) {
       if (b[section] && typeof b[section] === 'object') meta[section] = { ...(meta[section] || {}), ...b[section] };
     }
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+      `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(`finance_property_${propertyKey}_meta`, JSON.stringify(meta)).run();
     return json({ ok: true, meta });
   }
@@ -2787,11 +2787,11 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
 }
 
 // ── Finance Workspace redesign: shared config readers + the import-staleness log ─────────────
-// Both settings live in chms_config as JSON blobs, the same pattern as the property meta and the
+// Both settings live in finance_settings as JSON blobs, the same pattern as the property meta and the
 // salary planner — no migration needed to add a key, and a corrupt/absent row falls back to the
 // documented default rather than throwing a 500 on a read path the whole tab depends on.
 async function readRevenueStreamOverrides(db) {
-  const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_revenue_streams'").first();
+  const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_revenue_streams'").first();
   try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
 }
 // The latest imported_at across a year's rows — what "as of" actually means for these figures.
@@ -2801,7 +2801,7 @@ function finChurchAsOfIso(entries) {
   return latest;
 }
 async function readFlowExpenseOverrides(db) {
-  const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_flow_expense_map'").first();
+  const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_flow_expense_map'").first();
   try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
 }
 // ── Chart of Accounts: per-account board-category assignment + renameable category headings,
@@ -2841,7 +2841,7 @@ export const BOARD_EXPENSE_CATEGORIES = [
 ];
 export const BOARD_EXPENSE_KEYS = BOARD_EXPENSE_CATEGORIES.map(c => c.key);
 async function readPlanningBoardCategories(db) {
-  const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_planning_board_categories'").first();
+  const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_planning_board_categories'").first();
   const empty = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '', accountLabels: {} };
   if (!row) return empty;
   try {
@@ -2866,7 +2866,7 @@ async function readPlanningBoardCategories(db) {
 }
 const DEFAULT_CASH_POLICY = { policy_floor_months: 3, cash_on_hand_cents: null, cash_account_code: '', general_fund_budget_code: '' };
 export async function readCashPolicy(db) {
-  const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_cash_policy'").first();
+  const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_cash_policy'").first();
   if (!row) return { ...DEFAULT_CASH_POLICY };
   try {
     const v = JSON.parse(row.value) || {};
@@ -2970,7 +2970,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // ── QuickBooks connection status ─────────────────────────────────────
   if (seg === 'finance/status' && method === 'GET') {
     const conn = await getConnection(db);
-    const daycareSyncRow = await db.prepare("SELECT value FROM chms_config WHERE key='daycare_last_synced_at'").first();
+    const daycareSyncRow = await db.prepare("SELECT value FROM finance_settings WHERE key='daycare_last_synced_at'").first();
     return json({
       configured: qboConfigured(env),
       connected: !!(conn && conn.realm_id),
@@ -3063,16 +3063,16 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       id: b.Id, name: b.Name || '(unnamed budget)', startDate: b.StartDate, endDate: b.EndDate,
       entryType: b.BudgetEntryType, active: !!b.Active,
     }));
-    const selectedRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_qb_selected_budget_id'").first();
+    const selectedRow = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_qb_selected_budget_id'").first();
     return json({ budgets: budgetList, selectedBudgetId: selectedRow?.value || null, warnings });
   }
   if (seg === 'finance/qb/budgets' && method === 'PATCH') {
     if (!isAdmin) return json({ error: 'Access denied: selecting the QuickBooks budget requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
     const id = (b.budget_id == null || b.budget_id === '') ? null : String(b.budget_id);
-    if (id === null) await db.prepare("DELETE FROM chms_config WHERE key='finance_qb_selected_budget_id'").run();
+    if (id === null) await db.prepare("DELETE FROM finance_settings WHERE key='finance_qb_selected_budget_id'").run();
     else await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_qb_selected_budget_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_qb_selected_budget_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(id).run();
     return json({ ok: true });
   }
@@ -3087,7 +3087,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const client = makeQboClient(env, fresh);
     const year = new Date().getFullYear();
     const warnings = [];
-    const preferredBudgetRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_qb_selected_budget_id'").first();
+    const preferredBudgetRow = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_qb_selected_budget_id'").first();
     const preferredBudgetId = preferredBudgetRow?.value || null;
 
     // Built once via our own trusted merge pipeline (known, tested Columns shape) — used both
@@ -3282,7 +3282,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     if (ops.length) await db.batch(ops);
     const syncedAt = new Date().toISOString();
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('daycare_last_synced_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+      `INSERT INTO finance_settings (key,value) VALUES ('daycare_last_synced_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(syncedAt).run();
     // Cache accounts too, alongside the QBO ones, so the balances table can show both.
     if (Array.isArray(data.accounts)) {
@@ -3458,7 +3458,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       map[String(label)] = stream;
     }
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_revenue_streams',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_revenue_streams',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(JSON.stringify({ map })).run();
     return json({ ok: true, map });
   }
@@ -3507,7 +3507,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       map[String(label)] = key;
     }
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_flow_expense_map',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_flow_expense_map',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(JSON.stringify({ map })).run();
     return json({ ok: true, map });
   }
@@ -3530,7 +3530,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     if (budgetCode && !/^[\w.-]{1,32}$/.test(budgetCode)) return json({ error: 'general_fund_budget_code should be an account code like 40085' }, 400);
     const value = { policy_floor_months: months, cash_on_hand_cents: cents, cash_account_code: accountCode, general_fund_budget_code: budgetCode };
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_cash_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_cash_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(JSON.stringify(value)).run();
     return json({ ok: true, ...value });
   }
@@ -3576,7 +3576,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
 
   // ── Daycare: Utilities/Insurance cost-share config + live computation ────────────────────
   if (seg === 'finance/daycare/allocation-config' && method === 'GET') {
-    const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_daycare_allocation_config'").first();
+    const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_daycare_allocation_config'").first();
     let cfg = { utilityPct: 0.5, insurancePct: 0.5 };
     if (row) { try { cfg = { ...cfg, ...JSON.parse(row.value) }; } catch { /* keep default */ } }
     return json(cfg);
@@ -3588,7 +3588,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const insurancePct = Number(b.insurancePct);
     if (!Number.isFinite(utilityPct) || !Number.isFinite(insurancePct)) return json({ error: 'utilityPct and insurancePct must be numbers (e.g. 0.5 for 50%)' }, 400);
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_daycare_allocation_config',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_daycare_allocation_config',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(JSON.stringify({ utilityPct, insurancePct })).run();
     return json({ ok: true });
   }
@@ -3596,7 +3596,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const yearsParam = url.searchParams.get('years') || '';
     const years = yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite);
     if (!years.length) return json({ error: 'years is required (comma-separated)' }, 400);
-    const cfgRow = await db.prepare("SELECT value FROM chms_config WHERE key='finance_daycare_allocation_config'").first();
+    const cfgRow = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_daycare_allocation_config'").first();
     let cfg = { utilityPct: 0.5, insurancePct: 0.5 };
     if (cfgRow) { try { cfg = { ...cfg, ...JSON.parse(cfgRow.value) }; } catch { /* keep default */ } }
     const placeholders = years.map(() => '?').join(',');
@@ -4088,7 +4088,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   //
   // council (granted 'budget':'edit' — see api-utils.js, 'none' by default) may hand-correct a
   // planned amount the same way finance/planning/church/override lets admin do, but never
-  // touches the shared finance_budget_plan table: their edits fork into their own chms_config
+  // touches the shared finance_budget_plan table: their edits fork into their own finance_settings
   // key on first save (councilBudgetKey below), the same pattern finance/planning/salary uses
   // for council's raise plan, so one council member's what-if numbers can never overwrite the
   // real admin/finance plan or another council member's (Andrew, 2026-09-09). generate/
@@ -4104,7 +4104,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       let username = '';
       try { username = ((await getAuthInfo(req, env)) || {}).username || ''; } catch { username = ''; }
       if (username) {
-        const overlayRow = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(councilBudgetKey(username)).first();
+        const overlayRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(councilBudgetKey(username)).first();
         if (overlayRow) {
           let overlay = null;
           try { overlay = JSON.parse(overlayRow.value); } catch { overlay = null; }
@@ -4214,7 +4214,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       try { username = ((await getAuthInfo(req, env)) || {}).username || ''; } catch { username = ''; }
       if (!username) return json({ error: 'Access denied: this account has no username to save under' }, 403);
       const key = councilBudgetKey(username);
-      const existingRow = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(key).first();
+      const existingRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(key).first();
       let overlay = {};
       if (existingRow) { try { overlay = JSON.parse(existingRow.value) || {}; } catch { overlay = {}; } }
       for (const p of parsed) {
@@ -4223,7 +4223,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
         overlay[fyKey][p.category] = { planned_amount_cents: p.amountCents, classification: p.classification, notes: p.notes };
       }
       await db.prepare(
-        `INSERT INTO chms_config (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+        `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
       ).bind(key, JSON.stringify(overlay)).run();
       return json({ ok: true, saved: parsed.length });
     }
@@ -4240,7 +4240,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
 
   // Salary & Benefits Calculator + Health Insurance card state (worker roster, COLA/pension
   // settings, benefits figure, selected health plan option) — persisted as one JSON blob in the
-  // generic chms_config key/value table, same pattern as the Commercial Property meta and other
+  // generic finance_settings key/value table, same pattern as the Commercial Property meta and other
   // small nested-settings blobs elsewhere in this file. Not fiscal-year-scoped (the roster is a
   // standing list of current staff, not a per-year plan), so it's read once and reused across
   // whatever base/target year the admin is currently viewing.
@@ -4266,10 +4266,10 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/planning/salary' && method === 'GET') {
     let key = SALARY_PLANNER_KEY;
     if (role === 'compensation') {
-      const forkExists = await db.prepare("SELECT 1 FROM chms_config WHERE key=?").bind(SALARY_PLANNER_COMPENSATION_KEY).first();
+      const forkExists = await db.prepare("SELECT 1 FROM finance_settings WHERE key=?").bind(SALARY_PLANNER_COMPENSATION_KEY).first();
       if (forkExists) key = SALARY_PLANNER_COMPENSATION_KEY;
     }
-    const row = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(key).first();
+    const row = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(key).first();
     let data = null;
     if (row) { try { data = JSON.parse(row.value); } catch { data = null; } }
     // Council never sees a worker an admin has flagged hideFromCouncil — dropped from the
@@ -4308,7 +4308,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       let username = '';
       try { username = ((await getAuthInfo(req, env)) || {}).username || ''; } catch { username = ''; }
       if (username) {
-        const overlayRow = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(councilPlannerKey(username)).first();
+        const overlayRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(councilPlannerKey(username)).first();
         if (overlayRow) {
           let overlay = null;
           try { overlay = JSON.parse(overlayRow.value); } catch { overlay = null; }
@@ -4336,13 +4336,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       const overlay = {};
       for (const f of COUNCIL_EDITABLE_FIELDS) if (b[f] !== undefined) overlay[f] = b[f];
       await db.prepare(
-        `INSERT INTO chms_config (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+        `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
       ).bind(councilPlannerKey(username), JSON.stringify(overlay)).run();
       return json({ ok: true });
     }
     const key = role === 'compensation' ? SALARY_PLANNER_COMPENSATION_KEY : SALARY_PLANNER_KEY;
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+      `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(key, JSON.stringify(b)).run();
     return json({ ok: true });
   }
@@ -4350,13 +4350,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // Manual overrides for the "FY{base} Projected" column on the Planning table — a per-account
   // hand-typed correction to the automatic actual-to-date annualization (e.g. a bookkeeper who
   // knows a big year-end gift is coming that the weeks-elapsed math can't see). Same generic
-  // chms_config JSON-blob pattern as the salary planner above, keyed by base fiscal year so a
+  // finance_settings JSON-blob pattern as the salary planner above, keyed by base fiscal year so a
   // saved override only ever applies to the year it was entered against: {"2026":{"Expenses:Utilities":123400}}
   // (cents). Not part of finance_budget_plan — that table's semantics are "the plan for a future
   // year," not "a correction to this year's own projected actual," and reusing it would make a
   // base year look like it had its own committed plan row.
   if (seg === 'finance/planning/base-projection' && method === 'GET') {
-    const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_base_proj_overrides'").first();
+    const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_base_proj_overrides'").first();
     let overrides = {};
     if (row) { try { overrides = JSON.parse(row.value) || {}; } catch { overrides = {}; } }
     return json({ overrides });
@@ -4367,7 +4367,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const year = parseInt(b.year, 10);
     const rows = Array.isArray(b.rows) ? b.rows : [];
     if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
-    const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_base_proj_overrides'").first();
+    const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_base_proj_overrides'").first();
     let overrides = {};
     if (row) { try { overrides = JSON.parse(row.value) || {}; } catch { overrides = {}; } }
     const yearOverrides = Object.assign({}, overrides[String(year)]);
@@ -4382,7 +4382,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     }
     overrides[String(year)] = yearOverrides;
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_base_proj_overrides',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_base_proj_overrides',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(JSON.stringify(overrides)).run();
     return json({ ok: true, year, saved: rows.length });
   }
@@ -4502,14 +4502,14 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       }
     }
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_planning_board_categories',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_planning_board_categories',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(JSON.stringify(merged)).run();
     return json({ ok: true, ...merged });
   }
 
   // Purpose tags — a SECOND, independent axis over the same accounts and Compensation Planner
   // workers the Board Category system above already classifies, so one line can carry a board
-  // category ("Salaries") AND a free-form purpose ("Youth") at once. Its own chms_config key,
+  // category ("Salaries") AND a free-form purpose ("Youth") at once. Its own finance_settings key,
   // deliberately not layered onto finance_planning_board_categories — that store's category set
   // is a fixed allowlist (BOARD_EXPENSE_KEYS); purpose tags are
   // admin-defined and open-ended (add/rename/delete at will), which needs a different shape
@@ -4525,7 +4525,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // single-tag-only per line (scoped and confirmed with the user 2026-09-05) — a percentage split
   // for a worker whose role spans two purposes was raised and deliberately deferred, not built.
   async function readPurposeTags(db) {
-    const row = await db.prepare("SELECT value FROM chms_config WHERE key='finance_planning_purpose_tags'").first();
+    const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_planning_purpose_tags'").first();
     const empty = { tags: [], categories: {} };
     if (!row) return empty;
     try {
@@ -4590,7 +4590,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     for (const path of Object.keys(categories)) if (!finalIds.has(categories[path])) delete categories[path];
     const merged = { tags, categories };
     await db.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_planning_purpose_tags',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_planning_purpose_tags',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
     ).bind(JSON.stringify(merged)).run();
     return json({ ok: true, ...merged });
   }
@@ -4639,14 +4639,14 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
       try { username = ((await getAuthInfo(req, env)) || {}).username || ''; } catch { username = ''; }
       if (!username) return json({ error: 'Access denied: this account has no username to save under' }, 403);
       const key = councilBudgetKey(username);
-      const existingRow = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(key).first();
+      const existingRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(key).first();
       let overlay = {};
       if (existingRow) { try { overlay = JSON.parse(existingRow.value) || {}; } catch { overlay = {}; } }
       const fyKey = String(fiscalYear);
       overlay[fyKey] = Object.assign({}, overlay[fyKey]);
       overlay[fyKey][category] = { planned_amount_cents: amountCents, classification: b.classification || 'Expenses', notes: b.notes || '' };
       await db.prepare(
-        `INSERT INTO chms_config (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+        `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
       ).bind(key, JSON.stringify(overlay)).run();
       return json({ ok: true });
     }

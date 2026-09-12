@@ -10,6 +10,7 @@ function makeTestDb() {
   sqlite.exec(readFileSync(new URL('../migrations/0018_finance_church_entries.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0028_fund_budget.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../migrations/0033_fund_category.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0050_finance_settings.sql', import.meta.url), 'utf8'));
   return {
     prepare(sql) {
       return {
@@ -127,7 +128,7 @@ describe('giving-board General Fund split', () => {
        VALUES (?,0,'Income','Income:40090 Alternate Offering','40090 Alternate Offering',0,720000,'import')`
     ).run(year);
     db._raw.prepare(
-      `INSERT INTO chms_config (key,value) VALUES ('finance_cash_policy',?)`
+      `INSERT INTO finance_settings (key,value) VALUES ('finance_cash_policy',?)`
     ).run(JSON.stringify({ general_fund_budget_code: '40090' }));
     const url = new URL(`https://x/admin/api/reports/giving-board?period=${year}-02`);
     const res = await handleReportsApi({}, {}, url, 'GET', 'reports/giving-board', db, true, true, true, true);
