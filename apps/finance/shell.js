@@ -13,24 +13,36 @@ import { missingHours as payrollMissingHours } from './payroll-calc.js';
 import { decodeJwtClaimsUnsafe } from './jwt-decode-unsafe.js';
 import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from './summary-service.js';
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
-import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, groupFinanceSections } from './parity-manifest.js';
+import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
 import { buildFinancialHealthView } from './health-view-model.js';
 import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends } from './church-report-service.js';
-import { buildBalanceSheetView, readSyntheticBalanceSheet, readSyntheticBalanceTrends } from './balance-sheet-service.js';
+import { readSyntheticBalanceSheet, readSyntheticBalanceTrends } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, readSyntheticDaycareAllocation } from './daycare-report-service.js';
-import { buildPropertyReportView, buildPropertyValuationView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers, readSyntheticPropertyValuation } from './property-report-service.js';
-import { buildBudgetReportView, readSyntheticBudgetReport } from './budget-report-service.js';
-import { buildAccountsReportView, readSyntheticAccountsReport } from './accounts-report-service.js';
+import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers, readSyntheticPropertyValuation } from './property-report-service.js';
+import { readSyntheticBudgetReport } from './budget-report-service.js';
+import { readSyntheticAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
-import { buildCompensationCouncilSnapshot, buildCompensationReportView, readSyntheticCompensationReport } from './compensation-report-service.js';
-import { buildSyntheticBoardPacket } from './board-packet-service.js';
+import { readSyntheticCompensationReport } from './compensation-report-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView } from './financial-mix-service.js';
 import { buildEntityOverview } from './entity-overview-service.js';
 import { buildOperatingBridge } from './operating-bridge-service.js';
-import { buildPropertyForecastView, readSyntheticPropertyForecast } from './property-forecast-service.js';
-import { buildCompensationBenchmarkView, readSyntheticCompensationBenchmarks } from './compensation-benchmark-service.js';
-import { buildCompensationBenefitsView, readSyntheticCompensationBenefits } from './compensation-benefits-service.js';
+import { readSyntheticPropertyForecast } from './property-forecast-service.js';
+import { readSyntheticCompensationBenchmarks } from './compensation-benchmark-service.js';
+import { readSyntheticCompensationBenefits } from './compensation-benefits-service.js';
+import { readSyntheticPropertyDistributions } from './property-distributions-service.js';
+import { escapeHtml, formatCents, formatSignedCents, renderUnavailablePage } from './render-helpers.js';
+import { renderChurchPage } from './church-pages.js';
+import { renderBalancePage } from './balance-pages.js';
+import { renderDaycarePage } from './daycare-pages.js';
+import { renderPropertyPage } from './property-pages.js';
+import { renderCompensationPage } from './compensation-pages.js';
+import { renderPlanningPage } from './planning-pages.js';
+import { renderAccountsPage } from './accounts-pages.js';
+import { renderChartsPage, renderFinancialMixRows } from './charts-pages.js';
+import { renderGiftEntryPage } from './gift-entry-pages.js';
+import { renderQuickbooksPage } from './quickbooks-pages.js';
+import { renderPacketPage } from './packet-pages.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -94,20 +106,6 @@ function releaseMetadata(env) {
   };
 }
 
-function formatCents(value) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(value || 0) / 100);
-}
-
-function formatSignedCents(value) {
-  const amount = formatCents(Math.abs(value));
-  return value < 0 ? `−${amount}` : amount;
-}
-
-function escapeHtml(value) {
-  const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-  return [...String(value)].map((character) => entities[character] || character).join('');
-}
-
 // Maps a postConnectGivingQuickEntry() failure (or Connect's own refusal message) to something
 // a bookkeeper can act on, without leaking wire-level detail (network error text, status codes).
 function describeGivingEntryError(reason, message) {
@@ -145,115 +143,54 @@ function describeIncomingAccessJwt(accessJwt) {
   return claims ? { present: true, ...claims } : { present: true, malformed: true };
 }
 
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
-}
+function renderSectionNav(activeSection, activePage) {
+  const renderPages = (section, isActiveSection) => `<div class="nav-pages">${section.pages.map((page) =>
+    `<a href="/?section=${section.id}&amp;page=${page.id}"${isActiveSection && page.id === activePage.id ? ' aria-current="page"' : ''}>${escapeHtml(page.label)}</a>`
+  ).join('')}</div>`;
 
-function renderSectionNav(activeSection) {
-  return groupFinanceSections(FINANCE_PARITY_SECTIONS).map(({ group, sections }) => `
-    <div class="nav-group">
+  return groupFinanceSections(FINANCE_PARITY_SECTIONS).map(({ group, sections }) => {
+    // Most groups wrap exactly one section, so labeling both the group ("Church") and the
+    // section ("Church Report") would just repeat the same idea -- only Accounts & Data
+    // actually bundles more than one distinct section under one label, so only there does the
+    // section get its own sub-label beneath the group's.
+    if (sections.length === 1) {
+      const [section] = sections;
+      const isActiveSection = section.id === activeSection.id;
+      const body = section.pages.length <= 1
+        ? `<a href="/?section=${section.id}"${isActiveSection ? ' aria-current="page"' : ''}>${section.label}</a>`
+        : renderPages(section, isActiveSection);
+      return `<div class="nav-group">
+        <div class="nav-group-label">${escapeHtml(group)}</div>
+        ${body}
+      </div>`;
+    }
+    return `<div class="nav-group">
       <div class="nav-group-label">${escapeHtml(group)}</div>
-      ${sections.map((section) =>
-        `<a href="/?section=${section.id}"${section.id === activeSection.id ? ' aria-current="page"' : ''}>${section.label}</a>`
-      ).join('')}
-    </div>`).join('');
-}
-
-function renderChurchRows(rows) {
-  return rows.map((row) => {
-    const variance = row.classification === 'Income'
-      ? row.own_actual_cents - row.own_budget_cents
-      : row.own_budget_cents - row.own_actual_cents;
-    return `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.account_name)}</td><td>${formatCents(row.own_actual_cents)}</td><td>${formatCents(row.own_budget_cents)}</td><td>${formatSignedCents(variance)}</td></tr>`;
+      ${sections.map((section) => {
+        const isActiveSection = section.id === activeSection.id;
+        if (section.pages.length <= 1) {
+          return `<a href="/?section=${section.id}"${isActiveSection ? ' aria-current="page"' : ''}>${section.label}</a>`;
+        }
+        return `<div class="nav-section">
+          <div class="nav-section-label${isActiveSection ? ' is-active' : ''}">${section.label}</div>
+          ${renderPages(section, isActiveSection)}
+        </div>`;
+      }).join('')}
+    </div>`;
   }).join('');
-}
-
-function renderChurchTrendRows(rows) {
-  return rows.map((row) => `<tr><td>${row.fiscal_year}</td><td>${formatCents(row.income_cents)}</td><td>${formatCents(row.expense_cents)}</td><td>${formatSignedCents(row.net_cents)}</td></tr>`).join('');
-}
-
-function renderBalanceRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.account_name)}</td><td>${formatCents(row.own_balance_cents)}</td></tr>`).join('');
-}
-
-function renderBalanceTrendRows(rows) {
-  return rows.map((row) => `<tr><td>${row.fiscal_year}</td><td>${escapeHtml(row.as_of_date)}</td><td>${formatCents(row.assets_cents)}</td><td>${formatCents(row.liabilities_cents)}</td><td>${formatCents(row.net_assets_cents)}</td></tr>`).join('');
-}
-
-function renderDaycareRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.entry_type)}</td><td>${formatCents(row.amount_cents)}</td></tr>`).join('');
-}
-
-function renderPropertyRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${row.occupancy_pct.toFixed(0)}%</td><td>${formatCents(row.total_revenue_cents)}</td><td>${formatCents(row.total_expenses_cents)}</td><td>${formatSignedCents(row.net_income_cents)}</td></tr>`).join('');
-}
-
-function renderPropertyReserveRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.report_month)}</td><td>${row.tax_year}</td><td>${formatCents(row.target_estimate_cents)}</td><td>${formatCents(row.reserve_before_cents)}</td><td>${formatCents(row.contribution_cents)}</td><td>${formatCents(row.reserve_after_cents)}</td><td>${row.funded_pct.toFixed(1)}%</td></tr>`).join('');
-}
-
-function renderPropertyCapitalRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.entry_date)}</td><td>${escapeHtml(row.project)}</td><td>${escapeHtml(row.description)}</td><td>${escapeHtml(row.payee)}</td><td>${formatCents(row.amount_cents)}</td></tr>`).join('');
-}
-
-function renderPropertyRepairRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.entry_date)}</td><td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.description)}</td><td>${escapeHtml(row.payee)}</td><td>${formatCents(row.amount_cents)}</td></tr>`).join('');
-}
-
-function renderPropertyRentRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.tenant_label)}</td><td>${row.square_feet.toLocaleString('en-US')}</td><td>${formatCents(row.annual_rent_cents)}</td></tr>`).join('');
-}
-
-function renderPropertyCostRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.cost_label)}</td><td>${formatCents(row.annual_cost_cents)}</td></tr>`).join('');
-}
-
-function renderPropertyForecastRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${formatCents(row.revenue_cents)}</td><td>${formatCents(row.expenses_cents)}</td><td>${formatSignedCents(row.net_income_cents)}</td></tr>`).join('');
-}
-
-function renderBudgetRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.category)}</td><td>${formatCents(row.base_amount_cents)}</td><td>${(row.growth_pct * 100).toFixed(1)}%</td><td>${formatCents(row.planned_amount_cents)}</td><td>${formatSignedCents(row.changeCents)}</td><td>${escapeHtml(row.notes)}</td></tr>`).join('');
-}
-
-function flattenAccountHierarchy(nodes) {
-  return nodes.flatMap((node) => [node, ...flattenAccountHierarchy(node.children)]);
-}
-
-function renderAccountHierarchy(nodes) {
-  return flattenAccountHierarchy(nodes).map((node) => {
-    const presentation = node.account;
-    return `<tr><td style="padding-left:${(0.85 + node.depth * 1.1).toFixed(2)}rem">${node.depth === 0 ? '<strong>' : ''}${escapeHtml(node.label)}${node.depth === 0 ? '</strong>' : ''}</td><td>${escapeHtml(node.path)}</td><td>${presentation ? escapeHtml(presentation.name) : '—'}</td><td>${presentation ? escapeHtml(presentation.boardCategoryLabel) : '—'}</td><td>${presentation?.purposeTagLabel ? escapeHtml(presentation.purposeTagLabel) : '—'}</td></tr>`;
-  }).join('');
-}
-
-function renderCompensationRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.role_label)}</td><td>${formatCents(row.salary_cents)}</td><td>${formatCents(row.benefits_cents)}</td><td>${row.adjustment_pct.toFixed(1)}%</td></tr>`).join('');
-}
-
-function renderCompensationBenchmarkRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.roleLabel)}</td><td>${formatCents(row.salaryCents)}</td><td>${formatCents(row.benchmarkSalaryCents)}</td><td>${row.salaryToBenchmarkPct.toFixed(1)}%</td><td>${formatCents(row.gapCents)}</td></tr>`).join('');
-}
-
-function renderCompensationBenefitRows(rows, totalCents) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.componentLabel)}</td><td>${formatCents(row.amountCents)}</td><td>${totalCents === 0 ? '0.0' : (row.amountCents / totalCents * 100).toFixed(1)}%</td><td>${row.roleCount}</td></tr>`).join('');
-}
-
-function renderFinancialMixRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.accountName)}</td><td>${formatCents(row.amountCents)}</td><td>${row.sharePct.toFixed(1)}%</td></tr>`).join('');
 }
 
 function renderEntityCards(entities) {
   return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)}</span></div>`).join('');
 }
 
-function renderGivingFundOptions(giving) {
-  const funds = giving?.funds || [];
-  if (!funds.length) return '<option value="">No funds available from Connect right now</option>';
-  return funds.map((fund) => `<option value="${escapeHtml(fund.fundRef)}">${escapeHtml(fund.fundLabel || fund.fundRef)}</option>`).join('');
-}
-
-function renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle) {
+function renderSectionBody(ctx) {
+  const {
+    section, pageId, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends,
+    daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation,
+    propertyForecast, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
+    compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle,
+  } = ctx;
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
     const runway = buildCashRunwayView(cashRunway);
@@ -298,121 +235,45 @@ function renderSectionBody(section, summary, giving, givingSource, churchReport,
       <div class="decision-grid">${health.decisions.map((decision) => `<div class="decision"><small>${decision.stream}</small><b>${decision.authority}</b><span>${decision.action}</span></div>`).join('')}</div>
     </section>`;
   }
+  const page = resolveFinancePage(section, pageId);
+  if (page.status === 'unavailable') {
+    return renderUnavailablePage({ eyebrow: section.label, heading: page.label, reason: page.reason });
+  }
   if (section.id === 'giving') {
-    return `<section aria-label="Giving quick entry">
-      <div class="section-heading"><div><div class="eyebrow">Giving</div><h2>Record a gift</h2></div><span class="badge">Relayed live to Connect</span></div>
-      ${givingEntryStatus === 'ok' ? '<p class="status">Recorded in Connect.</p>' : ''}
-      ${givingEntryStatus === 'error' ? `<p class="status status-error">Not recorded: ${escapeHtml(givingEntryMessage || 'unknown error')}</p>` : ''}
-      <form method="POST" action="/api/v1/connect-giving-quick-entry">
-        <div class="grid form-grid">
-          <div class="field"><label for="ge-date">Date</label><input id="ge-date" type="date" name="date" value="${escapeHtml(todayIsoDate())}" required></div>
-          <div class="field"><label for="ge-fund">Fund</label><select id="ge-fund" name="fund_id" required>${renderGivingFundOptions(giving)}</select></div>
-          <div class="field"><label for="ge-amount">Amount ($)</label><input id="ge-amount" type="number" name="amount" step="0.01" min="0.01" placeholder="0.00" required></div>
-          <div class="field"><label for="ge-method">Method</label><select id="ge-method" name="method"><option value="cash">Cash</option><option value="check" selected>Check</option><option value="card">Card</option><option value="ach">ACH</option><option value="other">Other</option></select></div>
-          <div class="field"><label for="ge-check">Check #</label><input id="ge-check" type="text" name="check_number" placeholder="optional"></div>
-          <div class="field"><label for="ge-person">Person ID</label><input id="ge-person" type="number" name="person_id" placeholder="optional — Connect's Person ID"></div>
-        </div>
-        <div class="field"><label for="ge-notes">Notes</label><input id="ge-notes" type="text" name="notes" placeholder="optional"></div>
-        <button type="submit">Record gift</button>
-      </form>
-      <p>This writes directly into Connect's own Giving records — the same recording path the desktop and mobile Giving screens already share. Finance never stores a copy. Fund choices above come from ${givingSource === 'live' ? "Connect's real, current giving activity" : "Connect's committed example fixture (the live connection is not configured or did not answer)"}, so a fund with no recent activity may not be listed yet.</p>
-    </section>`;
+    return renderGiftEntryPage(page.id, { giving, givingSource, givingEntryStatus, givingEntryMessage });
+  }
+  if (section.id === 'giving-analytics') {
+    return renderUnavailablePage({ eyebrow: section.label, heading: page.label, reason: 'Not yet available.' });
+  }
+  if (section.id === 'charts') {
+    return renderChartsPage(page.id, { churchReport, cashRunway, propertyReserves, giving, givingSource });
   }
   if (section.id === 'church') {
-    const report = buildChurchReportView(churchReport);
-    const variance = report.totals.actualNetCents - report.totals.budgetNetCents;
-    const packet = buildSyntheticBoardPacket({ summary, churchReport: report, churchTrends, giving });
-    return `<section class="report" aria-label="Synthetic Church Report">
-      <div class="section-heading"><div><div class="eyebrow">Church Report</div><h2>Fiscal year ${report.fiscalYear}</h2></div><span class="badge">Synthetic staging</span></div>
-      <div class="grid"><div class="card"><small>Income</small><strong>${formatCents(report.totals.incomeActualCents)}</strong></div><div class="card"><small>Expenses</small><strong>${formatCents(report.totals.expenseActualCents)}</strong></div><div class="card"><small>Net result</small><strong>${formatSignedCents(report.totals.actualNetCents)}</strong><span>Budget ${formatSignedCents(report.totals.budgetNetCents)} · variance ${formatSignedCents(variance)}</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Account</th><th>Actual</th><th>Budget</th><th>Favorable variance</th></tr></thead><tbody>${renderChurchRows([...report.income, ...report.expenses])}</tbody></table></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Operating history</div><h2>Multi-year operating trend</h2></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Fiscal year</th><th>Income</th><th>Expenses</th><th>Net result</th></tr></thead><tbody>${renderChurchTrendRows(churchTrends)}</tbody></table></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Board packet snapshot</div><h2>Decision-ready FY${packet.fiscalYear} summary</h2></div><span class="badge">${packet.ready ? 'Reconciled' : 'Review required'}</span></div>
-      <div class="grid"><div class="card"><small>Operating result</small><strong>${formatSignedCents(packet.operating.actualNetCents)}</strong><span>Budget ${formatSignedCents(packet.operating.budgetNetCents)} · ${packet.operating.disposition} ${formatSignedCents(packet.operating.varianceCents)}</span></div><div class="card"><small>Financial position</small><strong>${formatCents(packet.position.netAssetsCents)}</strong><span>Assets ${formatCents(packet.position.assetsCents)} · liabilities ${formatCents(packet.position.liabilitiesCents)}</span></div><div class="card"><small>Operating trend</small><strong>${formatSignedCents(packet.trend.changeCents)}</strong><span>FY${packet.trend.priorFiscalYear} to FY${packet.trend.currentFiscalYear}</span></div><div class="card"><small>Giving evidence</small><strong>${formatCents(packet.giving.netCents)}</strong><span>${packet.giving.sourceRecordCount} aggregate records · totals reconcile</span></div></div>
-      <p>Prepared from the same bounded synthetic reads shown above; no separate board-packet query or writer is used.</p>
-    </section>`;
+    return renderChurchPage(page.id, { churchReport, churchTrends });
   }
   if (section.id === 'balance') {
-    const report = buildBalanceSheetView(balanceSheet);
-    return `<section class="report" aria-label="Synthetic Balance Sheet">
-      <div class="section-heading"><div><div class="eyebrow">Balance Sheet</div><h2>Financial position as of ${escapeHtml(report.asOfDate)}</h2></div><span class="badge">Synthetic staging</span></div>
-      <div class="grid"><div class="card"><small>Assets</small><strong>${formatCents(report.totals.assetsCents)}</strong></div><div class="card"><small>Liabilities</small><strong>${formatCents(report.totals.liabilitiesCents)}</strong></div><div class="card"><small>Net assets</small><strong>${formatCents(report.totals.equityCents)}</strong><span>Equation difference ${formatSignedCents(report.totals.equationDifferenceCents)}</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Account</th><th>Balance</th></tr></thead><tbody>${renderBalanceRows([...report.assets, ...report.liabilities, ...report.equity])}</tbody></table></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Position history</div><h2>Multi-year financial position</h2></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Fiscal year</th><th>As of</th><th>Assets</th><th>Liabilities</th><th>Net assets</th></tr></thead><tbody>${renderBalanceTrendRows(balanceTrends)}</tbody></table></div>
-    </section>`;
+    return renderBalancePage(page.id, { balanceSheet, balanceTrends });
   }
   if (section.id === 'daycare') {
-    const report = buildDaycareReportView(daycareReport, daycareAllocation);
-    const variance = report.totals.netActualCents - report.totals.netBudgetCents;
-    return `<section class="report" aria-label="Synthetic Daycare Report">
-      <div class="section-heading"><div><div class="eyebrow">Daycare Report</div><h2>Operating report for ${escapeHtml(report.period)}</h2></div><span class="badge">Synthetic staging</span></div>
-      <div class="grid"><div class="card"><small>Tuition income</small><strong>${formatCents(report.totals.incomeActualCents)}</strong><span>Budget ${formatCents(report.totals.incomeBudgetCents)}</span></div><div class="card"><small>Operating expenses</small><strong>${formatCents(report.totals.expenseActualCents)}</strong><span>Budget ${formatCents(report.totals.expenseBudgetCents)}</span></div><div class="card"><small>Operating result</small><strong>${formatSignedCents(report.totals.netActualCents)}</strong><span>Budget ${formatSignedCents(report.totals.netBudgetCents)} · variance ${formatSignedCents(variance)}</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Category</th><th>Type</th><th>Amount</th></tr></thead><tbody>${renderDaycareRows(report.categories)}</tbody></table></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Shared building costs</div><h2>Utilities and insurance allocation</h2></div><span class="badge">${(daycareAllocation.utility_pct * 100).toFixed(0)}% utilities · ${(daycareAllocation.insurance_pct * 100).toFixed(0)}% insurance</span></div>
-      <div class="grid"><div class="card"><small>Church utilities actual</small><strong>${formatCents(daycareAllocation.utility_source_cents)}</strong><span>Daycare share ${formatCents(daycareAllocation.utility_allocated_cents)}</span></div><div class="card"><small>Church insurance actual</small><strong>${formatCents(daycareAllocation.insurance_source_cents)}</strong><span>Daycare share ${formatCents(daycareAllocation.insurance_allocated_cents)}</span></div></div>
-    </section>`;
+    return renderDaycarePage(page.id, { daycareReport, daycareAllocation });
   }
   if (section.id === 'property') {
-    const report = buildPropertyReportView(propertyReport);
-    const valuation = buildPropertyValuationView(propertyValuation);
-    const forecast = buildPropertyForecastView(propertyForecast);
-    const latestReserve = propertyReserves.at(-1);
-    return `<section class="report" aria-label="Synthetic Commercial Property Report">
-      <div class="section-heading"><div><div class="eyebrow">Commercial Property</div><h2>Property performance through ${escapeHtml(report.periodEnd)}</h2></div><span class="badge">Synthetic staging</span></div>
-      <div class="grid"><div class="card"><small>Revenue</small><strong>${formatCents(report.totals.revenueCents)}</strong><span>Average occupancy ${report.averageOccupancyPct.toFixed(0)}%</span></div><div class="card"><small>Expenses</small><strong>${formatCents(report.totals.expenseCents)}</strong><span>Reserve balance ${formatCents(report.totals.latestReserveCents)}</span></div><div class="card"><small>Net income</small><strong>${formatSignedCents(report.totals.netIncomeCents)}</strong><span>Available for distribution ${formatCents(report.totals.distributableCents)}</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Period</th><th>Occupancy</th><th>Revenue</th><th>Expenses</th><th>Net income</th></tr></thead><tbody>${renderPropertyRows(report.rows)}</tbody></table></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Property tax reserve</div><h2>Monthly reserve schedule</h2></div><span class="badge">${latestReserve.funded_pct.toFixed(1)}% funded</span></div>
-      <div class="table-wrap"><table><thead><tr><th>Report month</th><th>Tax year</th><th>Target</th><th>Before</th><th>Contribution</th><th>After</th><th>Funded</th></tr></thead><tbody>${renderPropertyReserveRows(propertyReserves)}</tbody></table></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Property stewardship</div><h2>Capital and repairs ledgers</h2></div></div>
-      <div class="grid"><div class="card"><small>Capital projects</small><strong>${formatCents(propertyLedgers.totals.capital_cents)}</strong><span>${propertyLedgers.capital.length} synthetic ledger item${propertyLedgers.capital.length === 1 ? '' : 's'}</span></div><div class="card"><small>Repairs &amp; maintenance</small><strong>${formatCents(propertyLedgers.totals.repairs_cents)}</strong><span>${propertyLedgers.repairs.length} synthetic ledger item${propertyLedgers.repairs.length === 1 ? '' : 's'}</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Date</th><th>Project</th><th>Description</th><th>Payee</th><th>Amount</th></tr></thead><tbody>${renderPropertyCapitalRows(propertyLedgers.capital)}</tbody></table></div>
-      <div class="table-wrap"><table><thead><tr><th>Date</th><th>Repair category</th><th>Description</th><th>Payee</th><th>Amount</th></tr></thead><tbody>${renderPropertyRepairRows(propertyLedgers.repairs)}</tbody></table></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Valuation</div><h2>Income approach</h2></div><span class="badge">${(valuation.assumptions.cap_rate * 100).toFixed(1)}% cap rate</span></div>
-      <div class="grid"><div class="card"><small>Effective rental income</small><strong>${formatCents(valuation.totals.effectiveRentalIncomeCents)}</strong><span>Gross ${formatCents(valuation.totals.grossRentalIncomeCents)} · vacancy ${formatCents(valuation.totals.vacancyCents)}</span></div><div class="card"><small>Net operating income</small><strong>${formatSignedCents(valuation.totals.noiCents)}</strong><span>Operating costs ${formatCents(valuation.totals.totalOperatingCostsCents)}</span></div><div class="card"><small>Capitalized value</small><strong>${formatCents(valuation.totals.capitalizedValueCents)}</strong><span>${valuation.totals.reconciled ? 'Income and cost walk reconciles' : 'Review required'} · read-only</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Tenant</th><th>Square feet</th><th>Annual contract rent</th></tr></thead><tbody>${renderPropertyRentRows(valuation.rentRoll)}</tbody></table></div>
-      <div class="table-wrap"><table><thead><tr><th>Operating cost</th><th>Annual amount</th></tr></thead><tbody>${renderPropertyCostRows(valuation.operatingCosts)}</tbody></table></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Property forecast</div><h2>Fiscal year ${forecast.fiscalYear} monthly plan</h2></div><span class="badge">${forecast.reconciled ? '12 months · reconciled' : 'Review required'}</span></div>
-      <div class="grid"><div class="card"><small>Forecast revenue</small><strong>${formatCents(forecast.totals.revenueCents)}</strong></div><div class="card"><small>Forecast expenses</small><strong>${formatCents(forecast.totals.expenseCents)}</strong></div><div class="card"><small>Forecast net income</small><strong>${formatSignedCents(forecast.totals.netIncomeCents)}</strong><span>Read-only synthetic plan</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Month</th><th>Revenue</th><th>Expenses</th><th>Net income</th></tr></thead><tbody>${renderPropertyForecastRows(forecast.rows)}</tbody></table></div>
-    </section>`;
+    return renderPropertyPage(page.id, { propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, propertyDistributions });
   }
   if (section.id === 'planning') {
-    const report = buildBudgetReportView(budgetReport);
-    return `<section class="report" aria-label="Synthetic Budget Report">
-      <div class="section-heading"><div><div class="eyebrow">Budget outlook</div><h2>Plan for fiscal year ${report.fiscalYear}</h2></div><span class="badge">Synthetic staging</span></div>
-      <div class="grid"><div class="card"><small>Base result</small><strong>${formatSignedCents(report.totals.baseNetCents)}</strong><span>Income ${formatCents(report.totals.baseIncomeCents)} · expenses ${formatCents(report.totals.baseExpenseCents)}</span></div><div class="card"><small>Planned result</small><strong>${formatSignedCents(report.totals.plannedNetCents)}</strong><span>Income ${formatCents(report.totals.plannedIncomeCents)} · expenses ${formatCents(report.totals.plannedExpenseCents)}</span></div><div class="card"><small>Outlook change</small><strong>${formatSignedCents(report.totals.netChangeCents)}</strong><span>${report.totals.reconciled ? 'Planned totals reconcile' : 'Review required'} · read-only preview</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Classification</th><th>Category</th><th>Base amount</th><th>Growth</th><th>Planned amount</th><th>Change</th><th>Notes</th></tr></thead><tbody>${renderBudgetRows(report.rows)}</tbody></table></div>
-    </section>`;
+    return renderPlanningPage(page.id, { budgetReport });
   }
   if (section.id === 'accounts') {
-    const report = buildAccountsReportView(accountsReport);
-    return `<section class="report" aria-label="Synthetic Chart of Accounts">
-      <div class="section-heading"><div><div class="eyebrow">Chart of Accounts</div><h2>Account presentation</h2></div><span class="badge">Synthetic staging</span></div>
-      <div class="grid"><div class="card"><small>Total accounts</small><strong>${report.counts.total}</strong><span>${report.counts.income} income · ${report.counts.expenses} expense</span></div><div class="card"><small>Board categories</small><strong>${report.counts.boardCategories}</strong><span>Presentation only; ledger paths unchanged</span></div><div class="card"><small>Purpose tags</small><strong>${report.counts.purposeTags}</strong><span>Independent reporting lens · read-only</span></div></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Ledger hierarchy</div><h2>Account tree</h2></div><span class="badge">Paths preserved</span></div>
-      <div class="table-wrap"><table><thead><tr><th>Hierarchy</th><th>Ledger path</th><th>Account</th><th>Board category</th><th>Purpose</th></tr></thead><tbody>${renderAccountHierarchy(report.hierarchy)}</tbody></table></div>
-    </section>`;
+    return renderAccountsPage(page.id, { accountsReport });
   }
   if (section.id === 'compensation') {
-    const report = buildCompensationReportView(compensationReport);
-    const council = buildCompensationCouncilSnapshot(report);
-    const benchmark = buildCompensationBenchmarkView(report, compensationBenchmarks);
-    const benefits = buildCompensationBenefitsView(report, compensationBenefits);
-    return `<section class="report" aria-label="Synthetic Compensation Report">
-      <div class="section-heading"><div><div class="eyebrow">Compensation</div><h2>Role-level plan for fiscal year ${report.fiscalYear}</h2></div><span class="badge">Synthetic staging</span></div>
-      <div class="grid"><div class="card"><small>Salary plan</small><strong>${formatCents(report.totals.salaryCents)}</strong></div><div class="card"><small>Benefits plan</small><strong>${formatCents(report.totals.benefitsCents)}</strong></div><div class="card"><small>Total compensation</small><strong>${formatCents(report.totals.totalCents)}</strong><span>No personal identities</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Role</th><th>Salary</th><th>Benefits</th><th>Adjustment</th></tr></thead><tbody>${renderCompensationRows(report.rows)}</tbody></table></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Council review snapshot</div><h2>Plan-level decision context</h2></div><span class="badge">Role-only · review-only · not approved</span></div>
-      <div class="grid"><div class="card"><small>Roles represented</small><strong>${council.roleCount}</strong><span>No personal identities</span></div><div class="card"><small>Benefits share</small><strong>${council.benefitsSharePct.toFixed(1)}%</strong><span>Of total planned compensation</span></div><div class="card"><small>Weighted adjustment</small><strong>${council.weightedAdjustmentPct.toFixed(1)}%</strong><span>Salary-weighted planning assumption</span></div></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Benchmark comparison</div><h2>Salary against synthetic district-style reference</h2></div><span class="badge">Synthetic · not published guidance</span></div>
-      <div class="grid"><div class="card"><small>Planned salaries</small><strong>${formatCents(benchmark.totals.salaryCents)}</strong></div><div class="card"><small>Benchmark salaries</small><strong>${formatCents(benchmark.totals.benchmarkSalaryCents)}</strong><span>${benchmark.totals.salaryToBenchmarkPct.toFixed(1)}% of benchmark</span></div><div class="card"><small>Gap to benchmark</small><strong>${formatCents(benchmark.totals.gapCents)}</strong><span>Salary only · alternative, not the plan</span></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Role</th><th>Planned salary</th><th>Benchmark salary</th><th>Share of benchmark</th><th>Gap</th></tr></thead><tbody>${renderCompensationBenchmarkRows(benchmark.rows)}</tbody></table></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Benefits &amp; taxes</div><h2>What the benefits plan contains</h2></div><span class="badge">${benefits.reconciled ? 'Reconciled' : 'Review required'} · role-only</span></div>
-      <div class="table-wrap"><table><thead><tr><th>Component</th><th>Amount</th><th>Share of benefits</th><th>Roles covered</th></tr></thead><tbody>${renderCompensationBenefitRows(benefits.rows, benefits.totalCents)}</tbody></table></div>
-      <p>The component total is ${formatCents(benefits.totalCents)} and must exactly match the benefits plan above. No personal identities are included.</p>
-    </section>`;
+    return renderCompensationPage(page.id, { compensationReport, compensationBenchmarks, compensationBenefits });
+  }
+  if (section.id === 'quickbooks') {
+    return renderQuickbooksPage(page.id, { dataStatus, accountsReport });
+  }
+  if (section.id === 'packet') {
+    return renderPacketPage({ summary, churchReport, churchTrends, giving });
   }
   if (section.id === 'data') {
     const isLive = dataStatus.source === 'live';
@@ -438,7 +299,9 @@ function renderSectionBody(section, summary, giving, givingSource, churchReport,
   </section>`;
 }
 
-function renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle) {
+function renderShell(ctx) {
+  const { metadata, section, pageId, givingSource, councilPreview } = ctx;
+  const page = resolveFinancePage(section, pageId);
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
   return `<!doctype html>
 <html lang="en">
@@ -491,17 +354,27 @@ function renderShell(metadata, summary, giving, givingSource, section, churchRep
     nav { flex:1; overflow-y:auto; padding:.6rem .55rem 1rem; }
     .nav-group { margin-bottom:.35rem; }
     .nav-group-label { padding:.5rem .65rem .3rem; color:rgba(255,255,255,.5); font-size:.66rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+    .nav-section { margin-top:.15rem; }
+    .nav-section-label { padding:.3rem .65rem; color:rgba(255,255,255,.65); font-size:.76rem; font-weight:700; }
+    .nav-section-label.is-active { color:#fff; }
+    .nav-pages { display:flex; flex-direction:column; }
     nav a { display:block; padding:.55rem .65rem; margin:1px 0; border-radius:.5rem; color:rgba(255,255,255,.78); text-decoration:none; font-size:.82rem; font-weight:600; }
+    .nav-pages a { padding:.4rem .65rem .4rem 1.2rem; font-size:.78rem; font-weight:500; }
     nav a[aria-current="page"] { background:rgba(255,255,255,.14); color:#fff; }
     .dashboard-intro { margin-bottom:.25rem; }
     .dashboard-title { margin:.25rem 0 0; color:var(--navy); font-family:Georgia,serif; font-size:clamp(1.8rem,5vw,2.6rem); line-height:1.1; }
     .attention-list { margin:.75rem 0 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:.5rem; }
     .attention-list li { padding:.75rem 1rem; border:1px solid var(--border); border-left:4px solid var(--gold); border-radius:.55rem; background:var(--card); color:var(--warm-label); font-size:.84rem; }
+    .status-pending { border-left-color:var(--warm-gray); background:var(--header); color:var(--warm-label); }
+    .council-banner { display:flex; align-items:center; gap:.6rem; margin-top:1.1rem; padding:.75rem 1rem; border:1px solid var(--gold); border-radius:.6rem; background:#fdf8ec; color:#5c4b2e; font-size:.82rem; }
+    .council-pill { padding:.2rem .55rem; border-radius:99px; background:var(--gold); color:#241a05; font-size:.66rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
+    .council-toggle { margin-left:auto; padding:.4rem .7rem; border:1px solid var(--border); border-radius:.5rem; background:var(--card); color:var(--navy); font-size:.76rem; font-weight:700; text-decoration:none; }
+    body.council-preview form[method="POST"] { display:none; }
     .parity { margin-top:1.25rem; padding:1.25rem; border:1px solid var(--border); border-radius:.85rem; background:var(--card); }
     .parity h2 { margin:0 0 .5rem; }
     .parity ul { columns:2; color:var(--warm-gray); line-height:1.8; }
     footer { margin-top:2rem; padding-top:1rem; border-top:1px solid var(--border); color:var(--warm-meta); font-size:.75rem; }
-    @media(max-width:767px){.app-shell{grid-template-columns:1fr}.app-sidebar{position:static;height:auto}nav{display:flex;flex-wrap:wrap;gap:.25rem;padding:.6rem}.nav-group{display:contents}.nav-group-label{display:none}main{width:min(100% - 1.2rem,72rem);padding-top:1.4rem}.section-heading{align-items:start;flex-direction:column}.grid{grid-template-columns:1fr}.parity ul{columns:1}}
+    @media(max-width:767px){.app-shell{grid-template-columns:1fr}.app-sidebar{position:static;height:auto}nav{display:flex;flex-wrap:wrap;gap:.25rem;padding:.6rem}.nav-group,.nav-section,.nav-pages{display:contents}.nav-group-label,.nav-section-label{display:none}main{width:min(100% - 1.2rem,72rem);padding-top:1.4rem}.section-heading{align-items:start;flex-direction:column}.grid{grid-template-columns:1fr}.parity ul{columns:1}}
     /* ── Payroll ── */
     .pay-toolbar { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:1rem; }
     .pay-toolbar select { min-width:14rem; }
@@ -547,11 +420,11 @@ function renderShell(metadata, summary, giving, givingSource, section, churchRep
     }
   </style>
 </head>
-<body>
+<body${councilPreview ? ' class="council-preview"' : ''}>
   <div class="app-shell">
     <aside class="app-sidebar">
       <div class="sidebar-brand"><span class="mark" aria-hidden="true">T</span><div>Timothy Finance<small>Standalone · alpha</small></div></div>
-      <nav aria-label="Finance workspace">${renderSectionNav(section)}</nav>
+      <nav aria-label="Finance workspace">${renderSectionNav(section, page)}</nav>
       <div class="sidebar-foot">Synthetic staging data<br>No production writers attached</div>
     </aside>
     <main>
@@ -559,7 +432,13 @@ function renderShell(metadata, summary, giving, givingSource, section, churchRep
       <h1>Timothy Finance</h1>
       <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
       <div class="status">Environment ready · no production writers attached</div>
-      ${renderSectionBody(section, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle)}
+      <div class="council-banner">
+        <span class="council-pill">Council view</span>
+        ${councilPreview
+          ? `<span>Previewing what a view-only council/auditor login would see. Editing controls are hidden. Everything shown is already aggregate/role-only synthetic data, so there is nothing further to redact here.</span><a class="council-toggle" href="/?section=${section.id}&amp;page=${page.id}">Exit preview</a>`
+          : `<span>Not a real access boundary yet -- Finance has no verified staff-identity/role check of its own (that is the still-unbuilt shared-login piece of the overhaul). This only previews what a future council view’s chrome would hide.</span><a class="council-toggle" href="/?section=${section.id}&amp;page=${page.id}&amp;council=1">Preview council view</a>`}
+      </div>
+      ${renderSectionBody(ctx)}
       <p><small>Every value besides Giving shown here comes from deterministic synthetic staging fixtures. Giving is ${givingSource === 'live' ? 'fetched live from Connect’s real, aggregate-only contract endpoint' : 'the committed Connect contract example (the live endpoint is not configured or did not answer), validated locally with no network call'}.</small></p>
       <footer>Timothy Lutheran Church · ${release}</footer>
     </main>
@@ -805,11 +684,13 @@ export default {
       if (request.method === 'HEAD') return response(null, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
       try {
         const section = resolveFinanceSection(url.searchParams.get('section'));
-        const summary = section.id === 'health' || section.id === 'church'
+        const pageId = url.searchParams.get('page');
+        const councilPreview = url.searchParams.get('council') === '1';
+        const summary = ['health', 'church', 'packet'].includes(section.id)
           ? await readSyntheticSummary(env.FINANCE_DB) : null;
-        const churchReport = section.id === 'church' || section.id === 'health'
+        const churchReport = ['church', 'health', 'charts', 'packet'].includes(section.id)
           ? await readSyntheticChurchReport(env.FINANCE_DB) : null;
-        const churchTrends = section.id === 'church'
+        const churchTrends = ['church', 'packet'].includes(section.id)
           ? await readSyntheticChurchTrends(env.FINANCE_DB) : null;
         const balanceSheet = section.id === 'balance'
           ? await readSyntheticBalanceSheet(env.FINANCE_DB) : null;
@@ -821,7 +702,7 @@ export default {
           ? await readSyntheticDaycareAllocation(env.FINANCE_DB) : null;
         const propertyReport = section.id === 'property' || section.id === 'health'
           ? await readSyntheticPropertyReport(env.FINANCE_DB) : null;
-        const propertyReserves = section.id === 'property'
+        const propertyReserves = ['property', 'charts'].includes(section.id)
           ? await readSyntheticPropertyReserves(env.FINANCE_DB) : null;
         const propertyLedgers = section.id === 'property'
           ? await readSyntheticPropertyLedgers(env.FINANCE_DB) : null;
@@ -829,11 +710,13 @@ export default {
           ? await readSyntheticPropertyValuation(env.FINANCE_DB) : null;
         const propertyForecast = section.id === 'property'
           ? await readSyntheticPropertyForecast(env.FINANCE_DB) : null;
+        const propertyDistributions = section.id === 'property'
+          ? await readSyntheticPropertyDistributions(env.FINANCE_DB) : null;
         const budgetReport = section.id === 'planning'
           ? await readSyntheticBudgetReport(env.FINANCE_DB) : null;
-        const accountsReport = section.id === 'accounts'
+        const accountsReport = ['accounts', 'quickbooks'].includes(section.id)
           ? await readSyntheticAccountsReport(env.FINANCE_DB) : null;
-        const dataStatus = section.id === 'data' || section.id === 'health'
+        const dataStatus = ['data', 'health', 'quickbooks'].includes(section.id)
           ? await resolveDataStatus(env, env.FINANCE_DB) : null;
         const compensationReport = section.id === 'compensation'
           ? await readSyntheticCompensationReport(env.FINANCE_DB) : null;
@@ -841,9 +724,9 @@ export default {
           ? await readSyntheticCompensationBenchmarks(env.FINANCE_DB) : null;
         const compensationBenefits = section.id === 'compensation'
           ? await readSyntheticCompensationBenefits(env.FINANCE_DB) : null;
-        const cashRunway = section.id === 'health'
+        const cashRunway = ['health', 'charts'].includes(section.id)
           ? await readSyntheticCashRunway(env.FINANCE_DB) : null;
-        const { giving, source: givingSource } = section.id === 'health' || section.id === 'giving'
+        const { giving, source: givingSource } = ['health', 'giving', 'charts', 'packet'].includes(section.id)
           ? await resolveGivingSummary(env) : { giving: SYNTHETIC_GIVING, source: 'synthetic-fallback' };
         const givingEntryStatus = section.id === 'giving' ? url.searchParams.get('status') : null;
         const givingEntryMessage = givingEntryStatus === 'error'
@@ -852,7 +735,13 @@ export default {
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
-        return response(renderShell(metadata, summary, giving, givingSource, section, churchReport, churchTrends, balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, budgetReport, accountsReport, dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle), {
+        return response(renderShell({
+          metadata, summary, giving, givingSource, section, pageId, councilPreview, churchReport, churchTrends,
+          balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves,
+          propertyLedgers, propertyValuation, propertyForecast, propertyDistributions, budgetReport, accountsReport,
+          dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway,
+          givingEntryStatus, givingEntryMessage, payrollBundle,
+        }), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       } catch {
