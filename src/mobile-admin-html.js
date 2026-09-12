@@ -176,8 +176,16 @@ a{text-decoration:none;}
 .sched-sub{font-size:12.5px;color:var(--warm-gray);margin-top:2px;}
 .sched-asof{font-size:11px;color:var(--warm-gray);margin-top:6px;}
 .sched-svc-title{font-weight:700;font-size:13px;color:var(--navy);padding:14px 16px 4px;}
-.sched-role-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--border);padding:10px 16px;}
+.sched-role-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--border);padding:10px 16px;cursor:pointer;}
 .sched-role-row:first-child{border-top:none;}
+.sched-chevron{font-size:10px;color:var(--warm-gray);margin-left:2px;}
+.sched-role-edit{padding:10px 16px 14px;border-top:1px dashed var(--border);background:var(--linen);display:flex;flex-direction:column;gap:8px;}
+.sched-role-edit label{font-size:11px;font-weight:700;color:var(--warm-gray);}
+.sched-role-edit select{width:100%;height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;padding:0 10px;font-family:inherit;box-sizing:border-box;}
+.sched-edit-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.sched-edit-btn{height:36px;padding:0 14px;border-radius:8px;font-weight:700;font-size:12.5px;cursor:pointer;border:none;background:var(--blue-mist);color:var(--navy);}
+.sched-edit-btn.save{background:var(--navy);color:#fff;}
+.sched-edit-btn.cancel{background:var(--white);color:var(--charcoal);border:1.5px solid var(--border);}
 .sched-role-name{font-size:13.5px;font-weight:600;color:var(--charcoal);}
 .sched-person-wrap{display:flex;align-items:center;gap:8px;}
 .sched-person{font-size:13.5px;color:var(--charcoal);text-align:right;}
@@ -205,6 +213,9 @@ a{text-decoration:none;}
     <button id="btn-menu" aria-label="Menu">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M3 12h18M3 18h18" stroke="#1E2D4A" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
+    <button id="btn-back" aria-label="Back" style="display:none;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="#1E2D4A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <div id="topbar-title"><img src="/icons/connect-mark.png?v=${DEPLOY_VERSION}" alt=""><span id="topbar-title-text">Dashboard</span></div>
     <button id="btn-search" aria-label="Search people">
       <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#1E2D4A" stroke-width="2"/><path d="M21 21l-4-4" stroke="#1E2D4A" stroke-width="2" stroke-linecap="round"/></svg>
@@ -231,6 +242,11 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&a
 
 const state = {
   screen: 'home',
+  // Snapshots of {screen, personId, householdId} to return to on Back — pushed by drill-down
+  // navigation (openPerson/openHousehold), cleared by go() since that's always a top-level
+  // jump (a sidebar tab, a dashboard shortcut), not a "deeper" screen. Standalone/installed-PWA
+  // mode has no browser chrome back button at all, so this is the only way back on a phone.
+  navStack: [],
   sidebarOpen: false,
   query: '',
   filter: '',
@@ -253,7 +269,10 @@ const state = {
   givForm: { personId: null, personName: '', personQuery: '', fundId: '', amount: '', method: 'cash', date: '', checkNumber: '', notes: '' },
   givPersonResults: [],
   givSaving: false,
+  givEditingId: null,
+  givEditDraft: null,
   sched: null,
+  schedExpanded: null,
   households: [],
   householdsTotal: 0,
   householdsOffset: 0,
@@ -284,8 +303,31 @@ function statusColors(mt) {
 function setTopbarTitle(t) { document.getElementById('topbar-title-text').textContent = t; }
 
 function go(screen) {
+  state.navStack = [];
   state.screen = screen;
   state.sidebarOpen = false;
+  render();
+  document.getElementById('content').scrollTop = 0;
+}
+
+function goBack() {
+  const prev = state.navStack.pop();
+  state.sidebarOpen = false;
+  if (!prev) {
+    state.screen = 'home';
+    render();
+    document.getElementById('content').scrollTop = 0;
+    return;
+  }
+  // Detail screens re-fetch rather than just restoring the id — state.personDetail/
+  // householdDetail hold whatever was viewed most recently, which is not necessarily this id
+  // (People → Ann → Ann's household → Bob → Back must show Ann again, not Ann's id with
+  // Bob's still-cached record).
+  if (prev.screen === 'person') { loadPersonDetail(prev.personId); return; }
+  if (prev.screen === 'household') { loadHouseholdDetail(prev.householdId); return; }
+  state.screen = prev.screen;
+  state.personId = prev.personId;
+  state.householdId = prev.householdId;
   render();
   document.getElementById('content').scrollTop = 0;
 }
@@ -467,7 +509,12 @@ function onSearchInput(v) {
 }
 
 // ── Person detail ───────────────────────────────────────────────────────
-async function openPerson(id) {
+// Split from openPerson() so goBack() can land back on a detail screen by re-fetching
+// (loadPersonDetail) rather than by pushing another stack entry — restoring state.personId
+// alone without state.personDetail to match would otherwise flash whichever person's record
+// happened to be cached last (e.g. People → Ann → Ann's household → Bob → Back would show
+// Ann's screen with Bob's still-cached data).
+async function loadPersonDetail(id) {
   state.personId = id;
   state.screen = 'person';
   state.personDetail = null;
@@ -479,6 +526,11 @@ async function openPerson(id) {
     return;
   }
   renderPerson();
+}
+
+async function openPerson(id) {
+  state.navStack.push({ screen: state.screen, personId: state.personId, householdId: state.householdId });
+  await loadPersonDetail(id);
 }
 
 function renderPerson() {
@@ -498,7 +550,7 @@ function renderPerson() {
       + '</div>';
   }
   document.getElementById('content').innerHTML = '<div class="mob-pad">'
-    + '<button class="back-link" data-action="back-to-people"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="#2E7EA6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>People</button>'
+    + '<button class="back-link" data-action="back-to-people"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="#2E7EA6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Back</button>'
     + '<div class="person-head"><div class="avatar avatar-64">' + esc(initials(p.name)) + '</div>'
     + '<div><div class="person-name">' + esc(p.name) + '</div>'
     + (p.member_type ? '<span class="status-pill" style="background:' + c.bg + ';color:' + c.color + ';">' + esc(p.member_type) + '</span>' : '')
@@ -551,7 +603,8 @@ function renderAttendance() {
         + '<div class="att-hist-body"><div class="att-hist-title">' + esc(sub) + '</div></div>'
         + (editing
             ? '<input type="number" inputmode="numeric" value="' + esc(s.attendance) + '" data-att-edit-input="' + esc(s.id) + '">'
-              + '<div class="att-hist-actions"><button class="att-icon-btn" data-action="att-save" data-id="' + esc(s.id) + '">Save</button></div>'
+              + '<div class="att-hist-actions"><button class="att-icon-btn" data-action="att-cancel-edit" data-id="' + esc(s.id) + '">Cancel</button>'
+              + '<button class="att-icon-btn" data-action="att-save" data-id="' + esc(s.id) + '">Save</button></div>'
             : (state.attCanEdit
                 ? '<div class="att-hist-count">' + esc(s.attendance) + '</div>'
                   + '<div class="att-hist-actions"><button class="att-icon-btn" data-action="att-edit" data-id="' + esc(s.id) + '">Edit</button>'
@@ -653,20 +706,48 @@ function schedFmtAsOf(dateStr) {
     + t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-function schedRoleRowHtml(r) {
+// Each role row can expand into a small inline panel — reassign to someone else on the same
+// roster the schedule was built from (or open the role back up), and resend the confirmation
+// email when it hasn't been confirmed yet. state.schedExpanded holds at most one "svc|role" key
+// at a time, same one-row-open-at-a-time pattern the Attendance history list already uses.
+function schedRoleKey(svcKey, role) { return svcKey + '|' + role; }
+
+function schedRoleRowHtml(r, svcKey) {
   const st = schedStatusStyle(r.status);
+  const key = schedRoleKey(svcKey, r.role);
+  const expanded = state.schedExpanded === key;
   const personHtml = r.person
     ? '<span class="sched-person">' + esc(r.person.name) + '</span>'
     : '<span class="sched-person open">Open</span>';
-  return '<div class="sched-role-row">'
+  let html = '<div class="sched-role-row" data-action="sched-toggle-role" data-svc="' + esc(svcKey) + '" data-role="' + esc(r.role) + '">'
     + '<div class="sched-role-name">' + esc(r.role) + '</div>'
     + '<div class="sched-person-wrap">' + personHtml
     + (r.person ? '<span class="status-pill" style="background:' + st.bg + ';color:' + st.color + ';">' + esc(st.label) + '</span>' : '')
+    + '<span class="sched-chevron">' + (expanded ? '&#9650;' : '&#9660;') + '</span>'
     + '</div></div>';
+  if (expanded) {
+    const roster = (state.sched && state.sched.roster) || [];
+    let opts = '<option value="">— Open (no one assigned) —</option>';
+    for (const p of roster) {
+      opts += '<option value="' + esc(p.id) + '"' + (r.person && String(r.person.id) === String(p.id) ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+    }
+    html += '<div class="sched-role-edit">'
+      + '<label>Assign to</label>'
+      + '<select data-sched-picker="' + esc(key) + '">' + opts + '</select>'
+      + '<div class="sched-edit-actions">'
+      + (r.person && r.status !== 'confirmed'
+          ? '<button class="sched-edit-btn" data-action="sched-remind" data-svc="' + esc(svcKey) + '" data-role="' + esc(r.role) + '">Remind</button>'
+          : '')
+      + '<button class="sched-edit-btn cancel" data-action="sched-toggle-role" data-svc="' + esc(svcKey) + '" data-role="' + esc(r.role) + '">Cancel</button>'
+      + '<button class="sched-edit-btn save" data-action="sched-save-role" data-svc="' + esc(svcKey) + '" data-role="' + esc(r.role) + '">Save</button>'
+      + '</div></div>';
+  }
+  return html;
 }
 
 async function loadScheduler() {
   setTopbarTitle('Scheduler');
+  state.schedExpanded = null;
   document.getElementById('content').innerHTML = '<div class="state-msg">Loading…</div>';
   try {
     state.sched = await api('/admin/api/mobile/scheduler/this-sunday');
@@ -675,6 +756,34 @@ async function loadScheduler() {
     return;
   }
   renderScheduler();
+}
+
+async function schedSaveRole(svcKey, roleName) {
+  const key = schedRoleKey(svcKey, roleName);
+  const sel = document.querySelector('[data-sched-picker="' + CSS.escape(key) + '"]');
+  const personId = sel && sel.value ? sel.value : null;
+  try {
+    state.sched = await api('/admin/api/mobile/scheduler/reassign', {
+      method: 'POST',
+      body: JSON.stringify({ date_iso: state.sched.date_iso, role: roleName, svc: svcKey, person_id: personId }),
+    });
+    state.schedExpanded = null;
+    renderScheduler();
+  } catch (e) {
+    alert('Could not update the assignment: ' + e.message);
+  }
+}
+
+async function schedRemind(svcKey, roleName) {
+  try {
+    const res = await api('/admin/api/mobile/scheduler/remind', {
+      method: 'POST',
+      body: JSON.stringify({ date_iso: state.sched.date_iso, role: roleName, svc: svcKey }),
+    });
+    alert('Reminder sent to ' + res.sent_to + '.');
+  } catch (e) {
+    alert('Could not send the reminder: ' + e.message);
+  }
 }
 
 function renderScheduler() {
@@ -690,23 +799,35 @@ function renderScheduler() {
   const asOf = d.confirmations_as_of
     ? ('Confirmations as of ' + esc(schedFmtAsOf(d.confirmations_as_of)))
     : 'Confirmations have not synced from volunteer replies yet';
+  let readingsHtml = '';
+  if (d.readings) {
+    const rows = [['OT', d.readings.ot], ['Epistle', d.readings.epistle], ['Gospel', d.readings.gospel], ['Psalm', d.readings.psalm]]
+      .filter(p => p[1]);
+    if (rows.length) {
+      readingsHtml = '<div class="mob-card"><div class="mob-card-head"><b>Readings</b>'
+        + (d.readings.sunday_name ? '<div class="sub">' + esc(d.readings.sunday_name) + '</div>' : '') + '</div>'
+        + rows.map(p => '<div class="sched-role-row" style="cursor:default;"><div class="sched-role-name">' + esc(p[0]) + '</div><span class="sched-person">' + esc(p[1]) + '</span></div>').join('')
+        + '</div>';
+    }
+  }
   let bodyHtml = '';
   if (d.kind === 'special') {
     bodyHtml += '<div class="mob-card"><div class="mob-card-head"><b>' + esc(d.name || 'Special Service') + '</b></div>';
     for (const s of d.services) {
+      const svcKey = s.time || 'shared';
       bodyHtml += '<div class="sched-svc-title">' + esc(s.time || 'Service') + '</div>';
-      for (const r of s.roles) bodyHtml += schedRoleRowHtml(r);
+      for (const r of s.roles) bodyHtml += schedRoleRowHtml(r, svcKey);
     }
     bodyHtml += '</div>';
   } else {
     for (const s of d.services) {
       bodyHtml += '<div class="mob-card"><div class="sched-svc-title">' + esc(s.svc_label) + '</div>';
-      for (const r of s.roles) bodyHtml += schedRoleRowHtml(r);
+      for (const r of s.roles) bodyHtml += schedRoleRowHtml(r, s.svc);
       bodyHtml += '</div>';
     }
     if (d.shared_roles && d.shared_roles.length) {
       bodyHtml += '<div class="mob-card"><div class="sched-svc-title">Both Services</div>';
-      for (const r of d.shared_roles) bodyHtml += schedRoleRowHtml(r);
+      for (const r of d.shared_roles) bodyHtml += schedRoleRowHtml(r, 'shared');
       bodyHtml += '</div>';
     }
   }
@@ -715,6 +836,7 @@ function renderScheduler() {
     + '<div class="sched-sub">' + esc(d.counts.filled) + ' of ' + esc(d.counts.total) + ' roles filled'
     + (d.counts.open ? ' · ' + esc(d.counts.open) + ' open' : '') + '</div>'
     + '<div class="sched-asof">' + asOf + '</div></div>'
+    + readingsHtml
     + bodyHtml
     + '</div>';
 }
@@ -796,10 +918,16 @@ function renderGiving(focusPersonSearch) {
     histHtml = '<div class="empty-note">No gifts recorded yet.</div>';
   } else {
     for (const e of state.givRecent) {
+      if (state.givEditingId === e.id) {
+        histHtml += givEditRowHtml(e);
+        continue;
+      }
       histHtml += '<div class="giv-hist-row"><div class="giv-hist-body">'
         + '<div class="giv-hist-title">' + esc(e.person_name) + '</div>'
         + '<div class="giv-hist-sub">' + esc(fmtGivDate(e.txn_date)) + ' · ' + esc(e.fund_name) + ' · ' + esc(e.method) + '</div>'
-        + '</div><div class="giv-hist-amt">' + esc(fmtCents(e.amount)) + '</div></div>';
+        + '</div><div class="giv-hist-amt">' + esc(fmtCents(e.amount)) + '</div>'
+        + (state.givCanEdit && !e.batch_closed ? '<div class="att-hist-actions"><button class="att-icon-btn" data-action="giv-edit" data-id="' + esc(e.id) + '">Edit</button></div>' : '')
+        + '</div>';
     }
   }
   document.getElementById('content').innerHTML = '<div class="mob-pad">'
@@ -840,6 +968,62 @@ function givPersonClear() {
   state.givForm.personName = '';
   state.givForm.personQuery = '';
   renderGiving();
+}
+
+// ── Giving: edit/delete a recently recorded entry ───────────────────────────
+function givEditRowHtml(e) {
+  const d = state.givEditDraft || {};
+  let fundOpts = '';
+  for (const fund of state.givFunds) {
+    fundOpts += '<option value="' + esc(fund.id) + '"' + (String(d.fundId) === String(fund.id) ? ' selected' : '') + '>' + esc(fund.name) + '</option>';
+  }
+  return '<div class="mob-card att-form" style="margin:0;border-radius:0;border-top:1px solid var(--border);box-shadow:none;">'
+    + '<div><label>Fund</label><select id="giv-edit-fund">' + fundOpts + '</select></div>'
+    + '<div class="att-form-row">'
+    + '<div><label>Amount</label><input type="number" inputmode="decimal" id="giv-edit-amount" value="' + esc(d.amount) + '"></div>'
+    + '<div><label>Date</label><input type="date" id="giv-edit-date" value="' + esc(d.date) + '"></div>'
+    + '</div>'
+    + '<div class="att-form-row">'
+    + '<div><label>Method</label><select id="giv-edit-method">'
+    + ['cash', 'check', 'ach', 'card'].map(m => '<option value="' + m + '"' + (d.method === m ? ' selected' : '') + '>' + m[0].toUpperCase() + m.slice(1) + '</option>').join('')
+    + '</select></div>'
+    + (d.method === 'check' ? '<div><label>Check #</label><input type="text" id="giv-edit-check" value="' + esc(d.checkNumber) + '"></div>' : '<div></div>')
+    + '</div>'
+    + '<div class="att-form-actions">'
+    + '<button class="att-form-cancel" data-action="giv-edit-cancel" data-id="' + esc(e.id) + '">Cancel</button>'
+    + '<button class="att-form-cancel" style="color:var(--danger);" data-action="giv-delete" data-id="' + esc(e.id) + '">Delete</button>'
+    + '<button class="att-form-save" data-action="giv-save-edit" data-id="' + esc(e.id) + '">Save</button>'
+    + '</div></div>';
+}
+
+async function givSaveEdit(id) {
+  const d = state.givEditDraft;
+  if (!d) return;
+  if (!d.fundId) { alert('Pick a fund.'); return; }
+  if (!d.amount || parseFloat(d.amount) <= 0) { alert('Enter an amount.'); return; }
+  if (!d.date) { alert('Pick a date.'); return; }
+  try {
+    await api('/admin/api/mobile/giving/entry/' + id, { method: 'PATCH', body: JSON.stringify({
+      fund_id: d.fundId, amount: d.amount, method: d.method, date: d.date, check_number: d.checkNumber,
+    }) });
+    state.givEditingId = null;
+    state.givEditDraft = null;
+    await loadGiving();
+  } catch (e) {
+    alert('Save failed: ' + e.message);
+  }
+}
+
+async function givDeleteEntry(id) {
+  if (!confirm('Delete this gift entry?')) return;
+  try {
+    await api('/admin/api/mobile/giving/entry/' + id, { method: 'DELETE' });
+    state.givEditingId = null;
+    state.givEditDraft = null;
+    await loadGiving();
+  } catch (e) {
+    alert('Delete failed: ' + e.message);
+  }
 }
 
 async function givSave() {
@@ -917,7 +1101,10 @@ function onHhSearchInput(v) {
   hhSearchDebounce = setTimeout(() => loadHouseholds(true), 250);
 }
 
-async function openHousehold(id) {
+// Split the same way loadPersonDetail is above, and for the same reason: goBack() needs to
+// re-fetch when landing back on a household screen, not just restore the id and hope
+// state.householdDetail still matches it.
+async function loadHouseholdDetail(id) {
   state.householdId = id;
   state.screen = 'household';
   state.householdDetail = null;
@@ -929,6 +1116,11 @@ async function openHousehold(id) {
     return;
   }
   renderHousehold();
+}
+
+async function openHousehold(id) {
+  state.navStack.push({ screen: state.screen, personId: state.personId, householdId: state.householdId });
+  await loadHouseholdDetail(id);
 }
 
 function renderHousehold() {
@@ -943,7 +1135,7 @@ function renderHousehold() {
       + '</div>';
   }
   document.getElementById('content').innerHTML = '<div class="mob-pad">'
-    + '<button class="back-link" data-action="back-to-households"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="#2E7EA6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Households</button>'
+    + '<button class="back-link" data-action="back-to-households"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="#2E7EA6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Back</button>'
     + '<div class="hh-detail-title">' + esc(h.name) + '</div>'
     + (h.address
         ? '<div class="mob-card contact-card"><a href="' + esc(h.map_url) + '" target="_blank" rel="noopener"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="margin-top:2px;"><path d="M12 21s7-6.1 7-11a7 7 0 10-14 0c0 4.9 7 11 7 11z" stroke="#2E7EA6" stroke-width="1.6"/><circle cx="12" cy="10" r="2.4" stroke="#2E7EA6" stroke-width="1.6"/></svg><span class="addr-val">' + esc(h.address) + '<br><span class="addr-hint">Tap for directions</span></span></a></div>'
@@ -956,6 +1148,9 @@ function renderHousehold() {
 function render() {
   document.getElementById('sidebar').classList.toggle('open', state.sidebarOpen);
   document.getElementById('sb-overlay').classList.toggle('open', state.sidebarOpen);
+  // Standalone/installed-PWA mode has no browser chrome back button at all, so this is the
+  // only way back once you're off the dashboard.
+  document.getElementById('btn-back').style.display = state.screen === 'home' ? 'none' : '';
   document.querySelectorAll('.sb-item[data-nav]').forEach(el => {
     el.classList.toggle('active', el.dataset.nav === state.screen);
     const req = el.dataset.requires;
@@ -976,6 +1171,7 @@ function render() {
 
 // ── Event delegation ─────────────────────────────────────────────────────
 document.getElementById('btn-menu').addEventListener('click', () => { state.sidebarOpen = !state.sidebarOpen; render(); });
+document.getElementById('btn-back').addEventListener('click', goBack);
 document.getElementById('btn-search').addEventListener('click', () => go('people'));
 document.getElementById('sb-overlay').addEventListener('click', () => { state.sidebarOpen = false; render(); });
 document.querySelectorAll('.sb-item[data-nav]').forEach(el => {
@@ -1007,9 +1203,12 @@ document.getElementById('content').addEventListener('click', (e) => {
   } else if (action === 'load-more') {
     loadPeople(false);
   } else if (action === 'back-to-people') {
-    go('people');
+    goBack();
   } else if (action === 'att-edit') {
     state.attEditingId = parseInt(t.dataset.id, 10);
+    renderAttendance();
+  } else if (action === 'att-cancel-edit') {
+    state.attEditingId = null;
     renderAttendance();
   } else if (action === 'att-save') {
     attSaveEdit(parseInt(t.dataset.id, 10));
@@ -1034,21 +1233,56 @@ document.getElementById('content').addEventListener('click', (e) => {
   } else if (action === 'hh-load-more') {
     loadHouseholds(false);
   } else if (action === 'back-to-households') {
-    go('households');
+    goBack();
   } else if (action === 'open-person-from-hh') {
     openPerson(parseInt(t.dataset.id, 10));
   } else if (action === 'goto-household') {
     openHousehold(parseInt(t.dataset.id, 10));
+  } else if (action === 'sched-toggle-role') {
+    const key = t.dataset.svc + '|' + t.dataset.role;
+    state.schedExpanded = state.schedExpanded === key ? null : key;
+    renderScheduler();
+  } else if (action === 'sched-save-role') {
+    schedSaveRole(t.dataset.svc, t.dataset.role);
+  } else if (action === 'sched-remind') {
+    schedRemind(t.dataset.svc, t.dataset.role);
+  } else if (action === 'giv-edit') {
+    const id = parseInt(t.dataset.id, 10);
+    const entry = (state.givRecent || []).find(x => x.id === id);
+    if (entry) {
+      state.givEditingId = id;
+      state.givEditDraft = {
+        fundId: entry.fund_id, amount: (entry.amount / 100).toFixed(2),
+        date: String(entry.txn_date).slice(0, 10), method: entry.method, checkNumber: entry.check_number || '',
+      };
+      renderGiving();
+    }
+  } else if (action === 'giv-edit-cancel') {
+    state.givEditingId = null;
+    state.givEditDraft = null;
+    renderGiving();
+  } else if (action === 'giv-save-edit') {
+    givSaveEdit(parseInt(t.dataset.id, 10));
+  } else if (action === 'giv-delete') {
+    givDeleteEntry(parseInt(t.dataset.id, 10));
   }
 });
 document.getElementById('content').addEventListener('input', (e) => {
   if (e.target && e.target.id === 'ppl-search') onSearchInput(e.target.value);
   else if (e.target && e.target.id === 'giv-person-search') onGivPersonSearch(e.target.value);
   else if (e.target && e.target.id === 'hh-search') onHhSearchInput(e.target.value);
+  else if (e.target && e.target.id === 'giv-edit-amount' && state.givEditDraft) state.givEditDraft.amount = e.target.value;
+  else if (e.target && e.target.id === 'giv-edit-date' && state.givEditDraft) state.givEditDraft.date = e.target.value;
+  else if (e.target && e.target.id === 'giv-edit-check' && state.givEditDraft) state.givEditDraft.checkNumber = e.target.value;
 });
 document.getElementById('content').addEventListener('change', (e) => {
   if (e.target && e.target.id === 'giv-method') {
     state.givForm.method = e.target.value;
+    renderGiving();
+  } else if (e.target && e.target.id === 'giv-edit-fund' && state.givEditDraft) {
+    state.givEditDraft.fundId = e.target.value;
+  } else if (e.target && e.target.id === 'giv-edit-method' && state.givEditDraft) {
+    state.givEditDraft.method = e.target.value;
     renderGiving();
   }
 });

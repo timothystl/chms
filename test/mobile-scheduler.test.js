@@ -255,3 +255,248 @@ describe('handleMobileApi — scheduler/this-sunday special-service row', () => 
     expect(d.counts).toEqual({ filled: 1, open: 1, total: 2 });
   });
 });
+
+function makePostReq(body) { return { json: async () => body }; }
+
+describe('handleMobileApi — scheduler/this-sunday readings + roster', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-02T12:00:00Z')); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('carries a readings field shaped as the four lectionary citations (or null)', async () => {
+    const db = makeDb();
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('scheduler/this-sunday'), 'GET', 'admin');
+    const d = await r.json();
+    expect(d.date_iso).toBe('2026-09-06');
+    expect(d).toHaveProperty('readings');
+    if (d.readings) {
+      expect(d.readings).toHaveProperty('ot');
+      expect(d.readings).toHaveProperty('epistle');
+      expect(d.readings).toHaveProperty('gospel');
+      expect(d.readings).toHaveProperty('psalm');
+    }
+  });
+
+  it('carries a roster of ws_people, sorted by name, for the reassign picker', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, {
+      schedule: { '2026-09': { rows: [{ type: 'sunday', dateISO: '2026-09-06', ordinal: 1, assignments: {} }] } },
+      people: [{ id: 3, name: 'Zoe Young' }, { id: 1, name: 'Amy Ames' }],
+      confirmations: {},
+    });
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('scheduler/this-sunday'), 'GET', 'admin');
+    const d = await r.json();
+    expect(d.roster).toEqual([{ id: 1, name: 'Amy Ames' }, { id: 3, name: 'Zoe Young' }]);
+  });
+});
+
+describe('handleMobileApi — scheduler/reassign', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-02T12:00:00Z')); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  const PEOPLE = [{ id: 12, name: 'Elaine Reyes' }, { id: 7, name: 'James Poe' }];
+  const SCHEDULE = {
+    '2026-09': {
+      rows: [{
+        type: 'sunday', dateISO: '2026-09-06', ordinal: 1,
+        assignments: { Elder: { '8am': 12, '10:45am': null }, Preacher: { shared: 12 } },
+      }],
+    },
+  };
+
+  it('is denied to roles other than admin/staff', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'Elder', svc: '10:45am', person_id: 7 }),
+      { DB: db }, makeUrl('scheduler/reassign'), 'POST', 'finance'
+    );
+    expect(r.status).toBe(403);
+  });
+
+  it('assigns an open role to a person from the roster and persists it', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'Elder', svc: '10:45am', person_id: 7 }),
+      { DB: db }, makeUrl('scheduler/reassign'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(200);
+    const d = await r.json();
+    const svc = d.services.find(s => s.svc === '10:45am');
+    expect(svc.roles.find(x => x.role === 'Elder').person).toEqual({ id: 7, name: 'James Poe' });
+
+    const row = await db.prepare(`SELECT value FROM scheduler_data WHERE key='ws_schedule_v2'`).first();
+    expect(JSON.parse(row.value)['2026-09'].rows[0].assignments.Elder['10:45am']).toBe(7);
+  });
+
+  it('opens a role back up when person_id is null', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'Elder', svc: '8am', person_id: null }),
+      { DB: db }, makeUrl('scheduler/reassign'), 'POST', 'admin'
+    );
+    const d = await r.json();
+    const svc = d.services.find(s => s.svc === '8am');
+    expect(svc.roles.find(x => x.role === 'Elder').person).toBe(null);
+  });
+
+  it('clears the stale confirmation status attached to the slot being reassigned', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, {
+      schedule: SCHEDULE, people: PEOPLE,
+      confirmations: { '2026-09-06|Elder|8am': 'confirmed' },
+    });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'Elder', svc: '8am', person_id: 7 }),
+      { DB: db }, makeUrl('scheduler/reassign'), 'POST', 'admin'
+    );
+    const d = await r.json();
+    const elder8 = d.services.find(s => s.svc === '8am').roles.find(x => x.role === 'Elder');
+    expect(elder8.person).toEqual({ id: 7, name: 'James Poe' });
+    // Elaine's 'confirmed' status must NOT carry over to James, who hasn't answered anything.
+    expect(elder8.status).toBe('pending');
+  });
+
+  it('rejects a person id that is not on the schedule roster', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'Elder', svc: '8am', person_id: 999 }),
+      { DB: db }, makeUrl('scheduler/reassign'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(400);
+  });
+
+  it('rejects a role/service combination that does not exist', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'NotARole', svc: '8am', person_id: 7 }),
+      { DB: db }, makeUrl('scheduler/reassign'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(400);
+  });
+
+  it('reassigns a shared (Both Services) role', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'Preacher', svc: 'shared', person_id: 7 }),
+      { DB: db }, makeUrl('scheduler/reassign'), 'POST', 'staff'
+    );
+    const d = await r.json();
+    expect(d.shared_roles.find(x => x.role === 'Preacher').person).toEqual({ id: 7, name: 'James Poe' });
+  });
+
+  it('reassigns a role on a special-service Sunday', async () => {
+    const db = makeDb();
+    vi.setSystemTime(new Date('2026-12-21T12:00:00Z'));
+    const schedule = {
+      '2026-12': {
+        rows: [{
+          type: 'special', dateISO: '2026-12-27', name: 'Christmas I',
+          services: [{ time: '10:00 AM', roles: ['Elder', 'Acolyte'], assignments: { Elder: 12, Acolyte: null } }],
+        }],
+      },
+    };
+    await seedSchedulerData(db, { schedule, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-12-27', role: 'Acolyte', svc: '10:00 AM', person_id: 7 }),
+      { DB: db }, makeUrl('scheduler/reassign'), 'POST', 'admin'
+    );
+    const d = await r.json();
+    expect(d.services[0].roles.find(x => x.role === 'Acolyte').person).toEqual({ id: 7, name: 'James Poe' });
+  });
+});
+
+describe('handleMobileApi — scheduler/remind', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-02T12:00:00Z')); });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  const PEOPLE = [{ id: 12, name: 'Elaine Reyes', email: 'elaine@example.org' }, { id: 7, name: 'James Poe' }];
+  const SCHEDULE = {
+    '2026-09': {
+      rows: [{
+        type: 'sunday', dateISO: '2026-09-06', ordinal: 1,
+        assignments: { Elder: { '8am': 12, '10:45am': 7 } },
+      }],
+    },
+  };
+
+  function stubFetch(impl) {
+    const calls = [];
+    vi.stubGlobal('fetch', (url, init) => { calls.push({ url: String(url), init }); return impl(String(url), init); });
+    return calls;
+  }
+
+  it('is denied to roles other than admin/staff', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'Elder', svc: '8am' }),
+      { DB: db }, makeUrl('scheduler/remind'), 'POST', 'council'
+    );
+    expect(r.status).toBe(403);
+  });
+
+  it('errors clearly when Resend is not configured on the Worker', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'Elder', svc: '8am' }),
+      { DB: db }, makeUrl('scheduler/remind'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(500);
+    const d = await r.json();
+    expect(d.error).toContain('RESEND_API_KEY');
+  });
+
+  it('errors when the role has no one assigned', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'Acolyte', svc: '8am' }),
+      { DB: db, RESEND_API_KEY: 'key', EMAIL_FROM: 'office@timothystl.org' },
+      makeUrl('scheduler/remind'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(400);
+    const d = await r.json();
+    expect(d.error).toMatch(/no one assigned/i);
+  });
+
+  it('errors when the assigned person has no email on file', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'Elder', svc: '10:45am' }), // James Poe — no email
+      { DB: db, RESEND_API_KEY: 'key', EMAIL_FROM: 'office@timothystl.org' },
+      makeUrl('scheduler/remind'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(400);
+    const d = await r.json();
+    expect(d.error).toContain('James Poe');
+  });
+
+  it('mints an RSVP token and emails the assigned person a confirm/decline link', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const calls = stubFetch((reqUrl) => {
+      expect(reqUrl).toBe('https://api.resend.com/emails');
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: 'em_1' }) });
+    });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'Elder', svc: '8am' }), // Elaine Reyes — has email
+      { DB: db, RESEND_API_KEY: 'key', EMAIL_FROM: 'office@timothystl.org' },
+      makeUrl('scheduler/remind'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(200);
+    const d = await r.json();
+    expect(d.sent_to).toBe('elaine@example.org');
+    expect(calls.length).toBe(1);
+    const body = JSON.parse(calls[0].init.body);
+    expect(body.to).toBe('elaine@example.org');
+    expect(body.text).toContain('/rsvp?token=');
+    expect(body.text).toContain('status=confirmed');
+  });
+});

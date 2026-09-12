@@ -440,6 +440,102 @@ describe('handleMobileApi — giving: funds, recent, quick entry', () => {
   });
 });
 
+describe('handleMobileApi — giving: edit/delete an existing entry', () => {
+  function seedFund(db, name) {
+    return db.prepare(`INSERT INTO funds (name, active, sort_order) VALUES (?,1,0)`).bind(name).run();
+  }
+  async function seedEntry(db, { fundId, amountCents = 5000, closed = 0 }) {
+    const batch = await db.prepare(`INSERT INTO giving_batches (batch_date, description, closed) VALUES ('2026-08-23','Manual Entry 2026-08',?)`).bind(closed).run();
+    const entry = await db.prepare(
+      `INSERT INTO giving_entries (batch_id,person_id,fund_id,amount,method,check_number,notes,contribution_date)
+       VALUES (?,1,?,?,?,?,?,?)`
+    ).bind(batch.meta.last_row_id, fundId, amountCents, 'cash', '', 'original note', '2026-08-23').run();
+    return entry.meta.last_row_id;
+  }
+
+  it('giving/recent now carries fund_id and check_number for the edit form to prefill from', async () => {
+    const db = makeDb();
+    const fund = await seedFund(db, 'General Fund');
+    await seedEntry(db, { fundId: fund.meta.last_row_id });
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('giving/recent'), 'GET', 'finance');
+    const d = await r.json();
+    expect(d.entries[0].fund_id).toBe(fund.meta.last_row_id);
+    expect(d.entries[0]).toHaveProperty('check_number');
+  });
+
+  it('PATCH is denied to a role without giving edit access', async () => {
+    const db = makeDb();
+    const fund = await seedFund(db, 'General Fund');
+    const eid = await seedEntry(db, { fundId: fund.meta.last_row_id });
+    const r = await handleMobileApi(
+      makeReq({ fund_id: fund.meta.last_row_id, amount: '60', date: '2026-08-23' }),
+      { DB: db }, makeUrl('giving/entry/' + eid), 'PATCH', 'staff'
+    );
+    expect(r.status).toBe(403);
+  });
+
+  it('PATCH updates amount/fund/method/check_number without touching notes', async () => {
+    const db = makeDb();
+    const fundA = await seedFund(db, 'General Fund');
+    const fundB = await seedFund(db, 'Building Fund');
+    const eid = await seedEntry(db, { fundId: fundA.meta.last_row_id, amountCents: 5000 });
+    const r = await handleMobileApi(
+      makeReq({ fund_id: fundB.meta.last_row_id, amount: '75.25', method: 'check', check_number: '1042', date: '2026-08-24' }),
+      { DB: db }, makeUrl('giving/entry/' + eid), 'PATCH', 'finance'
+    );
+    expect(r.status).toBe(200);
+    const row = await db.prepare(`SELECT * FROM giving_entries WHERE id=?`).bind(eid).first();
+    expect(row.fund_id).toBe(fundB.meta.last_row_id);
+    expect(row.amount).toBe(7525);
+    expect(row.method).toBe('check');
+    expect(row.check_number).toBe('1042');
+    expect(row.contribution_date).toBe('2026-08-24');
+    expect(row.notes).toBe('original note'); // never clobbered — the mobile form has no notes field
+  });
+
+  it('PATCH rejects a non-positive amount', async () => {
+    const db = makeDb();
+    const fund = await seedFund(db, 'General Fund');
+    const eid = await seedEntry(db, { fundId: fund.meta.last_row_id });
+    const r = await handleMobileApi(
+      makeReq({ fund_id: fund.meta.last_row_id, amount: '0', date: '2026-08-23' }),
+      { DB: db }, makeUrl('giving/entry/' + eid), 'PATCH', 'finance'
+    );
+    expect(r.status).toBe(400);
+  });
+
+  it('PATCH and DELETE both refuse a closed batch', async () => {
+    const db = makeDb();
+    const fund = await seedFund(db, 'General Fund');
+    const eid = await seedEntry(db, { fundId: fund.meta.last_row_id, closed: 1 });
+    const rPatch = await handleMobileApi(
+      makeReq({ fund_id: fund.meta.last_row_id, amount: '60', date: '2026-08-23' }),
+      { DB: db }, makeUrl('giving/entry/' + eid), 'PATCH', 'finance'
+    );
+    expect(rPatch.status).toBe(409);
+    const rDelete = await handleMobileApi(makeReq(), { DB: db }, makeUrl('giving/entry/' + eid), 'DELETE', 'finance');
+    expect(rDelete.status).toBe(409);
+    const row = await db.prepare(`SELECT * FROM giving_entries WHERE id=?`).bind(eid).first();
+    expect(row).toBeTruthy();
+  });
+
+  it('DELETE removes an entry from an open batch', async () => {
+    const db = makeDb();
+    const fund = await seedFund(db, 'General Fund');
+    const eid = await seedEntry(db, { fundId: fund.meta.last_row_id });
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('giving/entry/' + eid), 'DELETE', 'finance');
+    expect(r.status).toBe(200);
+    const row = await db.prepare(`SELECT * FROM giving_entries WHERE id=?`).bind(eid).first();
+    expect(row).toBeNull();
+  });
+
+  it('404s for an entry that does not exist', async () => {
+    const db = makeDb();
+    const r = await handleMobileApi(makeReq(), { DB: db }, makeUrl('giving/entry/999999'), 'DELETE', 'finance');
+    expect(r.status).toBe(404);
+  });
+});
+
 describe('handleMobileApi — follow-up toggle', () => {
   it('toggles a follow_up_item completed on then off', async () => {
     const db = makeDb();
