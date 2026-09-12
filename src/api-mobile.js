@@ -9,6 +9,8 @@
 import { json } from './auth.js';
 import { getRolePermissions, permissionsForRole, disambiguateHHName } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
+import { schedKvPut } from './api-scheduler.js';
+import { LCMS_CALENDAR_JSON } from './lectionary.js';
 
 // Who this surface is for. `member` is allowed — the phone experience IS the member's
 // only view of the directory now, not an add-on — but every attendance/follow-up/prayer
@@ -68,6 +70,36 @@ const SCHED_PER_ROLES = ['Elder', 'Acolyte', 'PowerPoint', 'Lector', 'Liturgist'
 const SCHED_SHARED_ROLES = ['Preacher', 'Childrens Message'];
 const SCHED_SVC_LABELS = { '8am': '8:00 AM', '10:45am': '10:45 AM' };
 
+// Parsed once per isolate. Same source the desktop Scheduler's own
+// /scheduler/lcms_calendar.json route serves — see tlc-volunteer-worker.js — so this can't
+// drift from what the desktop tab shows. Deliberately does NOT apply a per-date manual
+// override: those live only in each browser's localStorage (ws_readings in scheduler-html.js),
+// never synced to the Worker, so there is nothing server-side to read them from. The LCMS
+// default is what's shown here; a hand-edited reading for one date won't be reflected until
+// that gets a real server-side home.
+let _lectCalendar = null;
+function lectCalendar() {
+  if (!_lectCalendar) {
+    try { _lectCalendar = JSON.parse(LCMS_CALENDAR_JSON).calendar || {}; } catch { _lectCalendar = {}; }
+  }
+  return _lectCalendar;
+}
+// Mirrors tidyReadingRef() in scheduler-html.js: display-only whitespace cleanup around the
+// LCMS lectionary's parenthetical optional-verse markers, not a change to which verses are read.
+function tidyReadingRef(r) {
+  return String(r || '').replace(/\(\s*/g, '(').replace(/\s*\)/g, ')').replace(/\s+/g, ' ').trim();
+}
+function readingsForDate(dateISO) {
+  const e = lectCalendar()[dateISO];
+  if (!e) return null;
+  const out = {
+    sunday_name: String(e.sundayName || '').replace(/\(prop(\d+)\)/i, '(Proper $1)'),
+    ot: tidyReadingRef(e.ot), epistle: tidyReadingRef(e.epistle),
+    gospel: tidyReadingRef(e.gospel), psalm: tidyReadingRef(e.psalm),
+  };
+  return (out.ot || out.epistle || out.gospel || out.psalm) ? out : null;
+}
+
 function composeAddress(p) {
   const line1 = [p.address1, p.address2].filter(Boolean).join(' ');
   const cityStateZip = [[p.city, p.state].filter(Boolean).join(', '), p.zip].filter(Boolean).join(' ');
@@ -77,6 +109,110 @@ function composeAddress(p) {
 function familyRoleLabel(role) {
   const map = { head: 'Head of Household', spouse: 'Spouse', child: 'Child' };
   return map[String(role || '').toLowerCase()] || 'Family';
+}
+
+// Shared by the read view (GET this-sunday) and the two write actions below (remind/reassign)
+// so all three build the exact same shape from the exact same blobs — a write endpoint that
+// computed its own smaller response could drift from what the read view considers "the
+// current state" and leave the mobile screen showing something the server no longer agrees with.
+async function loadSchedulerBlobs(db) {
+  const blobRows = (await db.prepare(
+    `SELECT key, value, updated_at FROM scheduler_data WHERE key IN ('ws_schedule_v2','ws_people','ws_confirmations')`
+  ).all()).results || [];
+  const blobs = {};
+  let confirmationsAsOf = null;
+  for (const r of blobRows) {
+    try { blobs[r.key] = JSON.parse(r.value); } catch { blobs[r.key] = null; }
+    if (r.key === 'ws_confirmations') confirmationsAsOf = r.updated_at || null;
+  }
+  return {
+    months: (blobs.ws_schedule_v2 && typeof blobs.ws_schedule_v2 === 'object') ? blobs.ws_schedule_v2 : {},
+    people: Array.isArray(blobs.ws_people) ? blobs.ws_people : [],
+    confirmations: (blobs.ws_confirmations && typeof blobs.ws_confirmations === 'object') ? blobs.ws_confirmations : {},
+    confirmationsAsOf,
+  };
+}
+
+function buildSundayPayload(dateISO, state) {
+  const peopleById = {};
+  for (const p of state.people) if (p && p.id != null) peopleById[String(p.id)] = p;
+  function personOf(pid) {
+    if (pid == null) return null;
+    const p = peopleById[String(pid)];
+    return { id: pid, name: p ? (p.name || '') : '(unknown)' };
+  }
+  function statusOf(roleName, svc) {
+    return state.confirmations[`${dateISO}|${roleName}|${svc}`] || 'pending';
+  }
+  // The picker for "assign to someone else" — same roster the schedule itself was built
+  // against, not the full People directory (a name not in this list was never an eligible
+  // candidate for these roles to begin with).
+  const roster = state.people
+    .filter(p => p && p.id != null && p.name)
+    .map(p => ({ id: p.id, name: p.name }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const readings = readingsForDate(dateISO);
+
+  const monthKey = dateISO.slice(0, 7);
+  const monthRows = (state.months[monthKey] && Array.isArray(state.months[monthKey].rows)) ? state.months[monthKey].rows : [];
+  const row = monthRows.find(r => r && r.dateISO === dateISO);
+
+  if (!row) {
+    return { date_iso: dateISO, has_schedule: false, readings, roster };
+  }
+
+  // A holiday falling on a Sunday (e.g. Christmas) is stored as its own "special" row
+  // shape instead of a regular Sunday row — a lower-confidence secondary path (this
+  // shape is rarer and less exercised than the regular Sunday one below), but cheap to
+  // support since the data already carries what's needed.
+  if (row.type === 'special') {
+    const services = (Array.isArray(row.services) ? row.services : []).map(s => {
+      const svcKey = s.time || 'shared';
+      return {
+        time: s.time || '',
+        roles: (Array.isArray(s.roles) ? s.roles : []).map(roleName => ({
+          role: roleName,
+          person: personOf(s.assignments ? s.assignments[roleName] : null),
+          status: statusOf(roleName, svcKey),
+        })),
+      };
+    });
+    let filled = 0, total = 0;
+    for (const s of services) for (const r2 of s.roles) { total++; if (r2.person) filled++; }
+    return {
+      date_iso: dateISO, has_schedule: true, kind: 'special', name: row.name || '',
+      confirmations_as_of: state.confirmationsAsOf,
+      services, counts: { filled, open: total - filled, total },
+      readings, roster,
+    };
+  }
+
+  const assignments = (row.assignments && typeof row.assignments === 'object') ? row.assignments : {};
+  const services = ['8am', '10:45am'].map(svc => ({
+    svc, svc_label: SCHED_SVC_LABELS[svc] || svc,
+    roles: SCHED_PER_ROLES.map(roleName => ({
+      role: roleName,
+      person: personOf(assignments[roleName] ? assignments[roleName][svc] : null),
+      status: statusOf(roleName, svc),
+    })),
+  }));
+  const sharedRoles = SCHED_SHARED_ROLES.map(roleName => ({
+    role: roleName,
+    person: personOf(assignments[roleName] ? assignments[roleName].shared : null),
+    status: statusOf(roleName, 'shared'),
+  }));
+  let filled = 0, total = 0;
+  for (const s of services) for (const r2 of s.roles) { total++; if (r2.person) filled++; }
+  for (const r2 of sharedRoles) { total++; if (r2.person) filled++; }
+
+  return {
+    date_iso: dateISO, has_schedule: true, kind: 'sunday',
+    ordinal: row.ordinal || null, label: row.label || '',
+    confirmations_as_of: state.confirmationsAsOf,
+    services, shared_roles: sharedRoles,
+    counts: { filled, open: total - filled, total },
+    readings, roster,
+  };
 }
 
 export async function handleMobileApi(req, env, url, method, role) {
@@ -206,88 +342,147 @@ export async function handleMobileApi(req, env, url, method, role) {
   if (seg === 'scheduler/this-sunday' && method === 'GET') {
     if (role !== 'admin' && role !== 'staff') return json({ error: 'Access denied' }, 403);
     const dateISO = nextOrCurrentSundayISO();
-    const blobRows = (await db.prepare(
-      `SELECT key, value, updated_at FROM scheduler_data WHERE key IN ('ws_schedule_v2','ws_people','ws_confirmations')`
-    ).all()).results || [];
-    const blobs = {};
-    let confirmationsAsOf = null;
-    for (const r of blobRows) {
-      try { blobs[r.key] = JSON.parse(r.value); } catch { blobs[r.key] = null; }
-      if (r.key === 'ws_confirmations') confirmationsAsOf = r.updated_at || null;
+    const state = await loadSchedulerBlobs(db);
+    return json(buildSundayPayload(dateISO, state));
+  }
+
+  // ── Scheduler: resend a confirmation-request email for one assignment ──────
+  // Same admin/staff-only gate as the read view above — this is the same data, just written
+  // to instead of read. Deliberately a smaller email than the desktop "Email Assignments"
+  // panel (no ICS attachment, no fetched ESV full text, no per-recipient send log) — those
+  // depend on state that only exists in the browser that opened the desktop Scheduler
+  // (rsvpTokens/readings overrides in localStorage). A fresh RSVP token minted per send is
+  // simpler than trying to reuse one, and just as valid — the /rsvp link only cares that the
+  // token in RSVP_STORE matches, not that it's the first one ever issued for this person.
+  if (seg === 'scheduler/remind' && method === 'POST') {
+    if (role !== 'admin' && role !== 'staff') return json({ error: 'Access denied' }, 403);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const dateISO = String(b.date_iso || '');
+    const roleName = String(b.role || '');
+    const svc = String(b.svc || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO) || !roleName || !svc) return json({ error: 'Invalid request' }, 400);
+
+    const resendKey = env.RESEND_API_KEY || '';
+    const emailFrom = env.EMAIL_FROM || '';
+    if (!resendKey || !emailFrom) return json({ error: 'Email is not configured on the Worker (RESEND_API_KEY / EMAIL_FROM missing)' }, 500);
+
+    const state = await loadSchedulerBlobs(db);
+    const payload = buildSundayPayload(dateISO, state);
+    if (!payload.has_schedule) return json({ error: 'No schedule for this date' }, 404);
+
+    let target = null;
+    for (const s of (payload.services || [])) {
+      const svcKey = payload.kind === 'special' ? (s.time || 'shared') : s.svc;
+      if (svcKey !== svc) continue;
+      target = s.roles.find(r2 => r2.role === roleName) || null;
     }
-    const months = (blobs.ws_schedule_v2 && typeof blobs.ws_schedule_v2 === 'object') ? blobs.ws_schedule_v2 : {};
-    const people = Array.isArray(blobs.ws_people) ? blobs.ws_people : [];
-    const confirmations = (blobs.ws_confirmations && typeof blobs.ws_confirmations === 'object') ? blobs.ws_confirmations : {};
-    const peopleById = {};
-    for (const p of people) if (p && p.id != null) peopleById[String(p.id)] = p;
-
-    function personOf(pid) {
-      if (pid == null) return null;
-      const p = peopleById[String(pid)];
-      return { id: pid, name: p ? (p.name || '') : '(unknown)' };
+    if (!target && svc === 'shared' && payload.shared_roles) {
+      target = payload.shared_roles.find(r2 => r2.role === roleName) || null;
     }
-    function statusOf(roleName, svc) {
-      return confirmations[`${dateISO}|${roleName}|${svc}`] || 'pending';
-    }
+    if (!target || !target.person) return json({ error: 'That role has no one assigned' }, 400);
 
-    const monthKey = dateISO.slice(0, 7);
-    const monthRows = (months[monthKey] && Array.isArray(months[monthKey].rows)) ? months[monthKey].rows : [];
-    const row = monthRows.find(r => r && r.dateISO === dateISO);
+    const personBlob = state.people.find(p => p && String(p.id) === String(target.person.id));
+    const email = (personBlob && (personBlob.email || personBlob.secondEmail)) || '';
+    if (!email) return json({ error: (target.person.name || 'This volunteer') + ' has no email address on file.' }, 400);
 
-    if (!row) {
-      return json({ date_iso: dateISO, has_schedule: false });
-    }
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(20)), n => n.toString(16).padStart(2, '0')).join('');
+    const dateLabel = new Date(dateISO + 'T12:00:00Z')
+      .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
+    const svcLabel = svc === 'shared' ? 'Both Services' : (SCHED_SVC_LABELS[svc] || svc);
 
-    // A holiday falling on a Sunday (e.g. Christmas) is stored as its own "special" row
-    // shape instead of a regular Sunday row — a lower-confidence secondary path (this
-    // shape is rarer and less exercised than the regular Sunday one below), but cheap to
-    // support since the data already carries what's needed.
-    if (row.type === 'special') {
-      const services = (Array.isArray(row.services) ? row.services : []).map(s => {
-        const svcKey = s.time || 'shared';
-        return {
-          time: s.time || '',
-          roles: (Array.isArray(s.roles) ? s.roles : []).map(roleName => ({
-            role: roleName,
-            person: personOf(s.assignments ? s.assignments[roleName] : null),
-            status: statusOf(roleName, svcKey),
-          })),
-        };
-      });
-      let filled = 0, total = 0;
-      for (const s of services) for (const r2 of s.roles) { total++; if (r2.person) filled++; }
-      return json({
-        date_iso: dateISO, has_schedule: true, kind: 'special', name: row.name || '',
-        confirmations_as_of: confirmationsAsOf,
-        services, counts: { filled, open: total - filled, total },
-      });
-    }
-
-    const assignments = (row.assignments && typeof row.assignments === 'object') ? row.assignments : {};
-    const services = ['8am', '10:45am'].map(svc => ({
-      svc, svc_label: SCHED_SVC_LABELS[svc] || svc,
-      roles: SCHED_PER_ROLES.map(roleName => ({
-        role: roleName,
-        person: personOf(assignments[roleName] ? assignments[roleName][svc] : null),
-        status: statusOf(roleName, svc),
-      })),
-    }));
-    const sharedRoles = SCHED_SHARED_ROLES.map(roleName => ({
-      role: roleName,
-      person: personOf(assignments[roleName] ? assignments[roleName].shared : null),
-      status: statusOf(roleName, 'shared'),
-    }));
-    let filled = 0, total = 0;
-    for (const s of services) for (const r2 of s.roles) { total++; if (r2.person) filled++; }
-    for (const r2 of sharedRoles) { total++; if (r2.person) filled++; }
-
-    return json({
-      date_iso: dateISO, has_schedule: true, kind: 'sunday',
-      ordinal: row.ordinal || null, label: row.label || '',
-      confirmations_as_of: confirmationsAsOf,
-      services, shared_roles: sharedRoles,
-      counts: { filled, open: total - filled, total },
+    await schedKvPut(env, token, {
+      token, name: target.person.name, personId: target.person.id, email, notifyEmail: '',
+      assignments: [{ date: dateLabel, dateISO, svc: svcLabel, role: roleName }],
+      responses: {},
     });
+
+    const rsvpBase = url.origin;
+    const text = `Hello ${target.person.name},\n\n`
+      + `This is a reminder of your worship service assignment at Timothy Lutheran Church:\n\n`
+      + `  • ${dateLabel} — ${svcLabel}: ${roleName}\n\n`
+      + `Please confirm your availability:\n`
+      + `  Yes, I'll be there: ${rsvpBase}/rsvp?token=${encodeURIComponent(token)}&idx=0&status=confirmed\n`
+      + `  I need a change:  ${rsvpBase}/rsvp?token=${encodeURIComponent(token)}&idx=0&status=needs_changes\n\n`
+      + `Thank you for serving!\n\nTimothy Lutheran Church`;
+
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: emailFrom, to: email, subject: `Reminder: ${roleName} — ${dateLabel}`, text }),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      return json({ error: errData.message || 'Could not send the reminder email' }, 502);
+    }
+    return json({ ok: true, sent_to: email });
+  }
+
+  // ── Scheduler: reassign a role to a different person, or open it back up ───
+  // Writes straight into the same scheduler_data blobs the desktop Scheduler reads and
+  // writes wholesale (SCHEDULER_KEYS / handleSchedulerDataApi in api-admin.js) — there's no
+  // row-level locking on that table, so a desktop tab that still has last week's schedule
+  // loaded in memory and saves after this runs would silently overwrite it. Same
+  // last-write-wins exposure that already exists between two desktop tabs; not something
+  // this endpoint introduces.
+  if (seg === 'scheduler/reassign' && method === 'POST') {
+    if (role !== 'admin' && role !== 'staff') return json({ error: 'Access denied' }, 403);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const dateISO = String(b.date_iso || '');
+    const roleName = String(b.role || '');
+    const svc = String(b.svc || '');
+    const rawPersonId = (b.person_id === null || b.person_id === undefined || b.person_id === '') ? null : b.person_id;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO) || !roleName || !svc) return json({ error: 'Invalid request' }, 400);
+
+    const state = await loadSchedulerBlobs(db);
+    const monthKey = dateISO.slice(0, 7);
+    const monthRows = (state.months[monthKey] && Array.isArray(state.months[monthKey].rows)) ? state.months[monthKey].rows : [];
+    const row = monthRows.find(r2 => r2 && r2.dateISO === dateISO);
+    if (!row) return json({ error: 'No schedule for this date' }, 404);
+
+    // A person id has to come from the same roster the schedule was built against — the
+    // legacy ws_people blob, not the real `people` table (see the SC6 Phase 1 comment above
+    // handleSchedulerVolunteersApi in api-scheduler.js: this hasn't been relationalized yet, so
+    // a ws_people id and a `people.id` are not interchangeable). Using the roster entry's own
+    // `.id` rather than the raw request value also preserves whatever type (string/number) the
+    // blob already stores, instead of introducing a string where a number was expected.
+    let personId = null;
+    if (rawPersonId != null) {
+      const match = state.people.find(p => p && String(p.id) === String(rawPersonId));
+      if (!match) return json({ error: 'Unknown person' }, 400);
+      personId = match.id;
+    }
+
+    let svcKey;
+    if (row.type === 'special') {
+      const s = (Array.isArray(row.services) ? row.services : []).find(x => (x.time || 'shared') === svc);
+      if (!s || !Array.isArray(s.roles) || !s.roles.includes(roleName)) return json({ error: 'Unknown role for this service' }, 400);
+      if (!s.assignments || typeof s.assignments !== 'object') s.assignments = {};
+      if (personId == null) delete s.assignments[roleName]; else s.assignments[roleName] = personId;
+      svcKey = svc;
+    } else {
+      const isShared = SCHED_SHARED_ROLES.includes(roleName);
+      const isPerSvc = SCHED_PER_ROLES.includes(roleName) && (svc === '8am' || svc === '10:45am');
+      if (!isShared && !isPerSvc) return json({ error: 'Unknown role/service combination' }, 400);
+      if (!row.assignments || typeof row.assignments !== 'object') row.assignments = {};
+      const key = isShared ? 'shared' : svc;
+      if (!row.assignments[roleName] || typeof row.assignments[roleName] !== 'object') row.assignments[roleName] = {};
+      if (personId == null) delete row.assignments[roleName][key]; else row.assignments[roleName][key] = personId;
+      svcKey = key;
+    }
+
+    // The old assignment's confirmation no longer means anything once the person changes —
+    // whoever is in the role now hasn't replied to anything yet.
+    delete state.confirmations[`${dateISO}|${roleName}|${svcKey}`];
+
+    await db.prepare(
+      `INSERT OR REPLACE INTO scheduler_data (key, value, updated_at) VALUES ('ws_schedule_v2', ?, datetime('now'))`
+    ).bind(JSON.stringify(state.months)).run();
+    await db.prepare(
+      `INSERT OR REPLACE INTO scheduler_data (key, value, updated_at) VALUES ('ws_confirmations', ?, datetime('now'))`
+    ).bind(JSON.stringify(state.confirmations)).run();
+    state.confirmationsAsOf = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    return json(buildSundayPayload(dateISO, state));
   }
 
   // ── Attendance quick-entry: upsert one service's count for one date ──────
@@ -383,7 +578,7 @@ export async function handleMobileApi(req, env, url, method, role) {
     if (!canViewGivingNamed) return json({ error: 'Access denied' }, 403);
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '15', 10) || 15, 50);
     const rows = (await db.prepare(
-      `SELECT ge.id, ge.amount, ge.method,
+      `SELECT ge.id, ge.amount, ge.method, ge.fund_id, ge.check_number, gb.closed as batch_closed,
               COALESCE(NULLIF(ge.contribution_date,''), gb.batch_date) as txn_date,
               f.name as fund_name,
               COALESCE(p.first_name||' '||p.last_name,'(anonymous)') as person_name
@@ -402,6 +597,35 @@ export async function handleMobileApi(req, env, url, method, role) {
     const result = await recordQuickGivingEntry(db, b);
     if (result.error) return json({ error: result.error }, 400);
     return json({ ok: true, id: result.id, batch_id: result.batch_id });
+  }
+
+  // ── Giving: edit/delete a recently recorded entry ───────────────────────────
+  // Mirrors PUT/DELETE giving/entries/:id in api-giving.js (the desktop "Edit Gift" modal) —
+  // same closed-batch guard, so a correction from a phone can't touch a batch that's already
+  // been posted/deposited. Deliberately doesn't touch `notes`: the mobile quick-entry form
+  // never collects one, and clobbering it to '' on every edit would silently erase whatever a
+  // desktop user wrote there.
+  const givEntryMatch = seg.match(/^giving\/entry\/(\d+)$/);
+  if (givEntryMatch && (method === 'PATCH' || method === 'DELETE')) {
+    if (!canEditGiving) return json({ error: 'Access denied' }, 403);
+    const eid = parseInt(givEntryMatch[1], 10);
+    const entry = await db.prepare(
+      `SELECT ge.id, gb.closed FROM giving_entries ge JOIN giving_batches gb ON ge.batch_id=gb.id WHERE ge.id=?`
+    ).bind(eid).first();
+    if (!entry) return json({ error: 'Not found' }, 404);
+    if (entry.closed) return json({ error: 'That batch is closed — edit it from the full Giving tab.' }, 409);
+    if (method === 'DELETE') {
+      await db.prepare('DELETE FROM giving_entries WHERE id=?').bind(eid).run();
+      return json({ ok: true });
+    }
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const amtCents = Math.round(parseFloat(b.amount || 0) * 100);
+    if (!b.fund_id) return json({ error: 'fund_id required' }, 400);
+    if (!Number.isFinite(amtCents) || amtCents <= 0) return json({ error: 'Amount must be positive' }, 400);
+    await db.prepare(
+      `UPDATE giving_entries SET fund_id=?, amount=?, method=?, check_number=?, contribution_date=? WHERE id=?`
+    ).bind(parseInt(b.fund_id, 10), amtCents, b.method || 'cash', b.check_number || '', b.date || '', eid).run();
+    return json({ ok: true });
   }
 
   // ── Follow-ups: toggle done/undone ────────────────────────────────────────
