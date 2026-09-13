@@ -1,0 +1,94 @@
+name: Migrate RSVP_STORE KV data to timothy-connect-kv
+
+# One-shot data-copy step for the legacy-resource renaming project (see AGENTS.md's Timothy
+# Digital overhaul checkpoint). Cloudflare cannot rename a KV namespace in place, so renaming
+# RSVP_STORE -> timothy-connect-kv is: create the new namespace (done) -> copy live data (this
+# workflow) -> repoint wrangler.toml's binding to the new namespace ID in a separate PR -> a
+# manual production deploy -> verify -> delete the old namespace once confirmed. This workflow
+# only copies; it never deletes or touches the Worker's live binding, so it is safe to run
+# ahead of the repoint/deploy and safe to re-run if it needs to catch up on newer keys.
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full main commit SHA approved for this data-copy exercise
+        required: true
+        type: string
+      reason:
+        description: Reason for this migration run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rsvp-store-kv-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Copy RSVP_STORE keys into timothy-connect-kv
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_KV_API_TOKEN }}
+      SOURCE_NAMESPACE_ID: 3db4fdc395084ae0a9e8295c460ba08e
+      SOURCE_NAMESPACE_TITLE: RSVP_STORE
+      DEST_NAMESPACE_ID: f27b2da9a6ed403da45810617a3e7eb2
+      DEST_NAMESPACE_TITLE: timothy-connect-kv
+      RESULT_FILE: /tmp/kv-migration-result.json
+    steps:
+      - name: Check out the approved commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.expected_sha }}
+
+      - name: Verify the approved commit is on main
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git merge-base --is-ancestor "$EXPECTED_SHA" origin/main
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Copy keys from RSVP_STORE to timothy-connect-kv
+        run: bash scripts/migrate-kv-namespace.sh
+
+      - name: Record migration summary
+        shell: bash
+        env:
+          MIGRATION_REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          {
+            echo '## RSVP_STORE -> timothy-connect-kv data copy'
+            echo
+            echo "- Approved commit: \`${GITHUB_SHA}\`"
+            echo "- Reason: ${MIGRATION_REASON}"
+            jq -r '
+              "- Source keys found: " + (.total_keys_found | tostring),
+              "- Copied: " + (.copied | tostring),
+              "- Skipped (already expired): " + (.skipped_expired | tostring),
+              "- Failed: " + (.failed | tostring),
+              "- Destination key count after copy: " + (.dest_key_count_after | tostring),
+              "- Byte-equality sample: " + (.sample_matched | tostring) + "/" + (.sample_checked | tostring) + " matched",
+              "- Source namespace left unmodified: " + (.source_namespace_modified | tostring),
+              "- Key names and values were not printed or retained as artifacts"
+            ' "$RESULT_FILE"
+          } >> "$GITHUB_STEP_SUMMARY"
