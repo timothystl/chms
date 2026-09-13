@@ -1,6 +1,6 @@
 // Single source of truth for the app version — used both for the on-page display below (via
 // interpolation into the served script) and as the cache-busting query param on the external
-// app-member.js/app-staff.js/app-ext.js routes (see html-chms.js/tlc-volunteer-worker.js) so a
+// app-member.js/app-staff.js/app-ext.js routes (see html-chms.js/connect-worker.js) so a
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.

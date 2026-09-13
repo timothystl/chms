@@ -375,7 +375,7 @@ describe('the shell decides, because the cached assets cannot', () => {
 });
 
 describe('the rest of the plumbing followed the rename', () => {
-  const worker = fs.readFileSync(new URL('../tlc-volunteer-worker.js', import.meta.url), 'utf8');
+  const worker = fs.readFileSync(new URL('../connect-worker.js', import.meta.url), 'utf8');
 
   it('the worker serves both new bundles', () => {
     expect(worker).toMatch(/path === '\/admin\/app-member\.js'/);

@@ -1,7 +1,7 @@
 // ── Mobile Admin (phone-optimized quick-access page) ───────────────────────
 // Auto-served at the app's normal URL (connect.timothystl.org — no separate /admin or
 // /mobile path) whenever the request's User-Agent looks like a phone; see
-// wantsMobileShell() in tlc-volunteer-worker.js. Self-contained HTML+CSS+JS, same
+// wantsMobileShell() in connect-worker.js. Self-contained HTML+CSS+JS, same
 // pattern as LOGIN_HTML / the standalone scheduler page — not a framework, plain DOM
 // string templates + delegated click listeners (data-action attributes, not inline
 // onclick with interpolated arguments — see SEC13/SEC14 in CLAUDE.md for why: esc()'d

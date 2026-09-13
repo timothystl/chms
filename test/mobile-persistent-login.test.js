@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import worker from '../tlc-volunteer-worker.js';
+import worker from '../connect-worker.js';
 import { handleAdminLogin } from '../src/api-admin.js';
 import { authCookieHeader, hashPassword } from '../src/auth.js';
 

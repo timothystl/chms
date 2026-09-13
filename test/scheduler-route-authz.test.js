@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
-import worker from '../tlc-volunteer-worker.js';
+import worker from '../connect-worker.js';
 import { authCookieHeader } from '../src/auth.js';
 
 // SEC11/SEC12, 2026-08-19. The scheduler backend routes sat behind a single gate whose whole
@@ -157,7 +157,7 @@ describe('the privileged-path list and the routes below it stay in step', () => 
     // Source-derived rather than hand-listed: a route added to the block without a matching
     // entry in isPrivilegedSchedPath is exactly the regression that created SEC11/SEC12, and
     // it would be invisible to the behavioral tests above.
-    const src = fs.readFileSync(new URL('../tlc-volunteer-worker.js', import.meta.url), 'utf8');
+    const src = fs.readFileSync(new URL('../connect-worker.js', import.meta.url), 'utf8');
     const gateAt = src.indexOf('const isPrivilegedSchedPath');
     const endAt = src.indexOf("if (path.startsWith('/scheduler'))");
     expect(gateAt, 'gate marker').toBeGreaterThan(0);

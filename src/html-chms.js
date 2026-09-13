@@ -228,7 +228,7 @@ self.addEventListener('fetch', function(event) {
 // Previously these two chunks were inlined straight into CHMS_HTML, which is served with
 // Cache-Control: no-store — meaning every single page load re-downloaded and re-parsed ~968KB
 // of JS from scratch, even for the same staff member reloading the same page repeatedly in one
-// session. Serving them as their own routes (see tlc-volunteer-worker.js) with a long, immutable
+// session. Serving them as their own routes (see connect-worker.js) with a long, immutable
 // Cache-Control lets the browser cache them across visits; the ?v= query param (DEPLOY_VERSION)
 // busts that cache automatically on every version bump, with no separate step to remember.
 // Split point is arbitrary (wherever the historical inline <script> tags happened to fall, see
