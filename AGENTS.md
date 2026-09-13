@@ -37,9 +37,15 @@ The target architecture has four staff products: Church Website, Connect, Financ
   Budget-vs-Actual report is Intuit-side unsupported at this app's tier; the working path is
   `mergeCurrentYearBudgetAndActual()`'s reconstruction from the `Budget` entity + a date-scoped
   `ProfitAndLoss` report, not the native report endpoint. Budget data also still has the
-  CSV/Excel import path as a fallback. Whether the connection is *currently* live (refresh
-  tokens run ~100 days) needs a direct check of `finance_qb_connection`, not an assumption
-  either way.
+  CSV/Excel import path as a fallback. Checked directly against production `finance_qb_connection`
+  on 2026-09-13: the connection has been completely idle since the day it was made —
+  `last_synced_at` is still 2026-07-28T19:37:52Z (21 seconds after `connected_at`), and both token
+  expiry columns still hold their original post-connect values, meaning `ensureFreshAccessToken()`
+  has never run again since. The stored refresh-token expiry (2026-11-06) has not yet passed, so
+  the connection is not necessarily dead, but "not expired by its own stored clock" is not the same
+  as "confirmed working" — only an actual QuickBooks call (which would rotate the tokens and move
+  `last_synced_at`) proves that. Re-check before relying on it, and don't assume either outcome
+  past 2026-11-06.
 - TinyMCE is self-hosted from `vendor/tinymce/`. The subscription has lapsed. Do not add cloud
   scripts, cloud API keys, paid editor loads, or a CDN dependency.
 - Production schema initialization is currently coupled to runtime `initDb()` and
