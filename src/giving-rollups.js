@@ -1,5 +1,6 @@
 // Compact read models for giving. Raw gifts remain the transaction ledger; normal dashboards
 // read these summaries. A year is rebuilt only after a gift or household classification changes.
+import { namedQuery } from './db-attribution.js';
 export const REFRESH_GIVING_YEAR_PEOPLE_SQL = `
   INSERT INTO giving_year_person_totals(year, person_id, total_cents, gift_count, last_gift_date)
   SELECT ?, ge.person_id, SUM(ge.amount), COUNT(*), MAX(ge.contribution_date)
@@ -85,7 +86,11 @@ export async function ensureGivingYearRollups(db, year) {
     const start = `${year}-01-01`, end = `${year}-12-31`;
     await db.batch([
       db.prepare('DELETE FROM giving_year_person_totals WHERE year=?').bind(year),
-      db.prepare(REFRESH_GIVING_YEAR_PEOPLE_SQL).bind(year, start, end),
+      // The one query in this batch that still scans a full year of giving_entries — the exact
+      // shape of query that caused both documented D1 spikes (see NOTES.md v1.228.1/v1.229.3).
+      // Named so a future regression here shows up as `names: ["giving-rollups.refresh-year-people"]`
+      // in the attribution log instead of just an elevated query count on whatever route triggered it.
+      namedQuery(db, 'giving-rollups.refresh-year-people', REFRESH_GIVING_YEAR_PEOPLE_SQL).bind(year, start, end),
       db.prepare('DELETE FROM giving_year_household_totals WHERE year=?').bind(year),
       db.prepare(REFRESH_GIVING_YEAR_HOUSEHOLDS_SQL).bind(year, year),
       db.prepare(REFRESH_GIVING_YEAR_STATS_SQL).bind(year, year),

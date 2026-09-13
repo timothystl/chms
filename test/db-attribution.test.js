@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { wrapDbForAttribution, wrapEnvForDbAttribution, logDbAttribution, ADMIN_API_QUERY_LOG_THRESHOLD } from '../src/db-attribution.js';
+import { wrapDbForAttribution, wrapEnvForDbAttribution, namedQuery, logDbAttribution, ADMIN_API_QUERY_LOG_THRESHOLD, ADMIN_API_DURATION_LOG_THRESHOLD_MS } from '../src/db-attribution.js';
 import { handleAdminApi } from '../src/api-admin.js';
 import { authCookieHeader } from '../src/auth.js';
 
@@ -69,6 +69,21 @@ describe('wrapEnvForDbAttribution', () => {
   });
 });
 
+describe('namedQuery', () => {
+  it('tags the wrapped db\'s counter and still returns a working prepared statement', async () => {
+    const { db, counter } = wrapDbForAttribution(makeFakeDb());
+    const stmt = namedQuery(db, 'giving-rollups.refresh-year-people', 'SELECT 1').bind(1);
+    expect(counter.names).toEqual(['giving-rollups.refresh-year-people']);
+    expect(counter.queries).toBe(1);
+    expect(await stmt.first()).toBe(null);
+  });
+
+  it('falls through to a plain prepare() on an unwrapped db, without throwing', () => {
+    const plain = makeFakeDb();
+    expect(() => namedQuery(plain, 'some-query', 'SELECT 1')).not.toThrow();
+  });
+});
+
 describe('logDbAttribution', () => {
   it('logs nothing when the count is at or below the threshold', () => {
     const logs = [];
@@ -99,6 +114,49 @@ describe('logDbAttribution', () => {
       method: 'GET',
       queries: ADMIN_API_QUERY_LOG_THRESHOLD + 1,
     });
+  });
+
+  it('logs on duration alone, even with a query count well under threshold — the case a count-only wrapper would miss entirely', () => {
+    const logs = [];
+    const orig = console.log;
+    console.log = (...args) => logs.push(args);
+    try {
+      logDbAttribution('giving/insights', 'GET', { queries: 1, elapsedMs: ADMIN_API_DURATION_LOG_THRESHOLD_MS + 1 });
+    } finally {
+      console.log = orig;
+    }
+    expect(logs).toHaveLength(1);
+    const payload = JSON.parse(logs[0][1]);
+    expect(payload.queries).toBe(1);
+    expect(payload.elapsed_ms).toBe(ADMIN_API_DURATION_LOG_THRESHOLD_MS + 1);
+  });
+
+  it('includes named queries in the payload when the counter recorded any', () => {
+    const logs = [];
+    const orig = console.log;
+    console.log = (...args) => logs.push(args);
+    try {
+      logDbAttribution('finance/church/this-year', 'GET', {
+        queries: ADMIN_API_QUERY_LOG_THRESHOLD + 1,
+        names: ['giving-rollups.refresh-year-people'],
+      });
+    } finally {
+      console.log = orig;
+    }
+    expect(JSON.parse(logs[0][1]).names).toEqual(['giving-rollups.refresh-year-people']);
+  });
+
+  it('accepts caller-supplied thresholds (e.g. for a batch job whose normal shape is not a single web request)', () => {
+    const logs = [];
+    const orig = console.log;
+    console.log = (...args) => logs.push(args);
+    try {
+      // Well over the web-request defaults, but under the caller-supplied batch-job thresholds.
+      logDbAttribution('cron:daily', 'SCHEDULED', { queries: ADMIN_API_QUERY_LOG_THRESHOLD + 1, elapsedMs: ADMIN_API_DURATION_LOG_THRESHOLD_MS + 1 }, { queryThreshold: 50, durationThresholdMs: 5000 });
+    } finally {
+      console.log = orig;
+    }
+    expect(logs).toHaveLength(0);
   });
 });
 
