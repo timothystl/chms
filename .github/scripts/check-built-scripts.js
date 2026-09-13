@@ -15,7 +15,7 @@ const path = require('path');
   // CHMS_HTML itself only still has one truly-inline <script>...</script> left (the scheduler's
   // own embedded script) — the two big app chunks were split out into CHMS_APP_CORE_JS/
   // CHMS_APP_EXT_JS, served as external cacheable files instead of inlined (see
-  // tlc-volunteer-worker.js /admin/app-core.js, /admin/app-ext.js), so they're checked here
+  // connect-worker.js /admin/app-core.js, /admin/app-ext.js), so they're checked here
   // directly rather than via the <script> regex, which no longer matches them at all (their
   // <script src="..."> tags carry an attribute, not a bare <script>).
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);

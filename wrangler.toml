@@ -1,5 +1,5 @@
 name = "tlc-chms"
-main = "tlc-volunteer-worker.js"
+main = "connect-worker.js"
 compatibility_date = "2024-01-01"
 
 [vars]
@@ -29,7 +29,7 @@ custom_domain = false
 pattern = "connect.timothystl.org"
 custom_domain = true
 
-# Old hostname, kept resolving to this same Worker purely so tlc-volunteer-worker.js's
+# Old hostname, kept resolving to this same Worker purely so connect-worker.js's
 # isLegacyChmsHost check can 301-redirect staff's existing bookmarks to
 # connect.timothystl.org — not a live app surface anymore.
 [[routes]]

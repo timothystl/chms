@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import worker from '../tlc-volunteer-worker.js';
+import worker from '../connect-worker.js';
 import { authCookieHeader } from '../src/auth.js';
 
 // SEC21(d): /admin/photo-proxy checked the hostname but not the scheme, despite its own

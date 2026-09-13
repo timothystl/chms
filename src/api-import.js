@@ -511,7 +511,7 @@ if (seg === 'config/giving-impact' && method === 'PUT') {
 
 // ── Letterhead logo — shown at the top of giving letters (view/email/preview) in place of
 // the plain church-name text once set. Served publicly (unauthenticated) at
-// /admin/letterhead-logo (tlc-volunteer-worker.js) since outbound HTML emails need a real,
+// /admin/letterhead-logo (connect-worker.js) since outbound HTML emails need a real,
 // non-authenticated image URL — an email client can't send along a session cookie. Stored in
 // the same R2 bucket as person/household photos, at a fixed key so there's only ever one.
 if (seg === 'config/letterhead-logo' && method === 'GET') {

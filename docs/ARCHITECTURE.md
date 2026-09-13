@@ -2,7 +2,7 @@
 
 ## Runtime boundaries
 
-The production Worker `tlc-chms` starts at `tlc-volunteer-worker.js` and serves:
+The production Worker `tlc-chms` starts at `connect-worker.js` and serves:
 
 - Connect at `connect.timothystl.org`;
 - public Serve routes at `serve.timothystl.org/*`;
@@ -59,7 +59,7 @@ live contract/transport module before treating it as real.
 
 | File | Purpose |
 |---|---|
-| `tlc-volunteer-worker.js` | Production Worker entry point; routes to every module below. |
+| `connect-worker.js` | Production Worker entry point; routes to every module below. |
 | `src/api-chms.js` | The main admin API dispatcher for Connect/Giving. Holds `ACCESS_GATE` (see below) and delegates by URL segment to the handler modules listed next. |
 | `src/auth.js` | Session cookie signing/verification (`vol_auth`, HMAC-SHA256), login/logout, `app_users` lookups. |
 | `src/api-utils.js` | Shared helpers used across every `api-*.js` module: role/permission resolution, anonymous-Giving safety checks, misc formatting. |

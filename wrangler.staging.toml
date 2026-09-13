@@ -1,5 +1,5 @@
 name = "timothy-connect-staging"
-main = "tlc-volunteer-worker.js"
+main = "connect-worker.js"
 compatibility_date = "2024-01-01"
 workers_dev = true
 

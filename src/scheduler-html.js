@@ -7626,7 +7626,7 @@ function saveEventRoles(obj) {
 // they are optional-header conditionals, not an auth path that can silently come back, and the
 // invariant is enforced at the two storage functions and again server-side. These calls are
 // same-origin from an admin session, which is what actually authorizes them (see the
-// schedPrivileged gate in tlc-volunteer-worker.js).
+// schedPrivileged gate in connect-worker.js).
 function _workerHeaders() {
   var s = getBreezeSettings();
   return Object.assign({ 'Content-Type': 'application/json' },

@@ -1537,7 +1537,7 @@ function buildGiftTable(entries, mode) {
 // Left-aligned, not centered — no margin:auto. absolute=true builds a full https:// URL,
 // required for outbound HTML email (an email client can't resolve a relative /admin/... path
 // or send along a session cookie, which is also why /admin/letterhead-logo itself is served
-// unauthenticated — see tlc-volunteer-worker.js).
+// unauthenticated — see connect-worker.js).
 function letterheadImgHtml(absolute, churchName, nameStyle, rowMarginBottom, maxHeight) {
   var name = churchName || _churchConfig.church_name || 'Timothy Lutheran Church';
   var nameDiv = '<div style="' + (nameStyle || '') + '">' + esc(name) + '</div>';

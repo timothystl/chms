@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import worker from '../tlc-volunteer-worker.js';
+import worker from '../connect-worker.js';
 
 // Overhaul goal 5 (observability): db-attribution.js's wrapper originally only covered
 // /admin/api/* (via handleAdminApi in api-admin.js) — chms's public /api/*, /rsvp/*,
 // /breeze/*, and scheduler routes, reachable only through the top-level _fetch dispatch in
-// tlc-volunteer-worker.js, had no attribution at all. These tests drive worker.fetch() end to
+// connect-worker.js, had no attribution at all. These tests drive worker.fetch() end to
 // end against a public route to prove the wrap added to _fetch actually reaches it, rather
 // than asserting against an isolated helper that could drift from what the route wiring does.
 

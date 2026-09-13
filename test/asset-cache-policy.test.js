@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import worker from '../tlc-volunteer-worker.js';
+import worker from '../connect-worker.js';
 import { DEPLOY_VERSION } from '../src/frontend/js-core.js';
 
 // 2026-08-04. /admin/app-member.js, /admin/app-staff.js, /admin/app-ext.js and /admin/app.css are cached for a year as

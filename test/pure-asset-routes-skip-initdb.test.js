@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import worker from '../tlc-volunteer-worker.js';
+import worker from '../connect-worker.js';
 import { DEPLOY_VERSION } from '../src/frontend/js-core.js';
 
 // P25-B (LOAD7): initDb(env.DB) used to run before ANY route, including a set of pure

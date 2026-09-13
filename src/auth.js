@@ -45,7 +45,7 @@ export const IDLE_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours
 // "don't make me log in every time" treatment as the member tier below, regardless of role —
 // reported directly: staff opening the app on their own phone had to sign back in on
 // essentially every visit, which is not how an app on a personal device behaves. Defined once
-// here (not duplicated in tlc-volunteer-worker.js, which also uses it to pick the mobile vs.
+// here (not duplicated in connect-worker.js, which also uses it to pick the mobile vs.
 // desktop shell) so the two can't drift apart.
 export function isPhoneUserAgent(req) {
   const ua = req.headers.get('User-Agent') || '';

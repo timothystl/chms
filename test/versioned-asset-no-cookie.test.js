@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import worker from '../tlc-volunteer-worker.js';
+import worker from '../connect-worker.js';
 import { authCookieHeader } from '../src/auth.js';
 import { DEPLOY_VERSION } from '../src/frontend/js-core.js';
 

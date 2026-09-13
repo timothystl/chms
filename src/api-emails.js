@@ -1,6 +1,6 @@
 // EM2 — Birthday and anniversary emails via Resend
 // Uses RESEND_API_KEY and EMAIL_FROM from env (already present for scheduler).
-// Called by the daily cron handler in tlc-volunteer-worker.js and by admin trigger endpoints.
+// Called by the daily cron handler in connect-worker.js and by admin trigger endpoints.
 
 import { esc } from './auth.js';
 

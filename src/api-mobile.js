@@ -71,7 +71,7 @@ const SCHED_SHARED_ROLES = ['Preacher', 'Childrens Message'];
 const SCHED_SVC_LABELS = { '8am': '8:00 AM', '10:45am': '10:45 AM' };
 
 // Parsed once per isolate. Same source the desktop Scheduler's own
-// /scheduler/lcms_calendar.json route serves — see tlc-volunteer-worker.js — so this can't
+// /scheduler/lcms_calendar.json route serves — see connect-worker.js — so this can't
 // drift from what the desktop tab shows. Deliberately does NOT apply a per-date manual
 // override: those live only in each browser's localStorage (ws_readings in scheduler-html.js),
 // never synced to the Worker, so there is nothing server-side to read them from. The LCMS

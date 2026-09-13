@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import worker from '../tlc-volunteer-worker.js';
+import worker from '../connect-worker.js';
 import { authCookieHeader } from '../src/auth.js';
 
 // The phone-optimized experience is auto-served at the app's normal URL — no separate
-// /admin or /mobile route — decided by wantsMobileShell() in tlc-volunteer-worker.js off
+// /admin or /mobile route — decided by wantsMobileShell() in connect-worker.js off
 // the request's User-Agent, a `mob_pref=desktop` opt-out cookie, and role. These tests
 // drive the real worker.fetch() end to end (same pattern as scheduler-route-authz.test.js)
 // so a regression shows up as the wrong shell actually being served, not a unit test of

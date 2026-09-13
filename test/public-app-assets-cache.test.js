@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import worker from '../tlc-volunteer-worker.js';
+import worker from '../connect-worker.js';
 import { DEPLOY_VERSION } from '../src/frontend/js-core.js';
 import { PUBLIC_HTML, PUBLIC_APP_CSS, PUBLIC_APP_JS } from '../src/html-templates.js';
 
