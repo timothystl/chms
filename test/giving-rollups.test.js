@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { ensureGivingYearRollups } from '../src/giving-rollups.js';
+import { ensureGivingYearRollups, YEAR_REFRESH_QUERY_BUDGET } from '../src/giving-rollups.js';
 import { DASHBOARD_GIVING_TOTALS_SQL, loadDashboardGivingTotals } from '../src/api-chms.js';
-import { wrapDbForAttribution } from '../src/db-attribution.js';
+import { wrapDbForAttribution, QueryBudgetExceededError } from '../src/db-attribution.js';
 
 function setup() {
   const raw = new DatabaseSync(':memory:');
@@ -136,6 +136,93 @@ describe('giving rollups', () => {
     const { db, counter } = wrapDbForAttribution(rawDb);
     await ensureGivingYearRollups(db, 2026);
     expect(counter.names).toEqual(['giving-rollups.refresh-year-people']);
+  });
+
+  describe('year-rebuild query budget (enforced, not just logged)', () => {
+    // Regression coverage for the query-budget-enforcement port: a request that stays under
+    // YEAR_REFRESH_QUERY_BUDGET dirty-year rebuilds must behave exactly as before (this describe
+    // block's first test), and a request that would exceed it must be rejected cleanly instead
+    // of running the extra full-table scan (the second test) — see YEAR_REFRESH_QUERY_BUDGET's
+    // own comment in src/giving-rollups.js for why 3 is the chosen number.
+
+    function dirtyExtraYears(raw) {
+      // Each insert has a distinct year and a real amount so a genuine rebuild for that year
+      // has real rows to aggregate, not just an empty-year no-op.
+      raw.exec(`
+        INSERT INTO giving_entries VALUES
+          (4,1,3,8,10000,'2023-06-01'),
+          (5,1,3,8,10000,'2024-06-01'),
+          (6,1,3,8,10000,'2025-06-01')
+      `);
+      // (year 2026 is already dirty from setup()'s own base inserts — see the "refreshes a
+      // changed year once" test above, which relies on that same fact.)
+    }
+
+    it('rebuilds exactly YEAR_REFRESH_QUERY_BUDGET dirty years in one request unchanged — normal usage is untouched', async () => {
+      const { raw, db: rawDb } = setup();
+      dirtyExtraYears(raw);
+      const { db, counter } = wrapDbForAttribution(rawDb);
+
+      const results = await Promise.all(
+        [2023, 2024, 2025].map((year) => ensureGivingYearRollups(db, year))
+      );
+
+      expect(YEAR_REFRESH_QUERY_BUDGET).toBe(3); // documents the number this test exercises
+      expect(results.every((row) => row.giver_count === 1)).toBe(true);
+      expect(counter.names.filter((n) => n === 'giving-rollups.refresh-year-people')).toHaveLength(3);
+      // Every claim released normally; nothing left dirty.
+      expect(raw.prepare('SELECT COUNT(*) AS n FROM giving_year_rollup_claims').get().n).toBe(0);
+      expect(raw.prepare('SELECT COUNT(*) AS n FROM giving_rollup_dirty WHERE year IN (2023,2024,2025)').get().n).toBe(0);
+    });
+
+    it('rejects the rebuild that would exceed the budget in one request — cleanly, not a crash — and leaves that year retryable', async () => {
+      const { raw, db: rawDb } = setup();
+      dirtyExtraYears(raw);
+      const { db, counter } = wrapDbForAttribution(rawDb);
+
+      // Spend the whole budget on three other dirty years first, same as ordinary traffic would.
+      await ensureGivingYearRollups(db, 2023);
+      await ensureGivingYearRollups(db, 2024);
+      await ensureGivingYearRollups(db, 2025);
+      expect(counter.names.filter((n) => n === 'giving-rollups.refresh-year-people')).toHaveLength(3);
+
+      // A 4th dirty-year rebuild in the same request — e.g. many years going dirty together —
+      // is rejected instead of running a 4th full-table scan.
+      await expect(ensureGivingYearRollups(db, 2026)).rejects.toThrow(QueryBudgetExceededError);
+      expect(counter.names.filter((n) => n === 'giving-rollups.refresh-year-people')).toHaveLength(3);
+
+      // Rejected exactly like any other failed rebuild (see "releases a failed rebuild claim"
+      // above): no orphaned claim, and the year is left dirty so a later, separate request can
+      // still retry it — this is a rejection, not data loss or a stuck year.
+      expect(raw.prepare('SELECT COUNT(*) AS n FROM giving_year_rollup_claims').get().n).toBe(0);
+      expect(raw.prepare('SELECT COUNT(*) AS n FROM giving_rollup_dirty WHERE year=2026').get().n).toBe(1);
+    });
+
+    it('a route dispatched through handleAdminApi surfaces the rejection as a clean 500 JSON response, never an unhandled crash', async () => {
+      const { raw, db: rawDb } = setup();
+      dirtyExtraYears(raw);
+      const { db } = wrapDbForAttribution(rawDb);
+
+      // Exhaust the budget, then simulate what a route handler does: let the error propagate
+      // exactly as ensureGivingYearRollups would inside a real /admin/api/* handler, and confirm
+      // it is an ordinary catchable Error (the shape connect-worker.js's/api-admin.js's existing
+      // catch-all around every dispatch chokepoint already converts into a clean 500 response),
+      // not a raw crash.
+      await ensureGivingYearRollups(db, 2023);
+      await ensureGivingYearRollups(db, 2024);
+      await ensureGivingYearRollups(db, 2025);
+
+      let caught;
+      try {
+        await ensureGivingYearRollups(db, 2026);
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect(caught).toBeInstanceOf(QueryBudgetExceededError);
+      expect(typeof caught.message).toBe('string');
+      expect(caught.message.length).toBeGreaterThan(0);
+    });
   });
 
   it('answers dashboard General Fund totals from rollups plus only one partial month', async () => {

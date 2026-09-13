@@ -29,6 +29,45 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.242.0 — Enforced query budget for giving-rollups' year-rebuild scan (2026-09-13)
+
+Overhaul goal 5 (observability). `db-attribution.js` (previous entry below) is purely
+observational: it counts and logs, but never stops an over-budget request. `apps/finance`'s
+`query-budget.js` actually enforces a per-report ceiling, but that pattern didn't exist anywhere
+in the old production code (`src/api-finance.js`, `src/api-chms.js`) that both documented D1
+spikes (v1.228.1, v1.229.3, below) actually happened in — and both those spikes are otherwise
+already fixed (funds stats now admin-gated and reads a monthly summary table instead of scanning
+`giving_entries`; giving-rollups materializes yearly summaries and only rescans a dirty year).
+
+The one query left with that same full-table-scan shape is `giving-rollups.js`'s year-rebuild
+(`REFRESH_GIVING_YEAR_PEOPLE_SQL`, already tagged `giving-rollups.refresh-year-people` by
+`namedQuery()`). A single request can still trigger this scan for several years at once (e.g.
+`reports/giving-multiyear`, capped at 10 years) if that many years are simultaneously dirty — a
+plausible shape for a future regression or bad bulk import.
+
+- `namedQuery(db, name, sql, { limit })` gained an optional per-request ceiling: once a name has
+  already run `limit` times this request, the next call throws `QueryBudgetExceededError` instead
+  of preparing the statement — enforced, not just logged, same as `apps/finance`'s pattern, but
+  reusing the existing per-request counter instead of a second wrapping mechanism. No `limit`
+  passed (every other existing `namedQuery()` call site) keeps the old purely-observational
+  behavior unchanged.
+- `giving-rollups.js` sets `YEAR_REFRESH_QUERY_BUDGET = 3` on its one full-scan query — normal
+  traffic rebuilds 0-1 dirty years per request; 3 leaves headroom for an ordinary multi-year
+  correction while capping the worst case well below a 10-year scan spree. See that constant's
+  comment for the full reasoning.
+- A rejection throws before `db.batch()` runs, so the existing try/finally in
+  `ensureGivingYearRollups` still restores the year's dirty marker and releases its claim exactly
+  like any other failed rebuild — the year stays retryable on a later, separate request. The
+  existing catch-all around every dispatch chokepoint (`connect-worker.js`'s `/admin/api/*`
+  handling) turns the thrown error into a clean 500 JSON response, not a crash.
+- Scoped to this one route deliberately — not a blanket budget rollout across `api-finance.js`/
+  `api-chms.js`, whose other routes' real query-count baselines haven't been measured. Other
+  routes worth measuring later: `src/api-finance.js`'s heavier report assemblies (no per-report
+  budget exists there yet, unlike the `apps/finance` rewrite) and Import's bulk-write paths.
+- New tests: `test/db-attribution.test.js` (the `limit` option itself) and
+  `test/giving-rollups.test.js` (end-to-end — 3 dirty years in one request succeed unchanged, a
+  4th is rejected cleanly and leaves that year retryable).
+
 ### v1.241.0 — D1 attribution extended: query names, duration, public routes, cron (2026-09-13)
 
 Overhaul goal 5 (observability). The per-request D1 query-count wrapper added for

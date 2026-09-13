@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { wrapDbForAttribution, wrapEnvForDbAttribution, namedQuery, logDbAttribution, ADMIN_API_QUERY_LOG_THRESHOLD, ADMIN_API_DURATION_LOG_THRESHOLD_MS } from '../src/db-attribution.js';
+import { wrapDbForAttribution, wrapEnvForDbAttribution, namedQuery, QueryBudgetExceededError, logDbAttribution, ADMIN_API_QUERY_LOG_THRESHOLD, ADMIN_API_DURATION_LOG_THRESHOLD_MS } from '../src/db-attribution.js';
 import { handleAdminApi } from '../src/api-admin.js';
 import { authCookieHeader } from '../src/auth.js';
 
@@ -81,6 +81,42 @@ describe('namedQuery', () => {
   it('falls through to a plain prepare() on an unwrapped db, without throwing', () => {
     const plain = makeFakeDb();
     expect(() => namedQuery(plain, 'some-query', 'SELECT 1')).not.toThrow();
+  });
+
+  it('with no limit given, still runs any number of times unenforced (unchanged default behavior)', () => {
+    const { db, counter } = wrapDbForAttribution(makeFakeDb());
+    for (let i = 0; i < 5; i++) namedQuery(db, 'unbudgeted-query', 'SELECT 1');
+    expect(counter.names).toHaveLength(5);
+  });
+
+  it('with a limit given, allows exactly that many calls before rejecting the next one', () => {
+    const { db, counter } = wrapDbForAttribution(makeFakeDb());
+    for (let i = 0; i < 3; i++) {
+      expect(() => namedQuery(db, 'budgeted-query', 'SELECT 1', { limit: 3 })).not.toThrow();
+    }
+    expect(counter.names).toEqual(['budgeted-query', 'budgeted-query', 'budgeted-query']);
+
+    let thrown;
+    try { namedQuery(db, 'budgeted-query', 'SELECT 1', { limit: 3 }); } catch (e) { thrown = e; }
+    expect(thrown).toBeInstanceOf(QueryBudgetExceededError);
+    expect(thrown.queryName).toBe('budgeted-query');
+    expect(thrown.limit).toBe(3);
+    // The rejected call must not itself count, and must not have prepared a statement.
+    expect(counter.names).toHaveLength(3);
+  });
+
+  it('a limit on one name never affects a different name\'s own budget or the unbudgeted count', () => {
+    const { db, counter } = wrapDbForAttribution(makeFakeDb());
+    namedQuery(db, 'query-a', 'SELECT 1', { limit: 1 });
+    expect(() => namedQuery(db, 'query-b', 'SELECT 1', { limit: 1 })).not.toThrow();
+    expect(counter.names).toEqual(['query-a', 'query-b']);
+  });
+
+  it('a limit is unenforced on an unwrapped db (no counter to check history against) — falls through, matching the unwrapped/observational contract above', () => {
+    const plain = makeFakeDb();
+    for (let i = 0; i < 5; i++) {
+      expect(() => namedQuery(plain, 'budgeted-query', 'SELECT 1', { limit: 1 })).not.toThrow();
+    }
   });
 });
 

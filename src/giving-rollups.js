@@ -1,6 +1,21 @@
 // Compact read models for giving. Raw gifts remain the transaction ledger; normal dashboards
 // read these summaries. A year is rebuilt only after a gift or household classification changes.
 import { namedQuery } from './db-attribution.js';
+
+// Enforced ceiling (query-budget pattern from apps/finance/query-budget.js, ported onto
+// namedQuery()'s optional `limit`) on how many times a single request may run the full
+// giving_entries year-scan below. Normal traffic rebuilds 0 or 1 dirty year per request — new
+// gifts dirty only the current year, and a single household-move dirties one year (see the
+// UPDATE-trigger callers of giving_rollup_dirty). The one caller that can request many years at
+// once, loadGivingYearTrendRows, is itself capped to at most 10 years by its own callers
+// (reports/giving-multiyear clamps `years` to 2..10; reports/giving-insights always requests a
+// fixed 5). A budget of 3 leaves headroom for an ordinary multi-year correction (e.g. a bulk
+// import or a batch of household re-links spanning two or three consecutive years all going
+// dirty together) while still capping the worst case — many/all requested years dirty at once,
+// whether from a bad import or a rollup-dirtying regression — well below turning one request
+// into up to 10 consecutive full-history scans, which is the exact shape both v1.228.1 and
+// v1.229.3 (see NOTES.md) were.
+export const YEAR_REFRESH_QUERY_BUDGET = 3;
 export const REFRESH_GIVING_YEAR_PEOPLE_SQL = `
   INSERT INTO giving_year_person_totals(year, person_id, total_cents, gift_count, last_gift_date)
   SELECT ?, ge.person_id, SUM(ge.amount), COUNT(*), MAX(ge.contribution_date)
@@ -89,8 +104,14 @@ export async function ensureGivingYearRollups(db, year) {
       // The one query in this batch that still scans a full year of giving_entries — the exact
       // shape of query that caused both documented D1 spikes (see NOTES.md v1.228.1/v1.229.3).
       // Named so a future regression here shows up as `names: ["giving-rollups.refresh-year-people"]`
-      // in the attribution log instead of just an elevated query count on whatever route triggered it.
-      namedQuery(db, 'giving-rollups.refresh-year-people', REFRESH_GIVING_YEAR_PEOPLE_SQL).bind(year, start, end),
+      // in the attribution log instead of just an elevated query count on whatever route triggered
+      // it, AND budgeted so a request that would run it more than YEAR_REFRESH_QUERY_BUDGET times
+      // (e.g. many/all years dirty at once) is rejected before the extra scans run, rather than
+      // just logged after the fact. A rejection here throws before db.batch() is called, so the
+      // surrounding try/finally below still restores this year's dirty marker and releases its
+      // claim exactly like any other failed rebuild (see the "releases a failed rebuild claim"
+      // test in giving-rollups.test.js) — the year stays retryable on a later, separate request.
+      namedQuery(db, 'giving-rollups.refresh-year-people', REFRESH_GIVING_YEAR_PEOPLE_SQL, { limit: YEAR_REFRESH_QUERY_BUDGET }).bind(year, start, end),
       db.prepare('DELETE FROM giving_year_household_totals WHERE year=?').bind(year),
       db.prepare(REFRESH_GIVING_YEAR_HOUSEHOLDS_SQL).bind(year, year),
       db.prepare(REFRESH_GIVING_YEAR_STATS_SQL).bind(year, year),

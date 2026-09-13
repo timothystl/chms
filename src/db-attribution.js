@@ -2,9 +2,17 @@
 // Overhaul goal 5 (observability): the D1 usage spike that prompted this goal was hard to
 // root-cause because nothing recorded which route ran how many queries. apps/finance's
 // query-budget.js already solved this for the new Finance rewrite by *enforcing* a declared
-// limit per named report. That pattern can't be retrofitted onto the old, much larger
+// limit per named report. That pattern can't be blanket-retrofitted onto the old, much larger
 // src/api-finance.js and src/api-chms.js without first knowing what each of their routes
-// actually costs today — so this is the observational half: count, log, don't enforce.
+// actually costs today — so most of this file stays the observational half: count, log,
+// don't enforce.
+//
+// namedQuery() below is the one exception: it now accepts an optional per-request `limit` for
+// a specific named query, enforced the same way apps/finance enforces its per-report budgets
+// (throw before running the query rather than let it run and only notice afterward). This is
+// deliberately narrow — opt-in per call site, not a change to the wrapper's default behavior —
+// because only one query in the old code (giving-rollups.js's year-rebuild scan) has a measured
+// baseline to set a real ceiling against; see that call site for the chosen number and why.
 //
 // Wrapping env.DB once, at the single /admin/api/* dispatch chokepoint (see handleAdminApi in
 // api-admin.js), means every handler downstream — old Finance, Reports, Giving, People,
@@ -42,15 +50,44 @@ export function wrapDbForAttribution(db) {
   return { db: wrapped, counter };
 }
 
+/** Thrown by namedQuery() when a call site's optional `limit` is exceeded. A route handler that
+ *  lets this propagate fails the request cleanly (see api-admin.js's / connect-worker.js's
+ *  existing catch-all around every dispatch chokepoint, which turns any thrown Error into a
+ *  plain 500 JSON response) rather than completing an over-budget scan. */
+export class QueryBudgetExceededError extends Error {
+  constructor(name, limit) {
+    super(`Query budget exceeded: "${name}" already ran ${limit} time(s) this request`);
+    this.name = 'QueryBudgetExceededError';
+    this.queryName = name;
+    this.limit = limit;
+  }
+}
+
 /** Tags this request's attribution counter with a human name for a specific query, then
- *  prepares it as normal. Purely observational (adds to `counter.names`, changes nothing about
- *  execution) and safe to call with an unwrapped db (falls through to plain db.prepare(sql)) —
- *  so a call site can adopt it without knowing whether it's reachable through an attributed
- *  chokepoint today. Start with a route's known-heaviest query rather than every query: the
- *  goal is naming the query a future spike is likely to be, not tagging everything. */
-export function namedQuery(db, name, sql) {
+ *  prepares it as normal. Safe to call with an unwrapped db (falls through to plain
+ *  db.prepare(sql)) — so a call site can adopt it without knowing whether it's reachable
+ *  through an attributed chokepoint today. Start with a route's known-heaviest query rather
+ *  than every query: the goal is naming the query a future spike is likely to be, not tagging
+ *  everything.
+ *
+ *  With no `limit`, this is purely observational (adds to `counter.names`, changes nothing about
+ *  execution), same as before. Pass `{ limit }` to also enforce a per-request ceiling on how many
+ *  times this exact name may run: once a request has already run it `limit` times, the next call
+ *  throws QueryBudgetExceededError instead of preparing the statement. This only ever fires for
+ *  a request already routed through a wrapped db (see wrapDbForAttribution) — on an unwrapped db
+ *  there is no counter to check history against, so the call falls through unenforced, matching
+ *  the unwrapped/observational fallback above. Every production request path this matters for
+ *  (`/admin/api/*`, chms's public `/api/*`, and the daily cron) already wraps env.DB, so this is
+ *  a theoretical gap, not a practical one today. */
+export function namedQuery(db, name, sql, { limit } = {}) {
   const counter = db && db.__attributionCounter;
-  if (counter) counter.names.push(name);
+  if (counter) {
+    if (Number.isInteger(limit)) {
+      const priorCalls = counter.names.filter((n) => n === name).length;
+      if (priorCalls >= limit) throw new QueryBudgetExceededError(name, limit);
+    }
+    counter.names.push(name);
+  }
   return db.prepare(sql);
 }
 
