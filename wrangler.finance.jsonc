@@ -9,9 +9,10 @@
   // docs/FINANCE_PRODUCTION_CUTOVER.md for the ordered runbook this file is
   // one step of.
   //
-  // Do not fill in the real database_id, add a route, or dispatch a deploy
-  // using this config without Andrew's explicit go-ahead for that specific
-  // step — this is prep, not activation.
+  // Do not add a route or dispatch a deploy using this config without
+  // Andrew's explicit go-ahead for that specific step — the database_id
+  // below is now real (Step 1 of the runbook, done 2026-09-13), but Steps
+  // 3-7 (migrations, Access attachment, route, deploy) are still ahead.
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "timothy-finance-app",
   "main": "apps/finance/shell.js",
@@ -31,11 +32,9 @@
     {
       "binding": "FINANCE_DB",
       "database_name": "timothy-finance-db",
-      // PLACEHOLDER — not a real database. Replace with the real database_id
-      // only after creating the actual production D1 database (a Cloudflare
-      // account action outside this repo — see the runbook's step 1) and
-      // before ever dispatching a deploy with this config.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // Real production database, created 2026-09-13 (runbook Step 1). Still empty --
+      // migrations have not been applied yet (runbook Step 3).
+      "database_id": "04988828-94b7-43bc-9689-ff570951f1c7",
       "migrations_dir": "apps/finance/migrations"
     }
   ],
