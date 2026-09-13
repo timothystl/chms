@@ -46,9 +46,43 @@ now_epoch="$(date -u +%s)"
 
 echo "      Found $total_keys key(s) (names and values withheld from all logs)"
 
+# A key whose remaining life is too short can expire in the gap between listing it and
+# writing it to the destination (get, then put, are two separate round trips); treat anything
+# expiring within this grace window as already-expired rather than counting it as a failure.
+expiry_grace_seconds=30
+
 copied=0
 skipped_expired=0
 failed=0
+# Failure reason buckets -- categorized from wrangler's own exit status/stderr by pattern only,
+# never from the stderr text itself, so a key name or value occurring in an error message is
+# never captured here.
+failed_rate_limited=0
+failed_expired_race=0
+failed_other=0
+
+classify_and_run() {
+  # Runs "$@", retrying once after a short pause on failure (handles transient network/API
+  # blips). Returns wrangler's final exit code; on failure, sets CLASSIFY_REASON to one of
+  # rate_limited / expired_race / other based only on the exit code and a keyword scan of the
+  # captured stderr file (never the stderr content itself).
+  local error_log="$1"; shift
+  if wrangler "$@" 2>"$error_log"; then
+    return 0
+  fi
+  sleep 2
+  if wrangler "$@" 2>"$error_log"; then
+    return 0
+  fi
+  if grep -qiE '429|rate.?limit|too many requests' "$error_log"; then
+    CLASSIFY_REASON=rate_limited
+  elif grep -qiE 'expir' "$error_log"; then
+    CLASSIFY_REASON=expired_race
+  else
+    CLASSIFY_REASON=other
+  fi
+  return 1
+}
 
 key_index=0
 while [[ "$key_index" -lt "$total_keys" ]]; do
@@ -56,14 +90,19 @@ while [[ "$key_index" -lt "$total_keys" ]]; do
   expiration="$(jq -r ".[$key_index].expiration // empty" "$temp_dir/source-keys.json")"
   key_index=$((key_index + 1))
 
-  if [[ -n "$expiration" ]] && [[ "$expiration" -le "$now_epoch" ]]; then
+  if [[ -n "$expiration" ]] && [[ "$expiration" -le "$((now_epoch + expiry_grace_seconds))" ]]; then
     skipped_expired=$((skipped_expired + 1))
     continue
   fi
 
   value_file="$temp_dir/value.$$"
-  if ! wrangler kv key get --namespace-id="$source_namespace_id" --remote --text -- "$name" > "$value_file" 2>"$temp_dir/get-error.log"; then
+  if ! classify_and_run "$temp_dir/get-error.log" kv key get --namespace-id="$source_namespace_id" --remote --text -- "$name" > "$value_file"; then
     failed=$((failed + 1))
+    case "$CLASSIFY_REASON" in
+      rate_limited) failed_rate_limited=$((failed_rate_limited + 1)) ;;
+      expired_race) failed_expired_race=$((failed_expired_race + 1)) ;;
+      *) failed_other=$((failed_other + 1)) ;;
+    esac
     rm -f "$value_file"
     continue
   fi
@@ -74,10 +113,15 @@ while [[ "$key_index" -lt "$total_keys" ]]; do
   fi
   put_args+=(-- "$name")
 
-  if wrangler "${put_args[@]}" >/dev/null 2>"$temp_dir/put-error.log"; then
+  if classify_and_run "$temp_dir/put-error.log" "${put_args[@]}" >/dev/null; then
     copied=$((copied + 1))
   else
     failed=$((failed + 1))
+    case "$CLASSIFY_REASON" in
+      rate_limited) failed_rate_limited=$((failed_rate_limited + 1)) ;;
+      expired_race) failed_expired_race=$((failed_expired_race + 1)) ;;
+      *) failed_other=$((failed_other + 1)) ;;
+    esac
   fi
   rm -f "$value_file"
 done
@@ -95,7 +139,7 @@ while [[ "$key_index" -lt "$total_keys" ]] && [[ "$sample_checked" -lt "$sample_
   name="$(jq -r ".[$key_index].name" "$temp_dir/source-keys.json")"
   expiration="$(jq -r ".[$key_index].expiration // empty" "$temp_dir/source-keys.json")"
   key_index=$((key_index + 1))
-  if [[ -n "$expiration" ]] && [[ "$expiration" -le "$now_epoch" ]]; then continue; fi
+  if [[ -n "$expiration" ]] && [[ "$expiration" -le "$((now_epoch + expiry_grace_seconds))" ]]; then continue; fi
 
   if wrangler kv key get --namespace-id="$source_namespace_id" --remote --text -- "$name" > "$temp_dir/sample-source.$$" 2>/dev/null \
     && wrangler kv key get --namespace-id="$dest_namespace_id" --remote --text -- "$name" > "$temp_dir/sample-dest.$$" 2>/dev/null; then
@@ -120,10 +164,13 @@ jq -n \
   --argjson copied "$copied" \
   --argjson skipped_expired "$skipped_expired" \
   --argjson failed "$failed" \
+  --argjson failed_rate_limited "$failed_rate_limited" \
+  --argjson failed_expired_race "$failed_expired_race" \
+  --argjson failed_other "$failed_other" \
   --argjson dest_count_after "$dest_count_after" \
   --argjson sample_checked "$sample_checked" \
   --argjson sample_matched "$sample_matched" \
-  '{completed_at:$completed_at,source_namespace_id:$source_namespace_id,source_namespace_title:$source_namespace_title,dest_namespace_id:$dest_namespace_id,dest_namespace_title:$dest_namespace_title,total_keys_found:$total_keys,copied:$copied,skipped_expired:$skipped_expired,failed:$failed,dest_key_count_after:$dest_count_after,sample_checked:$sample_checked,sample_matched:$sample_matched,source_namespace_modified:false,key_names_and_values_logged:false}' > "$result_file"
+  '{completed_at:$completed_at,source_namespace_id:$source_namespace_id,source_namespace_title:$source_namespace_title,dest_namespace_id:$dest_namespace_id,dest_namespace_title:$dest_namespace_title,total_keys_found:$total_keys,copied:$copied,skipped_expired:$skipped_expired,failed:$failed,failed_rate_limited:$failed_rate_limited,failed_expired_race:$failed_expired_race,failed_other:$failed_other,dest_key_count_after:$dest_count_after,sample_checked:$sample_checked,sample_matched:$sample_matched,source_namespace_modified:false,key_names_and_values_logged:false}' > "$result_file"
 
-test "$failed" -eq 0
 cat "$result_file"
+test "$failed" -eq 0
