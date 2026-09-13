@@ -1,0 +1,62 @@
+{
+  // Production Finance Worker config — PREPARATION ONLY, not yet deployed.
+  //
+  // This mirrors wrangler.finance.staging.jsonc's shape but targets the real
+  // production Finance cutover described in the digital-architecture repo's
+  // overhaul plan ("Finance separation" next step). It is intentionally NOT
+  // wired into any deploy workflow that can run unattended, and it is not
+  // usable as-is: see the placeholder database_id below and
+  // docs/FINANCE_PRODUCTION_CUTOVER.md for the ordered runbook this file is
+  // one step of.
+  //
+  // Do not fill in the real database_id, add a route, or dispatch a deploy
+  // using this config without Andrew's explicit go-ahead for that specific
+  // step — this is prep, not activation.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "timothy-finance-app",
+  "main": "apps/finance/shell.js",
+  "compatibility_date": "2026-09-09",
+  "workers_dev": false,
+  "preview_urls": false,
+
+  // Deliberately empty, same reasoning wrangler.finance.staging.jsonc
+  // originally documented for itself: a route must never go live on this
+  // Worker before Cloudflare Access is confirmed attached to it, or the
+  // route would be a second, unprotected door into Finance. Add the
+  // "finance.timothystl.org" custom_domain route only after that
+  // confirmation — see the runbook.
+  "routes": [],
+
+  "d1_databases": [
+    {
+      "binding": "FINANCE_DB",
+      "database_name": "timothy-finance-db",
+      // PLACEHOLDER — not a real database. Replace with the real database_id
+      // only after creating the actual production D1 database (a Cloudflare
+      // account action outside this repo — see the runbook's step 1) and
+      // before ever dispatching a deploy with this config.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "apps/finance/migrations"
+    }
+  ],
+
+  "services": [
+    {
+      "binding": "CONNECT_SERVICE",
+      "service": "tlc-chms"
+    },
+    {
+      "binding": "PAYROLL_SERVICE",
+      "service": "tlc-newsletter-admin"
+    }
+  ],
+
+  "vars": {
+    "ENVIRONMENT": "production",
+    "RELEASE_SHA": "unreleased"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

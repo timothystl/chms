@@ -187,6 +187,23 @@ export const DB_INIT = [
     value      TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
+  // Same "own domain, own table" split as finance_settings above, applied to the two other
+  // domains whose settings were mixed into chms_config's generic dumping ground: Giving-domain
+  // content (the impact-statements list and the two donor letter templates it's edited
+  // alongside), and Import's own sync bookkeeping. `member_types` deliberately stays in
+  // chms_config for now — it's genuinely cross-domain (defined via Import's own endpoint, but
+  // consumed at least as much by Admin's dashboard and Reports), so it has no single clear
+  // owner to move it to yet.
+  `CREATE TABLE IF NOT EXISTS giving_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS import_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
   `CREATE TABLE IF NOT EXISTS church_register (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     type       TEXT    NOT NULL DEFAULT '',
@@ -994,6 +1011,45 @@ export async function migrateFinanceSettingsFromConfig(db) {
   ).run();
 }
 
+// Same one-time-move pattern as migrateFinanceSettingsFromConfig above, applied to Giving's and
+// Import's own chms_config keys. Own marker in chms_config, same reasoning: chms_config still
+// holds genuinely shared/system markers, so the "this migration already ran" marker belongs
+// there, not in either table being migrated into.
+const GIVING_CONFIG_KEYS = [
+  'giving_impact_statements_json',
+  'giving_letter_template',
+  'giving_midyear_letter_template',
+  'online_giving_url',
+];
+const IMPORT_CONFIG_KEYS = [
+  'breeze_statuses_seen',
+];
+export async function migrateNonFinanceSettingsFromConfig(db) {
+  const marker = await db.prepare("SELECT value FROM chms_config WHERE key='non_finance_settings_migrated_v1'").first();
+  if (marker) return;
+  const moveKeys = async (keys, targetTable) => {
+    const placeholders = keys.map(() => '?').join(',');
+    const rows = await db.prepare(
+      `SELECT key, value FROM chms_config WHERE key IN (${placeholders})`
+    ).bind(...keys).all();
+    const moved = rows.results || [];
+    for (const row of moved) {
+      await db.prepare(
+        `INSERT INTO ${targetTable} (key,value,updated_at) VALUES (?,?,datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
+      ).bind(row.key, row.value).run();
+    }
+    if (moved.length) {
+      await db.prepare(`DELETE FROM chms_config WHERE key IN (${placeholders})`).bind(...keys).run();
+    }
+  };
+  await moveKeys(GIVING_CONFIG_KEYS, 'giving_settings');
+  await moveKeys(IMPORT_CONFIG_KEYS, 'import_settings');
+  await db.prepare(
+    `INSERT INTO chms_config (key,value) VALUES ('non_finance_settings_migrated_v1','1') ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).run();
+}
+
 async function seedIvanhoeProperty(db) {
   const existing = await db.prepare("SELECT COUNT(*) as n FROM finance_property_monthly WHERE property_key='ivanhoe'").first();
   if (!existing || existing.n > 0) return;
@@ -1331,7 +1387,8 @@ async function seedIvanhoePropertyJuly2026(db) {
 // than the slow start this replaces.
 function _schemaFingerprint() {
   const parts = [
-    _doInitDb, migrateFinanceSettingsFromConfig, seedChmsDefaults, seedEvents, seedIvanhoeProperty,
+    _doInitDb, migrateFinanceSettingsFromConfig, migrateNonFinanceSettingsFromConfig,
+    seedChmsDefaults, seedEvents, seedIvanhoeProperty,
     seedIvanhoePropertyBaseMinimumReserve, seedIvanhoePropertyJune2026,
     seedIvanhoePropertyJune2026Notes, seedIvanhoePropertyJuly2026,
     seedIvanhoePropertyReservesV2,
@@ -2144,6 +2201,7 @@ async function _doInitDb(db) {
   await seedTuitionYearRates(db);
   await seedStudentTuitionHistory(db);
   await migrateFinanceSettingsFromConfig(db);
+  await migrateNonFinanceSettingsFromConfig(db);
   await seedIvanhoeProperty(db);
   await seedIvanhoePropertyReservesV2(db);
   await seedIvanhoePropertyValuationV3(db);

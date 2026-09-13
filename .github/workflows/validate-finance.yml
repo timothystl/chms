@@ -8,6 +8,7 @@ on:
       - 'contracts/examples/giving-summary-v1.synthetic.json'
       - 'test/finance-*.test.js'
       - 'wrangler.finance.staging.jsonc'
+      - 'wrangler.finance.jsonc'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/validate-finance.yml'
@@ -29,3 +30,4 @@ jobs:
       - run: npm ci
       - run: npm run test:finance
       - run: npx wrangler deploy --dry-run --config wrangler.finance.staging.jsonc
+      - run: npx wrangler deploy --dry-run --config wrangler.finance.jsonc

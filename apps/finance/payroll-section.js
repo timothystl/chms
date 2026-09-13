@@ -6,16 +6,18 @@
 //    Website's side) — Finance never stores payroll data of its own.
 //    Emailing the report relays to Website's own /payroll/email route
 //    (payroll-email-client.js) the same way, now that it accepts Finance's
-//    contract-relay identity too (timothystl/website PR #587).
-//
-// NOT ported in this pass (needs a THIRD Website route extended the same
-// way, which is separate, cross-repo work):
-//   - The "payroll ready" push notification (Website's /api/push/payroll-ready)
+//    contract-relay identity too (timothystl/website PR #587). The "payroll
+//    ready" push notification (Website's /api/push/payroll-ready) relays the
+//    same way via payroll-ready-client.js, now that this route accepts the
+//    contract-relay identity too -- see buildPayrollSectionBundle below for
+//    the trigger condition (mirrors admin/payroll.html's own
+//    renderPeriodState()/notifyPayrollReady()).
 // Printing has no button here (Finance has no script to call window.print());
 // the print CSS (#pay-print, @media print in shell.js) works with the
 // browser's own print command regardless of how it is invoked.
 import { callPayrollProxy } from './payroll-proxy-client.js';
 import { postPayrollEmailReport } from './payroll-email-client.js';
+import { postPayrollReadyNotification } from './payroll-ready-client.js';
 import {
   cents, fromCents, money, hrs, takesPto,
   effectiveChurch, mergeMdoHours, mdoPtoMapFrom, mdoRateSnapshotMapFrom,
@@ -509,6 +511,22 @@ export async function buildPayrollSectionBundle(env, accessJwt, searchParams) {
     healMissingTotal(env, accessJwt, period.start, workspace),
   ]);
   workspace.periodApproval = healedApproval;
+
+  // Mirrors admin/payroll.html's own renderPeriodState()/notifyPayrollReady(): not yet
+  // approved, no one still missing hours, and there is at least one person to pay --
+  // the same "Ready to approve" condition Finance's own entry view computes below for
+  // its status pill. Website holds the real, once-ever dedup per period
+  // (payroll_ready_notified) since more than one caller can notice the same period
+  // turning ready, so calling this on every render of a ready period is a safe no-op,
+  // not a duplicate push. Never surfaced as page-render failure -- a push failing must
+  // not read as the period itself being wrong.
+  if (view === 'entry' && !workspace.periodApproval) {
+    const readyMissing = computeMissingHours(workspace.churchStaff, workspace.periodEntries);
+    const readyPeople = payablePeople(workspace.churchStaff, workspace.mdoStaff, workspace.mdoHoursMap, workspace.mdoPtoMap);
+    if (!readyMissing.length && readyPeople.length) {
+      await postPayrollReadyNotification(env, accessJwt, { periodStart: period.start, periodLabel: periodLabel(period.start, period.end) }).catch(() => {});
+    }
+  }
 
   const statusMsg = view === 'staff-form' ? '' : {
     saved: 'Hours saved.', approved: 'Period approved.', unapproved: 'Approval taken back.',

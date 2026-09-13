@@ -6,6 +6,7 @@
     "test": "vitest run",
     "test:finance": "vitest run test/finance-*.test.js",
     "validate:finance": "npm run test:finance && wrangler deploy --dry-run --config wrangler.finance.staging.jsonc",
+    "validate:finance:prod": "npm run test:finance && wrangler deploy --dry-run --config wrangler.finance.jsonc",
     "test:watch": "vitest"
   },
   "devDependencies": {
