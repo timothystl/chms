@@ -1,0 +1,94 @@
+name: Deploy Finance Production
+
+# NOT READY TO USE — see docs/FINANCE_PRODUCTION_CUTOVER.md.
+#
+# wrangler.finance.jsonc still carries a placeholder D1 database_id
+# (00000000-0000-0000-0000-000000000000). The guard step below refuses to
+# deploy while that placeholder is still in place, so dispatching this
+# workflow today fails safely rather than deploying a Worker wired to a
+# database that doesn't exist. Do not remove that guard as a way to make a
+# run succeed — replace the placeholder for real, per the runbook, instead.
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full main commit SHA approved for this Finance production deployment
+        required: true
+        type: string
+      reason:
+        description: Reason for this production deployment
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy approved main commit (Finance production Worker)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check out the approved commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.expected_sha }}
+
+      - name: Verify the approved commit is on main
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git merge-base --is-ancestor "$EXPECTED_SHA" origin/main
+
+      - name: Refuse to deploy while the D1 database_id is still a placeholder
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q '00000000-0000-0000-0000-000000000000' wrangler.finance.jsonc; then
+            echo "::error::wrangler.finance.jsonc still has the placeholder database_id." \
+                 "Create the real production Finance D1 database first and update this file" \
+                 "in a reviewed PR — see docs/FINANCE_PRODUCTION_CUTOVER.md." >&2
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Finance validation gate
+        run: npm run validate:finance:prod
+
+      - name: Deploy Finance production (wrangler.finance.jsonc)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: deploy --config wrangler.finance.jsonc
+
+      - name: Record deployment summary
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RELEASE_REASON: ${{ inputs.reason }}
+        run: |
+          {
+            echo '## Finance production deployment'
+            echo
+            echo "- Commit: $EXPECTED_SHA"
+            echo "- Requested by: $GITHUB_ACTOR"
+            echo "- Reason: $RELEASE_REASON"
+          } >> "$GITHUB_STEP_SUMMARY"

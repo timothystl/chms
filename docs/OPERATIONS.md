@@ -7,6 +7,7 @@
 | Production | `tlc-chms` | Production D1, KV, and R2; daily cron | Manual approved-main SHA workflow only |
 | Connect staging | `timothy-connect-staging` (renamed 2026-09-09 from `breeze-proxy-worker-staging`) | Separate staging D1, KV, and R2; no cron | Manual Wrangler operation |
 | Finance staging | `timothy-finance-app-staging` | Separate Finance D1; synthetic data only | Manual reviewed alpha release |
+| Finance production | `timothy-finance-app` (not yet deployed) | Separate Finance D1; not yet created | Not started — see [`FINANCE_PRODUCTION_CUTOVER.md`](FINANCE_PRODUCTION_CUTOVER.md) |
 
 ## Production release
 
