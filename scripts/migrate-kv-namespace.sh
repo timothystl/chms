@@ -28,8 +28,16 @@ PY
 }
 trap cleanup EXIT
 
+# Invoke the locally installed wrangler binary directly rather than through `npx wrangler`.
+# npx strips bare "--" tokens from the argument list before forwarding to the target binary, so
+# `wrangler kv key get --text -- "$name"` reached wrangler as `--text "$name"` with no "--" --
+# "--text" (a boolean flag) then swallowed "$name" as its own value, leaving wrangler with zero
+# positional arguments ("Not enough non-option arguments: got 0, need at least 1") for every
+# single key. Calling the binary directly lets "--" reach wrangler's own parser untouched.
+wrangler_bin="$PWD/node_modules/.bin/wrangler"
+test -x "$wrangler_bin" || { echo "wrangler binary not found at $wrangler_bin -- run npm ci first" >&2; exit 1; }
 wrangler() {
-  WRANGLER_LOG_PATH="$temp_dir/wrangler.log" npx wrangler "$@"
+  WRANGLER_LOG_PATH="$temp_dir/wrangler.log" "$wrangler_bin" "$@"
 }
 
 echo "[1/4] Verifying source and destination namespace identity"
