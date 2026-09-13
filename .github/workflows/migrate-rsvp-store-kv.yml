@@ -71,11 +71,18 @@ jobs:
         run: bash scripts/migrate-kv-namespace.sh
 
       - name: Record migration summary
+        if: always()
         shell: bash
         env:
           MIGRATION_REASON: ${{ inputs.reason }}
         run: |
           set -euo pipefail
+          if [[ ! -s "$RESULT_FILE" ]]; then
+            echo '## RSVP_STORE -> timothy-connect-kv data copy' >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo '- The copy script did not produce a result file (failed before completing any phase). Check the job logs.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           {
             echo '## RSVP_STORE -> timothy-connect-kv data copy'
             echo
@@ -84,8 +91,8 @@ jobs:
             jq -r '
               "- Source keys found: " + (.total_keys_found | tostring),
               "- Copied: " + (.copied | tostring),
-              "- Skipped (already expired): " + (.skipped_expired | tostring),
-              "- Failed: " + (.failed | tostring),
+              "- Skipped (already expired, including a 30s safety grace period): " + (.skipped_expired | tostring),
+              "- Failed: " + (.failed | tostring) + " (rate-limited: " + (.failed_rate_limited | tostring) + ", expired mid-copy: " + (.failed_expired_race | tostring) + ", other: " + (.failed_other | tostring) + ")",
               "- Destination key count after copy: " + (.dest_key_count_after | tostring),
               "- Byte-equality sample: " + (.sample_matched | tostring) + "/" + (.sample_checked | tostring) + " matched",
               "- Source namespace left unmodified: " + (.source_namespace_modified | tostring),
