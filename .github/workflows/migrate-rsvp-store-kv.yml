@@ -96,6 +96,7 @@ jobs:
               "- Destination key count after copy: " + (.dest_key_count_after | tostring),
               "- Byte-equality sample: " + (.sample_matched | tostring) + "/" + (.sample_checked | tostring) + " matched",
               "- Source namespace left unmodified: " + (.source_namespace_modified | tostring),
-              "- Key names and values were not printed or retained as artifacts"
+              "- Key names and values were not printed or retained as artifacts",
+              (if (.first_failure_diagnostic // "") != "" then "- First-failure diagnostic (long token-like strings redacted):\n```\n" + .first_failure_diagnostic + "\n```" else empty end)
             ' "$RESULT_FILE"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -60,6 +60,16 @@ failed=0
 failed_rate_limited=0
 failed_expired_race=0
 failed_other=0
+# One-time diagnostic: if every attempt fails for the same systemic reason (auth, CLI syntax,
+# permissions), the error text is a fixed CLI/API message, not data -- so it's safe to capture
+# it once, with any long token-like run of characters (>=20 chars) blanked out as defense in
+# depth against an unexpected key name or secret ending up in a wrangler error message.
+first_failure_diagnostic=""
+capture_diagnostic_once() {
+  if [[ -z "$first_failure_diagnostic" ]] && [[ -s "$1" ]]; then
+    first_failure_diagnostic="$(head -c 2000 "$1" | tr -d '\r' | sed -E 's/[A-Za-z0-9_+\/=-]{20,}/[REDACTED]/g' | head -5)"
+  fi
+}
 
 classify_and_run() {
   # Runs "$@", retrying once after a short pause on failure (handles transient network/API
@@ -98,6 +108,7 @@ while [[ "$key_index" -lt "$total_keys" ]]; do
   value_file="$temp_dir/value.$$"
   if ! classify_and_run "$temp_dir/get-error.log" kv key get --namespace-id="$source_namespace_id" --remote --text -- "$name" > "$value_file"; then
     failed=$((failed + 1))
+    capture_diagnostic_once "$temp_dir/get-error.log"
     case "$CLASSIFY_REASON" in
       rate_limited) failed_rate_limited=$((failed_rate_limited + 1)) ;;
       expired_race) failed_expired_race=$((failed_expired_race + 1)) ;;
@@ -117,6 +128,7 @@ while [[ "$key_index" -lt "$total_keys" ]]; do
     copied=$((copied + 1))
   else
     failed=$((failed + 1))
+    capture_diagnostic_once "$temp_dir/put-error.log"
     case "$CLASSIFY_REASON" in
       rate_limited) failed_rate_limited=$((failed_rate_limited + 1)) ;;
       expired_race) failed_expired_race=$((failed_expired_race + 1)) ;;
@@ -170,7 +182,8 @@ jq -n \
   --argjson dest_count_after "$dest_count_after" \
   --argjson sample_checked "$sample_checked" \
   --argjson sample_matched "$sample_matched" \
-  '{completed_at:$completed_at,source_namespace_id:$source_namespace_id,source_namespace_title:$source_namespace_title,dest_namespace_id:$dest_namespace_id,dest_namespace_title:$dest_namespace_title,total_keys_found:$total_keys,copied:$copied,skipped_expired:$skipped_expired,failed:$failed,failed_rate_limited:$failed_rate_limited,failed_expired_race:$failed_expired_race,failed_other:$failed_other,dest_key_count_after:$dest_count_after,sample_checked:$sample_checked,sample_matched:$sample_matched,source_namespace_modified:false,key_names_and_values_logged:false}' > "$result_file"
+  --arg first_failure_diagnostic "$first_failure_diagnostic" \
+  '{completed_at:$completed_at,source_namespace_id:$source_namespace_id,source_namespace_title:$source_namespace_title,dest_namespace_id:$dest_namespace_id,dest_namespace_title:$dest_namespace_title,total_keys_found:$total_keys,copied:$copied,skipped_expired:$skipped_expired,failed:$failed,failed_rate_limited:$failed_rate_limited,failed_expired_race:$failed_expired_race,failed_other:$failed_other,dest_key_count_after:$dest_count_after,sample_checked:$sample_checked,sample_matched:$sample_matched,first_failure_diagnostic:$first_failure_diagnostic,source_namespace_modified:false,key_names_and_values_logged:false}' > "$result_file"
 
 cat "$result_file"
 test "$failed" -eq 0
