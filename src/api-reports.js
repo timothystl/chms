@@ -687,7 +687,7 @@ if (seg === 'reports/giving-plateaus' && method === 'GET') {
   // week") — see config/giving-impact in api-import.js. Never fabricated here.
   let impactStatements = [];
   try {
-    const impRow = await db.prepare("SELECT value FROM chms_config WHERE key='giving_impact_statements_json'").first();
+    const impRow = await db.prepare("SELECT value FROM giving_settings WHERE key='giving_impact_statements_json'").first();
     if (impRow?.value) impactStatements = JSON.parse(impRow.value);
   } catch {}
 

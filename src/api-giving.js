@@ -460,7 +460,7 @@ if (seg === 'giving/nudges/status' && method === 'GET') {
   const rows = await fetchGivingPlateauRows(db, { year, scope, fundId });
   let impactStatements = [];
   try {
-    const impRow = await db.prepare("SELECT value FROM chms_config WHERE key='giving_impact_statements_json'").first();
+    const impRow = await db.prepare("SELECT value FROM giving_settings WHERE key='giving_impact_statements_json'").first();
     if (impRow?.value) impactStatements = JSON.parse(impRow.value);
   } catch {}
   const weeksElapsed = plateauWeeksElapsed(year);

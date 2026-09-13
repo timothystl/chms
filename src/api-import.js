@@ -372,7 +372,7 @@ if (seg === 'config/member-types' && method === 'PUT') {
 
 if (seg === 'config/member-type-map' && method === 'GET') {
   const mapRow  = await db.prepare("SELECT value FROM chms_config WHERE key='member_type_map'").first();
-  const seenRow = await db.prepare("SELECT value FROM chms_config WHERE key='breeze_statuses_seen'").first();
+  const seenRow = await db.prepare("SELECT value FROM import_settings WHERE key='breeze_statuses_seen'").first();
   return json({
     map:  mapRow  ? JSON.parse(mapRow.value)  : {},
     seen: seenRow ? JSON.parse(seenRow.value) : []
@@ -396,26 +396,31 @@ const NEW_DEFAULT_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>Thank you for your 
 const OLD_DEFAULT_MIDYEAR_LETTER_TEMPLATE = 'Dear {{name}},\n\nAs we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.\n\nBelow is a summary of your recorded giving for {{year}} so far:\n\n{{gift_table}}\n\nTotal Giving to Date: {{total}}\n\nPlease take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.\n\nIf you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:\n{{#if_giving_url}}- Online recurring giving: {{giving_url}}\n{{/if_giving_url}}- Automatic bank draft or bill pay through your bank\n- Contact the church office and we would be glad to help you set it up\n\nThank you again for your generosity and your partnership in ministry.\n\nWith gratitude,\n\nTimothy Lutheran Church\n\nDate: {{date}}';
 const NEW_DEFAULT_MIDYEAR_LETTER_TEMPLATE = '<p>Dear {{name}},</p><p>As we reach the midpoint of {{year}}, we want to pause and say thank you. Your generosity to Timothy Lutheran Church sustains our ministry, our staff, and our mission in this community &mdash; and we do not take that for granted.</p><p>Below is a summary of your recorded giving for {{year}} so far:</p>{{gift_table}}<p>Total Giving to Date: {{total}}</p><p>Please take a moment to look this over. If anything looks off &mdash; a missing gift, an incorrect amount, or a gift recorded under the wrong name &mdash; please let the church office know so we can correct our records.</p><p>If you have been giving by check or cash and would like a simpler way to stay consistent, consider setting up recurring giving:</p><ul><li>{{#if_giving_url}}Online recurring giving: <a href="{{giving_url}}">{{giving_url}}</a>{{/if_giving_url}}</li><li>Automatic bank draft or bill pay through your bank</li><li>Contact the church office and we would be glad to help you set it up</li></ul><p>Thank you again for your generosity and your partnership in ministry.</p><p>With gratitude,</p><p>Timothy Lutheran Church</p><p>Date: {{date}}</p>';
 async function healLetterTemplateIfStale(db, key, oldText, newText) {
-  const row = await db.prepare("SELECT value FROM chms_config WHERE key=?").bind(key).first();
+  const row = await db.prepare("SELECT value FROM giving_settings WHERE key=?").bind(key).first();
   if (row && row.value === oldText) {
-    await db.prepare("UPDATE chms_config SET value=? WHERE key=?").bind(newText, key).run();
+    await db.prepare("UPDATE giving_settings SET value=? WHERE key=?").bind(newText, key).run();
     return newText;
   }
   return row ? row.value : null;
 }
+
+// Giving-domain content, edited alongside the rest of this config bundle but stored in its own
+// table (see migrateNonFinanceSettingsFromConfig in src/db.js) rather than chms_config.
+const GIVING_SETTINGS_KEYS = ['giving_letter_template', 'giving_midyear_letter_template', 'online_giving_url'];
 
 if (seg === 'config/church' && method === 'GET') {
   // EIN is admin-only (PII). Non-admins get the rest of the config without it.
   // letterhead_logo_ext is read-only here (informational — GET-only) so every place that
   // already loads _churchConfig picks it up for free; it can only be SET via the dedicated
   // config/letterhead-logo upload/delete endpoints below, not this generic PUT.
-  const publicKeys = ['church_from_name','church_from_email','giving_letter_template','giving_midyear_letter_template',
-    'online_giving_url','church_name','letterhead_logo_ext','sms_sender_name',
+  const publicKeys = ['church_from_name','church_from_email','church_name','letterhead_logo_ext','sms_sender_name',
     'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
   const keys = isAdmin ? ['church_ein', ...publicKeys] : publicKeys;
   const rows = (await db.prepare(`SELECT key, value FROM chms_config WHERE key IN (${keys.map(()=>'?').join(',')})`).bind(...keys).all()).results || [];
   const config = {};
   for (const r of rows) config[r.key] = r.value;
+  const givingRows = (await db.prepare(`SELECT key, value FROM giving_settings WHERE key IN (${GIVING_SETTINGS_KEYS.map(()=>'?').join(',')})`).bind(...GIVING_SETTINGS_KEYS).all()).results || [];
+  for (const r of givingRows) config[r.key] = r.value;
   if ('giving_letter_template' in config) {
     const healed = await healLetterTemplateIfStale(db, 'giving_letter_template', OLD_DEFAULT_LETTER_TEMPLATE, NEW_DEFAULT_LETTER_TEMPLATE);
     if (healed) config.giving_letter_template = healed;
@@ -433,7 +438,7 @@ if (seg === 'config/church' && method === 'GET') {
     if (config[key]) {
       const { cleaned, changed } = sanitizeLetterTemplateHtml(config[key]);
       if (changed) {
-        await db.prepare("UPDATE chms_config SET value=? WHERE key=?").bind(cleaned, key).run();
+        await db.prepare("UPDATE giving_settings SET value=? WHERE key=?").bind(cleaned, key).run();
         config[key] = cleaned;
       }
     }
@@ -442,8 +447,7 @@ if (seg === 'config/church' && method === 'GET') {
 }
 if (seg === 'config/church' && method === 'PUT') {
   let b = {}; try { b = await req.json(); } catch {}
-  const allowed = ['church_ein','church_from_name','church_from_email','giving_letter_template','giving_midyear_letter_template',
-    'online_giving_url','church_name','sms_sender_name',
+  const allowed = ['church_ein','church_from_name','church_from_email','church_name','sms_sender_name',
     'volunteer_address','volunteer_public_email','volunteer_phone','notify_new_signup','notify_weekly_digest'];
   // The two letter-template editors have no image-upload endpoint — an inserted image
   // (via the toolbar, or paste/drag-drop, which TinyMCE also embeds as base64 by default
@@ -471,6 +475,11 @@ if (seg === 'config/church' && method === 'PUT') {
       await db.prepare("INSERT INTO chms_config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(k, String(b[k])).run();
     }
   }
+  for (const k of GIVING_SETTINGS_KEYS) {
+    if (b[k]) {
+      await db.prepare("INSERT INTO giving_settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(k, String(b[k])).run();
+    }
+  }
   return json({ ok: true });
 }
 
@@ -478,9 +487,9 @@ if (seg === 'config/church' && method === 'PUT') {
 // reference used by the Giving Plateaus report to turn a suggested increase
 // into a concrete impact instead of a bare "give more" ask. Real ministry
 // costs are church-specific and never fabricated by the app — this is purely
-// what an admin types in. Stored as one JSON array in chms_config.
+// what an admin types in. Stored as one JSON array in giving_settings.
 if (seg === 'config/giving-impact' && method === 'GET') {
-  const row = await db.prepare("SELECT value FROM chms_config WHERE key='giving_impact_statements_json'").first();
+  const row = await db.prepare("SELECT value FROM giving_settings WHERE key='giving_impact_statements_json'").first();
   let statements = [];
   try { statements = row?.value ? JSON.parse(row.value) : []; } catch {}
   return json({ statements: Array.isArray(statements) ? statements : [] });
@@ -495,7 +504,7 @@ if (seg === 'config/giving-impact' && method === 'PUT') {
     }))
     .filter(s => s.monthly_cents > 0 && s.label)
     .slice(0, 50);
-  await db.prepare("INSERT INTO chms_config(key,value) VALUES('giving_impact_statements_json',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+  await db.prepare("INSERT INTO giving_settings(key,value) VALUES('giving_impact_statements_json',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
     .bind(JSON.stringify(cleaned)).run();
   return json({ ok: true, statements: cleaned });
 }
@@ -3441,10 +3450,10 @@ if (seg === 'import/breeze' && method === 'POST') { try {
   // Persist newly-seen Breeze statuses
   if (statusesSeen.size > 0) {
     try {
-      const existingSeenRow = await db.prepare("SELECT value FROM chms_config WHERE key='breeze_statuses_seen'").first();
+      const existingSeenRow = await db.prepare("SELECT value FROM import_settings WHERE key='breeze_statuses_seen'").first();
       const existingSeen = existingSeenRow ? new Set(JSON.parse(existingSeenRow.value)) : new Set();
       statusesSeen.forEach(s => existingSeen.add(s));
-      await db.prepare("INSERT INTO chms_config(key,value) VALUES('breeze_statuses_seen',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+      await db.prepare("INSERT INTO import_settings(key,value) VALUES('breeze_statuses_seen',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
         .bind(JSON.stringify([...existingSeen])).run();
     } catch {}
   }
