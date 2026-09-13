@@ -259,9 +259,11 @@ export async function handleAdminLogin(req, env) {
 export async function handleAdminApi(req, env, url, method) {
   const seg = url.pathname.replace('/admin/api/', '');
   const { env: attributedEnv, counter } = wrapEnvForDbAttribution(env);
+  const start = Date.now();
   try {
     return await handleAdminApiRoutes(req, attributedEnv, url, method);
   } finally {
+    counter.elapsedMs = Date.now() - start;
     logDbAttribution(seg, method, counter);
   }
 }

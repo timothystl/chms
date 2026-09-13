@@ -18,6 +18,7 @@ import {
   handleChristmasMarketSummary, handleChristmasMarketToggle,
 } from './src/api-scheduler.js';
 import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
+import { wrapEnvForDbAttribution, logDbAttribution } from './src/db-attribution.js';
 import { handleIntakeApi } from './src/api-intake.js';
 import { handleContractsServiceApi } from './src/api-contracts-service.js';
 import { handleMemberSetup } from './src/api-people.js';
@@ -92,15 +93,26 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
       try { await initDb(env.DB); } catch (e) { console.error('Cron DB init error:', e.message); return; }
+      // The cron runs daily against the full dataset — a plausible source for a future usage
+      // spike (see the D1 usage spike this wrapper exists for) that would otherwise be as
+      // invisible as the public API routes were before wrapEnvForDbAttribution reached them.
+      const { env: attributedEnv, counter } = wrapEnvForDbAttribution(env);
+      const start = Date.now();
       const [bday, ann, bdaySms, annSms, prune, schedPush, unfilledPush] = await Promise.all([
-        sendBirthdayEmails(env).catch(e => ({ error: e.message })),
-        sendAnniversaryEmails(env).catch(e => ({ error: e.message })),
-        sendBirthdayTexts(env).catch(e => ({ error: e.message })),
-        sendAnniversaryTexts(env).catch(e => ({ error: e.message })),
-        pruneAuditLog(env.DB).catch(e => ({ error: e.message })),
-        sendScheduleReminders(env).catch(e => ({ error: e.message })),
-        checkUnfilledShifts(env).catch(e => ({ error: e.message })),
+        sendBirthdayEmails(attributedEnv).catch(e => ({ error: e.message })),
+        sendAnniversaryEmails(attributedEnv).catch(e => ({ error: e.message })),
+        sendBirthdayTexts(attributedEnv).catch(e => ({ error: e.message })),
+        sendAnniversaryTexts(attributedEnv).catch(e => ({ error: e.message })),
+        pruneAuditLog(attributedEnv.DB).catch(e => ({ error: e.message })),
+        sendScheduleReminders(attributedEnv).catch(e => ({ error: e.message })),
+        checkUnfilledShifts(attributedEnv).catch(e => ({ error: e.message })),
       ]);
+      counter.elapsedMs = Date.now() - start;
+      // A batch job legitimately runs more queries and takes longer than any single web
+      // request — measured against the web-request defaults it would log on every ordinary
+      // run, which is noise, not signal. 50 queries / 5s are still well above what scanning
+      // the member/scheduler tables once a day should cost.
+      logDbAttribution('cron:daily', 'SCHEDULED', counter, { queryThreshold: 50, durationThresholdMs: 5000 });
       console.log('Daily cron:', JSON.stringify({ birthdays: bday, anniversaries: ann, birthday_sms: bdaySms, anniversary_sms: annSms, audit_prune: prune, schedule_push: schedPush, unfilled_shifts_push: unfilledPush }));
     })());
   },
@@ -259,11 +271,29 @@ function isSchedCorsPath(path) {
   return false;
 }
 
+// Attributes D1 usage for every route EXCEPT /admin/api/* — that chokepoint (handleAdminApi in
+// src/api-admin.js) already wraps env itself, at finer per-admin-route-segment granularity, so
+// wrapping again here would just double-count and double-log the same request. Everything else
+// — /api/*, /rsvp/*, /breeze/*, /scheduler/*, the intake/contracts/Christmas-Market
+// server-to-server routes — had no attribution at all before this: it's reachable only through
+// this single top-level dispatch function, so wrapping here (once, covering the whole rest of
+// _fetchRouted) closes that gap without touching any of its many individual route handlers.
 async function _fetch(req, env) {
-    const url = new URL(req.url);
-    const path = url.pathname.replace(/\/$/, '') || '/';
-    const method = req.method.toUpperCase();
+  const url = new URL(req.url);
+  const path = url.pathname.replace(/\/$/, '') || '/';
+  const method = req.method.toUpperCase();
+  if (path.startsWith('/admin/api/')) return _fetchRouted(req, env, url, path, method);
+  const { env: attributedEnv, counter } = wrapEnvForDbAttribution(env);
+  const start = Date.now();
+  try {
+    return await _fetchRouted(req, attributedEnv, url, path, method);
+  } finally {
+    counter.elapsedMs = Date.now() - start;
+    logDbAttribution(path, method, counter);
+  }
+}
 
+async function _fetchRouted(req, env, url, path, method) {
     // ── Pure static/proxy asset routes (P25-B / LOAD7) ──────────────────────────────
     // None of these touch D1 — they're either proxied straight from the repo or served
     // from an in-memory string constant. initDb() used to run before ANY route, including

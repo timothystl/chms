@@ -29,6 +29,52 @@ Update it as issues are found, fixed, or queued.
 
 ## Recent Changes
 
+### v1.241.0 — D1 attribution extended: query names, duration, public routes, cron (2026-09-13)
+
+Overhaul goal 5 (observability). The per-request D1 query-count wrapper added for
+`/admin/api/*` (`src/db-attribution.js`, see the v1.24x QUERY_LOG_THRESHOLD entry below and
+`digital-architecture`'s `architecture/evidence/2026-09-13-observability-inventory.md`) only
+told you *which route* ran an unusual number of queries, not *which query*, and covered only
+`/admin/api/*` — chms's public `/api/*`/`/rsvp/*`/`/breeze/*`/scheduler routes and the daily
+14:00 UTC cron were invisible to it, exactly the class of route that produced both documented
+D1 spikes (v1.228.1, v1.229.3).
+
+- **Query naming**: new `namedQuery(db, name, sql)` helper tags a specific query into the
+  request's attribution counter before running it — purely observational, safe on an unwrapped
+  db. Applied to `giving-rollups.js`'s year-rebuild scan (`REFRESH_GIVING_YEAR_PEOPLE_SQL`), the
+  one query left that still scans a full year of `giving_entries` — the exact shape of query
+  both prior spikes were. A future regression there now logs
+  `names: ["giving-rollups.refresh-year-people"]` instead of just an elevated count.
+- **Duration**: `logDbAttribution` now also fires on request wall-clock time
+  (`ADMIN_API_DURATION_LOG_THRESHOLD_MS`, 500ms) independent of query count, so a route with one
+  legitimately slow query (not many cheap ones) is no longer invisible. Measured at the request
+  level (handleAdminApi / the new top-level wrap / the cron), not per-statement — per-statement
+  timing would mean wrapping D1's native prepared-statement objects in a Proxy, which
+  `giving-rollups.js`'s `db.batch([...])` call is not guaranteed to survive.
+- **Coverage**: `tlc-volunteer-worker.js`'s top-level `_fetch` now wraps `env` for every route
+  except `/admin/api/*` (which already attributes itself, at finer per-segment granularity) and
+  logs by full path — closing the public-route gap with no changes to any individual route
+  handler. The daily cron (`scheduled()`) is wrapped the same way, logged as `cron:daily` with
+  its own, more permissive thresholds (a batch job legitimately runs more queries and takes
+  longer than a single web request).
+- `logDbAttribution` gained an optional 4th `thresholds` argument for exactly that per-caller
+  override; existing callers (and the existing test asserting its exact log shape) are
+  unchanged.
+- New tests: 5 added to `test/db-attribution.test.js` (naming, duration-only trigger, names in
+  payload, threshold override), 1 added to `test/giving-rollups.test.js` (the rebuild scan is
+  actually tagged when run through a wrapped db), and a new `test/db-attribution-public-
+  routes.test.js` driving `worker.fetch()` end to end against `/api/ministry-roles` — proves the
+  positive (slow public route logs) and negative (fast one doesn't) cases through the real
+  route wiring, not an isolated helper. Full suite: 2,861 passed, 5 skipped (unchanged), 213
+  files. `check-built-scripts.js`: clean.
+- **Not done in this pass** (left for follow-up, per the evidence doc's prioritized list):
+  porting `apps/finance/query-budget.js`'s named/enforced-budget pattern to the legacy
+  `src/api-finance.js`/`src/api-chms.js` Finance routes; the 500ms/15-query/cron thresholds are
+  first guesses, not measured baselines, and should be revisited once real Cloudflare Logs data
+  accumulates against them. (`src/db-attribution.js`, `src/api-admin.js`,
+  `tlc-volunteer-worker.js`, `src/giving-rollups.js`, `src/frontend/js-core.js`, three test
+  files)
+
 ### v1.231.0 — Scheduler volunteers can carry a second email address (2026-09-06)
 
 Asked for directly: a kid who serves may have their own email and a parent's, and the Scheduler

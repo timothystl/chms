@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { ensureGivingYearRollups } from '../src/giving-rollups.js';
 import { DASHBOARD_GIVING_TOTALS_SQL, loadDashboardGivingTotals } from '../src/api-chms.js';
+import { wrapDbForAttribution } from '../src/db-attribution.js';
 
 function setup() {
   const raw = new DatabaseSync(':memory:');
@@ -127,6 +128,14 @@ describe('giving rollups', () => {
     const { raw } = setup();
     raw.exec('UPDATE people SET household_id=11 WHERE id=2');
     expect(raw.prepare('SELECT year FROM giving_rollup_dirty').all()).toEqual([{ year: 2026 }]);
+  });
+
+  it('tags the year-rebuild scan by name when run through an attribution-wrapped db, so a future regression here is identifiable by name, not just an elevated count', async () => {
+    const { raw, db: rawDb } = setup();
+    raw.exec("INSERT INTO giving_entries VALUES(4,1,3,8,50000,'2026-04-01')");
+    const { db, counter } = wrapDbForAttribution(rawDb);
+    await ensureGivingYearRollups(db, 2026);
+    expect(counter.names).toEqual(['giving-rollups.refresh-year-people']);
   });
 
   it('answers dashboard General Fund totals from rollups plus only one partial month', async () => {
