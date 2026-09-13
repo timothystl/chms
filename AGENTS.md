@@ -31,10 +31,15 @@ The target architecture has four staff products: Church Website, Connect, Financ
   shared `chms_config`.
 - Finance directly reads Connect-owned `funds` and `giving_monthly_fund_totals`. A versioned
   Giving-summary contract must exist before physical Finance extraction.
-- QuickBooks Budget API never connected successfully. Budget data is maintained through the
-  working CSV/Excel import path. Do not describe QuickBooks Budget API as active, depend on it
-  for current workflows, or spend time reconnecting it unless Andrew explicitly reopens that
-  product decision. Existing OAuth/sync code and tables require a deliberate retirement change.
+- QuickBooks Online OAuth actually connected and synced successfully once, in production on
+  2026-07-28 (see `SECRETS.md`'s `QB_CLIENT_ID`/`QB_CLIENT_SECRET` entry and `NOTES.md`) — the
+  "never connected successfully" claim this line used to carry was stale. QuickBooks' own native
+  Budget-vs-Actual report is Intuit-side unsupported at this app's tier; the working path is
+  `mergeCurrentYearBudgetAndActual()`'s reconstruction from the `Budget` entity + a date-scoped
+  `ProfitAndLoss` report, not the native report endpoint. Budget data also still has the
+  CSV/Excel import path as a fallback. Whether the connection is *currently* live (refresh
+  tokens run ~100 days) needs a direct check of `finance_qb_connection`, not an assumption
+  either way.
 - TinyMCE is self-hosted from `vendor/tinymce/`. The subscription has lapsed. Do not add cloud
   scripts, cloud API keys, paid editor loads, or a CDN dependency.
 - Production schema initialization is currently coupled to runtime `initDb()` and

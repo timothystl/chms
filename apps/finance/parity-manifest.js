@@ -152,15 +152,13 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
   // classification/policy, and administrative tools remain synthetic-only for now.
   { id: 'data', label: 'Data & Imports', group: 'Accounts & Data', permission: 'finance', capabilities: ['connection status', 'file imports', 'staleness', 'classification and policy', 'administrative tools'], pages: [{ id: 'overview', label: 'Data & Imports', status: 'live' }] },
   // Full payroll parity with Website's admin/payroll.html, relayed live to Website's existing
-  // payroll proxy and payroll/email route the same way Giving Entry relays to Connect (never
-  // stored in Finance) -- see payroll-section.js, payroll-calc.js, payroll-proxy-client.js and
-  // payroll-email-client.js. The "payroll ready" push notification is not included yet: it needs
-  // a third Website route extended to accept Finance's contract-relay identity, the same
-  // cross-repo change PRs #586 and #587 made for /sb/* and /payroll/email -- separate work,
-  // tracked apart from this parity slice. Kept as one nav entry rather than split into the
-  // redesign's four sub-pages: renderPayrollSection() already implements staff roster, hours &
-  // PTO, period approval, and reports as client-side tabs inside one page -- splitting it into
-  // separate server routes would fight that existing, working structure rather than improve it.
+  // payroll proxy and payroll/email and (now) push/payroll-ready routes the same way Giving
+  // Entry relays to Connect (never stored in Finance) -- see payroll-section.js,
+  // payroll-calc.js, payroll-proxy-client.js, payroll-email-client.js, and
+  // payroll-ready-client.js. Kept as one nav entry rather than split into the redesign's four
+  // sub-pages: renderPayrollSection() already implements staff roster, hours & PTO, period
+  // approval, and reports as client-side tabs inside one page -- splitting it into separate
+  // server routes would fight that existing, working structure rather than improve it.
   { id: 'payroll', label: 'Payroll', group: 'Payroll', permission: 'admin', capabilities: ['staff roster', 'hours and PTO entry', 'period approval', 'MDO hours integration', 'reports', 'CSV export', 'email the report', 'relayed live to Website, never stored in Finance'], pages: [{ id: 'workspace', label: 'Payroll', status: 'live' }] },
 ].map((section) => Object.freeze({
   ...section,
