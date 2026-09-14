@@ -806,10 +806,13 @@ export async function handleEsvPassage(req, env, url) {
   const api = new URL('https://api.esv.org/v3/passage/text/');
   api.searchParams.set('q', q);
   api.searchParams.set('include-passage-references', 'false'); // the email prints its own
-  api.searchParams.set('include-verse-numbers', 'true');
-  api.searchParams.set('include-first-verse-numbers', 'true');
+  // Verse numbers and section headings ("The Advance of the Gospel") are
+  // publisher study aids, not part of the text a reader stands up and reads —
+  // left in, they clutter the printed sheet with brackets and stray subtitles.
+  api.searchParams.set('include-verse-numbers', 'false');
+  api.searchParams.set('include-first-verse-numbers', 'false');
   api.searchParams.set('include-footnotes', 'false');          // callouts with no footnote text
-  api.searchParams.set('include-headings', 'true');
+  api.searchParams.set('include-headings', 'false');
   api.searchParams.set('include-short-copyright', 'true');     // the "(ESV)" on each quotation
   api.searchParams.set('include-copyright', 'false');          // full notice printed once instead
   api.searchParams.set('indent-paragraphs', '0');

@@ -65,12 +65,13 @@ describe('ESV passage proxy', () => {
     expect(u.searchParams.get('include-copyright')).toBe('false');
   });
 
-  it('asks for verse numbers and headings, and drops footnote callouts', async () => {
+  it('drops verse numbers, headings, and footnote callouts — study aids, not reading text', async () => {
     const calls = stubFetch(() => okResponse({ passages: ['x'] }));
     await call({ ESV_API_KEY: 'k' }, 'Isaiah 2:1-5');
     const u = new URL(calls[0].url);
-    expect(u.searchParams.get('include-verse-numbers')).toBe('true');
-    expect(u.searchParams.get('include-headings')).toBe('true');
+    expect(u.searchParams.get('include-verse-numbers')).toBe('false');
+    expect(u.searchParams.get('include-first-verse-numbers')).toBe('false');
+    expect(u.searchParams.get('include-headings')).toBe('false');
     // Callouts with no footnote text behind them are just noise in an email.
     expect(u.searchParams.get('include-footnotes')).toBe('false');
     // The email prints its own "OT: Isaiah 2:1-5" header.
