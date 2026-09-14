@@ -19,9 +19,9 @@ name: Verify Finance D1 backup and recovery
 # and deploy-finance-staging.yml use the same environment name for the same
 # reason, not because this drill touches production data).
 #
-# Needs a new secret that does not exist yet -- see the env block below.
+# Needs two secrets that do not exist yet -- see the env block below.
 # Nothing in this workflow can run unattended: it only fires on an explicit,
-# human-dispatched workflow_dispatch with the secret configured.
+# human-dispatched workflow_dispatch with both secrets configured.
 
 on:
   workflow_dispatch:
@@ -56,6 +56,18 @@ jobs:
       # Finance D1 database. Add a new, distinctly-scoped D1-only token as
       # this secret name before dispatching this workflow.
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_FINANCE_D1_API_TOKEN }}
+      # A narrowly-scoped D1-only token (no broader Account Settings:Read
+      # permission) can't auto-resolve which Cloudflare account to act
+      # against -- wrangler then fails with "Failed to automatically
+      # retrieve account IDs for the logged in user" before ever touching
+      # D1. website's own D1/R2 recovery drills hit this exact failure and
+      # fixed it the same way (see website PR #600): skip the auto-detect
+      # entirely by passing the account id explicitly. The account id
+      # itself is not sensitive on its own (Cloudflare's own dashboard
+      # shows it openly to any account viewer) but is stored as a secret
+      # here to match that existing precedent rather than introduce a
+      # second convention.
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       SOURCE_DB: timothy-finance-db-staging
       SOURCE_DB_ID: 59dfc662-9f43-469f-936e-d7a0d3247036
       RESULT_FILE: /tmp/finance-d1-recovery-result.json
