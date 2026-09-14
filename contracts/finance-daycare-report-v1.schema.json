@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-daycare-report:v1",
+  "title": "Connect Finance Daycare Report v1",
+  "description": "One fiscal year of the real Daycare (MDO) Report -- finance_daycare_entries rows restricted to the two sources Andrew's own explicit decision counts toward the report's real totals (source='church_budget_import', extracted from the church's own Budget import by MDO-account-name matching, plus any direct source='manual_budget_override' edit), each already classified into one of a closed 8-category set, plus a live percentage-of-church-actual Utilities/Insurance allocation. This is NOT a myMDO cross-product read -- it is Finance's own already-classified data; the separate myMDO-sourced daycare-app sync (source='daycare_api') and one-off source='manual' rows are deliberately excluded from every total here, exactly as production excludes them. Real money crosses this contract, so it is 'aggregate' like Giving/Budget/Church Report/Balance Sheet, not 'structural' like Chart of Accounts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "currency", "fiscalYear", "generatedAt", "categories", "allocation", "totals", "reconciliation"],
+  "properties": {
+    "contract": { "const": "connect.finance-daycare-report.v1" },
+    "dataClassification": { "const": "aggregate" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "currency": { "const": "USD" },
+    "fiscalYear": { "type": "integer", "minimum": 2000, "maximum": 2100, "description": "finance_daycare_entries.period is always a bare 4-digit year string for both counted sources -- confirmed directly in persistDaycareEntriesFromChurchBudget and the finance/daycare/budget-override handler, which always write period=String(year), never YYYY-MM." },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "categories": {
+      "type": "array",
+      "description": "May legitimately be empty for a fiscal year with nothing imported on either the daycare or church side yet -- that is a normal state, not an error. One row per category (never split by actual/budget the way the synthetic staging fixture's rows are); Utilities and Insurance are included here only when the church side has fiscal-year data to derive them from.",
+      "items": { "$ref": "#/$defs/category" }
+    },
+    "allocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["utilityPct", "insurancePct", "churchUtilityActualCents", "churchInsuranceActualCents", "mdoUtilityCents", "mdoInsuranceCents"],
+      "description": "MDO has no Utilities/Insurance accounts of its own -- it shares the church's building. Per an explicit user decision, these two Daycare Report lines are a LIVE percentage of the CHURCH side's own actual Utilities/Insurance expense for the same fiscal year, recomputed every time (never a stored dollar figure). Always present, even for a fiscal year with no church data (in which case the church*ActualCents/mdo*Cents fields are all 0).",
+      "properties": {
+        "utilityPct": { "type": "number", "minimum": 0, "maximum": 1, "description": "From finance_settings' finance_daycare_allocation_config JSON blob; defaults to 0.5 when unset, matching the real finance/daycare/allocation-config route's own default." },
+        "insurancePct": { "type": "number", "minimum": 0, "maximum": 1 },
+        "churchUtilityActualCents": { "type": "integer", "minimum": 0, "description": "The church side's own actual Utilities expense for this fiscal year, precedence-resolved the same way Church Report resolves it (resolveChurchYearPrecedence)." },
+        "churchInsuranceActualCents": { "type": "integer", "minimum": 0 },
+        "mdoUtilityCents": { "type": "integer", "minimum": 0, "description": "Math.round(churchUtilityActualCents * utilityPct) -- MDO's derived share." },
+        "mdoInsuranceCents": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["incomeActualCents", "incomeBudgetCents", "expenseActualCents", "expenseBudgetCents", "netActualCents", "netBudgetCents"],
+      "properties": {
+        "incomeActualCents": { "type": "integer", "description": "Sum of actualCents for classification 'Income' (the 'Tuition Income' category only)." },
+        "incomeBudgetCents": { "type": "integer" },
+        "expenseActualCents": { "type": "integer", "description": "Sum of actualCents for classification 'Expenses', including the live Utilities/Insurance allocation when present." },
+        "expenseBudgetCents": { "type": "integer" },
+        "netActualCents": { "type": "integer", "description": "incomeActualCents - expenseActualCents." },
+        "netBudgetCents": { "type": "integer", "description": "incomeBudgetCents - expenseBudgetCents." }
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["categoryCount", "incomeCategoryCount", "expenseCategoryCount", "totalsMatch"],
+      "properties": {
+        "categoryCount": { "type": "integer", "minimum": 0, "description": "Must equal categories.length." },
+        "incomeCategoryCount": { "type": "integer", "minimum": 0 },
+        "expenseCategoryCount": { "type": "integer", "minimum": 0 },
+        "totalsMatch": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "classification", "actualCents", "budgetCents"],
+      "properties": {
+        "category": {
+          "enum": ["Tuition Income", "Payroll", "Payroll Taxes", "Workers Comp", "Other Payroll Expenses", "Utilities", "Insurance", "Other Expenses"],
+          "description": "A closed 8-value set. classifyMdoAccountCategory() (src/api-finance.js) can only ever produce the first 5 plus its catch-all 'Other Expenses'; 'Utilities'/'Insurance' are the two live-derived allocation categories and never a stored finance_daycare_entries row."
+        },
+        "classification": {
+          "enum": ["Income", "Expenses"],
+          "description": "'Income' for 'Tuition Income' only (exact match); 'Expenses' for every other category. Unlike Church Report, there is no Other Income/Cost of Goods Sold concept here."
+        },
+        "actualCents": { "type": "integer", "description": "Never null -- unlike Church Report's budgetCents, every category here always has an actual figure (0 if nothing posted)." },
+        "budgetCents": { "type": "integer", "description": "Never null. A manual_budget_override row REPLACES (never adds to) the church_budget_import budget total for this exact category -- the override wins outright." }
+      }
+    }
+  }
+}

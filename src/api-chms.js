@@ -239,10 +239,20 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     { match: (s) => s.startsWith('contracts/finance-budget'), item: 'finance' },
     { match: (s) => s.startsWith('contracts/finance-church-report'), item: 'finance' },
     { match: (s) => s.startsWith('contracts/finance-balance-sheet'), item: 'finance' },
-    // Same trap, same fix, for the seventh contract: Property Valuation carries a real cap-rate
+    // Same trap, same fix, for the seventh contract: Daycare Report carries real actual/budget
+    // dollar amounts per MDO category/fiscal-year (finance_daycare_entries, counted sources only)
+    // plus a live percentage-of-church-actual Utilities/Insurance allocation -- still Finance-owned
+    // data, not a myMDO pass-through (see src/api-contracts.js's own module comment on that), so it
+    // takes the plain 'finance' item like the five contracts above -- matching production's own
+    // parity-manifest permission for the Daycare Report page. Without this explicit rule this
+    // segment would match no rule above (it starts with 'contracts/', not 'finance') and reach the
+    // handler with NO permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note on
+    // exactly this trap.
+    { match: (s) => s.startsWith('contracts/finance-daycare-report'), item: 'finance' },
+    // Same trap, same fix, for the eighth contract: Property Valuation carries a real cap-rate
     // income-approach worksheet (rent roll, itemized operating costs, assumptions) for the
     // church's owned commercial property -- Finance-owned data, not Giving, so it takes the plain
-    // 'finance' item like the six contracts above. Without this explicit rule this segment would
+    // 'finance' item like the seven contracts above. Without this explicit rule this segment would
     // match no rule above (it starts with 'contracts/', not 'finance') and reach the handler with
     // NO permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note on exactly this trap.
     { match: (s) => s.startsWith('contracts/finance-property-valuation'), item: 'finance' },

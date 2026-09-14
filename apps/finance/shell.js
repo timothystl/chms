@@ -18,7 +18,7 @@ import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, gro
 import { buildFinancialHealthView } from './health-view-model.js';
 import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends, resolveChurchReport } from './church-report-service.js';
 import { readSyntheticBalanceTrends, resolveBalanceSheet } from './balance-sheet-service.js';
-import { buildDaycareReportView, readSyntheticDaycareReport, readSyntheticDaycareAllocation } from './daycare-report-service.js';
+import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers, resolvePropertyValuation } from './property-report-service.js';
 import { resolveBudgetReport } from './budget-report-service.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
@@ -188,7 +188,7 @@ function renderEntityCards(entities) {
 function renderSectionBody(ctx) {
   const {
     section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrends, balanceSheet, balanceTrends,
-    daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation,
+    daycareReport, daycareReportLive, propertyReport, propertyReserves, propertyLedgers, propertyValuation,
     propertyForecast, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
     compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle,
   } = ctx;
@@ -256,7 +256,7 @@ function renderSectionBody(ctx) {
     return renderBalancePage(page.id, { balanceSheet, balanceTrends });
   }
   if (section.id === 'daycare') {
-    return renderDaycarePage(page.id, { daycareReport, daycareAllocation });
+    return renderDaycarePage(page.id, { daycareReport: daycareReportLive });
   }
   if (section.id === 'property') {
     return renderPropertyPage(page.id, { propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, propertyDistributions });
@@ -738,10 +738,15 @@ export default {
           ? await resolveBalanceSheet(env, env.FINANCE_DB) : null;
         const balanceTrends = section.id === 'balance'
           ? await readSyntheticBalanceTrends(env.FINANCE_DB) : null;
-        const daycareReport = section.id === 'daycare' || section.id === 'health'
+        const daycareReport = section.id === 'health'
           ? await readSyntheticDaycareReport(env.FINANCE_DB) : null;
-        const daycareAllocation = section.id === 'daycare'
-          ? await readSyntheticDaycareAllocation(env.FINANCE_DB) : null;
+        // The 'daycare' section (Daycare Report itself) tries the real
+        // connect.finance-daycare-report.v1 endpoint first and falls back to the same synthetic
+        // fixture, labeled, via resolveDaycareReport -- same live-first pattern as Church Report's
+        // resolveChurchReport and Balance Sheet's resolveBalanceSheet above. 'health' keeps reading
+        // the plain synthetic rows above -- unchanged, out of scope for this contract.
+        const daycareReportLive = section.id === 'daycare'
+          ? await resolveDaycareReport(env, env.FINANCE_DB) : null;
         const propertyReport = section.id === 'property' || section.id === 'health'
           ? await readSyntheticPropertyReport(env.FINANCE_DB) : null;
         const propertyReserves = ['property', 'charts'].includes(section.id)
@@ -783,7 +788,7 @@ export default {
           : null;
         return response(renderShell({
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrends,
-          balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves,
+          balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReserves,
           propertyLedgers, propertyValuation, propertyForecast, propertyDistributions, budgetReport, accountsReport,
           dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway,
           givingEntryStatus, givingEntryMessage, payrollBundle,
