@@ -11,6 +11,7 @@ import { validateFinanceChartOfAccountsV1 } from '../apps/finance/finance-chart-
 import { validateFinanceBudgetV1 } from '../apps/finance/finance-budget-consumer.js';
 import { validateFinanceChurchReportV1 } from '../apps/finance/finance-church-report-consumer.js';
 import { validateFinanceBalanceSheetV1 } from '../apps/finance/finance-balance-sheet-consumer.js';
+import { validateFinancePropertyValuationV1 } from '../apps/finance/finance-property-valuation-consumer.js';
 import {
   readPlanningBoardCategories, readPurposeTags, REVENUE_STREAMS, BOARD_EXPENSE_CATEGORIES,
   resolveChurchYearPrecedence, computeYearSummary,
@@ -634,6 +635,135 @@ export async function respondWithFinanceBalanceSheetV1(url, db) {
   return json(balanceSheet);
 }
 
+// ── Property Valuation: the seventh contract, and the first sourced from a JSON settings blob ──
+// rather than a dedicated relational table. `finance_property_<property_key>_meta` (table
+// `finance_settings`) is a real, admin-maintained income-capitalization worksheet for the
+// church's owned commercial property (3277 Ivanhoe) -- rent roll, itemized operating costs, and
+// assumptions (vacancy rate, management fee %, cap rate) -- entered from AHRA's own valuation
+// worksheet and updated by hand as new figures come in. Confirmed live against production on
+// 2026-09-14: the stored `valuation.as_of_date` is 2026-08-12, newer than any date this
+// repository's own static seed carries, so it has genuinely been edited since the original
+// seedIvanhoePropertyValuationV3() ran -- this is not a frozen fixture. See
+// apps/finance/finance-property-valuation-consumer.js's header comment for the full reasoning
+// on why this differs from the six prior contracts (Giving/Data Status/Chart of Accounts/
+// Budget/Church Report/Balance Sheet), which all read a table that already existed in the
+// shared legacy schema.
+//
+// Reuses src/frontend/js-finance.js's own FIN_VAL_OP_COST_FIELDS list (mirrored here as
+// FIN_VAL_OP_COST_FIELDS) so the seven operating-cost keys/labels/order can never drift from
+// what production's real worksheet edit form and finComputePropertyValuation() use.
+const FIN_VAL_OP_COST_FIELDS = [
+  ['utilities_cents', 'Utilities'],
+  ['trash_cents', 'Trash'],
+  ['maintenance_repairs_cents', 'Maintenance/Repairs'],
+  ['landscaping_snow_cents', 'Landscaping/Snow'],
+  ['legal_cents', 'Legal'],
+  ['taxes_cents', 'Taxes'],
+  ['insurance_cents', 'Insurance'],
+];
+
+function toRoundedInt(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+// Real rent_roll rows carry a human tenant name, not a stable machine key -- unlike the
+// synthetic fixture's own unit_key column. Slugified here (and de-duplicated by position, in the
+// unlikely event two tenants share the exact same name) so the contract can still offer a stable
+// per-unit identifier without inventing one that isn't derivable from the source data.
+function slugifyTenant(label, index) {
+  const base = String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return base || `unit-${index + 1}`;
+}
+
+export async function buildFinancePropertyValuationV1(db, { propertyKey = 'ivanhoe', now = new Date() } = {}) {
+  const metaRow = await db.prepare('SELECT value FROM finance_settings WHERE key=?').bind(`finance_property_${propertyKey}_meta`).first();
+  let meta = {};
+  if (metaRow?.value) {
+    try { meta = JSON.parse(metaRow.value); } catch { meta = {}; }
+  }
+  const val = (meta && typeof meta === 'object' && meta.valuation) || {};
+
+  const rentRollRaw = Array.isArray(val.rent_roll) ? val.rent_roll : [];
+  const seenUnitKeys = new Set();
+  const rentRoll = rentRollRaw.map((row, index) => {
+    let unitKey = slugifyTenant(row?.tenant, index);
+    if (seenUnitKeys.has(unitKey)) unitKey = `${unitKey}-${index + 1}`;
+    seenUnitKeys.add(unitKey);
+    return {
+      unitKey,
+      tenantLabel: String(row?.tenant || ''),
+      squareFeet: toRoundedInt(row?.sqft),
+      annualRentCents: toRoundedInt(row?.annual_rent_cents),
+    };
+  });
+
+  const opCostsSrc = (val.operating_costs && typeof val.operating_costs === 'object') ? val.operating_costs : {};
+  const operatingCosts = FIN_VAL_OP_COST_FIELDS.map(([field, label]) => ({
+    costKey: field.replace(/_cents$/, ''),
+    costLabel: label,
+    annualCostCents: toRoundedInt(opCostsSrc[field]),
+  }));
+
+  const assumptions = {
+    propertyKey,
+    utilityReimbursementCents: toRoundedInt(val.utility_reimbursement_cents),
+    vacancyRatePct: Number(val.vacancy_rate_pct) || 0,
+    managementFeePct: Number(val.management_fee_pct) || 0,
+    capRate: Number(val.cap_rate) || 0,
+  };
+
+  // Same walk as production's own finComputePropertyValuation() (src/frontend/js-finance.js) and
+  // this repository's staging fixture's own buildPropertyValuationView (property-report-
+  // service.js) -- kept in sync deliberately, not shared as one function, since the two live in
+  // separate deployable applications.
+  const totalAnnualRentCents = rentRoll.reduce((sum, r) => sum + r.annualRentCents, 0);
+  const grossRentalIncomeCents = totalAnnualRentCents + assumptions.utilityReimbursementCents;
+  const vacancyCents = Math.round(grossRentalIncomeCents * assumptions.vacancyRatePct);
+  const effectiveRentalIncomeCents = grossRentalIncomeCents - vacancyCents;
+  const itemizedOperatingCostsCents = operatingCosts.reduce((sum, c) => sum + c.annualCostCents, 0);
+  const managementFeeCents = Math.round(effectiveRentalIncomeCents * assumptions.managementFeePct);
+  const totalOperatingCostsCents = itemizedOperatingCostsCents + managementFeeCents;
+  const noiCents = effectiveRentalIncomeCents - totalOperatingCostsCents;
+  const capitalizedValueCents = assumptions.capRate ? Math.round(noiCents / assumptions.capRate) : 0;
+
+  return {
+    contract: 'connect.finance-property-valuation.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    propertyKey,
+    asOfDate: typeof val.as_of_date === 'string' ? val.as_of_date : '',
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    assumptions,
+    rentRoll,
+    operatingCosts,
+    totals: {
+      totalAnnualRentCents, grossRentalIncomeCents, vacancyCents, effectiveRentalIncomeCents,
+      itemizedOperatingCostsCents, managementFeeCents, totalOperatingCostsCents, noiCents,
+      capitalizedValueCents,
+      reconciled: effectiveRentalIncomeCents - itemizedOperatingCostsCents - managementFeeCents === noiCents,
+    },
+  };
+}
+
+export async function respondWithFinancePropertyValuationV1(url, db) {
+  const propertyKey = url.searchParams.get('property_key') || 'ivanhoe';
+  const valuation = await buildFinancePropertyValuationV1(db, { propertyKey, now: new Date() });
+
+  // Fail closed, same discipline as the contracts above: this should never fire against real
+  // data -- a missing or malformed worksheet is a real configuration problem, not a normal empty
+  // state (unlike Balance Sheet's "nothing imported yet" fiscal year) -- and if it does, Finance
+  // must not see a malformed contract.
+  const validation = validateFinancePropertyValuationV1(valuation);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled property valuation failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(valuation);
+}
+
 export async function handleContractsApi(req, env, url, method, seg, db) {
   if (seg === 'contracts/connect-giving-summary-v1' && method === 'GET') {
     return respondWithConnectGivingSummaryV1(url, db);
@@ -652,6 +782,9 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
   }
   if (seg === 'contracts/finance-balance-sheet-v1' && method === 'GET') {
     return respondWithFinanceBalanceSheetV1(url, db);
+  }
+  if (seg === 'contracts/finance-property-valuation-v1' && method === 'GET') {
+    return respondWithFinancePropertyValuationV1(url, db);
   }
   return null;
 }

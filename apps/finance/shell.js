@@ -19,7 +19,7 @@ import { buildFinancialHealthView } from './health-view-model.js';
 import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends, resolveChurchReport } from './church-report-service.js';
 import { readSyntheticBalanceTrends, resolveBalanceSheet } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, readSyntheticDaycareAllocation } from './daycare-report-service.js';
-import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers, readSyntheticPropertyValuation } from './property-report-service.js';
+import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers, resolvePropertyValuation } from './property-report-service.js';
 import { resolveBudgetReport } from './budget-report-service.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
@@ -748,8 +748,12 @@ export default {
           ? await readSyntheticPropertyReserves(env.FINANCE_DB) : null;
         const propertyLedgers = section.id === 'property'
           ? await readSyntheticPropertyLedgers(env.FINANCE_DB) : null;
+        // Property Valuation tries the real connect.finance-property-valuation.v1 endpoint first
+        // and falls back to the same synthetic fixture, labeled, via resolvePropertyValuation --
+        // same live-first pattern as Church Report's resolveChurchReport and Balance Sheet's
+        // resolveBalanceSheet above.
         const propertyValuation = section.id === 'property'
-          ? await readSyntheticPropertyValuation(env.FINANCE_DB) : null;
+          ? await resolvePropertyValuation(env, env.FINANCE_DB) : null;
         const propertyForecast = section.id === 'property'
           ? await readSyntheticPropertyForecast(env.FINANCE_DB) : null;
         const propertyDistributions = section.id === 'property'

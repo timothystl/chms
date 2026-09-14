@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-property-valuation:v1",
+  "title": "Connect Finance Property Valuation v1",
+  "description": "A single admin-maintained income-capitalization worksheet for one church-owned commercial property (3277 Ivanhoe by default): a rent roll, itemized operating costs, and assumptions (utility reimbursement, vacancy rate, management fee percentage, cap rate), plus the full reconciling walk from Gross Rental Income through Net Operating Income to Capitalized Value. Unlike the other six Finance contracts, the source is not a dedicated relational table but a JSON settings blob (finance_settings key finance_property_<property_key>_meta) that AHRA (the property manager) and church staff update by hand as new figures come in -- confirmed live against production on 2026-09-14 to be actively edited, not a frozen fixture. Real money crosses this contract, so it is 'aggregate' like Giving/Budget/Church Report/Balance Sheet, not 'structural' like Chart of Accounts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "currency", "propertyKey", "asOfDate", "generatedAt", "assumptions", "rentRoll", "operatingCosts", "totals"],
+  "properties": {
+    "contract": { "const": "connect.finance-property-valuation.v1" },
+    "dataClassification": { "const": "aggregate" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "currency": { "const": "USD" },
+    "propertyKey": { "type": "string", "minLength": 1, "description": "Defaults to 'ivanhoe' -- the only property Finance/Connect track today (FINANCE_PROPERTY_IVANHOE_META in src/db.js). The property_key column/JSON-settings-key convention allows a second property later without a schema change." },
+    "asOfDate": { "type": "string", "description": "The worksheet's own 'as of' date, exactly as stored (val.valuation.as_of_date). May legitimately be an empty string if that field was never set." },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "assumptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["propertyKey", "utilityReimbursementCents", "vacancyRatePct", "managementFeePct", "capRate"],
+      "properties": {
+        "propertyKey": { "type": "string", "minLength": 1, "description": "Always equal to the root propertyKey." },
+        "utilityReimbursementCents": { "type": "integer", "minimum": 0 },
+        "vacancyRatePct": { "type": "number", "minimum": 0, "maximum": 1 },
+        "managementFeePct": { "type": "number", "minimum": 0, "maximum": 1 },
+        "capRate": { "type": "number", "exclusiveMinimum": 0, "maximum": 1, "description": "Confirmed against production 2026-09-14: 0.08 (8%), an income-capitalization rate, never zero -- a zero cap rate would make Capitalized Value undefined." }
+      }
+    },
+    "rentRoll": {
+      "type": "array",
+      "minItems": 1,
+      "description": "One row per tenant/unit. Real data source (finance_settings' valuation.rent_roll) carries only {tenant, sqft, annual_rent_cents} -- unitKey is derived (slugified tenant name, de-duplicated by position) since the source has no stable machine key of its own.",
+      "items": { "$ref": "#/$defs/rentRollRow" }
+    },
+    "operatingCosts": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "description": "Exactly the seven fixed operating-cost lines production's own worksheet uses (src/frontend/js-finance.js's FIN_VAL_OP_COST_FIELDS): utilities, trash, maintenance_repairs, landscaping_snow, legal, taxes, insurance. Closed set -- an eighth or a missing one is a real configuration problem, not a normal variation.",
+      "items": { "$ref": "#/$defs/operatingCostRow" }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "totalAnnualRentCents", "grossRentalIncomeCents", "vacancyCents", "effectiveRentalIncomeCents",
+        "itemizedOperatingCostsCents", "managementFeeCents", "totalOperatingCostsCents", "noiCents",
+        "capitalizedValueCents", "reconciled"
+      ],
+      "description": "The exact walk production's own finComputePropertyValuation() (src/frontend/js-finance.js) and this repository's staging fixture's buildPropertyValuationView both use: Gross Rental Income = rent roll + utility reimbursement, less vacancy = Effective Rental Income; Total Operating Costs = itemized costs + a management fee computed as a % of Effective Rental Income; NOI = Effective Rental Income - Total Operating Costs; Capitalized Value = NOI / Cap Rate.",
+      "properties": {
+        "totalAnnualRentCents": { "type": "integer", "minimum": 0, "description": "Sum of every rentRoll row's annualRentCents." },
+        "grossRentalIncomeCents": { "type": "integer", "description": "totalAnnualRentCents + assumptions.utilityReimbursementCents." },
+        "vacancyCents": { "type": "integer", "minimum": 0, "description": "round(grossRentalIncomeCents * assumptions.vacancyRatePct)." },
+        "effectiveRentalIncomeCents": { "type": "integer", "description": "grossRentalIncomeCents - vacancyCents." },
+        "itemizedOperatingCostsCents": { "type": "integer", "minimum": 0, "description": "Sum of every operatingCosts row's annualCostCents." },
+        "managementFeeCents": { "type": "integer", "minimum": 0, "description": "round(effectiveRentalIncomeCents * assumptions.managementFeePct)." },
+        "totalOperatingCostsCents": { "type": "integer", "description": "itemizedOperatingCostsCents + managementFeeCents." },
+        "noiCents": { "type": "integer", "description": "effectiveRentalIncomeCents - totalOperatingCostsCents." },
+        "capitalizedValueCents": { "type": "integer", "description": "round(noiCents / assumptions.capRate)." },
+        "reconciled": { "const": true, "description": "effectiveRentalIncomeCents - itemizedOperatingCostsCents - managementFeeCents === noiCents. Always true by construction; reported as data anyway, same discipline as the other contracts' own totalsMatch/reconciled fields." }
+      }
+    }
+  },
+  "$defs": {
+    "rentRollRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unitKey", "tenantLabel", "squareFeet", "annualRentCents"],
+      "properties": {
+        "unitKey": { "type": "string", "minLength": 1, "description": "Derived, not a source field -- a slugified, de-duplicated tenant label." },
+        "tenantLabel": { "type": "string", "minLength": 1 },
+        "squareFeet": { "type": "integer", "minimum": 0 },
+        "annualRentCents": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "operatingCostRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["costKey", "costLabel", "annualCostCents"],
+      "properties": {
+        "costKey": { "enum": ["utilities", "trash", "maintenance_repairs", "landscaping_snow", "legal", "taxes", "insurance"] },
+        "costLabel": { "type": "string", "minLength": 1, "description": "The fixed human label for costKey, e.g. 'Maintenance/Repairs' for maintenance_repairs." },
+        "annualCostCents": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

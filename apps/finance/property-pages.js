@@ -45,10 +45,14 @@ export function renderPropertyPage(pageId, { propertyReport, propertyReserves, p
     </section>`;
   }
   if (pageId === 'rent-roll') {
+    const isLive = propertyValuation.source === 'live';
     const valuation = buildPropertyValuationView(propertyValuation);
-    return `<section class="report" aria-label="Synthetic Commercial Property rent roll">
-      ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Rent roll', badge: `${valuation.rentRoll.length} unit${valuation.rentRoll.length === 1 ? '' : 's'}` })}
+    const fallbackNote = isLive ? '' : `<p><small>The committed synthetic fixture (the live endpoint is not configured or did not answer${propertyValuation.fallbackReason ? `: ${escapeHtml(propertyValuation.fallbackReason)}` : ''}).</small></p>`;
+    return `<section class="report" aria-label="${isLive ? 'Commercial Property rent roll' : 'Synthetic Commercial Property rent roll'}">
+      ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Rent roll', badge: isLive ? 'Live from Connect' : 'Synthetic staging' })}
+      <p><small>${valuation.rentRoll.length} unit${valuation.rentRoll.length === 1 ? '' : 's'}${isLive && propertyValuation.asOfDate ? ` · as of ${escapeHtml(propertyValuation.asOfDate)}` : ''}</small></p>
       ${renderTable({ head: ['Tenant', 'Square feet', 'Annual contract rent'], rows: renderPropertyRentRows(valuation.rentRoll) })}
+      ${fallbackNote}
     </section>`;
   }
   if (pageId === 'work-orders') {
@@ -81,15 +85,19 @@ export function renderPropertyPage(pageId, { propertyReport, propertyReserves, p
     </section>`;
   }
   if (pageId === 'valuation') {
+    const isLive = propertyValuation.source === 'live';
     const valuation = buildPropertyValuationView(propertyValuation);
-    return `<section class="report" aria-label="Synthetic Commercial Property valuation">
-      ${renderSectionHeading({ eyebrow: 'Valuation', heading: 'Income approach', badge: `${(valuation.assumptions.cap_rate * 100).toFixed(1)}% cap rate` })}
+    const fallbackNote = isLive ? '' : `<p><small>The committed synthetic fixture (the live endpoint is not configured or did not answer${propertyValuation.fallbackReason ? `: ${escapeHtml(propertyValuation.fallbackReason)}` : ''}).</small></p>`;
+    return `<section class="report" aria-label="${isLive ? 'Commercial Property valuation' : 'Synthetic Commercial Property valuation'}">
+      ${renderSectionHeading({ eyebrow: 'Valuation', heading: 'Income approach', badge: isLive ? 'Live from Connect' : 'Synthetic staging' })}
+      <p><small>${(valuation.assumptions.cap_rate * 100).toFixed(1)}% cap rate${isLive && propertyValuation.asOfDate ? ` · as of ${escapeHtml(propertyValuation.asOfDate)}` : ''}</small></p>
       ${renderKpiCards([
         { label: 'Effective rental income', value: formatCents(valuation.totals.effectiveRentalIncomeCents), hint: `Gross ${formatCents(valuation.totals.grossRentalIncomeCents)} · vacancy ${formatCents(valuation.totals.vacancyCents)}` },
         { label: 'Net operating income', value: formatSignedCents(valuation.totals.noiCents), hint: `Operating costs ${formatCents(valuation.totals.totalOperatingCostsCents)}` },
         { label: 'Capitalized value', value: formatCents(valuation.totals.capitalizedValueCents), hint: `${valuation.totals.reconciled ? 'Income and cost walk reconciles' : 'Review required'} · read-only` },
       ])}
       ${renderTable({ head: ['Operating cost', 'Annual amount'], rows: renderPropertyCostRows(valuation.operatingCosts) })}
+      ${fallbackNote}
     </section>`;
   }
   if (pageId === 'forecast') {
