@@ -10,9 +10,11 @@ import { validateFinanceDataStatusV1 } from '../apps/finance/finance-data-status
 import { validateFinanceChartOfAccountsV1 } from '../apps/finance/finance-chart-of-accounts-consumer.js';
 import { validateFinanceBudgetV1 } from '../apps/finance/finance-budget-consumer.js';
 import { validateFinanceChurchReportV1 } from '../apps/finance/finance-church-report-consumer.js';
+import { validateFinanceBalanceSheetV1 } from '../apps/finance/finance-balance-sheet-consumer.js';
 import {
   readPlanningBoardCategories, readPurposeTags, REVENUE_STREAMS, BOARD_EXPENSE_CATEGORIES,
   resolveChurchYearPrecedence, computeYearSummary,
+  applyDesignatedFundsAsEquity, computeBalanceSummary, computeEquityReclassification,
 } from './api-finance.js';
 
 function isValidFiscalYearStr(value) {
@@ -498,6 +500,140 @@ export async function respondWithFinanceChurchReportV1(url, db) {
   return json(report);
 }
 
+// Sixth real slice of Finance separation: Balance Sheet. A structurally different report from
+// Church Report's actual-vs-budget income statement -- point-in-time Assets/Liabilities/Equity
+// account balances, one balance per account per fiscal year, read from the separate
+// finance_church_balances table (migrations/0019_finance_church_balances.sql), never
+// finance_church_entries. Real money crosses this contract, so it is 'aggregate' like Giving,
+// Budget, and Church Report, not 'structural' like Chart of Accounts.
+//
+// Unlike Church Report, there is no cross-source precedence to resolve: a direct 2026-09-14
+// check of production found exactly one source value, 'import', across all 1,056 rows and all
+// eight fiscal years on file (2019-2026) -- a Balance Sheet import always wholesale-replaces the
+// prior one for its fiscal year (persistChurchBalancesImport/persistChurchBalancesMultiYearImport
+// in src/api-finance.js), so there is never more than one row per (fiscal_year, category_path).
+// own_balance_cents is also NOT NULL in the schema and confirmed never null in any real row --
+// unlike Church Report's own_budget_cents, this contract has no nullable dollar field at all.
+//
+// Reuses applyDesignatedFundsAsEquity(), computeBalanceSummary(), and
+// computeEquityReclassification() directly from src/api-finance.js -- the exact functions
+// production's own `finance/church/balances` GET route already calls, in the exact same order --
+// rather than re-deriving any of this report's math independently. That distinction matters here
+// even more than it did for Church Report: computeEquityReclassification's own comment block
+// states its residual-based Donor-Restricted/Unrestricted split must be computed from the
+// UNTRANSFORMED rows ("never on the rows passed to computeEquityReclassification()"), because
+// folding Designated Funds into Equity first would, per that comment, double-count them into
+// Unrestricted. Production's real route (src/api-finance.js, the `finance/church/balances` GET
+// handler) does not follow that documented invariant -- it calls
+// `computeEquityReclassification(displayRows)` on the ALREADY-transformed rows, not the raw ones.
+// This contract intentionally reproduces the ACTUAL route behavior, not the comment's stated
+// intent, for the same reason Church Report reused resolveChurchYearPrecedence()/
+// computeYearSummary() verbatim: Finance staging must show the identical number staff already see
+// on production's own Balance Sheet tab, not a second, independently "corrected" one. Flagged for
+// Andrew/production review in this contract's own PR body rather than silently resolved either
+// way here.
+//
+// Also confirmed 2026-09-14: contrary to a separate comment in src/api-finance.js claiming a
+// has_children group row "carries a $0 own value in every real export observed," 8 real rows
+// across FY2019-2025 are has_children=1 with a genuinely nonzero own_balance_cents -- most
+// commonly "11027 Lindell Checking xx9105" (the very account this codebase treats as the
+// operating-cash account elsewhere), which turns out to be a real two-level parent with its own
+// distinct balance AND a nested "11030 Cash on hand" child line, not a duplicated subtotal. This
+// does not break computeBalanceSummary(), which already sums every row's own_balance_cents flatly
+// regardless of has_children by design -- but it does mean this contract (and its consumer's own
+// cross-check) must never filter has_children rows out when re-deriving classification totals, or
+// it would compute a different number than production's own page.
+//
+// Modeled on Church Report's single-fiscal-year shape (not a date range like Giving, not the
+// whole-tree/no-params shape of Chart of Accounts): a Balance Sheet is naturally one point-in-time
+// snapshot per fiscal year, so the caller names the year, and a year with nothing imported yet
+// answers with a valid, empty-accounts contract rather than a 404 -- same reasoning as every prior
+// contract's own empty-state design.
+export async function buildFinanceBalanceSheetV1(db, { fiscalYear, now = new Date() }) {
+  const { results } = (await db.prepare(
+    `SELECT fiscal_year, as_of_date, classification, category_path, account_name, depth, has_children, own_balance_cents
+       FROM finance_church_balances WHERE fiscal_year = ? ORDER BY category_path`
+  ).bind(fiscalYear).all()) || {};
+  const rawRows = results || [];
+  // See the module-comment above: this is the exact same transform-then-summarize order
+  // production's own `finance/church/balances` GET route uses, bug (if it is one) included.
+  const displayRows = applyDesignatedFundsAsEquity(rawRows);
+  const summary = computeBalanceSummary(displayRows);
+  const equityReclass = computeEquityReclassification(displayRows);
+
+  const accounts = displayRows.map((row) => ({
+    classification: row.classification,
+    categoryPath: row.category_path,
+    accountName: row.account_name,
+    depth: row.depth,
+    hasChildren: Boolean(row.has_children),
+    ownBalanceCents: row.own_balance_cents,
+  }));
+
+  let assetsCount = 0, liabilitiesCount = 0, equityCount = 0;
+  for (const account of accounts) {
+    if (account.classification === 'Assets') assetsCount++;
+    else if (account.classification === 'Liabilities') liabilitiesCount++;
+    else if (account.classification === 'Equity') equityCount++;
+  }
+
+  return {
+    contract: 'connect.finance-balance-sheet.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    fiscalYear,
+    asOfDate: rawRows[0]?.as_of_date || '',
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    accounts,
+    totals: {
+      assetsCents: summary.assetsCents,
+      liabilitiesCents: summary.liabilitiesCents,
+      equityCents: summary.equityCents,
+      currentAssetsCents: summary.currentAssetsCents,
+      fixedAssetsCents: summary.fixedAssetsCents,
+      otherAssetsCents: summary.otherAssetsCents,
+      liabilitiesPlusEquityCents: summary.liabilitiesPlusEquityCents,
+      balancedCents: summary.balancedCents,
+    },
+    equityReclass: {
+      donorRestrictedCents: equityReclass.donorRestrictedCents,
+      unrestrictedCents: equityReclass.unrestrictedCents,
+      totalEquityCents: equityReclass.totalEquityCents,
+      breakdown: equityReclass.breakdown,
+      unclassified: equityReclass.unclassified.map((u) => ({
+        accountName: u.account_name, categoryPath: u.category_path, ownBalanceCents: u.own_balance_cents,
+      })),
+    },
+    reconciliation: {
+      accountCount: accounts.length,
+      assetsCount,
+      liabilitiesCount,
+      equityCount,
+      unclassifiedEquityCount: equityReclass.unclassified.length,
+      totalsMatch: true,
+    },
+  };
+}
+
+export async function respondWithFinanceBalanceSheetV1(url, db) {
+  const fiscalYearStr = url.searchParams.get('fiscal_year');
+  if (!isValidFiscalYearStr(fiscalYearStr)) {
+    return json({ error: 'fiscal_year is required as a 4-digit year' }, 400);
+  }
+  const balanceSheet = await buildFinanceBalanceSheetV1(db, { fiscalYear: Number(fiscalYearStr), now: new Date() });
+
+  // Fail closed, same discipline as the contracts above: this should never fire against real
+  // data, and if it does, Finance must not see a malformed contract.
+  const validation = validateFinanceBalanceSheetV1(balanceSheet);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled balance sheet failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(balanceSheet);
+}
+
 export async function handleContractsApi(req, env, url, method, seg, db) {
   if (seg === 'contracts/connect-giving-summary-v1' && method === 'GET') {
     return respondWithConnectGivingSummaryV1(url, db);
@@ -513,6 +649,9 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
   }
   if (seg === 'contracts/finance-church-report-v1' && method === 'GET') {
     return respondWithFinanceChurchReportV1(url, db);
+  }
+  if (seg === 'contracts/finance-balance-sheet-v1' && method === 'GET') {
+    return respondWithFinanceBalanceSheetV1(url, db);
   }
   return null;
 }

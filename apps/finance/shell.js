@@ -17,7 +17,7 @@ import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.j
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
 import { buildFinancialHealthView } from './health-view-model.js';
 import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends, resolveChurchReport } from './church-report-service.js';
-import { readSyntheticBalanceSheet, readSyntheticBalanceTrends } from './balance-sheet-service.js';
+import { readSyntheticBalanceTrends, resolveBalanceSheet } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, readSyntheticDaycareAllocation } from './daycare-report-service.js';
 import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers, readSyntheticPropertyValuation } from './property-report-service.js';
 import { resolveBudgetReport } from './budget-report-service.js';
@@ -729,8 +729,13 @@ export default {
           ? await resolveChurchReport(env, env.FINANCE_DB) : null;
         const churchTrends = ['church', 'packet'].includes(section.id)
           ? await readSyntheticChurchTrends(env.FINANCE_DB) : null;
+        // Balance Sheet tries the real connect.finance-balance-sheet.v1 endpoint first and falls
+        // back to the same synthetic fixture, labeled, via resolveBalanceSheet -- same live-first
+        // pattern as Church Report's resolveChurchReport just above and Budget's
+        // resolveBudgetReport below. readSyntheticBalanceSheet is still used internally by
+        // resolveBalanceSheet's own fallback path, not called directly here anymore.
         const balanceSheet = section.id === 'balance'
-          ? await readSyntheticBalanceSheet(env.FINANCE_DB) : null;
+          ? await resolveBalanceSheet(env, env.FINANCE_DB) : null;
         const balanceTrends = section.id === 'balance'
           ? await readSyntheticBalanceTrends(env.FINANCE_DB) : null;
         const daycareReport = section.id === 'daycare' || section.id === 'health'

@@ -358,11 +358,15 @@ describe('Finance 1.0.0 alpha staging shell', () => {
   });
 
   it('renders a synthetic Balance Sheet position, its sub-pages, and its own read budget', async () => {
+    // No CONNECT_SERVICE binding/key is configured in this test env, so the live
+    // connect.finance-balance-sheet.v1 attempt fails closed with 'not_configured' and Balance
+    // Sheet falls back to the same synthetic fixture as before, labeled as such.
     statements.length = 0;
     const res = await worker.fetch(new Request('https://finance.test/?section=balance'), env);
     const html = await res.text();
     expect(res.status).toBe(200);
-    expect(html).toContain('Synthetic Balance Sheet');
+    expect(html).toContain('Synthetic staging');
+    expect(html).toContain('the live endpoint is not configured or did not answer: not_configured');
     expect(html).toContain('Financial position as of 2026-12-31');
     expect(html).toContain('$300,000');
     expect(html).toContain('$100,000');
