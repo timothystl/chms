@@ -153,8 +153,24 @@ while [[ "$key_index" -lt "$total_keys" ]]; do
 done
 
 echo "[3/4] Verifying destination key count and a byte-equality sample"
-wrangler kv key list --namespace-id="$dest_namespace_id" --remote > "$temp_dir/dest-keys-after.json"
-dest_count_after="$(jq 'length' "$temp_dir/dest-keys-after.json")"
+# Cloudflare's own docs: a KV write "can take up to 60 seconds... to be reflected" in a list or
+# get call made from elsewhere on the network -- this script's copy loop just made ~$total_keys
+# rapid writes from this one runner, so list/get calls immediately afterward can undercount for
+# a purely eventual-consistency reason, not a real data problem. Wait past that documented
+# window once, then retry the count check a few more times before treating a mismatch as real.
+if [[ "$copied" -gt 0 ]]; then
+  echo "      Waiting 65s for Workers KV write consistency before verifying..."
+  sleep 65
+fi
+count_check_attempt=0
+dest_count_after=-1
+while [[ "$count_check_attempt" -lt 4 ]]; do
+  wrangler kv key list --namespace-id="$dest_namespace_id" --remote > "$temp_dir/dest-keys-after.json"
+  dest_count_after="$(jq 'length' "$temp_dir/dest-keys-after.json")"
+  if [[ "$dest_count_after" -eq "$copied" ]]; then break; fi
+  count_check_attempt=$((count_check_attempt + 1))
+  if [[ "$count_check_attempt" -lt 4 ]]; then sleep 20; fi
+done
 test "$dest_count_after" -eq "$copied"
 
 sample_checked=0
