@@ -7069,7 +7069,8 @@ function buildDataSnapshot() {
     ws_confirmations:      getConfirmations(),
     ws_rsvp_tokens:        getRsvpTokens(),
     ws_sun_labels:         getSundayLabels(),
-    ws_breeze_settings:    getBreezeSettings()
+    ws_breeze_settings:    getBreezeSettings(),
+    ws_readings:           getReadingsOverrides()
   };
 }
 
@@ -7095,7 +7096,7 @@ async function d1Pull() {
     var data = await resp.json();
     var keys = ['ws_people','ws_schedule_v2','ws_history','ws_last_served',
                 'ws_schedule_overrides','ws_confirmations','ws_rsvp_tokens','ws_sun_labels',
-                'ws_breeze_settings'];
+                'ws_breeze_settings','ws_readings'];
     keys.forEach(function(k) {
       if (data[k] !== undefined) localStorage.setItem(k, JSON.stringify(data[k]));
     });

@@ -89,13 +89,26 @@ function lectCalendar() {
 function tidyReadingRef(r) {
   return String(r || '').replace(/\(\s*/g, '(').replace(/\s*\)/g, ')').replace(/\s+/g, ' ').trim();
 }
-function readingsForDate(dateISO) {
+// `overrides` is the ws_readings blob (dateISO -> {ot,epistle,gospel,psalm}), the same D1-backed
+// key the desktop Scheduler's readings panel now pushes to and pulls from (see queueD1Push() /
+// d1Pull() in scheduler-html.js) — this mirrors getReadingsForDate() there so a hand-typed
+// override shows up identically on both surfaces instead of mobile only ever seeing the
+// lectionary default.
+function readingsForDate(dateISO, overrides) {
+  const ov = overrides && overrides[dateISO];
+  if (ov) {
+    const out = { ot: tidyReadingRef(ov.ot), epistle: tidyReadingRef(ov.epistle), gospel: tidyReadingRef(ov.gospel), psalm: tidyReadingRef(ov.psalm), is_override: true };
+    const e = lectCalendar()[dateISO];
+    if (e) out.sunday_name = String(e.sundayName || '').replace(/\(prop(\d+)\)/i, '(Proper $1)');
+    return (out.ot || out.epistle || out.gospel || out.psalm) ? out : null;
+  }
   const e = lectCalendar()[dateISO];
   if (!e) return null;
   const out = {
     sunday_name: String(e.sundayName || '').replace(/\(prop(\d+)\)/i, '(Proper $1)'),
     ot: tidyReadingRef(e.ot), epistle: tidyReadingRef(e.epistle),
     gospel: tidyReadingRef(e.gospel), psalm: tidyReadingRef(e.psalm),
+    is_override: false,
   };
   return (out.ot || out.epistle || out.gospel || out.psalm) ? out : null;
 }
@@ -117,7 +130,7 @@ function familyRoleLabel(role) {
 // current state" and leave the mobile screen showing something the server no longer agrees with.
 async function loadSchedulerBlobs(db) {
   const blobRows = (await db.prepare(
-    `SELECT key, value, updated_at FROM scheduler_data WHERE key IN ('ws_schedule_v2','ws_people','ws_confirmations')`
+    `SELECT key, value, updated_at FROM scheduler_data WHERE key IN ('ws_schedule_v2','ws_people','ws_confirmations','ws_readings')`
   ).all()).results || [];
   const blobs = {};
   let confirmationsAsOf = null;
@@ -130,6 +143,7 @@ async function loadSchedulerBlobs(db) {
     people: Array.isArray(blobs.ws_people) ? blobs.ws_people : [],
     confirmations: (blobs.ws_confirmations && typeof blobs.ws_confirmations === 'object') ? blobs.ws_confirmations : {},
     confirmationsAsOf,
+    readingsOverrides: (blobs.ws_readings && typeof blobs.ws_readings === 'object') ? blobs.ws_readings : {},
   };
 }
 
@@ -151,7 +165,7 @@ function buildSundayPayload(dateISO, state) {
     .filter(p => p && p.id != null && p.name)
     .map(p => ({ id: p.id, name: p.name }))
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  const readings = readingsForDate(dateISO);
+  const readings = readingsForDate(dateISO, state.readingsOverrides);
 
   const monthKey = dateISO.slice(0, 7);
   const monthRows = (state.months[monthKey] && Array.isArray(state.months[monthKey].rows)) ? state.months[monthKey].rows : [];
@@ -483,6 +497,109 @@ export async function handleMobileApi(req, env, url, method, role) {
     state.confirmationsAsOf = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
     return json(buildSundayPayload(dateISO, state));
+  }
+
+  // ── Scheduler: hand-edit (or reset) the readings for one date ──────────────
+  // Writes the same 'ws_readings' scheduler_data key the desktop Scheduler's readings panel
+  // saves to (queueD1Push() there now includes it — see scheduler-html.js buildDataSnapshot()),
+  // so an edit made here or on desktop shows up on both. `reset: true` drops the override
+  // entirely and falls back to the LCMS lectionary default, mirroring desktop's
+  // "Reset to Lectionary" button.
+  if (seg === 'scheduler/readings' && method === 'POST') {
+    if (role !== 'admin' && role !== 'staff') return json({ error: 'Access denied' }, 403);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const dateISO = String(b.date_iso || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) return json({ error: 'Invalid request' }, 400);
+
+    const state = await loadSchedulerBlobs(db);
+    const overrides = state.readingsOverrides;
+    if (b.reset) {
+      delete overrides[dateISO];
+    } else {
+      overrides[dateISO] = {
+        ot: String(b.ot || '').trim(),
+        epistle: String(b.epistle || '').trim(),
+        gospel: String(b.gospel || '').trim(),
+        psalm: String(b.psalm || '').trim(),
+      };
+    }
+    await db.prepare(
+      `INSERT OR REPLACE INTO scheduler_data (key, value, updated_at) VALUES ('ws_readings', ?, datetime('now'))`
+    ).bind(JSON.stringify(overrides)).run();
+
+    return json(buildSundayPayload(dateISO, state));
+  }
+
+  // ── Scheduler: bulk-email everyone assigned for one Sunday ─────────────────
+  // The mobile counterpart to desktop's "Email Assignments" panel, scoped to the single
+  // Sunday this screen shows (that screen has no multi-week picker). Deliberately the same
+  // smaller email 'remind' below already sends (no ICS attachment, no fetched ESV full text,
+  // no per-recipient send log — see the comment on 'remind') — just sent to everyone assigned
+  // instead of one person at a time, one email per person covering all of that person's roles
+  // for the date so someone serving two roles isn't emailed twice.
+  if (seg === 'scheduler/send-assignments' && method === 'POST') {
+    if (role !== 'admin' && role !== 'staff') return json({ error: 'Access denied' }, 403);
+    let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+    const dateISO = String(b.date_iso || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) return json({ error: 'Invalid request' }, 400);
+
+    const resendKey = env.RESEND_API_KEY || '';
+    const emailFrom = env.EMAIL_FROM || '';
+    if (!resendKey || !emailFrom) return json({ error: 'Email is not configured on the Worker (RESEND_API_KEY / EMAIL_FROM missing)' }, 500);
+
+    const state = await loadSchedulerBlobs(db);
+    const payload = buildSundayPayload(dateISO, state);
+    if (!payload.has_schedule) return json({ error: 'No schedule for this date' }, 404);
+
+    const dateLabel = new Date(dateISO + 'T12:00:00Z')
+      .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
+
+    // One entry per assigned person, each carrying every role/service they're in for this date.
+    const byPerson = new Map();
+    function addAssignment(r2, svcKey) {
+      if (!r2.person) return;
+      const svcLabel = svcKey === 'shared' ? 'Both Services' : (SCHED_SVC_LABELS[svcKey] || svcKey);
+      const pid = String(r2.person.id);
+      if (!byPerson.has(pid)) byPerson.set(pid, { personId: r2.person.id, name: r2.person.name, items: [] });
+      byPerson.get(pid).items.push({ role: r2.role, svc: svcKey, svcLabel });
+    }
+    for (const s of (payload.services || [])) {
+      const svcKey = payload.kind === 'special' ? (s.time || 'shared') : s.svc;
+      for (const r2 of s.roles) addAssignment(r2, svcKey);
+    }
+    for (const r2 of (payload.shared_roles || [])) addAssignment(r2, 'shared');
+
+    let sent = 0, skipped = 0;
+    const rsvpBase = url.origin;
+    for (const entry of byPerson.values()) {
+      const personBlob = state.people.find(p => p && String(p.id) === String(entry.personId));
+      const email = (personBlob && (personBlob.email || personBlob.secondEmail)) || '';
+      if (!email) { skipped++; continue; }
+
+      const token = Array.from(crypto.getRandomValues(new Uint8Array(20)), n => n.toString(16).padStart(2, '0')).join('');
+      const assignments = entry.items.map(it => ({ date: dateLabel, dateISO, svc: it.svcLabel, role: it.role }));
+      await schedKvPut(env, token, {
+        token, name: entry.name, personId: entry.personId, email, notifyEmail: '', assignments, responses: {},
+      });
+
+      const lines = entry.items.map((it, i) =>
+        `  • ${it.svcLabel} — ${it.role}\n`
+        + `    Yes, I'll be there: ${rsvpBase}/rsvp?token=${encodeURIComponent(token)}&idx=${i}&status=confirmed\n`
+        + `    I need a change:  ${rsvpBase}/rsvp?token=${encodeURIComponent(token)}&idx=${i}&status=needs_changes`
+      ).join('\n\n');
+      const text = `Hello ${entry.name},\n\n`
+        + `Here are your worship service assignments at Timothy Lutheran Church for ${dateLabel}:\n\n${lines}\n\n`
+        + `Thank you for serving!\n\nTimothy Lutheran Church`;
+
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: emailFrom, to: email, subject: `Your assignment — ${dateLabel}`, text }),
+      });
+      if (res.ok) sent++; else skipped++;
+    }
+
+    return json({ ok: true, sent, skipped, total: byPerson.size });
   }
 
   // ── Attendance quick-entry: upsert one service's count for one date ──────
