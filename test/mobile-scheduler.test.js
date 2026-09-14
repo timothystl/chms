@@ -39,11 +39,12 @@ function makeDb() {
   return db;
 }
 
-function seedSchedulerData(db, { schedule, people, confirmations, confirmationsUpdatedAt }) {
+function seedSchedulerData(db, { schedule, people, confirmations, confirmationsUpdatedAt, readings }) {
   const rows = [
     ['ws_schedule_v2', schedule != null ? schedule : {}, null],
     ['ws_people', people != null ? people : [], null],
     ['ws_confirmations', confirmations != null ? confirmations : {}, confirmationsUpdatedAt || '2026-08-25 09:00:00'],
+    ['ws_readings', readings != null ? readings : {}, null],
   ];
   return Promise.all(rows.map(([key, value, updatedAt]) =>
     db.prepare(
@@ -498,5 +499,160 @@ describe('handleMobileApi — scheduler/remind', () => {
     expect(body.to).toBe('elaine@example.org');
     expect(body.text).toContain('/rsvp?token=');
     expect(body.text).toContain('status=confirmed');
+  });
+});
+
+describe('handleMobileApi — scheduler/readings', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-02T12:00:00Z')); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('is denied to roles other than admin/staff', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: {}, people: [], confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', ot: 'Genesis 1', epistle: '', gospel: '', psalm: '' }),
+      { DB: db }, makeUrl('scheduler/readings'), 'POST', 'council'
+    );
+    expect(r.status).toBe(403);
+  });
+
+  it('rejects a malformed date', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: {}, people: [], confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: 'not-a-date', ot: 'Genesis 1' }),
+      { DB: db }, makeUrl('scheduler/readings'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(400);
+  });
+
+  it('saves a hand-typed override, persists it to D1, and marks it is_override on read-back', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: {}, people: [], confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', ot: 'Genesis 1:1-5', epistle: 'Romans 8:1-11', gospel: 'John 3:1-17', psalm: 'Psalm 23' }),
+      { DB: db }, makeUrl('scheduler/readings'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(200);
+    const d = await r.json();
+    expect(d.readings).toMatchObject({ ot: 'Genesis 1:1-5', epistle: 'Romans 8:1-11', gospel: 'John 3:1-17', psalm: 'Psalm 23', is_override: true });
+
+    const row = await db.prepare(`SELECT value FROM scheduler_data WHERE key='ws_readings'`).first();
+    expect(JSON.parse(row.value)['2026-09-06']).toEqual({ ot: 'Genesis 1:1-5', epistle: 'Romans 8:1-11', gospel: 'John 3:1-17', psalm: 'Psalm 23' });
+
+    // A second read (scheduler/this-sunday) must see the same override, not the lectionary default.
+    const r2 = await handleMobileApi(makeReq(), { DB: db }, makeUrl('scheduler/this-sunday'), 'GET', 'admin');
+    const d2 = await r2.json();
+    expect(d2.readings.ot).toBe('Genesis 1:1-5');
+    expect(d2.readings.is_override).toBe(true);
+  });
+
+  it('reset:true drops the override and falls back to the lectionary default', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, {
+      schedule: {}, people: [], confirmations: {},
+      readings: { '2026-09-06': { ot: 'Hand-typed OT', epistle: '', gospel: '', psalm: '' } },
+    });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', reset: true }),
+      { DB: db }, makeUrl('scheduler/readings'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(200);
+    const d = await r.json();
+    expect(d.readings ? d.readings.is_override : false).toBe(false);
+
+    const row = await db.prepare(`SELECT value FROM scheduler_data WHERE key='ws_readings'`).first();
+    expect(JSON.parse(row.value)['2026-09-06']).toBeUndefined();
+  });
+});
+
+describe('handleMobileApi — scheduler/send-assignments', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-02T12:00:00Z')); });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  const PEOPLE = [
+    { id: 12, name: 'Elaine Reyes', email: 'elaine@example.org' },
+    { id: 7, name: 'James Poe', email: 'james@example.org' },
+    { id: 9, name: 'Marcus Vale' }, // no email on file
+  ];
+  const SCHEDULE = {
+    '2026-09': {
+      rows: [{
+        type: 'sunday', dateISO: '2026-09-06', ordinal: 1,
+        assignments: {
+          Elder: { '8am': 12, '10:45am': null },
+          Acolyte: { '8am': null, '10:45am': 9 },
+          Lector: { '8am': 12, '10:45am': null }, // Elaine again — should NOT get a second email
+          Preacher: { shared: 7 },
+        },
+      }],
+    },
+  };
+
+  function stubFetch(impl) {
+    const calls = [];
+    vi.stubGlobal('fetch', (url, init) => { calls.push({ url: String(url), init }); return impl(String(url), init); });
+    return calls;
+  }
+
+  it('is denied to roles other than admin/staff', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06' }), { DB: db }, makeUrl('scheduler/send-assignments'), 'POST', 'council'
+    );
+    expect(r.status).toBe(403);
+  });
+
+  it('errors clearly when Resend is not configured on the Worker', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06' }), { DB: db }, makeUrl('scheduler/send-assignments'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(500);
+    const d = await r.json();
+    expect(d.error).toContain('RESEND_API_KEY');
+  });
+
+  it('errors when there is no schedule for that date', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: {}, people: PEOPLE, confirmations: {} });
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06' }),
+      { DB: db, RESEND_API_KEY: 'key', EMAIL_FROM: 'office@timothystl.org' },
+      makeUrl('scheduler/send-assignments'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(404);
+  });
+
+  it('sends one email per assigned person covering every role they hold, and skips those with no email', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const calls = stubFetch(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: 'em_1' }) }));
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06' }),
+      { DB: db, RESEND_API_KEY: 'key', EMAIL_FROM: 'office@timothystl.org' },
+      makeUrl('scheduler/send-assignments'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(200);
+    const d = await r.json();
+    // Assigned: Elaine (Elder 8am + Lector 8am -> 1 email), James (Preacher shared -> 1 email),
+    // Marcus (Acolyte 10:45am -> no email on file -> skipped).
+    expect(d.total).toBe(3);
+    expect(d.sent).toBe(2);
+    expect(d.skipped).toBe(1);
+    expect(calls.length).toBe(2);
+
+    const toAddrs = calls.map(c => JSON.parse(c.init.body).to).sort();
+    expect(toAddrs).toEqual(['elaine@example.org', 'james@example.org']);
+
+    const elaineCall = calls.find(c => JSON.parse(c.init.body).to === 'elaine@example.org');
+    const elaineText = JSON.parse(elaineCall.init.body).text;
+    // Both of Elaine's roles for the date appear in the single email, not two emails.
+    expect(elaineText).toContain('Elder');
+    expect(elaineText).toContain('Lector');
+    expect(elaineText).toMatch(/idx=0/);
+    expect(elaineText).toMatch(/idx=1/);
   });
 });

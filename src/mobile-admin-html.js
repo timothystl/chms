@@ -273,6 +273,8 @@ const state = {
   givEditDraft: null,
   sched: null,
   schedExpanded: null,
+  schedReadingsEditing: false,
+  schedSending: false,
   households: [],
   householdsTotal: 0,
   householdsOffset: 0,
@@ -748,6 +750,7 @@ function schedRoleRowHtml(r, svcKey) {
 async function loadScheduler() {
   setTopbarTitle('Scheduler');
   state.schedExpanded = null;
+  state.schedReadingsEditing = false;
   document.getElementById('content').innerHTML = '<div class="state-msg">Loading…</div>';
   try {
     state.sched = await api('/admin/api/mobile/scheduler/this-sunday');
@@ -786,6 +789,56 @@ async function schedRemind(svcKey, roleName) {
   }
 }
 
+async function schedSaveReadings() {
+  const body = {
+    date_iso: state.sched.date_iso,
+    ot: document.getElementById('sched-reading-ot').value,
+    epistle: document.getElementById('sched-reading-epistle').value,
+    gospel: document.getElementById('sched-reading-gospel').value,
+    psalm: document.getElementById('sched-reading-psalm').value,
+  };
+  try {
+    state.sched = await api('/admin/api/mobile/scheduler/readings', { method: 'POST', body: JSON.stringify(body) });
+    state.schedReadingsEditing = false;
+    renderScheduler();
+  } catch (e) {
+    alert('Could not save the readings: ' + e.message);
+  }
+}
+
+async function schedResetReadings() {
+  try {
+    state.sched = await api('/admin/api/mobile/scheduler/readings', {
+      method: 'POST',
+      body: JSON.stringify({ date_iso: state.sched.date_iso, reset: true }),
+    });
+    state.schedReadingsEditing = false;
+    renderScheduler();
+  } catch (e) {
+    alert('Could not reset the readings: ' + e.message);
+  }
+}
+
+async function schedSendAssignments() {
+  if (state.schedSending) return;
+  if (!confirm('Email everyone assigned for ' + schedFmtDate(state.sched.date_iso) + ' their assignment?')) return;
+  state.schedSending = true;
+  renderScheduler();
+  try {
+    const res = await api('/admin/api/mobile/scheduler/send-assignments', {
+      method: 'POST',
+      body: JSON.stringify({ date_iso: state.sched.date_iso }),
+    });
+    alert('Sent ' + res.sent + ' assignment email' + (res.sent !== 1 ? 's' : '')
+      + (res.skipped ? ', ' + res.skipped + ' skipped (no email address)' : '') + '.');
+  } catch (e) {
+    alert('Could not send assignments: ' + e.message);
+  } finally {
+    state.schedSending = false;
+    renderScheduler();
+  }
+}
+
 function renderScheduler() {
   setTopbarTitle('Scheduler');
   const d = state.sched;
@@ -800,13 +853,30 @@ function renderScheduler() {
     ? ('Confirmations as of ' + esc(schedFmtAsOf(d.confirmations_as_of)))
     : 'Confirmations have not synced from volunteer replies yet';
   let readingsHtml = '';
-  if (d.readings) {
-    const rows = [['OT', d.readings.ot], ['Epistle', d.readings.epistle], ['Gospel', d.readings.gospel], ['Psalm', d.readings.psalm]]
-      .filter(p => p[1]);
-    if (rows.length) {
+  if (d.readings || state.schedReadingsEditing) {
+    const r = d.readings || {};
+    if (state.schedReadingsEditing) {
       readingsHtml = '<div class="mob-card"><div class="mob-card-head"><b>Readings</b>'
-        + (d.readings.sunday_name ? '<div class="sub">' + esc(d.readings.sunday_name) + '</div>' : '') + '</div>'
+        + (r.sunday_name ? '<div class="sub">' + esc(r.sunday_name) + '</div>' : '') + '</div>'
+        + '<div class="att-form">'
+        + '<div><label>Old Testament</label><input id="sched-reading-ot" value="' + esc(r.ot || '') + '"></div>'
+        + '<div><label>Epistle</label><input id="sched-reading-epistle" value="' + esc(r.epistle || '') + '"></div>'
+        + '<div><label>Gospel</label><input id="sched-reading-gospel" value="' + esc(r.gospel || '') + '"></div>'
+        + '<div><label>Psalm</label><input id="sched-reading-psalm" value="' + esc(r.psalm || '') + '"></div>'
+        + '<div style="font-size:11px;color:var(--warm-gray);">'
+        + (r.is_override ? 'Set by hand for this date. Reset puts it back to the lectionary.' : 'From the LCMS lectionary. Saving here overrides it for this date only.')
+        + '</div>'
+        + '<div class="att-form-actions">'
+        + '<button class="att-form-cancel" data-action="sched-readings-cancel">Cancel</button>'
+        + (r.is_override ? '<button class="att-form-cancel" data-action="sched-readings-reset">Reset</button>' : '')
+        + '<button class="att-form-save" data-action="sched-readings-save">Save</button>'
+        + '</div></div></div>';
+    } else {
+      const rows = [['OT', r.ot], ['Epistle', r.epistle], ['Gospel', r.gospel], ['Psalm', r.psalm]].filter(p => p[1]);
+      readingsHtml = '<div class="mob-card"><div class="mob-card-head"><b>Readings</b>'
+        + (r.sunday_name ? '<div class="sub">' + esc(r.sunday_name) + '</div>' : '') + '</div>'
         + rows.map(p => '<div class="sched-role-row" style="cursor:default;"><div class="sched-role-name">' + esc(p[0]) + '</div><span class="sched-person">' + esc(p[1]) + '</span></div>').join('')
+        + '<button class="att-add-btn" style="border:none;border-top:1px solid var(--border);border-radius:0;" data-action="sched-readings-edit">Edit Readings</button>'
         + '</div>';
     }
   }
@@ -835,7 +905,10 @@ function renderScheduler() {
     + '<div class="sched-head"><div class="sched-date">' + esc(schedFmtDate(d.date_iso)) + '</div>'
     + '<div class="sched-sub">' + esc(d.counts.filled) + ' of ' + esc(d.counts.total) + ' roles filled'
     + (d.counts.open ? ' · ' + esc(d.counts.open) + ' open' : '') + '</div>'
-    + '<div class="sched-asof">' + asOf + '</div></div>'
+    + '<div class="sched-asof">' + asOf + '</div>'
+    + (d.counts.filled ? '<button class="giv-save-btn" style="margin-top:10px;" data-action="sched-send-assignments"'
+        + (state.schedSending ? ' disabled' : '') + '>' + (state.schedSending ? 'Sending…' : 'Send Assignments') + '</button>' : '')
+    + '</div>'
     + readingsHtml
     + bodyHtml
     + '</div>';
@@ -1246,6 +1319,18 @@ document.getElementById('content').addEventListener('click', (e) => {
     schedSaveRole(t.dataset.svc, t.dataset.role);
   } else if (action === 'sched-remind') {
     schedRemind(t.dataset.svc, t.dataset.role);
+  } else if (action === 'sched-readings-edit') {
+    state.schedReadingsEditing = true;
+    renderScheduler();
+  } else if (action === 'sched-readings-cancel') {
+    state.schedReadingsEditing = false;
+    renderScheduler();
+  } else if (action === 'sched-readings-save') {
+    schedSaveReadings();
+  } else if (action === 'sched-readings-reset') {
+    schedResetReadings();
+  } else if (action === 'sched-send-assignments') {
+    schedSendAssignments();
   } else if (action === 'giv-edit') {
     const id = parseInt(t.dataset.id, 10);
     const entry = (state.givRecent || []).find(x => x.id === id);
