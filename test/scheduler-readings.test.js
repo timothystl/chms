@@ -195,8 +195,8 @@ describe('the readings strip', () => {
   });
 
   it('splits the readings by who is emailed them', () => {
-    // The Lector reads the two lessons; the Liturgist leads the service around
-    // all of them, so they get everything.
+    // The Lector reads the two lessons; the Liturgist those plus the Gospel.
+    // Neither reads the Psalm aloud, so it goes to no one here.
     const { ctx } = ready();
     const html = ctx.focusWeekReadingsHtml('2026-08-16');
     const lector = html.slice(html.indexOf('Lector'), html.indexOf('Liturgist'));
@@ -208,7 +208,7 @@ describe('the readings strip', () => {
     expect(liturgist).toContain('Isaiah 2:1-5');
     expect(liturgist).toContain('Romans 13');
     expect(liturgist).toContain('Matthew 21:1-11');
-    expect(liturgist).toContain('Psalm 122');
+    expect(liturgist).not.toContain('Psalm 122');    // Liturgist never reads it either
   });
 
   it('reports a hand-set date as set by hand, not as the lectionary', () => {
@@ -289,31 +289,30 @@ describe('the assignment email', () => {
     expect(html).not.toContain('Matthew 21:1-11');
   });
 
-  it('sends the Liturgist all four — the three readings and the Psalm', () => {
+  it('sends the Liturgist all three readings, but not the Psalm', () => {
     const { ctx } = ready();
     const html = ctx.buildHtmlEmail({ name: 'Larry Hawkins' }, assignmentsFor('Liturgist'), '', '', '');
     expect(html).toContain('Isaiah 2:1-5');            // OT
     expect(html).toContain('Romans 13:(8-10) 11-14');  // Epistle
     expect(html).toContain('Matthew 21:1-11');         // Gospel
-    expect(html).toContain('Psalm 122 (6)');
+    expect(html).not.toContain('Psalm 122 (6)');       // never read aloud by the Liturgist
   });
 
   it('gives the Liturgist a superset of the Lector, in reading order', () => {
-    // The rule, stated once: Lector = the two lessons; Liturgist = everything.
-    // Anything the Lector is sent must also reach the Liturgist.
+    // The rule, stated once: Lector = the two lessons; Liturgist = those plus
+    // the Gospel. Anything the Lector is sent must also reach the Liturgist.
     const { ctx } = ready();
     const rd = ctx.getReadingsForDate('2026-08-16');
     const lector = ctx.readingsForRole('Lector', rd).map((i) => i.label);
     const liturgist = ctx.readingsForRole('Liturgist', rd).map((i) => i.label);
     expect(lector).toEqual(['OT', 'Epistle']);
-    expect(liturgist).toEqual(['OT', 'Epistle', 'Gospel', 'Psalm']);
+    expect(liturgist).toEqual(['OT', 'Epistle', 'Gospel']);
     lector.forEach((l) => expect(liturgist).toContain(l));
     expect(liturgist.length).toBeGreaterThan(lector.length);
   });
 
   it('omits a reading the lectionary does not carry, for either role', () => {
     const { ctx } = ready();
-    ctx.lectCalendar['2026-08-16'].psalm = '';
     ctx.lectCalendar['2026-08-16'].ot = '';
     const rd = ctx.getReadingsForDate('2026-08-16');
     expect(ctx.readingsForRole('Liturgist', rd).map((i) => i.label)).toEqual(['Epistle', 'Gospel']);
@@ -363,7 +362,7 @@ describe('the assignment email', () => {
     const items = ctx.readingsForRole('Lector', ctx.getReadingsForDate('2026-08-16'));
     expect(items.map((i) => i.label)).toEqual(['OT', 'Epistle']);
     expect(ctx.readingsForRole('Liturgist', ctx.getReadingsForDate('2026-08-16')).map((i) => i.label))
-      .toEqual(['OT', 'Epistle', 'Gospel', 'Psalm']);
+      .toEqual(['OT', 'Epistle', 'Gospel']);
     expect(ctx.readingsForRole('Elder', ctx.getReadingsForDate('2026-08-16'))).toEqual([]);
     expect(ctx.readingsForRole('Lector', null)).toEqual([]);
     // Both send paths call the shared builder rather than inlining their own.
@@ -377,13 +376,14 @@ describe('the assignment email', () => {
 
 describe('editing readings', () => {
   it('labels each field with who receives it, not grouped by role', () => {
-    // Grouping by role stopped working when the Liturgist began receiving all
-    // four — OT and Epistle now go to both people.
+    // Grouping by role stopped working when the Liturgist began receiving OT
+    // and Epistle too — those now go to both people. The Psalm field goes to
+    // neither reading role; it is not read aloud by either.
     expect(SCHEDULER_HTML).not.toContain('Emailed to the Lector');
     expect(SCHEDULER_HTML).toMatch(/Old Testament[\s\S]{0,140}Lector &amp; Liturgist/);
     expect(SCHEDULER_HTML).toMatch(/Epistle[\s\S]{0,140}Lector &amp; Liturgist/);
     expect(SCHEDULER_HTML).toMatch(/Gospel[\s\S]{0,140}&mdash; Liturgist/);
-    expect(SCHEDULER_HTML).toMatch(/Psalm[\s\S]{0,140}&mdash; Liturgist/);
+    expect(SCHEDULER_HTML).not.toMatch(/Psalm[\s\S]{0,140}&mdash; Liturgist/);
   });
 
   it('opens the panel prefilled from the lectionary and says where the values came from', () => {
@@ -531,7 +531,7 @@ describe('embedding the full ESV text', () => {
       { assignments: assignmentsFor('Liturgist') },
     ];
     const refs = ctx.esvRefsForTasks(tasks);
-    expect(refs).toHaveLength(4);                 // OT, Epistle, Gospel, Psalm
+    expect(refs).toHaveLength(3);                 // OT, Epistle, Gospel (not the Psalm)
     expect(new Set(refs).size).toBe(refs.length); // no duplicates
     expect(refs).toContain('Romans 13:11-14');    // cleaned, as the API needs
     expect(refs).not.toContain('Romans 13:( 8-10 ) 11-14');

@@ -177,6 +177,8 @@ describe('readings PDF structure (no parser needed)', () => {
 
 describe.skipIf(!HAVE_PYPDF)('readings PDF, parsed by a real PDF reader', () => {
   it('opens, and every word put in comes back out', () => {
+    // person is still accepted for signature compatibility with the caller,
+    // but the sheet is no longer titled with a name — see the next test.
     const ctx = scheduler();
     const pdf = ctx.buildReadingsPdfFor({ name: 'Larry Hawkins' }, ASSIGNMENTS,
       { 'Isaiah 2:1-5': OT, 'Romans 13:11-14': EPISTLE });
@@ -185,13 +187,36 @@ describe.skipIf(!HAVE_PYPDF)('readings PDF, parsed by a real PDF reader', () => 
     expect(r.pages).toBe(1);
     expect(r.boxes[0]).toEqual([612, 792]);      // US Letter
     expect(r.text).toContain('Timothy Lutheran Church');
-    expect(r.text).toContain('Larry Hawkins');
     expect(r.text).toContain('Aug 16, 2026');
     expect(r.text).toContain('Lector');
     expect(r.text).toContain('Isaiah 2:1-5');
     expect(r.text).toContain('Romans 13:(8-10) 11-14');   // optional verses kept
     expect(r.text).toContain('the son of Amoz');
     expect(r.text).toContain('Besides this you know the time');
+  });
+
+  it('drops the "Readings" title and the reader\'s name from the header', () => {
+    // The sheet used to carry "Readings" / person.name under the church name.
+    // Andrew asked for a leaner header, since the date/role line under each
+    // block already says who a given block is for.
+    const ctx = scheduler();
+    const pdf = ctx.buildReadingsPdfFor({ name: 'Larry Hawkins' }, ASSIGNMENTS,
+      { 'Isaiah 2:1-5': OT, 'Romans 13:11-14': EPISTLE });
+    const r = renderText(pdf);
+    expect(r.text).not.toContain('Larry Hawkins');
+    expect(r.text.split('\n')[0]).toBe('Timothy Lutheran Church');
+  });
+
+  it('tags the reference with "(ESV)" instead of trailing the read-aloud text', () => {
+    // Crossway requires the letters ESV with each quotation; that duty now
+    // rides the reference heading rather than ending the passage a reader has
+    // to stop and read aloud with a stray "(ESV)".
+    const ctx = scheduler();
+    const pdf = ctx.buildReadingsPdfFor({ name: 'L' }, ASSIGNMENTS, { 'Isaiah 2:1-5': OT });
+    const r = renderText(pdf);
+    expect(r.text).toContain('Isaiah 2:1-5 (ESV)');
+    expect(r.text).not.toContain('his paths. (ESV)');
+    expect((r.text.match(/\(ESV\)/g) || []).length).toBe(1);  // only on the reference line
   });
 
   it('preserves the curly quotes and em dash rather than mangling them', () => {
