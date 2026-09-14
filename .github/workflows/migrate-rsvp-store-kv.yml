@@ -95,7 +95,7 @@ jobs:
               "- Failed: " + (.failed | tostring) + " (rate-limited: " + (.failed_rate_limited | tostring) + ", expired mid-copy: " + (.failed_expired_race | tostring) + ", other: " + (.failed_other | tostring) + ")",
               "- Destination key count after copy: " + (.dest_key_count_after | tostring) + " (converged to expected count: " + (.dest_count_verified | tostring) + ")",
               "- Byte-equality sample: " + (.sample_matched | tostring) + "/" + (.sample_checked | tostring) + " matched",
-              "- \"Copied\" above (from each key's own confirmed write) is authoritative; the two checks above are best-effort secondary confirmation and never fail this run on their own",
+              "- \"Copied\" above (from confirmed per-key writes) is authoritative; the two checks above are best-effort secondary confirmation and never fail this run on their own",
               "- Source namespace left unmodified: " + (.source_namespace_modified | tostring),
               "- Key names and values were not printed or retained as artifacts",
               (if (.first_failure_diagnostic // "") != "" then "- First-failure diagnostic (long token-like strings redacted):\n```\n" + .first_failure_diagnostic + "\n```" else empty end)
