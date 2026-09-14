@@ -99,6 +99,11 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
       { id: 'acquisition', label: 'Acquisition model', status: 'unavailable', reason: 'There is no purchase-price or pro-forma data structure for a hypothetical acquisition -- this is a new modeling feature, not a missing report.' },
     ],
   },
+  // The Budget builder is real now too, via the connect.finance-budget.v1 contract (real planned
+  // dollar amounts per category/fiscal-year from finance_budget_plan) -- see
+  // finance-budget-client.js and budget-report-service.js's resolveBudgetReport, same
+  // live-with-synthetic-fallback pattern Giving Entry, Data & Imports, and Chart of Accounts
+  // established. Unlike those, this carries real money, so dataClassification is 'aggregate'.
   {
     id: 'planning', label: 'Budget', group: 'Planning', permission: 'budget',
     capabilities: ['budget builder', 'outlook', 'board categories', 'purpose tags'],

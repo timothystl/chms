@@ -8,15 +8,13 @@ import { json } from './auth.js';
 import { validateConnectGivingSummaryV1 } from '../apps/finance/connect-giving-consumer.js';
 import { validateFinanceDataStatusV1 } from '../apps/finance/finance-data-status-consumer.js';
 import { validateFinanceChartOfAccountsV1 } from '../apps/finance/finance-chart-of-accounts-consumer.js';
+import { validateFinanceBudgetV1 } from '../apps/finance/finance-budget-consumer.js';
 import { validateFinanceChurchReportV1 } from '../apps/finance/finance-church-report-consumer.js';
 import {
   readPlanningBoardCategories, readPurposeTags, REVENUE_STREAMS, BOARD_EXPENSE_CATEGORIES,
   resolveChurchYearPrecedence, computeYearSummary,
 } from './api-finance.js';
 
-// Also needed by the still-unmerged Budget contract (finance-budget-contract branch) for its own
-// fiscal_year param -- duplicated here rather than imported across branches, since the two PRs are
-// independent; whichever merges second should drop its own copy in favor of the other's.
 function isValidFiscalYearStr(value) {
   return typeof value === 'string' && /^\d{4}$/.test(value) && Number(value) >= 2000 && Number(value) <= 2100;
 }
@@ -281,11 +279,83 @@ export async function respondWithFinanceChartOfAccountsV1(db) {
   return json(chartOfAccounts);
 }
 
-// Fourth real slice of Finance separation: Church Report. This is the SAME finance_church_entries
+// Fourth real slice of Finance separation: Budget. Unlike Chart of Accounts (structural-only,
+// no dollar figure), production's Church Budget Planning is a real per-category, per-fiscal-year
+// dollar plan (`finance_budget_plan` -- see src/api-finance.js's "Church Budget Planning" comment
+// block for the full generate/override/commit workflow), so this contract carries real money and
+// is 'aggregate', matching Giving and Data-status rather than Chart of Accounts.
+//
+// finance_budget_plan's schema is confirmed byte-for-byte identical between production
+// (src/db.js) and apps/finance's own migration (apps/finance/migrations/0001_finance_foundation.sql)
+// -- see the architecture repo's 2026-09-13 schema-compatibility evidence, row 12. That match is
+// about the TABLE shape, not the data it holds: a direct 2026-09-14 read against production found
+// every one of its 80 real rows (all fiscal_year 2027) has basis='manual' with growth_pct and
+// base_amount_cents both NULL -- the church's whole FY2027 plan was hand-entered/edited, not
+// generated from a growth rate. The generate()/generate-all() routes DO populate those two columns
+// (basis='grown') and DO keep them arithmetically consistent with planned_amount_cents at write
+// time, but nothing in this table today actually exercises that path, so this contract (and its
+// consumer) must treat growthPct/baseAmountCents as genuinely nullable per category, not as
+// always-populated fields the way apps/finance's own synthetic fixture (basis='synthetic_fixture',
+// every row grown) currently assumes.
+//
+// Modeled after Giving rather than Chart of Accounts: this is a real, explicitly year-scoped
+// query (a plan is per fiscal year, and there is no single "the" year the way there is a single
+// ledger tree), so the caller names the year, and a year with no plan rows yet answers with a
+// valid, empty-categories contract rather than a 404 -- an unplanned future year is a normal,
+// unremarkable state for this table, not an error.
+export async function buildFinanceBudgetV1(db, { fiscalYear, now = new Date() }) {
+  const { results } = (await db.prepare(
+    `SELECT category, classification, planned_amount_cents, basis, growth_pct, base_amount_cents, notes
+       FROM finance_budget_plan WHERE fiscal_year = ? ORDER BY classification, category`
+  ).bind(fiscalYear).all()) || {};
+  const rows = results || [];
+
+  let incomeCents = 0, expenseCents = 0, incomeCount = 0, expenseCount = 0, manualCount = 0, grownCount = 0;
+  const categories = rows.map((row) => {
+    if (row.classification === 'Income') { incomeCount++; incomeCents += row.planned_amount_cents; }
+    else { expenseCount++; expenseCents += row.planned_amount_cents; }
+    if (row.basis === 'manual') manualCount++; else if (row.basis === 'grown') grownCount++;
+    return {
+      category: row.category,
+      classification: row.classification,
+      plannedAmountCents: row.planned_amount_cents,
+      basis: row.basis,
+      growthPct: row.growth_pct === null || row.growth_pct === undefined ? null : row.growth_pct,
+      baseAmountCents: row.base_amount_cents === null || row.base_amount_cents === undefined ? null : row.base_amount_cents,
+      notes: row.notes || '',
+    };
+  });
+
+  return {
+    contract: 'connect.finance-budget.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    fiscalYear,
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    categories,
+    totals: {
+      plannedIncomeCents: incomeCents,
+      plannedExpenseCents: expenseCents,
+      plannedNetCents: incomeCents - expenseCents,
+    },
+    reconciliation: {
+      categoryCount: categories.length,
+      incomeCount,
+      expenseCount,
+      manualCount,
+      grownCount,
+      totalsMatch: true,
+    },
+  };
+}
+
+// Fifth real slice of Finance separation: Church Report. This is the SAME finance_church_entries
 // table Chart of Accounts already reads, scoped to one fiscal year and carrying the real
 // actual/budget dollar figures Chart of Accounts deliberately excludes -- so this contract is
-// 'aggregate' (real money crosses it), like Giving, rather than 'structural' like Chart of
-// Accounts.
+// 'aggregate' (real money crosses it), like Giving and Budget, rather than 'structural' like Chart
+// of Accounts.
 //
 // Deliberately reuses resolveChurchYearPrecedence() and computeYearSummary() -- the exact
 // functions production's own Church Report / Financial Health / Budget-planning pages already
@@ -306,9 +376,9 @@ export async function respondWithFinanceChartOfAccountsV1(db) {
 // all (11 of finance_church_entries' 126 accounts, every fiscal year 2019-2026, in the
 // 'import_activity' source). apps/finance's own synthetic fixture (church-report-service.js's
 // readSyntheticChurchReport) asserts every row's own_budget_cents is a non-null integer -- that
-// assumption does not hold for real data, the same lesson the still-unmerged Budget contract
-// (finance-budget-contract branch) already learned about growthPct/baseAmountCents. This contract
-// and its consumer treat budgetCents as nullable per account rather than assuming it is always set.
+// assumption does not hold for real data, the same lesson Budget above already learned about
+// growthPct/baseAmountCents. This contract and its consumer treat budgetCents as nullable per
+// account rather than assuming it is always set.
 //
 // classification also carries every section finance_church_entries can actually hold: production
 // has real 'Other Income' and 'Other Expenses' rows today (confirmed 2026-09-14), not only
@@ -394,6 +464,23 @@ export async function buildFinanceChurchReportV1(db, { fiscalYear, now = new Dat
   };
 }
 
+export async function respondWithFinanceBudgetV1(url, db) {
+  const fiscalYearStr = url.searchParams.get('fiscal_year');
+  if (!isValidFiscalYearStr(fiscalYearStr)) {
+    return json({ error: 'fiscal_year is required as a 4-digit year' }, 400);
+  }
+  const budget = await buildFinanceBudgetV1(db, { fiscalYear: Number(fiscalYearStr), now: new Date() });
+
+  // Fail closed, same discipline as the three contracts above: this should never fire against
+  // real data, and if it does, Finance must not see a malformed contract.
+  const validation = validateFinanceBudgetV1(budget);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled budget failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(budget);
+}
+
 export async function respondWithFinanceChurchReportV1(url, db) {
   const fiscalYearStr = url.searchParams.get('fiscal_year');
   if (!isValidFiscalYearStr(fiscalYearStr)) {
@@ -420,6 +507,9 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
   }
   if (seg === 'contracts/finance-chart-of-accounts-v1' && method === 'GET') {
     return respondWithFinanceChartOfAccountsV1(db);
+  }
+  if (seg === 'contracts/finance-budget-v1' && method === 'GET') {
+    return respondWithFinanceBudgetV1(url, db);
   }
   if (seg === 'contracts/finance-church-report-v1' && method === 'GET') {
     return respondWithFinanceChurchReportV1(url, db);
