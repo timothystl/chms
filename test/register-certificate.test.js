@@ -132,6 +132,22 @@ describe('Certificates: per-type wording (driven through the real bundle)', () =
     expect(html).toContain('Elder Jones');
   });
 
+  it('never doubles up a title already stored on the officiant name', () => {
+    const ctx = runRegisterCtx();
+    const cases = ['Rev. Smith', 'Reverend Smith', 'The Reverend Smith', 'Pastor Smith', 'Rev. Pastor Smith', 'Fr. Smith', 'Dr. Smith', 'Smith'];
+    for (const officiant of cases) {
+      const html = ctx.regCertBodyHtml({ type: 'wedding', name: 'John', name2: 'Jane', event_date: '1955-06-04', officiant });
+      expect(html).toContain('with the Reverend Smith officiating');
+      expect(html).not.toMatch(/Reverend (Rev\.?|Reverend|Pastor|Fr\.?|Dr\.?)\b/i);
+    }
+  });
+
+  it('omits the officiant line entirely when no officiant is recorded', () => {
+    const ctx = runRegisterCtx();
+    const html = ctx.regCertBodyHtml({ type: 'wedding', name: 'John', name2: 'Jane', event_date: '1955-06-04', officiant: '' });
+    expect(html).not.toContain('officiating');
+  });
+
   it('each type gets its own certificate title', () => {
     const ctx = runRegisterCtx();
     expect(ctx.regCertTitle('baptism')).toMatch(/Baptism/);

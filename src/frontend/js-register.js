@@ -540,9 +540,22 @@ var REG_CERT_TITLES = {
   funeral: 'Certificate of Christian Burial'
 };
 function regCertTitle(type) { return REG_CERT_TITLES[type] || 'Certificate'; }
+/** Strips any title/honorific already on a stored officiant name ("Rev.", "Reverend",
+ *  "Pastor", "Fr.", "Dr.", "The Reverend", stacked or not) so the certificate can always
+ *  say "the Reverend {name}" once, instead of duplicating whatever title staff already typed
+ *  in (e.g. "Rev. Smith" -> "the Reverend Rev. Smith"). Loops because imported/typed data has
+ *  stacked more than one of these ("Rev. Pastor Smith"). */
+function regOfficiantPlainName(name) {
+  var s = String(name || '').trim();
+  var titleRe = /^(the\s+)?(reverend|rev\.?|pastor|pr\.?|father|fr\.?|dr\.?)\s+/i;
+  var prev;
+  do { prev = s; s = s.replace(titleRe, '').trim(); } while (s !== prev);
+  return s;
+}
 function regCertBodyHtml(e) {
   var d = e.event_date ? esc(e.event_date) : '        ';
-  var officPart = e.officiant ? ', with the Reverend ' + esc(e.officiant) + ' officiating' : '';
+  var officiantName = regOfficiantPlainName(e.officiant);
+  var officPart = officiantName ? ', with the Reverend ' + esc(officiantName) + ' officiating' : '';
   if (e.type === 'wedding') {
     return 'This is to certify that<br><span class="cert-name">' + esc(e.name || '—') + '</span> and <span class="cert-name">' + esc(e.name2 || '—') + '</span><br>'
       + 'were united in Holy Matrimony<br>on ' + d + officPart + '.';
