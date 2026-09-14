@@ -1326,7 +1326,7 @@ body.embedded #app-content { display:block!important; }
       <input type="text" id="readings-gospel" placeholder="e.g. John 3:1-17" style="width:100%;">
     </div>
     <div class="field" style="margin-top:12px;">
-      <label>Psalm <span style="font-weight:400;color:var(--warm-gray);font-size:.78rem;">&mdash; Liturgist</span></label>
+      <label>Psalm <span style="font-weight:400;color:var(--warm-gray);font-size:.78rem;">&mdash; not assigned to a reader here</span></label>
       <input type="text" id="readings-psalm" placeholder="e.g. Psalm 29" style="width:100%;">
     </div>
 
@@ -1587,19 +1587,19 @@ var BIBLE_VERSION = 'ESV';
 var BIBLE_VERSION_LABEL = 'ESV';
 
 // Which readings each role is sent. The Lector reads the lessons, the Liturgist
-// the Gospel and Psalm — one definition, used by the strip on screen, the HTML
-// email and the plain-text email, so they cannot end up disagreeing about who
-// gets what.
+// the lessons and the Gospel — one definition, used by the strip on screen, the
+// HTML email and the plain-text email, so they cannot end up disagreeing about
+// who gets what.
 function readingsForRole(role, rd) {
   if (!rd) return [];
   var r = (role || '').toLowerCase();
-  // The Lector reads the two lessons. The Liturgist gets everything — the three
-  // readings plus the Psalm — because they lead the service around them, not
-  // just the Gospel. (Church's own call, 2026-08-17; before that the Liturgist
-  // was sent only Gospel + Psalm.)
+  // The Lector reads the two lessons; the Liturgist those plus the Gospel.
+  // Not the Psalm — the Liturgist never reads it aloud (Andrew's call,
+  // 2026-09-14; before that it was included per the 2026-08-17 change this
+  // comment used to carry). The Psalm reference still has its own field in
+  // the readings editor, just not attached to a reading role here.
   var pairs = r === 'lector'    ? [['OT', rd.ot], ['Epistle', rd.epistle]]
-            : r === 'liturgist' ? [['OT', rd.ot], ['Epistle', rd.epistle],
-                                   ['Gospel', rd.gospel], ['Psalm', rd.psalm]]
+            : r === 'liturgist' ? [['OT', rd.ot], ['Epistle', rd.epistle], ['Gospel', rd.gospel]]
             : [];
   return pairs.filter(function(p){ return p[1]; })
               .map(function(p){ return { label: p[0], ref: p[1] }; });
@@ -4744,9 +4744,10 @@ function buildReadingsPdf(blocks) {
 // nothing rather than an empty document.
 function buildReadingsPdfFor(person, assignments, esvText) {
   var blocks = [], any = false;
-  blocks.push({ text: 'Timothy Lutheran Church', size: 9, bold: true, spaceAfter: 2 });
-  blocks.push({ text: 'Readings', size: 20, bold: true, spaceAfter: 10 });
-  blocks.push({ text: (person && person.name) || '', size: 12, bold: true, spaceAfter: 14 });
+  // No "Readings" title or reader's name here on purpose — this sheet gets
+  // reprinted every week and the date/role line on each block already says
+  // who it's for; a running title just ate space better spent on line spacing.
+  blocks.push({ text: 'Timothy Lutheran Church', size: 9, bold: true, spaceAfter: 10 });
 
   (assignments || []).forEach(function(a) {
     var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
@@ -4756,10 +4757,14 @@ function buildReadingsPdfFor(person, assignments, esvText) {
     blocks.push({ text: a.date + '  \\u00b7  ' + svcLabel + '  \\u00b7  ' + roleLabel(a.role),
                   size: 12, bold: true, spaceBefore: 8, spaceAfter: 8 });
     items.forEach(function(it) {
-      blocks.push({ text: it.label + ' \\u2014 ' + tidyReadingRef(it.ref),
-                    size: 13, bold: true, spaceBefore: 6, spaceAfter: 6 });
       var body = esvTextFor(esvText, it.ref);
-      if (body) { any = true; blocks.push({ text: body, size: 11, lead: 15, spaceAfter: 10 }); }
+      // Crossway's "include the letters ESV with each quotation" requirement
+      // is met on the reference line instead of trailing the read-aloud text,
+      // which used to leave a reader stopping mid-breath on "(ESV)".
+      var read = body ? body.replace(/\\s*\\(ESV\\)\\s*$/, '') : '';
+      blocks.push({ text: it.label + ' \\u2014 ' + tidyReadingRef(it.ref) + (body ? ' (ESV)' : ''),
+                    size: 13, bold: true, spaceBefore: 6, spaceAfter: 6 });
+      if (read) { any = true; blocks.push({ text: read, size: 11.5, lead: 18, spaceAfter: 12 }); }
       else      { blocks.push({ text: bibleLink(it.ref), size: 10, spaceAfter: 10 }); }
     });
   });
@@ -5227,7 +5232,7 @@ function buildHtmlEmail(person, assignments, replyTo, rsvpToken, workerUrl, esvT
       + '</td></tr>';
   }).join('');
 
-  // ---- readings section (Lectors: OT+Epistle, Liturgists: Gospel+Psalm) ----
+  // ---- readings section (Lectors: OT+Epistle, Liturgists: OT+Epistle+Gospel) ----
   var readingsItems = [];
   assignments.forEach(function(a) {
     var rd = a.dateISO ? getReadingsForDate(a.dateISO) : null;
