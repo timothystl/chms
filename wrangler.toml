@@ -43,9 +43,17 @@ database_name = "tlc-volunteer-db"
 database_id = "9399ee53-3386-4084-9b6b-def46b88f96a"
 migrations_dir = "migrations"
 
+# Renamed from RSVP_STORE (Cloudflare KV namespace, not the binding name) 2026-09-14: the old
+# namespace still exists and is left untouched -- see the data-copy workflow at
+# .github/workflows/migrate-rsvp-store-kv.yml and scripts/migrate-kv-namespace.sh for how its
+# data (password-reset tokens, member-invite tokens, RSVP/rate-limit counters) was copied here.
+# Because the old namespace stayed live and writable throughout the copy, re-run that workflow
+# once more immediately before deploying this change to catch up on anything written since the
+# last copy, then confirm auth/reset/invite/RSVP flows against the new namespace after deploy,
+# before deleting the old RSVP_STORE namespace in a later, separate step.
 [[kv_namespaces]]
 binding = "RSVP_STORE"
-id = "3db4fdc395084ae0a9e8295c460ba08e"
+id = "f27b2da9a6ed403da45810617a3e7eb2"
 
 [[r2_buckets]]
 binding = "PHOTOS"
