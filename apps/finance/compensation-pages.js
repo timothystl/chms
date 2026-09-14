@@ -15,7 +15,16 @@ export function renderCompensationBenefitRows(rows, totalCents) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.componentLabel)}</td><td>${formatCents(row.amountCents)}</td><td>${totalCents === 0 ? '0.0' : (row.amountCents / totalCents * 100).toFixed(1)}%</td><td>${row.roleCount}</td></tr>`).join('');
 }
 
-export function renderCompensationPage(pageId, { compensationReport, compensationBenchmarks, compensationBenefits }) {
+// Live rows carry real names/positions -- see finance-compensation-consumer.js. currentPayCents is
+// null (with currentPaySource explaining why) for a worker whose current pay is not hand-entered
+// but instead lives on their linked Chart of Accounts budget line -- see this contract's producer
+// comment (src/api-contracts.js) on why that figure is not re-derived here.
+const CURRENT_PAY_SOURCE_LABELS = { entered: 'Entered', budget_line: 'From budget line', unset: 'Not set' };
+export function renderLiveCompensationWorkerRows(workers) {
+  return workers.map((w) => `<tr><td>${escapeHtml(w.name || '(unnamed)')}</td><td>${escapeHtml(w.position || 'Role not set')}</td><td>${w.currentPayCents != null ? formatCents(w.currentPayCents) : '—'}</td><td>${escapeHtml(CURRENT_PAY_SOURCE_LABELS[w.currentPaySource] || w.currentPaySource)}</td></tr>`).join('');
+}
+
+export function renderCompensationPage(pageId, { compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits }) {
   const report = buildCompensationReportView(compensationReport);
 
   if (pageId === 'benchmarks') {
@@ -49,7 +58,27 @@ export function renderCompensationPage(pageId, { compensationReport, compensatio
       ])}
     </section>`;
   }
-  // 'plan' (default)
+  // 'plan' (default) -- the one page of this section with a live equivalent (the real, per-person
+  // finance-salary-planner roster). Benchmarks/Benefits/Council above are unchanged: they are
+  // built around a role-level rollup this real roster does not (and, at 7 real workers, safely
+  // cannot) produce -- see finance-compensation-consumer.js's header comment -- so they keep
+  // reading the synthetic role-level fixture regardless of whether the plan page below is live.
+  if (compensationReportLive && compensationReportLive.source === 'live') {
+    const { workers, totals } = compensationReportLive;
+    return `<section class="report" aria-label="Compensation Report plan">
+      ${renderSectionHeading({ eyebrow: 'Compensation', heading: 'Per-person compensation roster', badge: 'Live from Connect' })}
+      ${renderKpiCards([
+        { label: 'Workers on roster', value: String(totals.workerCount) },
+        { label: 'Current pay entered', value: String(totals.enteredCurrentPayCount), hint: `${totals.unenteredCurrentPayCount} read from a linked budget line or not yet set` },
+        { label: 'Entered current pay total', value: formatCents(totals.enteredCurrentPayCents), hint: 'Sum of hand-entered current-pay figures only' },
+      ])}
+      ${renderTable({ head: ['Name', 'Position', 'Current pay', 'Source'], rows: renderLiveCompensationWorkerRows(workers) })}
+      <p>Real, individually-identifiable compensation data -- restricted to the admin, council, and compensation roles. See Benefits &amp; taxes, Benchmarks, and Council snapshot for the still-synthetic, role-level rest of the compensation picture.</p>
+    </section>`;
+  }
+  const fallbackNote = compensationReportLive
+    ? `<p><small>The committed synthetic fixture (the live endpoint is not configured or did not answer: ${escapeHtml(compensationReportLive.fallbackReason || 'unknown')}).</small></p>`
+    : '';
   return `<section class="report" aria-label="Synthetic Compensation Report plan">
     ${renderSectionHeading({ eyebrow: 'Compensation', heading: `Role-level plan for fiscal year ${report.fiscalYear}`, badge: 'Synthetic staging' })}
     ${renderKpiCards([
@@ -59,5 +88,6 @@ export function renderCompensationPage(pageId, { compensationReport, compensatio
     ])}
     ${renderTable({ head: ['Role', 'Salary', 'Benefits', 'Adjustment'], rows: renderCompensationRows(report.rows) })}
     <p>See Benefits &amp; taxes, Benchmarks, and Council snapshot for the rest of the compensation picture.</p>
+    ${fallbackNote}
   </section>`;
 }

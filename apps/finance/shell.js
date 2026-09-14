@@ -23,7 +23,7 @@ import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticProp
 import { resolveBudgetReport } from './budget-report-service.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
-import { readSyntheticCompensationReport } from './compensation-report-service.js';
+import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView } from './financial-mix-service.js';
 import { buildEntityOverview } from './entity-overview-service.js';
@@ -190,7 +190,7 @@ function renderSectionBody(ctx) {
     section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrends, balanceSheet, balanceTrends,
     daycareReport, daycareReportLive, propertyReport, propertyReserves, propertyLedgers, propertyValuation,
     propertyForecast, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
-    compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle,
+    compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle,
   } = ctx;
   if (section.id === 'health') {
     const health = buildFinancialHealthView(summary, giving);
@@ -268,7 +268,7 @@ function renderSectionBody(ctx) {
     return renderAccountsPage(page.id, { accountsReport });
   }
   if (section.id === 'compensation') {
-    return renderCompensationPage(page.id, { compensationReport, compensationBenchmarks, compensationBenefits });
+    return renderCompensationPage(page.id, { compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits });
   }
   if (section.id === 'quickbooks') {
     return renderQuickbooksPage(page.id, { dataStatus, accountsReport });
@@ -771,6 +771,15 @@ export default {
           ? await resolveDataStatus(env, env.FINANCE_DB) : null;
         const compensationReport = section.id === 'compensation'
           ? await readSyntheticCompensationReport(env.FINANCE_DB) : null;
+        // The 'plan' page of the compensation section tries the real connect.finance-compensation.v1
+        // endpoint and falls back to the same synthetic fixture, labeled, via resolveCompensationReport
+        // -- same live-first pattern as every resolver above, with one deliberate difference: the live
+        // fetch is only ever attempted when roleResult independently confirms the viewer is
+        // admin/council/compensation (see compensation-report-service.js's own comment on why this
+        // one contract cannot safely fail open the way the aggregate contracts above do).
+        const compensationRoleVerified = roleResult.ok && COMPENSATION_LIVE_ALLOWED_ROLES.includes(roleResult.role);
+        const compensationReportLive = section.id === 'compensation'
+          ? await resolveCompensationReport(env, compensationReport, compensationRoleVerified) : null;
         const compensationBenchmarks = section.id === 'compensation'
           ? await readSyntheticCompensationBenchmarks(env.FINANCE_DB) : null;
         const compensationBenefits = section.id === 'compensation'
@@ -790,7 +799,7 @@ export default {
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrends,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReserves,
           propertyLedgers, propertyValuation, propertyForecast, propertyDistributions, budgetReport, accountsReport,
-          dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway,
+          dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
           givingEntryStatus, givingEntryMessage, payrollBundle,
         }), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },

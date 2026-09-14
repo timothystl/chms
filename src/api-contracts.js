@@ -13,6 +13,7 @@ import { validateFinanceChurchReportV1 } from '../apps/finance/finance-church-re
 import { validateFinanceBalanceSheetV1 } from '../apps/finance/finance-balance-sheet-consumer.js';
 import { validateFinanceDaycareReportV1 } from '../apps/finance/finance-daycare-consumer.js';
 import { validateFinancePropertyValuationV1 } from '../apps/finance/finance-property-valuation-consumer.js';
+import { validateFinanceCompensationV1 } from '../apps/finance/finance-compensation-consumer.js';
 import {
   readPlanningBoardCategories, readPurposeTags, REVENUE_STREAMS, BOARD_EXPENSE_CATEGORIES,
   resolveChurchYearPrecedence, computeYearSummary,
@@ -941,6 +942,117 @@ export async function respondWithFinancePropertyValuationV1(url, db) {
   return json(valuation);
 }
 
+// Ninth real slice of Finance separation, and the first that is NOT a church-wide or role-level
+// aggregate: per Andrew's explicit decision (2026-09-14, in response to this PR's own investigation
+// findings), this reproduces production's real Salary & Benefits Calculator roster -- individually,
+// not aggregated by role -- because with only 7 workers on the real roster today, a role-level
+// rollup would not actually anonymize anything (most roles have exactly one occupant, so a "role
+// total" would just relabel one named person's real salary). "No aggregation, no suppression" was
+// the explicit instruction; see finance-compensation-consumer.js's header comment for the full
+// reasoning and for exactly which stored fields this contract does and does not carry.
+//
+// Source is finance_settings' 'finance_salary_planner' key -- the SHARED admin/finance/council
+// roster (see api-finance.js's SALARY_PLANNER_KEY), not the 'compensation' role's own
+// 'finance_salary_planner_compensation' fork (a private raise-plan sandbox that never overwrites
+// the shared roster) and not council's own per-username raise-plan overlay. Those are planning-tool
+// state scoped to whoever is currently working the calculator, not "the real compensation records"
+// this contract represents.
+//
+// Not fiscal-year-scoped, unlike every dollar contract above -- the roster is a standing list of
+// current staff, not a per-year plan (same reasoning as production's own SALARY_PLANNER_KEY
+// comment), so there is no fiscalYear parameter and no per-year query string to validate.
+//
+// currentPayCents is production's own actualSalaryCents pass-through (finCompCurrentPayCents's
+// "hand-entered" branch in src/frontend/js-finance.js) -- null, with currentPaySource
+// 'budget_line', when a worker's current pay instead comes from their linked Chart of Accounts
+// budget line (accountCode). That lookup (finAccountBudgetCentsForCode) exists only as a
+// frontend-side substring match against the currently-loaded budget tree, not a server-side
+// function this file can import -- reproducing its matching behavior here would risk silently
+// drifting from what the real calculator shows. Finance can already resolve accountCode against
+// the real dollar figure itself via the already-live connect.finance-budget.v1 contract instead of
+// this file duplicating that lookup. currentPaySource is 'unset' only when neither a hand-entered
+// figure nor a linked account code exists at all.
+//
+// This does NOT reproduce the derived "District Worksheet" dollar figure (finCompWorksheetCents) --
+// that is a live computation off LCMS pay-scale multiplier tables that exists only in the frontend
+// calculator (src/frontend/js-finance.js), not stored data; porting that whole table-driven
+// computation server-side is separate, larger work and out of scope here. The worksheet INPUT
+// fields it would need (role, trackKey, yearsExperience, responsibilityStipend, attendanceBonus)
+// are passed through as stored, so Finance has everything it needs to compute the same figure once
+// (if ever) that logic is ported.
+function isRecordLike(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export async function buildFinanceCompensationV1(db, { now = new Date() } = {}) {
+  const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_salary_planner'").first();
+  let data = null;
+  if (row) { try { data = JSON.parse(row.value); } catch { data = null; } }
+  const rosterRaw = Array.isArray(data?.roster) ? data.roster : [];
+
+  const asString = (v) => (typeof v === 'string' ? v : '');
+  const asFiniteNumber = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+  let enteredCount = 0;
+  let enteredCurrentPayCents = 0;
+  const workers = rosterRaw.filter((w) => isRecordLike(w)).map((w) => {
+    const accountCode = asString(w.accountCode);
+    const hasEnteredPay = Number.isInteger(w.actualSalaryCents);
+    const currentPaySource = hasEnteredPay ? 'entered' : (accountCode ? 'budget_line' : 'unset');
+    if (hasEnteredPay) { enteredCount += 1; enteredCurrentPayCents += w.actualSalaryCents; }
+    return {
+      name: asString(w.name),
+      position: asString(w.position),
+      accountCode,
+      role: asString(w.role),
+      trackKey: asString(w.trackKey),
+      education: asString(w.education),
+      yearsExperience: asFiniteNumber(w.yearsExperience),
+      responsibilityStipend: asFiniteNumber(w.responsibilityStipend),
+      attendanceBonus: asFiniteNumber(w.attendanceBonus),
+      selfEmployedFica: Boolean(w.selfEmployedFica),
+      hasDependents: Boolean(w.hasDependents),
+      healthEnrolled: Boolean(w.healthEnrolled),
+      hideFromCouncil: Boolean(w.hideFromCouncil),
+      currentPayCents: hasEnteredPay ? w.actualSalaryCents : null,
+      currentPaySource,
+    };
+  });
+
+  return {
+    contract: 'connect.finance-compensation.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    workers,
+    totals: {
+      workerCount: workers.length,
+      enteredCurrentPayCount: enteredCount,
+      unenteredCurrentPayCount: workers.length - enteredCount,
+      enteredCurrentPayCents,
+    },
+    reconciliation: {
+      workerCount: workers.length,
+      totalsMatch: true,
+    },
+  };
+}
+
+export async function respondWithFinanceCompensationV1(db) {
+  const compensation = await buildFinanceCompensationV1(db, { now: new Date() });
+
+  // Fail closed, same discipline as the contracts above: this should never fire against real
+  // data, and if it does, Finance must not see a malformed contract.
+  const validation = validateFinanceCompensationV1(compensation);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled compensation report failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(compensation);
+}
+
 export async function handleContractsApi(req, env, url, method, seg, db) {
   if (seg === 'contracts/connect-giving-summary-v1' && method === 'GET') {
     return respondWithConnectGivingSummaryV1(url, db);
@@ -965,6 +1077,9 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
   }
   if (seg === 'contracts/finance-property-valuation-v1' && method === 'GET') {
     return respondWithFinancePropertyValuationV1(url, db);
+  }
+  if (seg === 'contracts/finance-compensation-v1' && method === 'GET') {
+    return respondWithFinanceCompensationV1(db);
   }
   return null;
 }

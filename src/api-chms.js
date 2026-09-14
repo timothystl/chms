@@ -156,10 +156,23 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
       || seg === 'finance/planning/church' || seg === 'finance/church/this-year'
       || seg === 'finance/planning/base-projection' || seg === 'finance/planning/board-categories'
       || seg === 'finance/planning/purpose-tags' || seg === 'finance/planning/salary'
-      || seg === 'finance/property/ivanhoe';
+      || seg === 'finance/property/ivanhoe'
+      // The connect.finance-compensation.v1 contract read -- the same underlying roster this role
+      // already reads via finance/planning/salary above, just the versioned cross-product shape
+      // Finance's own staging app consumes. Read-only: this role's one write stays
+      // finance/planning/salary (which forks into its own storage key), never this contract seg.
+      || seg === 'contracts/finance-compensation-v1';
     const allowedWrite = seg === 'finance/planning/salary' && method === 'PUT';
     if (!((method === 'GET' && allowedGet) || allowedWrite)) {
       return json({ error: 'Access denied' }, 403);
+    }
+    // The one allowed segment that isn't a finance/* route: the contract lives in api-contracts.js,
+    // dispatched through handleContractsApi (same function the ACCESS_GATE loop below calls for
+    // every other role), not handleFinanceApi -- which only recognizes finance/* segments and would
+    // 404 this one despite the allowlist above having just approved it.
+    if (seg === 'contracts/finance-compensation-v1') {
+      const result = await handleContractsApi(req, env, url, method, seg, db);
+      return result !== null ? result : json({ error: 'Not found' }, 404);
     }
     const result = await handleFinanceApi(req, env, url, method, seg, db, false, true, role);
     return result !== null ? result : json({ error: 'Not found' }, 404);
@@ -256,6 +269,21 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // match no rule above (it starts with 'contracts/', not 'finance') and reach the handler with
     // NO permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note on exactly this trap.
     { match: (s) => s.startsWith('contracts/finance-property-valuation'), item: 'finance' },
+    // The ninth contract, and structurally different from the eight above: this one carries real,
+    // individually-identifiable per-person compensation data (name, position, current pay), not a
+    // church-wide or role-level aggregate -- see finance-compensation-consumer.js's header comment.
+    // It therefore takes the dedicated 'compensation' item, exactly matching how production's own
+    // real finance/planning/salary route is gated (financeSegItems above maps that segment to
+    // ['compensation'] ALONE, never falling back to the blanket 'finance' item the eight contracts
+    // above use) -- an admin/finance/staff/council role only reaches this if it (or its role's
+    // default) has been granted 'compensation' specifically, same as the real Salary & Benefits
+    // Calculator today. This still does not reach the dedicated `compensation` ROLE at all -- that
+    // role short-circuits entirely above this loop (see the role === 'compensation' block near the
+    // top of this function) and needed its own allowedGet entry instead, added alongside it.
+    // Without this explicit rule this segment would match no rule above (it starts with
+    // 'contracts/', not 'finance') and reach the handler with NO permission check at all -- see
+    // docs/ARCHITECTURE.md's ACCESS_GATE note on exactly this trap.
+    { match: (s) => s.startsWith('contracts/finance-compensation'), item: 'compensation' },
     { match: (s) => s.startsWith('tuition-aid'), item: 'tuitionaid' },
     { match: (s) => s.startsWith('finance'), item: 'finance' },
     { match: (s) => s.startsWith('attendance'), item: 'attendance' },
