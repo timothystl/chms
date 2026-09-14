@@ -7,7 +7,7 @@
 // giving_entries/tuition figures.
 import { json, getAuthInfo } from './auth.js';
 import { resolveGeneralFundIds, resolveGeneralFundBudget, parseCsvRows } from './api-utils.js';
-import { getAuthorizeUrl, exchangeCodeForTokens, refreshTokens, revokeToken, makeQboClient, qboConfigured } from './quickbooks.js';
+import { getAuthorizeUrl, exchangeCodeForTokens, refreshTokens, revokeToken, makeQboClient, qboConfigured, buildQboTransactionUrl } from './quickbooks.js';
 import { makeDaycareClient, daycareConfigured } from './daycare.js';
 import { ensureGivingYearRollups } from './giving-rollups.js';
 
@@ -1767,6 +1767,87 @@ async function fetchQboJson(label, resPromise, warnings, hint) {
   return null;
 }
 
+// ── Transaction List report parsing ─────────────────────────────────────────────────────────
+// The TransactionList report is a flat, one-row-per-transaction report — a different shape from
+// the account-tree Columns/Rows reports (budgetVsActual/profitAndLoss) the rest of this file
+// parses via flattenReportTree, so it gets its own small parser rather than being forced through
+// that one. Fields are resolved by column METADATA (ColType, falling back to ColTitle) rather
+// than by fixed position — QBO's default column set is stable in practice (Date/Transaction
+// Type/Num/Name/Memo/Account/Amount, in that order, when no `columns` param is sent — see
+// transactionList() in quickbooks.js for why none is sent), but a reordered or renamed column
+// should degrade to a missing field, never a silently wrong one.
+const QBO_TXN_COLUMN_ALIASES = {
+  date:    { colTypes: ['tx_date'],                                titles: ['date'] },
+  type:    { colTypes: ['txn_type'],                               titles: ['transaction type'] },
+  docNum:  { colTypes: ['doc_num'],                                titles: ['num'] },
+  name:    { colTypes: ['name', 'cust_name', 'vend_name', 'emp_name'], titles: ['name'] },
+  memo:    { colTypes: ['memo'],                                   titles: ['memo/description', 'memo'] },
+  account: { colTypes: ['account_name', 'split_acc', 'split'],     titles: ['account', 'split'] },
+  amount:  { colTypes: ['subt_nat_amount', 'amount'],              titles: ['amount'] },
+};
+
+function indexQboTxnColumns(columns) {
+  const idx = {};
+  (columns || []).forEach((col, i) => {
+    const colType = (col.ColType || '').toLowerCase();
+    const colTitle = (col.ColTitle || '').toLowerCase();
+    for (const field of Object.keys(QBO_TXN_COLUMN_ALIASES)) {
+      if (idx[field] != null) continue;
+      const aliases = QBO_TXN_COLUMN_ALIASES[field];
+      if (aliases.colTypes.includes(colType) || aliases.titles.includes(colTitle)) idx[field] = i;
+    }
+  });
+  return idx;
+}
+
+// QBO reports attach the linkable entity's Id to the ColData cell of whichever column the report
+// treats as that row's "link" column — for TransactionList that is normally the Transaction Type
+// cell, but which cell carries `id` is not documented, so every cell in the row is checked rather
+// than assuming it is always the same one.
+function extractQboRowTxnId(cells) {
+  for (const c of cells || []) { if (c && c.id) return c.id; }
+  return null;
+}
+
+// TransactionList comes back flat under Rows.Row in the normal (ungrouped) case this app always
+// requests, but a report row can also be a Section (Header/Rows/Summary) if QBO is ever asked to
+// group it — handled here too, defensively, even though finance/qb/transactions never sets a
+// group_by param today. Only real "Data" rows (one per transaction) are collected: Section
+// headers and subtotal Summary rows carry no single transaction to link back to.
+function flattenQboTransactionRows(rows, out) {
+  for (const row of (rows || [])) {
+    if (row.type === 'Data' && row.ColData) out.push(row.ColData);
+    if (row.Rows && row.Rows.Row) flattenQboTransactionRows(row.Rows.Row, out);
+  }
+}
+
+// Pure — takes the raw TransactionList report JSON QuickBooks returned and produces the flat rows
+// the frontend renders and the finance/qb/transactions route below returns. Never throws on an
+// empty/malformed report; just returns no rows.
+export function parseQboTransactionListReport(report) {
+  const columns = report && report.Columns && report.Columns.Column;
+  const idx = indexQboTxnColumns(columns);
+  const dataRows = [];
+  if (report && report.Rows && report.Rows.Row) flattenQboTransactionRows(report.Rows.Row, dataRows);
+  return dataRows.map((cells) => {
+    const cellAt = (field) => (idx[field] != null ? cells[idx[field]] : null);
+    const typeCell = cellAt('type');
+    const txnType = typeCell ? (typeCell.value || '') : '';
+    const txnId = (typeCell && typeCell.id) || extractQboRowTxnId(cells);
+    return {
+      date: cellAt('date')?.value || '',
+      type: txnType,
+      docNum: cellAt('docNum')?.value || '',
+      name: cellAt('name')?.value || '',
+      memo: cellAt('memo')?.value || '',
+      account: cellAt('account')?.value || '',
+      amount: cellAt('amount')?.value || '',
+      txnId: txnId || null,
+      viewUrl: buildQboTransactionUrl(txnType, txnId),
+    };
+  });
+}
+
 // Given all finance_church_entries rows for a set of years (any source), resolves per-year
 // source precedence: a year with any 'qbo_sync' row uses ONLY those rows — once the live
 // QuickBooks connection works, it's the authority (per user decision 2026-07-28: sync should
@@ -3238,6 +3319,44 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const syncedAt = new Date().toISOString();
     await persistChurchEntries(db, churchRows, syncedAt);
     return json({ ok: true, syncedAt, warnings, years, churchEntriesSynced: churchRows.length });
+  }
+
+  // ── Transactions: a plain, sortable/filterable read of what is actually in QuickBooks, per
+  // Andrew's own complaint that QuickBooks' own UI "is not intuitive to deal with and find
+  // things, the columns hide names of things too". Read-only (GET only, never writes/posts/
+  // voids/modifies anything in QuickBooks) and always a LIVE pull — deliberately never cached in
+  // finance_qb_snapshot like the Sync button's data, because the whole point is picking a
+  // different date range on demand rather than being stuck with one fixed synced window. Each row
+  // carries a `viewUrl` (see buildQboTransactionUrl in quickbooks.js) so the frontend can offer a
+  // direct "View in QuickBooks" link back to that exact transaction for editing, satisfying the
+  // "a way to go back to QuickBooks to make changes" ask without any write-back API of our own.
+  if (seg === 'finance/qb/transactions' && method === 'GET') {
+    const conn = await getConnection(db);
+    if (!conn || !conn.realm_id) return json({ error: 'QuickBooks is not connected yet.' }, 400);
+    const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    const now = new Date();
+    // Default window is "this calendar month so far" — a small, cheap live call rather than
+    // guessing a wider default nobody asked for; the frontend always lets Andrew pick another
+    // range, per the explicit "don't just default to some fixed window" instruction this came
+    // with.
+    const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const defaultEnd = now.toISOString().slice(0, 10);
+    const startDate = url.searchParams.get('start_date') || defaultStart;
+    const endDate = url.searchParams.get('end_date') || defaultEnd;
+    if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) return json({ error: 'start_date and end_date must be in YYYY-MM-DD form' }, 400);
+    if (startDate > endDate) return json({ error: 'start_date must not be after end_date' }, 400);
+    let fresh;
+    try { fresh = await ensureFreshAccessToken(env, db, conn); }
+    catch (e) { return json({ error: 'QuickBooks re-authentication failed — try disconnecting and reconnecting. (' + e.message + ')' }, 502); }
+    const client = makeQboClient(env, fresh);
+    const warnings = [];
+    const report = await fetchQboJson(
+      'Transaction List',
+      client.transactionList({ start_date: startDate, end_date: endDate, sort_by: 'tx_date', sort_order: 'descend' }),
+      warnings
+    );
+    const transactions = report ? parseQboTransactionListReport(report) : [];
+    return json({ ok: true, startDate, endDate, realmId: conn.realm_id, environment: conn.environment, transactions, warnings });
   }
 
   // ── Overview: cached QBO data + daycare summary, for the Finance tab ──

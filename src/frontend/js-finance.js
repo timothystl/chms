@@ -5,6 +5,12 @@ var _finStatus = {};
 var _finDaycare = [];
 var _finOverview = {};
 var _finDaycareAgg = null; // last computed finAggregateDaycareByYear() result, cached for CSV export
+// QuickBooks Transactions (Data & Imports tab) — a live, per-transaction read, never cached
+// client-side across a real reload; see finRenderQboTxnsCard below.
+var _finQboTxns = [];
+var _finQboTxnsLoaded = false;
+var _finQboTxnsSort = { key: 'date', dir: 'desc' };
+var _finQboTxnsFilter = '';
 
 // ⚠ This used to load EVERY finance screen on every entry to the tab — and because switching
 // sub-nav sections goes through showTab('finance', …), which calls this, that meant every section
@@ -130,6 +136,10 @@ function finInvalidateFinanceCaches() {
   _finChurchThisYearData = null;
   _finChurchMultiYearData = null;
   _finSectionLoaded = {};
+  // A disconnect/reconnect can point at a different QuickBooks company entirely — never leave
+  // the previous company's transaction rows on screen after that.
+  _finQboTxns = [];
+  _finQboTxnsLoaded = false;
 }
 // Property and daycare figures appear on the Health page too. Re-render it when they change, but
 // never FETCH it from here — Health may be a tab the reader has not opened, and pulling its
@@ -416,6 +426,7 @@ function finRenderDataImports() {
 
   root.innerHTML = finPageHeader('Data &amp; Imports', 'Connections, file imports, hand-entered adjustments, and the board packet export.', '')
     + statusCards
+    + '<div id="fin-qb-txns-card" class="fin-card">' + finRenderQboTxnsCard() + '</div>'
     + '<div id="fin-imports-card" class="fin-card">' + finRenderImportsCard() + '</div>'
     + '<div class="fin-grid-2-wide">'
       + '<div class="fin-card">' + finRenderAdjustmentsCard(isAdminUI) + '</div>'
@@ -441,6 +452,7 @@ function finRenderDataImports() {
 
   // Now that the containers exist, let the pre-existing renderers fill them.
   finRenderConnection();
+  finRenderQboTxnsTable();
   finRenderBudget(_finOverview);
   finRenderAccounts(_finOverview);
   finRenderDaycare();
@@ -2246,6 +2258,113 @@ function finSync(btn) {
 function finDisconnect() {
   if (!confirm('Disconnect QuickBooks? You can reconnect later, but cached report data will be cleared.')) return;
   api('/admin/api/finance/qb/disconnect', { method: 'POST' }).then(function() { loadFinance(true); }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
+}
+
+// ── QuickBooks Transactions ──────────────────────────────────────────────────────────────────
+// Andrew's own ask: QuickBooks' own UI "is not intuitive to deal with and find things, the
+// columns hide names of things too". This is a plain, sortable/filterable read of exactly what
+// he asked for per transaction — what it is, what account/line it posted to, the amount, and the
+// date — plus a straight link back into QuickBooks to edit any one of them. Always a fresh live
+// pull for whatever date range is picked (never the Sync button's cached snapshot), since the
+// whole point is looking at a different period on demand.
+function finQboDefaultTxnRange() {
+  var now = new Date();
+  var start = new Date(now.getFullYear(), now.getMonth(), 1);
+  function iso(d) {
+    var m = ('0' + (d.getMonth() + 1)).slice(-2), day = ('0' + d.getDate()).slice(-2);
+    return d.getFullYear() + '-' + m + '-' + day;
+  }
+  return { start: iso(start), end: iso(now) };
+}
+function finRenderQboTxnsCard() {
+  if (!_finStatus.connected) {
+    return '<div class="fin-card-title" style="font-size:18px;">QuickBooks Transactions</div>'
+      + '<p class="fin-data-card-body">Connect QuickBooks above, then browse its transactions here.</p>';
+  }
+  var range = finQboDefaultTxnRange();
+  return '<div class="fin-card-title" style="font-size:18px;">QuickBooks Transactions</div>'
+    + '<div class="fin-card-sub">Date, transaction, the account it posted to, and the amount — pulled live from QuickBooks for whatever range you pick, with a link straight back into QuickBooks to edit any one of them.</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">From<br><input type="date" id="fin-qb-txn-start" value="' + esc(range.start) + '"></label>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);">To<br><input type="date" id="fin-qb-txn-end" value="' + esc(range.end) + '"></label>'
+      + '<button class="btn-primary" onclick="finLoadQboTransactions()">Load</button>'
+      + '<label style="font-size:.75rem;color:var(--warm-gray);margin-left:auto;">Filter<br><input type="text" id="fin-qb-txn-filter" placeholder="name, memo, account…" oninput="finFilterQboTransactions(this.value)"></label>'
+    + '</div>'
+    + '<div id="fin-qb-txn-msg" style="font-size:.78rem;margin-top:8px;color:var(--warm-gray);"></div>'
+    + '<div id="fin-qb-txn-table" style="margin-top:10px;"></div>';
+}
+function finLoadQboTransactions() {
+  var startEl = document.getElementById('fin-qb-txn-start');
+  var endEl = document.getElementById('fin-qb-txn-end');
+  var msgEl = document.getElementById('fin-qb-txn-msg');
+  var start = startEl ? startEl.value : '';
+  var end = endEl ? endEl.value : '';
+  if (!msgEl) return;
+  if (!start || !end) { msgEl.textContent = 'Choose both a from and to date.'; return; }
+  msgEl.textContent = 'Loading…';
+  var qs = '?start_date=' + encodeURIComponent(start) + '&end_date=' + encodeURIComponent(end);
+  api('/admin/api/finance/qb/transactions' + qs).then(function(d) {
+    if (!d || d.error) { msgEl.textContent = (d && d.error) || 'Could not load transactions.'; return; }
+    _finQboTxns = d.transactions || [];
+    _finQboTxnsLoaded = true;
+    msgEl.textContent = (d.warnings && d.warnings.length ? d.warnings.join(' ') + ' ' : '')
+      + _finQboTxns.length + ' transaction' + (_finQboTxns.length === 1 ? '' : 's') + '.';
+    finRenderQboTxnsTable();
+  }).catch(function(err) {
+    if (err.message !== 'Unauthorized') msgEl.textContent = 'Error: ' + err.message;
+  });
+}
+function finFilterQboTransactions(v) {
+  _finQboTxnsFilter = (v || '').toLowerCase();
+  finRenderQboTxnsTable();
+}
+function finSortQboTransactions(key) {
+  if (_finQboTxnsSort.key === key) _finQboTxnsSort.dir = (_finQboTxnsSort.dir === 'asc') ? 'desc' : 'asc';
+  else _finQboTxnsSort = { key: key, dir: (key === 'date') ? 'desc' : 'asc' };
+  finRenderQboTxnsTable();
+}
+function finQboTxnSortValue(t, key) {
+  if (key === 'amount') return parseFloat(t.amount) || 0;
+  return (t[key] || '').toString().toLowerCase();
+}
+function finRenderQboTxnsTable() {
+  var el = document.getElementById('fin-qb-txn-table');
+  if (!el) return;
+  if (!_finQboTxnsLoaded) { el.innerHTML = ''; return; }
+  var filter = _finQboTxnsFilter;
+  var rows = _finQboTxns.filter(function(t) {
+    if (!filter) return true;
+    return ((t.name || '') + ' ' + (t.memo || '') + ' ' + (t.account || '') + ' ' + (t.type || '')).toLowerCase().indexOf(filter) !== -1;
+  });
+  var sort = _finQboTxnsSort;
+  rows = rows.slice().sort(function(a, b) {
+    var av = finQboTxnSortValue(a, sort.key), bv = finQboTxnSortValue(b, sort.key);
+    var cmp = av < bv ? -1 : (av > bv ? 1 : 0);
+    return sort.dir === 'asc' ? cmp : -cmp;
+  });
+  if (!rows.length) { el.innerHTML = '<p style="font-size:.82rem;color:var(--warm-gray);">No transactions in this range' + (filter ? ' match that filter' : '') + '.</p>'; return; }
+  function th(label, key) {
+    var arrow = (sort.key === key) ? (sort.dir === 'asc' ? ' &uarr;' : ' &darr;') : '';
+    return '<th style="text-align:left;padding:6px 8px;cursor:pointer;user-select:none;" onclick="finSortQboTransactions(' + jsAttr(key) + ')">' + esc(label) + arrow + '</th>';
+  }
+  var body = rows.map(function(t) {
+    var what = esc(t.type || '(unknown)') + (t.name ? ' — ' + esc(t.name) : '')
+      + (t.memo ? '<div style="font-size:.75rem;color:var(--warm-gray);">' + esc(t.memo) + '</div>' : '');
+    var link = t.viewUrl
+      ? '<a href="' + esc(t.viewUrl) + '" target="_blank" rel="noopener">View in QuickBooks</a>'
+      : '<span style="color:var(--warm-gray);font-size:.75rem;" title="No known direct link for this transaction type yet.">—</span>';
+    return '<tr>'
+      + '<td style="padding:6px 8px;white-space:nowrap;vertical-align:top;">' + esc(t.date || '') + '</td>'
+      + '<td style="padding:6px 8px;vertical-align:top;">' + what + '</td>'
+      + '<td style="padding:6px 8px;vertical-align:top;">' + esc(t.account || '') + '</td>'
+      + '<td style="padding:6px 8px;text-align:right;white-space:nowrap;vertical-align:top;">$' + finFmtMoney(parseFloat(t.amount) || 0) + '</td>'
+      + '<td style="padding:6px 8px;white-space:nowrap;vertical-align:top;">' + link + '</td>'
+      + '</tr>';
+  }).join('');
+  el.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">'
+    + '<thead style="border-bottom:2px solid var(--navy);"><tr>'
+      + th('Date', 'date') + th('Transaction', 'type') + th('Account / Line', 'account') + th('Amount', 'amount') + '<th style="padding:6px 8px;"></th>'
+    + '</tr></thead><tbody>' + body + '</tbody></table></div>';
 }
 
 // Clears only finance_church_entries + finance_qb_snapshot (the church budget/actuals and their
