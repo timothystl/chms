@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-compensation:v1",
+  "title": "Connect Finance Compensation v1",
+  "description": "The real per-person Salary & Benefits Calculator roster (finance_settings key 'finance_salary_planner' in the shared tlc-volunteer-db) -- name, position, and current pay, individually. Unlike every other contract in this package (Giving, Data Status, Chart of Accounts, Budget, Church Report, Balance Sheet, Daycare Report), this one is NOT a church-wide or role-level aggregate: it carries real, individually-identifiable compensation data, per Andrew's explicit decision (2026-09-14) that a role-level rollup could not actually anonymize a roster this small (7 real workers today) without most roles collapsing to one person. dataClassification stays 'aggregate' for consistency with every other contract here (it still carries real money), but that label does not imply anonymity for this one contract -- see the 'workers' field below. Not fiscal-year-scoped: the roster is a standing list of current staff, not a per-year plan, so there is no fiscalYear field. Restricted, both at Connect's ACCESS_GATE and in Finance's own consuming shell, to the admin/council/compensation roles -- never the blanket finance/staff access every other contract in this package allows.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "currency", "generatedAt", "workers", "totals", "reconciliation"],
+  "properties": {
+    "contract": { "const": "connect.finance-compensation.v1" },
+    "dataClassification": { "const": "aggregate" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "currency": { "const": "USD" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "workers": {
+      "type": "array",
+      "description": "May legitimately be empty when nothing has ever been saved to the shared roster. Each entry is one real, named worker -- production's own 'worker seed facts' (name, position, current pay, District Worksheet inputs), passed through as stored. Does NOT include the derived District Worksheet dollar figure (a live LCMS pay-scale computation that exists only in the frontend calculator) or the raise-plan/method fields (planning-tool UI state, not a compensation record).",
+      "items": { "$ref": "#/$defs/worker" }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workerCount", "enteredCurrentPayCount", "unenteredCurrentPayCount", "enteredCurrentPayCents"],
+      "properties": {
+        "workerCount": { "type": "integer", "minimum": 0, "description": "Must equal workers.length." },
+        "enteredCurrentPayCount": { "type": "integer", "minimum": 0, "description": "Count of workers with currentPaySource 'entered'." },
+        "unenteredCurrentPayCount": { "type": "integer", "minimum": 0, "description": "workers.length minus enteredCurrentPayCount." },
+        "enteredCurrentPayCents": { "type": "integer", "minimum": 0, "description": "Sum of currentPayCents across only the workers with currentPaySource 'entered'. A worker whose current pay is read from a linked budget line instead is NOT included -- Finance can resolve that figure itself via the already-live connect.finance-budget.v1 contract." }
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workerCount", "totalsMatch"],
+      "properties": {
+        "workerCount": { "type": "integer", "minimum": 0, "description": "Must equal workers.length." },
+        "totalsMatch": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name", "position", "accountCode", "role", "trackKey", "education", "yearsExperience",
+        "responsibilityStipend", "attendanceBonus", "selfEmployedFica", "hasDependents", "healthEnrolled",
+        "hideFromCouncil", "currentPayCents", "currentPaySource"
+      ],
+      "properties": {
+        "name": { "type": "string", "description": "Real name, may be empty if not yet entered for this roster row." },
+        "position": { "type": "string" },
+        "accountCode": { "type": "string", "description": "Linked Chart of Accounts payroll account code, e.g. '58001'. Empty when this worker has no linked budget line." },
+        "role": { "type": "string", "description": "LCMS worksheet role classification, e.g. 'pastor', 'commissioned', 'other'. May be empty." },
+        "trackKey": { "type": "string", "description": "LCMS worksheet track key for non-pastor roles. May be empty." },
+        "education": { "type": "string" },
+        "yearsExperience": { "type": "number" },
+        "responsibilityStipend": { "type": "number", "description": "District Worksheet input: an additive multiplier fraction, not a dollar amount." },
+        "attendanceBonus": { "type": "number", "description": "District Worksheet input: an additive multiplier fraction, not a dollar amount." },
+        "selfEmployedFica": { "type": "boolean", "description": "Minister-for-Social-Security-purposes flag (pays the employer half of FICA/SECA themselves)." },
+        "hasDependents": { "type": "boolean" },
+        "healthEnrolled": { "type": "boolean" },
+        "hideFromCouncil": { "type": "boolean", "description": "Matches production's own council-visibility flag. Passed through as-is; this contract applies no council-specific filtering itself -- see finance-compensation-consumer.js's header comment on why 'no suppression' was the explicit instruction for this contract." },
+        "currentPayCents": {
+          "oneOf": [{ "type": "integer" }, { "type": "null" }],
+          "description": "Integer cents when currentPaySource is 'entered' (production's actualSalaryCents, hand-typed). Null otherwise -- this worker's current pay instead lives on their linked budget line (currentPaySource 'budget_line') or has never been set at all (currentPaySource 'unset')."
+        },
+        "currentPaySource": {
+          "enum": ["entered", "budget_line", "unset"],
+          "description": "'entered': currentPayCents is a real hand-typed figure. 'budget_line': accountCode is set but no hand-typed figure exists -- the real current-pay figure lives on that Chart of Accounts line (see connect.finance-budget.v1). 'unset': neither exists."
+        }
+      }
+    }
+  }
+}

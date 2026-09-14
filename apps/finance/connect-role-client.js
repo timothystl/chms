@@ -10,6 +10,8 @@
 // incoming request, a network error, a non-200 response (no matching/active account, or Access
 // verification not configured on Connect's side), or malformed JSON -- resolves to
 // { ok: false, reason }. Only a genuinely verified identity resolves to { ok: true, role }.
+import { COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
+
 const REQUEST_TIMEOUT_MS = 4000;
 
 export async function fetchVerifiedRole(env, accessJwt) {
@@ -47,12 +49,24 @@ export async function fetchVerifiedRole(env, accessJwt) {
 export const NO_FINANCE_ACCESS_ROLES = Object.freeze(['member', 'volunteer']);
 
 // Whether a verified role may see the given parity-manifest section. Deliberately conservative:
-// only tightens the two cases this pass has real, verified evidence for (member/volunteer get
-// nothing; compensation gets only the compensation-tagged section) -- it does NOT attempt to
-// replicate the legacy per-item admin/finance/staff/council permission matrix inside
-// apps/finance's coarser 4-tag permission model, which is separate, larger work.
+// only tightens the cases this pass has real, verified evidence for (member/volunteer get
+// nothing; compensation gets only the compensation-tagged section; and, as of the
+// connect.finance-compensation.v1 contract, the compensation-tagged section itself is narrowed to
+// admin/council/compensation) -- it does NOT attempt to replicate the legacy per-item
+// admin/finance/staff/council permission matrix inside apps/finance's coarser 4-tag permission
+// model for every other section, which is separate, larger work.
 export function roleCanAccessSection(role, section) {
   if (NO_FINANCE_ACCESS_ROLES.includes(role)) return false;
   if (role === 'compensation') return section.permission === 'compensation';
+  // The Compensation section now carries real, individually-identifiable compensation data (see
+  // finance-compensation-consumer.js), not the harmless synthetic figures it held before that
+  // contract existed. Andrew's explicit decision (2026-09-14) and production's own
+  // finance/planning/salary gate both restrict this to admin/council/compensation only -- a plain
+  // finance or staff role, which still gets the blanket 'true' below for every other section, may
+  // no longer even open this one. (The live fetch itself has its own independent gate --
+  // compensation-report-service.js's resolveCompensationReport -- this is defense in depth so a
+  // disallowed role sees a real "access denied" instead of a page that silently shows synthetic
+  // data.)
+  if (section.permission === 'compensation') return COMPENSATION_LIVE_ALLOWED_ROLES.includes(role);
   return true;
 }

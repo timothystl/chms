@@ -85,11 +85,24 @@ describe('roleCanAccessSection', () => {
     expect(roleCanAccessSection('compensation', payrollSection)).toBe(false);
   });
 
-  it('leaves every other known role unrestricted by this pass (admin/finance/staff/council)', () => {
+  it('leaves every non-compensation section unrestricted by this pass for admin/finance/staff/council', () => {
     for (const role of ['admin', 'finance', 'staff', 'council']) {
-      expect(roleCanAccessSection(role, compensationSection)).toBe(true);
       expect(roleCanAccessSection(role, financeSection)).toBe(true);
       expect(roleCanAccessSection(role, payrollSection)).toBe(true);
     }
+  });
+
+  // As of the connect.finance-compensation.v1 contract, the Compensation section itself carries
+  // real, individually-identifiable data (see finance-compensation-consumer.js) -- Andrew's
+  // explicit decision (2026-09-14) and production's own finance/planning/salary gate both restrict
+  // it to admin/council/compensation, so plain finance/staff -- unlike every other section above --
+  // may no longer even open it, even though this pass still leaves them unrestricted everywhere
+  // else.
+  it('restricts the Compensation section itself to admin/council/compensation, denying plain finance and staff', () => {
+    expect(roleCanAccessSection('admin', compensationSection)).toBe(true);
+    expect(roleCanAccessSection('council', compensationSection)).toBe(true);
+    expect(roleCanAccessSection('compensation', compensationSection)).toBe(true);
+    expect(roleCanAccessSection('finance', compensationSection)).toBe(false);
+    expect(roleCanAccessSection('staff', compensationSection)).toBe(false);
   });
 });
