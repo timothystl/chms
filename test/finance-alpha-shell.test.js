@@ -311,11 +311,16 @@ describe('Finance 1.0.0 alpha staging shell', () => {
   });
 
   it('renders a synthetic Church Report overview, its sub-pages, and a separate read budget', async () => {
+    // No CONNECT_SERVICE binding/key is configured in this test env, so the live
+    // connect.finance-church-report.v1 attempt fails closed with 'not_configured' and Church
+    // Report falls back to the same synthetic fixture as before, labeled as such.
     statements.length = 0;
     const overview = await worker.fetch(new Request('https://finance.test/?section=church'), env);
     const overviewHtml = await overview.text();
     expect(overview.status).toBe(200);
-    expect(overviewHtml).toContain('Synthetic Church Report');
+    expect(overviewHtml).toContain('aria-label="Church Report overview"');
+    expect(overviewHtml).toContain('Synthetic staging');
+    expect(overviewHtml).toContain('the live endpoint is not configured or did not answer: not_configured');
     expect(overviewHtml).toContain('Fiscal year 2026');
     expect(overviewHtml).toContain('$120,000');
     expect(overviewHtml).toContain('$80,000');

@@ -1,4 +1,5 @@
 import { runBudgetedReadBatch } from './query-budget.js';
+import { fetchLiveFinanceChurchReport, defaultLiveChurchReportFiscalYear } from './finance-church-report-client.js';
 
 const CLASSIFICATIONS = new Set(['Income', 'Expenses']);
 
@@ -26,6 +27,52 @@ export async function readSyntheticChurchTrends(db) {
     || !Number.isInteger(row.expense_cents)
   )) throw new Error('Synthetic Church trend rows invalid');
   return rows.map((row) => ({ ...row, net_cents: row.income_cents - row.expense_cents }));
+}
+
+// Tries the real connect.finance-church-report.v1 endpoint for the current fiscal year; falls back
+// to the existing synthetic fixture whenever the live call isn't configured yet or fails for any
+// reason -- same never-throws, always-labeled pattern as budget-report-service.js's
+// resolveBudgetReport. `db` here is Finance's own FINANCE_DB, used only for the synthetic fallback
+// path. Only the 'church' section's overview/income-expense/budget-actual pages use this; the
+// 'trend' page (multi-year) and the Financial Health/Charts/Packet sections that also read
+// churchReport remain on the synthetic reader below -- out of scope for this contract, the same way
+// Budget's own live slice left editing and growth scenarios out of scope.
+export async function resolveChurchReport(env, db) {
+  const fiscalYear = defaultLiveChurchReportFiscalYear();
+  const result = await fetchLiveFinanceChurchReport(env, fiscalYear);
+  if (result.ok) {
+    return {
+      source: 'live',
+      fiscalYear: result.report.fiscalYear,
+      accounts: result.report.accounts,
+      totals: result.report.totals,
+    };
+  }
+  const rows = await readSyntheticChurchReport(db);
+  return { source: 'synthetic-fallback', fallbackReason: result.reason, rows };
+}
+
+// Live view builder -- honest about budgetCents being genuinely nullable per account (real data,
+// confirmed 2026-09-14: accounts commonly have an actual with no budget on file even within one
+// winning source/year), unlike the synthetic fixture's own readSyntheticChurchReport, which asserts
+// every row's budget is a non-null integer. A null budget renders '--' rather than a fabricated $0
+// comparison (see church-pages.js's renderLiveChurchRows).
+export function buildLiveChurchReportView(accounts, fiscalYear, totals) {
+  if (!Number.isInteger(fiscalYear)) throw new Error('Live Church Report requires a fiscal year');
+  const income = accounts.filter((a) => a.classification === 'Income');
+  const expenses = accounts.filter((a) => a.classification === 'Expenses');
+  return {
+    fiscalYear,
+    income,
+    expenses,
+    totals: {
+      incomeActualCents: totals.incomeActualCents,
+      expenseActualCents: totals.expenseActualCents,
+      actualNetCents: totals.netIncomeActualCents,
+      budgetNetCents: totals.netIncomeBudgetCents,
+    },
+    hasBudgetData: totals.hasBudgetData,
+  };
 }
 
 export function buildChurchReportView(rows) {
