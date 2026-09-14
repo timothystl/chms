@@ -227,6 +227,13 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // no rule above (it starts with 'contracts/', not 'finance') and reach the handler with NO
     // permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note on exactly this trap.
     { match: (s) => s.startsWith('contracts/finance-chart-of-accounts'), item: 'finance' },
+    // Same trap, same fix, for the fourth contract: Budget carries real planned dollar amounts
+    // per category/fiscal-year (unlike Chart of Accounts, structural-only) but is still
+    // Finance-owned data, not Giving, so it takes the plain 'finance' item rather than a new one.
+    // Without this explicit rule this segment would match no rule above (it starts with
+    // 'contracts/', not 'finance') and reach the handler with NO permission check at all -- see
+    // docs/ARCHITECTURE.md's ACCESS_GATE note on exactly this trap.
+    { match: (s) => s.startsWith('contracts/finance-budget'), item: 'finance' },
     { match: (s) => s.startsWith('tuition-aid'), item: 'tuitionaid' },
     { match: (s) => s.startsWith('finance'), item: 'finance' },
     { match: (s) => s.startsWith('attendance'), item: 'attendance' },
