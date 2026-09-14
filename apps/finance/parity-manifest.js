@@ -137,6 +137,11 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
     capabilities: ['pinned reports', 'cover note', 'export'],
     pages: [{ id: 'builder', label: 'Board packet', status: 'live' }],
   },
+  // The account tree and board-category/purpose-tag presentation are real now, via the
+  // connect.finance-chart-of-accounts.v1 contract (account names + QuickBooks-derived category
+  // paths + Finance's own categorization of them, never a dollar figure) -- see
+  // finance-chart-of-accounts-client.js and accounts-report-service.js's resolveAccountsReport,
+  // same live-with-synthetic-fallback pattern Giving Entry and Data & Imports established.
   {
     id: 'accounts', label: 'Chart of Accounts', group: 'Accounts & Data', permission: 'finance',
     capabilities: ['account tree', 'board-category presentation'],

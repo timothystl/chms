@@ -220,6 +220,13 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // item like every other Finance segment (financeSegItems falls through to ['finance'] for
     // this exact segment, since it isn't one of the special-cased finance/* sub-paths above).
     { match: (s) => s.startsWith('contracts/finance-data-status'), item: 'finance' },
+    // Same reasoning as the data-status rule directly above: the Chart of Accounts contract
+    // exposes only account names/category paths and Finance's own board-category/purpose-tag
+    // presentation of them (never a dollar figure, gift, donor, or person) -- Finance-scoped, so
+    // it inherits the plain 'finance' item. Without this explicit rule this segment would match
+    // no rule above (it starts with 'contracts/', not 'finance') and reach the handler with NO
+    // permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note on exactly this trap.
+    { match: (s) => s.startsWith('contracts/finance-chart-of-accounts'), item: 'finance' },
     { match: (s) => s.startsWith('tuition-aid'), item: 'tuitionaid' },
     { match: (s) => s.startsWith('finance'), item: 'finance' },
     { match: (s) => s.startsWith('attendance'), item: 'attendance' },
