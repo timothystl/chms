@@ -161,5 +161,65 @@ export function makeQboClient(env, conn) {
     // board-level "Church Report" year-over-year view (see finance/qb/sync). Same generic
     // Columns/Rows shape as budgetVsActual; no Budget setup required (P&L is actuals-only).
     profitAndLoss: (params) => get(`/reports/ProfitAndLoss?${new URLSearchParams(params)}&minorversion=${MINOR_VERSION}`),
+
+    // The Reports API's "TransactionList" report -- a flat, one-row-per-transaction report
+    // (unlike the account-tree Columns/Rows shape of budgetVsActual/profitAndLoss above), built
+    // for exactly the plain "what is this, what account, how much, when" read Andrew asked for.
+    // Deliberately no explicit `columns` param: leaving it off returns QBO's own default column
+    // set (Date/Transaction Type/Num/Name/Memo/Account/Amount), for the same "don't hardcode a
+    // column list that might not match live behavior" reason budgetVsActual's comment above
+    // gives -- see parseQboTransactionListReport in api-finance.js, which reads columns back out
+    // by metadata rather than position. Caller-supplied start_date/end_date are required (no
+    // default window baked in here -- see finance/qb/transactions in api-finance.js for the one
+    // this app applies before calling in).
+    transactionList: (params) => get(`/reports/TransactionList?${new URLSearchParams(params)}&minorversion=${MINOR_VERSION}`),
   };
+}
+
+// -- Deep link back into QuickBooks Online's own UI --------------------------------------------
+// Satisfies "a way to go from Finance back to QuickBooks to make changes" without building any
+// write-back API of our own: https://qbo.intuit.com/app/<slug>?txnId=<id> opens that exact
+// transaction in QBO's own edit screen, in whatever QBO company session is already active in the
+// admin's browser. Deliberately no realmId in the URL -- these are undocumented Intuit SPA
+// routes, not part of the public REST API, and nothing found while building this confirmed a
+// company-id query param is honored there, so nothing is asserted here that wasn't confirmed;
+// finance_qb_connection.realm_id is still returned by finance/qb/transactions in api-finance.js
+// in case a caller ever needs it for something added later.
+// The slug is keyed off the *display* label QuickBooks' own reports use for a transaction's type
+// (e.g. "Bill", "Check", "Journal Entry") -- exactly what the TransactionList report's
+// Transaction Type column returns -- not the raw API entity name, since a report row is what
+// this feature actually has to work from.
+// IMPORTANT -- not yet verified against a live QuickBooks company as of this writing (see the PR
+// that added this and finance/qb/transactions' route comment): this repo already hit exactly
+// this kind of gap once, with BudgetVsActuals' real report name turning out to differ from what
+// every public write-up assumed (see AGENTS.md / FIN2). Spot-check at least one real transaction
+// of each type actually in use here before fully trusting every slug below; an unmapped or wrong
+// type simply gets no link (see buildQboTransactionUrl's null return) rather than a broken one.
+const QBO_TXN_URL_SLUGS = {
+  'invoice': 'invoice',
+  'estimate': 'estimate',
+  'sales receipt': 'salesreceipt',
+  'refund receipt': 'refundreceipt',
+  'credit memo': 'creditmemo',
+  'payment': 'recvpayment',
+  'bill': 'bill',
+  'expense': 'expense',
+  'check': 'check',
+  'credit card credit': 'creditcardcredit',
+  'vendor credit': 'vendorcredit',
+  'purchase order': 'purchaseorder',
+  'bill payment': 'billpaymentcheck',
+  'bill payment (check)': 'billpaymentcheck',
+  'bill payment (credit card)': 'billpaymentcreditcard',
+  'journal entry': 'journal',
+  'deposit': 'deposit',
+  'transfer': 'transfer',
+};
+
+export function buildQboTransactionUrl(txnType, txnId) {
+  if (txnId == null || txnId === '') return null;
+  if (!txnType) return null;
+  const slug = QBO_TXN_URL_SLUGS[String(txnType).trim().toLowerCase()];
+  if (!slug) return null;
+  return `https://qbo.intuit.com/app/${slug}?txnId=${encodeURIComponent(String(txnId))}`;
 }
