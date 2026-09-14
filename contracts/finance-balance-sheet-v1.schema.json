@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-balance-sheet:v1",
+  "title": "Connect Finance Balance Sheet v1",
+  "description": "One fiscal year of the real Balance Sheet / Statement of Financial Position (finance_church_balances) -- a structurally different report from Church Report's actual-vs-budget income statement: point-in-time Assets/Liabilities/Equity account balances, one balance per account as of the report's single as-of date, with production's own Designated-Funds-as-Equity reclassification and Donor-Restricted/Without-Donor-Restriction breakdown already applied, matching what production's own Balance Sheet tab shows. Real money crosses this contract, unlike the structural-only Chart of Accounts contract. This does not carry Church Report data (finance_church_entries) -- that is a separate report and a separate contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "currency", "fiscalYear", "asOfDate", "generatedAt", "accounts", "totals", "equityReclass", "reconciliation"],
+  "properties": {
+    "contract": { "const": "connect.finance-balance-sheet.v1" },
+    "dataClassification": { "const": "aggregate" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "currency": { "const": "USD" },
+    "fiscalYear": { "type": "integer", "minimum": 2000, "maximum": 2100 },
+    "asOfDate": { "type": "string", "description": "The raw \"As of ...\" label from the import that produced this fiscal year's snapshot. Empty string for a fiscal year with nothing imported yet -- that is a normal state, not an error." },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "accounts": {
+      "type": "array",
+      "description": "May legitimately be empty for a fiscal year with no imported Balance Sheet yet. Includes group/header rows (hasChildren=true) alongside leaf accounts, exactly as finance_church_balances stores them, AFTER production's own Designated-Funds-as-Equity reclassification (the '25000 Funds' branch reads classification 'Equity' here, not the raw-imported 'Liabilities') -- matching what production's own Full account detail tree shows.",
+      "items": { "$ref": "#/$defs/account" }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assetsCents", "liabilitiesCents", "equityCents", "currentAssetsCents", "fixedAssetsCents", "otherAssetsCents", "liabilitiesPlusEquityCents", "balancedCents"],
+      "properties": {
+        "assetsCents": { "type": "integer", "description": "Sum of ownBalanceCents for every 'Assets' account, group rows included -- production sums flatly regardless of hasChildren (confirmed 2026-09-14: real has_children=1 rows can carry a genuinely nonzero own_balance_cents)." },
+        "liabilitiesCents": { "type": "integer", "description": "Sum of ownBalanceCents for every 'Liabilities' account, post-reclassification -- does not include the '25000 Funds' branch, which reads 'Equity' here." },
+        "equityCents": { "type": "integer", "description": "Sum of ownBalanceCents for every 'Equity' account, post-reclassification -- includes the '25000 Funds' branch. Always equal to equityReclass.totalEquityCents (both are computed from the same reclassified rows)." },
+        "currentAssetsCents": { "type": "integer", "description": "The subset of assetsCents whose category path's top-level group (the segment directly under 'Assets') matches /current/i." },
+        "fixedAssetsCents": { "type": "integer", "description": "The subset of assetsCents whose top-level group matches /fixed/i." },
+        "otherAssetsCents": { "type": "integer", "description": "assetsCents minus currentAssetsCents minus fixedAssetsCents -- derived by subtraction so the three segments always add up to assetsCents by construction, never summed independently." },
+        "liabilitiesPlusEquityCents": { "type": "integer", "description": "liabilitiesCents + equityCents." },
+        "balancedCents": { "type": "integer", "description": "assetsCents - (liabilitiesCents + equityCents). Zero in a correctly balanced import; reported as-is, never hidden, when it is not." }
+      }
+    },
+    "equityReclass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["donorRestrictedCents", "unrestrictedCents", "totalEquityCents", "breakdown", "unclassified"],
+      "description": "Production's own Donor-Restricted / Without-Donor-Restriction split (computeEquityReclassification in src/api-finance.js), computed from the SAME already-reclassified rows as `accounts`/`totals` -- see this contract's producer (src/api-contracts.js) for why that specific ordering is reproduced exactly as production's real route computes it, not as a separate comment in that same file says it should be.",
+      "properties": {
+        "donorRestrictedCents": { "type": "integer", "description": "Sum of every breakdown bucket's cents." },
+        "unrestrictedCents": { "type": "integer", "description": "The residual against totalEquityCents -- never a direct sum of legacy equity lines." },
+        "totalEquityCents": { "type": "integer", "description": "Always equal to totals.equityCents." },
+        "breakdown": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["perpetual", "purpose_time", "designated"],
+          "properties": {
+            "perpetual": { "$ref": "#/$defs/breakdownEntry" },
+            "purpose_time": { "$ref": "#/$defs/breakdownEntry", "description": "Confirmed 2026-09-14: empty (0 cents) in every real fiscal year on file today -- the spec's original bucket, kept for a future account that could use it, not schema-forbidden." },
+            "designated": { "$ref": "#/$defs/breakdownEntry" }
+          }
+        },
+        "unclassified": {
+          "type": "array",
+          "description": "Real accounts in the 12000 Investment Accounts / 25000 Funds / Equity neighborhoods that do not match a known code -- e.g. a brand-new fund or investment sub-account not yet reviewed. Not counted toward either bucket until a human classifies it. Empty in every real fiscal year checked so far, but genuinely possible.",
+          "items": { "$ref": "#/$defs/unclassifiedAccount" }
+        }
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accountCount", "assetsCount", "liabilitiesCount", "equityCount", "unclassifiedEquityCount", "totalsMatch"],
+      "properties": {
+        "accountCount": { "type": "integer", "minimum": 0, "description": "Must equal accounts.length." },
+        "assetsCount": { "type": "integer", "minimum": 0 },
+        "liabilitiesCount": { "type": "integer", "minimum": 0 },
+        "equityCount": { "type": "integer", "minimum": 0 },
+        "unclassifiedEquityCount": { "type": "integer", "minimum": 0, "description": "Must equal equityReclass.unclassified.length." },
+        "totalsMatch": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "categoryPath", "accountName", "depth", "hasChildren", "ownBalanceCents"],
+      "properties": {
+        "classification": {
+          "enum": ["Assets", "Liabilities", "Equity"],
+          "description": "Confirmed 2026-09-14: finance_church_balances never carries any other classification value -- unlike Church Report's finance_church_entries, which genuinely has Other Income/Other Expenses/Cost of Goods Sold beyond Income/Expenses."
+        },
+        "categoryPath": { "type": "string", "minLength": 1, "description": "Colon-joined account path, e.g. 'Assets:Current Assets:Bank Accounts:11027 Lindell Checking xx9105'. Post-reclassification for the '25000 Funds' branch, which starts with 'Equity:' here, not 'Liabilities:'." },
+        "accountName": { "type": "string", "minLength": 1 },
+        "depth": { "type": "integer", "minimum": 0 },
+        "hasChildren": { "type": "boolean" },
+        "ownBalanceCents": { "type": "integer", "description": "This account's own non-cumulative balance as of the report date -- never a rolled-up subtotal. NOT nullable: confirmed 2026-09-14 that finance_church_balances.own_balance_cents is never null in any real row, unlike Church Report's own_budget_cents. A hasChildren=true row is not guaranteed to be 0 -- confirmed 2026-09-14 against real production data, contrary to an unverified assumption elsewhere in this codebase." }
+      }
+    },
+    "breakdownEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "cents"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "cents": { "type": "integer" }
+      }
+    },
+    "unclassifiedAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accountName", "categoryPath", "ownBalanceCents"],
+      "properties": {
+        "accountName": { "type": "string", "minLength": 1 },
+        "categoryPath": { "type": "string", "minLength": 1 },
+        "ownBalanceCents": { "type": "integer" }
+      }
+    }
+  }
+}

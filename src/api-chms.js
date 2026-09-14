@@ -227,15 +227,18 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // no rule above (it starts with 'contracts/', not 'finance') and reach the handler with NO
     // permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note on exactly this trap.
     { match: (s) => s.startsWith('contracts/finance-chart-of-accounts'), item: 'finance' },
-    // Same trap, same fix, for the fourth and fifth contracts: Budget carries real planned dollar
-    // amounts per category/fiscal-year, and Church Report carries real actual/budget dollar
-    // amounts per account/fiscal-year (unlike Chart of Accounts, structural-only) -- both are
-    // still Finance-owned data, not Giving, so both take the plain 'finance' item rather than a
-    // new one. Without this explicit rule either segment would match no rule above (they start
-    // with 'contracts/', not 'finance') and reach the handler with NO permission check at all --
-    // see docs/ARCHITECTURE.md's ACCESS_GATE note on exactly this trap.
+    // Same trap, same fix, for the fourth, fifth, and sixth contracts: Budget carries real planned
+    // dollar amounts per category/fiscal-year, Church Report carries real actual/budget dollar
+    // amounts per account/fiscal-year, and Balance Sheet carries real point-in-time
+    // Assets/Liabilities/Equity account balances per fiscal year (unlike Chart of Accounts,
+    // structural-only) -- all three are still Finance-owned data, not Giving, so all three take
+    // the plain 'finance' item rather than a new one. Without this explicit rule any of these
+    // segments would match no rule above (they start with 'contracts/', not 'finance') and reach
+    // the handler with NO permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note
+    // on exactly this trap.
     { match: (s) => s.startsWith('contracts/finance-budget'), item: 'finance' },
     { match: (s) => s.startsWith('contracts/finance-church-report'), item: 'finance' },
+    { match: (s) => s.startsWith('contracts/finance-balance-sheet'), item: 'finance' },
     { match: (s) => s.startsWith('tuition-aid'), item: 'tuitionaid' },
     { match: (s) => s.startsWith('finance'), item: 'finance' },
     { match: (s) => s.startsWith('attendance'), item: 'attendance' },
