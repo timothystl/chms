@@ -11,10 +11,12 @@ import { validateFinanceChartOfAccountsV1 } from '../apps/finance/finance-chart-
 import { validateFinanceBudgetV1 } from '../apps/finance/finance-budget-consumer.js';
 import { validateFinanceChurchReportV1 } from '../apps/finance/finance-church-report-consumer.js';
 import { validateFinanceBalanceSheetV1 } from '../apps/finance/finance-balance-sheet-consumer.js';
+import { validateFinanceDaycareReportV1 } from '../apps/finance/finance-daycare-consumer.js';
 import {
   readPlanningBoardCategories, readPurposeTags, REVENUE_STREAMS, BOARD_EXPENSE_CATEGORIES,
   resolveChurchYearPrecedence, computeYearSummary,
   applyDesignatedFundsAsEquity, computeBalanceSummary, computeEquityReclassification,
+  computeMdoUtilityInsuranceAllocation,
 } from './api-finance.js';
 
 function isValidFiscalYearStr(value) {
@@ -634,6 +636,181 @@ export async function respondWithFinanceBalanceSheetV1(url, db) {
   return json(balanceSheet);
 }
 
+// Seventh real slice of Finance separation: Daycare Report. This looks, at first read, like the
+// cross-product boundary case AGENTS.md's product-boundary section warns about ("myMDO owns raw
+// childcare operations, billing... Finance consumes narrow summaries, never becomes a second
+// writer") -- but a full read of production (src/daycare.js, src/api-finance.js's "Daycare data
+// from an already-imported Church Budget year" block, src/frontend/js-finance.js's Daycare Report
+// section) shows the Daycare Report's actual dollar figures are NOT a pass-through of myMDO's own
+// bookkeeping today. Two real daycare-money paths exist in production: (1) a genuine cross-product
+// pull from the daycare app's own finance API (src/daycare.js's makeDaycareClient, source=
+// 'daycare_api'), and (2) the church's OWN Budget import, re-tagged by MDO-account-name matching
+// (extractMdoDaycareEntries, source='church_budget_import') plus direct source=
+// 'manual_budget_override' edits. Per Andrew's own explicit, code-commented decision -- "there
+// should really only be one source, the church import is fine" (see FIN_DAYCARE_COUNTED_SOURCES in
+// js-finance.js) -- the Daycare Report's real totals count ONLY path (2); the myMDO-sourced sync and
+// one-off source='manual' rows sit in the same table but are deliberately EXCLUDED from every total,
+// surfaced instead as a "not counted" warning banner. This contract reproduces that decision exactly
+// -- it is a read of Finance's OWN already-classified data (finance_daycare_entries), not a new pull
+// from myMDO, so it is 'connect'-sourced/'finance'-owned like every contract above, not a myMDO
+// contract. (A future myMDO->Finance summary contract for path (1) is a separate, not-yet-built
+// question, out of scope here -- see this PR's body.)
+//
+// Utilities/Insurance are not real finance_daycare_entries categories -- MDO shares the church's
+// building and has no such accounts of its own. Per another explicit user decision, these two lines
+// are a LIVE percentage of the CHURCH side's own actual Utilities/Insurance expense for the same
+// fiscal year, recomputed every time via computeMdoUtilityInsuranceAllocation() (reused directly
+// from src/api-finance.js -- the exact function production's own `finance/daycare/allocation` GET
+// route already calls), never a stored dollar figure. The percentage comes from finance_settings'
+// `finance_daycare_allocation_config` JSON blob (utilityPct/insurancePct), defaulting to 0.5/0.5 --
+// matching that route's own default exactly.
+//
+// Modeled on Church Report's single-fiscal-year shape: finance_daycare_entries.period is always a
+// bare 4-digit year string for BOTH counted sources -- confirmed directly in
+// persistDaycareEntriesFromChurchBudget and the `finance/daycare/budget-override` handler, which
+// always write period=String(year), never YYYY-MM (only the excluded 'daycare_api' sync ever writes
+// a monthly period) -- so the caller names the fiscal year, and a year with nothing on file yet
+// answers with a valid, empty-categories contract rather than a 404, same as every prior contract.
+//
+// category is a closed 8-value set: classifyMdoAccountCategory() (src/api-finance.js) can only ever
+// return 'Tuition Income', 'Payroll', 'Payroll Taxes', 'Workers Comp', 'Other Payroll Expenses', or
+// its catch-all 'Other Expenses' -- plus the two live-derived 'Utilities'/'Insurance' categories.
+// classification is 'Income' for 'Tuition Income' only (exact case-insensitive match, same as
+// finIsIncomeCategory in js-finance.js) and 'Expenses' for every other category -- the Daycare
+// Report has no Other Income/Cost of Goods Sold concept the way Church Report does.
+//
+// A manual_budget_override row REPLACES (never adds to) the church_budget_import budget total for
+// its exact (period, category) -- matching finAggregateDaycareByYear's own override semantics in
+// js-finance.js exactly: the override is read after the normal per-source sum and its amount wins
+// outright rather than being summed in.
+const DAYCARE_KNOWN_CATEGORY_ORDER = [
+  'Tuition Income', 'Payroll', 'Payroll Taxes', 'Workers Comp', 'Other Payroll Expenses',
+  'Utilities', 'Insurance', 'Other Expenses',
+];
+function isDaycareIncomeCategory(category) {
+  return String(category || '').trim().toLowerCase() === 'tuition income';
+}
+
+export async function buildFinanceDaycareReportV1(db, { fiscalYear, now = new Date() }) {
+  const period = String(fiscalYear);
+  const { results } = (await db.prepare(
+    `SELECT category, entry_type, amount_cents, source FROM finance_daycare_entries
+       WHERE period = ? AND source IN ('church_budget_import','manual_budget_override')
+       ORDER BY category, entry_type`
+  ).bind(period).all()) || {};
+  const rows = results || [];
+
+  const categoryTotals = {};
+  const order = [];
+  const ensureCategory = (cat) => {
+    if (!categoryTotals[cat]) { categoryTotals[cat] = { actualCents: 0, budgetCents: 0 }; order.push(cat); }
+    return categoryTotals[cat];
+  };
+  const overrideBudgetCents = {};
+  for (const row of rows) {
+    if (row.entry_type === 'budget' && row.source === 'manual_budget_override') {
+      overrideBudgetCents[row.category] = row.amount_cents;
+      continue;
+    }
+    const entry = ensureCategory(row.category);
+    if (row.entry_type === 'budget') entry.budgetCents += row.amount_cents;
+    else entry.actualCents += row.amount_cents;
+  }
+  for (const [cat, cents] of Object.entries(overrideBudgetCents)) {
+    ensureCategory(cat).budgetCents = cents;
+  }
+
+  // Utilities/Insurance live allocation -- see module comment above. Only merged in when the
+  // church side actually has a fiscal-year ledger to derive them from; a genuinely empty year
+  // (nothing imported on either side) stays a genuinely empty contract rather than surfacing two
+  // zeroed derived lines that would imply data exists when none does.
+  const cfgRow = await db.prepare(
+    `SELECT value FROM finance_settings WHERE key='finance_daycare_allocation_config'`
+  ).first();
+  let utilityPct = 0.5, insurancePct = 0.5;
+  if (cfgRow?.value) {
+    try {
+      const cfg = JSON.parse(cfgRow.value);
+      if (Number.isFinite(cfg.utilityPct)) utilityPct = cfg.utilityPct;
+      if (Number.isFinite(cfg.insurancePct)) insurancePct = cfg.insurancePct;
+    } catch { /* keep defaults, same fallback as the real allocation-config route */ }
+  }
+  const churchRows = (await db.prepare(
+    `SELECT * FROM finance_church_entries WHERE fiscal_year = ? AND period_month = 0`
+  ).bind(fiscalYear).all()).results || [];
+  const resolvedChurchRows = resolveChurchYearPrecedence(churchRows);
+  const allocationByYear = computeMdoUtilityInsuranceAllocation({ [fiscalYear]: resolvedChurchRows }, utilityPct, insurancePct);
+  const alloc = allocationByYear[fiscalYear];
+
+  if (resolvedChurchRows.length > 0) {
+    ensureCategory('Utilities').actualCents = alloc.mdoUtilityCents;
+    ensureCategory('Insurance').actualCents = alloc.mdoInsuranceCents;
+  }
+
+  const sortedCategories = DAYCARE_KNOWN_CATEGORY_ORDER.filter((c) => order.includes(c))
+    .concat(order.filter((c) => !DAYCARE_KNOWN_CATEGORY_ORDER.includes(c)).sort());
+
+  let incomeActualCents = 0, incomeBudgetCents = 0, expenseActualCents = 0, expenseBudgetCents = 0;
+  let incomeCategoryCount = 0, expenseCategoryCount = 0;
+  const categories = sortedCategories.map((cat) => {
+    const classification = isDaycareIncomeCategory(cat) ? 'Income' : 'Expenses';
+    const entry = categoryTotals[cat];
+    if (classification === 'Income') { incomeCategoryCount++; incomeActualCents += entry.actualCents; incomeBudgetCents += entry.budgetCents; }
+    else { expenseCategoryCount++; expenseActualCents += entry.actualCents; expenseBudgetCents += entry.budgetCents; }
+    return { category: cat, classification, actualCents: entry.actualCents, budgetCents: entry.budgetCents };
+  });
+
+  return {
+    contract: 'connect.finance-daycare-report.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    fiscalYear,
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    categories,
+    allocation: {
+      utilityPct,
+      insurancePct,
+      churchUtilityActualCents: alloc.utilityActualCents,
+      churchInsuranceActualCents: alloc.insuranceActualCents,
+      mdoUtilityCents: alloc.mdoUtilityCents,
+      mdoInsuranceCents: alloc.mdoInsuranceCents,
+    },
+    totals: {
+      incomeActualCents,
+      incomeBudgetCents,
+      expenseActualCents,
+      expenseBudgetCents,
+      netActualCents: incomeActualCents - expenseActualCents,
+      netBudgetCents: incomeBudgetCents - expenseBudgetCents,
+    },
+    reconciliation: {
+      categoryCount: categories.length,
+      incomeCategoryCount,
+      expenseCategoryCount,
+      totalsMatch: true,
+    },
+  };
+}
+
+export async function respondWithFinanceDaycareReportV1(url, db) {
+  const fiscalYearStr = url.searchParams.get('fiscal_year');
+  if (!isValidFiscalYearStr(fiscalYearStr)) {
+    return json({ error: 'fiscal_year is required as a 4-digit year' }, 400);
+  }
+  const report = await buildFinanceDaycareReportV1(db, { fiscalYear: Number(fiscalYearStr), now: new Date() });
+
+  // Fail closed, same discipline as the contracts above: this should never fire against real
+  // data, and if it does, Finance must not see a malformed contract.
+  const validation = validateFinanceDaycareReportV1(report);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled daycare report failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(report);
+}
+
 export async function handleContractsApi(req, env, url, method, seg, db) {
   if (seg === 'contracts/connect-giving-summary-v1' && method === 'GET') {
     return respondWithConnectGivingSummaryV1(url, db);
@@ -652,6 +829,9 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
   }
   if (seg === 'contracts/finance-balance-sheet-v1' && method === 'GET') {
     return respondWithFinanceBalanceSheetV1(url, db);
+  }
+  if (seg === 'contracts/finance-daycare-report-v1' && method === 'GET') {
+    return respondWithFinanceDaycareReportV1(url, db);
   }
   return null;
 }

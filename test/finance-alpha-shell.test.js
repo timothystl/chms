@@ -389,11 +389,16 @@ describe('Finance 1.0.0 alpha staging shell', () => {
   });
 
   it('renders a synthetic Daycare Report overview, its sub-pages, and its own read budget', async () => {
+    // No CONNECT_SERVICE binding/key is configured in this test env, so the live
+    // connect.finance-daycare-report.v1 attempt fails closed with 'not_configured' and Daycare
+    // Report falls back to the same synthetic fixture as before, labeled as such.
     statements.length = 0;
     const res = await worker.fetch(new Request('https://finance.test/?section=daycare'), env);
     const html = await res.text();
     expect(res.status).toBe(200);
-    expect(html).toContain('Synthetic Daycare Report');
+    expect(html).toContain('aria-label="Daycare Report overview"');
+    expect(html).toContain('Synthetic staging');
+    expect(html).toContain('the live endpoint is not configured or did not answer: not_configured');
     expect(html).toContain('Operating report for 2026-01');
     expect(html).toContain('$40,000');
     expect(html).toContain('$33,500');
