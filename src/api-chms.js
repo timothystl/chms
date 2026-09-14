@@ -262,12 +262,19 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // handler with NO permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note on
     // exactly this trap.
     { match: (s) => s.startsWith('contracts/finance-daycare-report'), item: 'finance' },
-    // The eighth contract, and structurally different from the seven above: this one carries real,
+    // Same trap, same fix, for the eighth contract: Property Valuation carries a real cap-rate
+    // income-approach worksheet (rent roll, itemized operating costs, assumptions) for the
+    // church's owned commercial property -- Finance-owned data, not Giving, so it takes the plain
+    // 'finance' item like the seven contracts above. Without this explicit rule this segment would
+    // match no rule above (it starts with 'contracts/', not 'finance') and reach the handler with
+    // NO permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note on exactly this trap.
+    { match: (s) => s.startsWith('contracts/finance-property-valuation'), item: 'finance' },
+    // The ninth contract, and structurally different from the eight above: this one carries real,
     // individually-identifiable per-person compensation data (name, position, current pay), not a
     // church-wide or role-level aggregate -- see finance-compensation-consumer.js's header comment.
     // It therefore takes the dedicated 'compensation' item, exactly matching how production's own
     // real finance/planning/salary route is gated (financeSegItems above maps that segment to
-    // ['compensation'] ALONE, never falling back to the blanket 'finance' item the six contracts
+    // ['compensation'] ALONE, never falling back to the blanket 'finance' item the eight contracts
     // above use) -- an admin/finance/staff/council role only reaches this if it (or its role's
     // default) has been granted 'compensation' specifically, same as the real Salary & Benefits
     // Calculator today. This still does not reach the dedicated `compensation` ROLE at all -- that
