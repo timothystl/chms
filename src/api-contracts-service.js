@@ -7,7 +7,7 @@
 // This stays a distinct, narrower grant from the human role/permission matrix in
 // api-chms.js: it reaches nothing but the contracts named below.
 import { json, timingSafeEqual } from './auth.js';
-import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, respondWithFinanceChartOfAccountsV1 } from './api-contracts.js';
+import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, respondWithFinanceChartOfAccountsV1, respondWithFinanceChurchReportV1 } from './api-contracts.js';
 import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
@@ -28,6 +28,10 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-chart-of-accounts-v1' && req.method === 'GET') {
     return respondWithFinanceChartOfAccountsV1(env.DB);
+  }
+
+  if (path === '/api/contracts/finance-church-report-v1' && req.method === 'GET') {
+    return respondWithFinanceChurchReportV1(new URL(req.url), env.DB);
   }
 
   if (path === '/api/contracts/giving-quick-entry-v1' && req.method === 'POST') {

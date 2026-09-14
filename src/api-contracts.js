@@ -8,7 +8,18 @@ import { json } from './auth.js';
 import { validateConnectGivingSummaryV1 } from '../apps/finance/connect-giving-consumer.js';
 import { validateFinanceDataStatusV1 } from '../apps/finance/finance-data-status-consumer.js';
 import { validateFinanceChartOfAccountsV1 } from '../apps/finance/finance-chart-of-accounts-consumer.js';
-import { readPlanningBoardCategories, readPurposeTags, REVENUE_STREAMS, BOARD_EXPENSE_CATEGORIES } from './api-finance.js';
+import { validateFinanceChurchReportV1 } from '../apps/finance/finance-church-report-consumer.js';
+import {
+  readPlanningBoardCategories, readPurposeTags, REVENUE_STREAMS, BOARD_EXPENSE_CATEGORIES,
+  resolveChurchYearPrecedence, computeYearSummary,
+} from './api-finance.js';
+
+// Also needed by the still-unmerged Budget contract (finance-budget-contract branch) for its own
+// fiscal_year param -- duplicated here rather than imported across branches, since the two PRs are
+// independent; whichever merges second should drop its own copy in favor of the other's.
+function isValidFiscalYearStr(value) {
+  return typeof value === 'string' && /^\d{4}$/.test(value) && Number(value) >= 2000 && Number(value) <= 2100;
+}
 
 function isValidDateStr(value) {
   if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])-([012]\d|3[01])$/.test(value)) return false;
@@ -270,6 +281,136 @@ export async function respondWithFinanceChartOfAccountsV1(db) {
   return json(chartOfAccounts);
 }
 
+// Fourth real slice of Finance separation: Church Report. This is the SAME finance_church_entries
+// table Chart of Accounts already reads, scoped to one fiscal year and carrying the real
+// actual/budget dollar figures Chart of Accounts deliberately excludes -- so this contract is
+// 'aggregate' (real money crosses it), like Giving, rather than 'structural' like Chart of
+// Accounts.
+//
+// Deliberately reuses resolveChurchYearPrecedence() and computeYearSummary() -- the exact
+// functions production's own Church Report / Financial Health / Budget-planning pages already
+// call (see src/api-finance.js's buildChurchThisYear) -- rather than re-deriving the winning
+// source with a query of its own. That distinction is real, not stylistic: Chart of Accounts'
+// producer picks each ACCOUNT's own latest row across all sources (ROW_NUMBER() PARTITION BY
+// category_path), but Church Report must pick one source WHOLESALE per fiscal year the way
+// production's precedence rule does. A direct 2026-09-14 check of production found FY2026 has
+// both an 'import' source (98 rows, the most recent single-year upload) and an 'import_activity'
+// source (126 rows, the multi-year upload) on file for the same year; CHURCH_SOURCE_PRIORITY picks
+// 'import' wholesale for FY2026, so the 28 accounts present only in 'import_activity' correctly do
+// not appear in this year's report at all. Reusing Chart of Accounts' per-account "latest row
+// wins" query here would have silently included them and produced a different, wrong total than
+// the page staff already look at today.
+//
+// own_budget_cents is genuinely nullable per account in real data -- confirmed 2026-09-14: even
+// within a single winning year/source, some accounts carry a real actual with no budget entered at
+// all (11 of finance_church_entries' 126 accounts, every fiscal year 2019-2026, in the
+// 'import_activity' source). apps/finance's own synthetic fixture (church-report-service.js's
+// readSyntheticChurchReport) asserts every row's own_budget_cents is a non-null integer -- that
+// assumption does not hold for real data, the same lesson the still-unmerged Budget contract
+// (finance-budget-contract branch) already learned about growthPct/baseAmountCents. This contract
+// and its consumer treat budgetCents as nullable per account rather than assuming it is always set.
+//
+// classification also carries every section finance_church_entries can actually hold: production
+// has real 'Other Income' and 'Other Expenses' rows today (confirmed 2026-09-14), not only
+// 'Income'/'Expenses' the way Chart of Accounts deliberately scopes to. 'Cost of Goods Sold' is
+// included defensively -- a valid QuickBooks section this church has simply never posted to (zero
+// rows today), not one the schema forbids.
+//
+// totals.incomeActualCents/incomeBudgetCents and expenseActualCents/expenseBudgetCents are ONLY
+// the 'Income'/'Expenses' classifications -- matching production's own "Total revenue"/"Total
+// expenses" KPI cards exactly, which do not blend in Other Income/Other Expenses (see
+// src/frontend/js-finance.js's finRenderChurchThisYear). totals.netIncomeActualCents/
+// netIncomeBudgetCents is the full bottom line computeYearSummary() already derives (Income - Cost
+// of Goods Sold - Expenses, plus Other Income - Other Expenses) -- the same figure production's own
+// "Net income" card shows, never recomputed independently here.
+//
+// Modeled on Giving/Budget's real-money shape rather than Chart of Accounts' whole-tree/no-params
+// shape: Church Report is naturally scoped to one fiscal year the way a budget plan is (there is no
+// single "the" report the way there is a single account tree), so the caller names the year, and a
+// year with no rows yet answers with a valid, empty-accounts contract rather than a 404.
+export async function buildFinanceChurchReportV1(db, { fiscalYear, now = new Date() }) {
+  const { results } = (await db.prepare(
+    `SELECT fiscal_year, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source
+       FROM finance_church_entries WHERE fiscal_year = ? AND period_month = 0`
+  ).bind(fiscalYear).all()) || {};
+  const rawRows = results || [];
+  const resolved = resolveChurchYearPrecedence(rawRows);
+  const summary = computeYearSummary(resolved);
+
+  let incomeCount = 0, expenseCount = 0, otherIncomeCount = 0, otherExpenseCount = 0, costOfGoodsSoldCount = 0, accountsWithBudgetCount = 0;
+  const accounts = resolved.map((row) => {
+    switch (row.classification) {
+      case 'Income': incomeCount++; break;
+      case 'Expenses': expenseCount++; break;
+      case 'Other Income': otherIncomeCount++; break;
+      case 'Other Expenses': otherExpenseCount++; break;
+      case 'Cost of Goods Sold': costOfGoodsSoldCount++; break;
+    }
+    const budgetCents = row.own_budget_cents === null || row.own_budget_cents === undefined ? null : row.own_budget_cents;
+    if (budgetCents !== null) accountsWithBudgetCount++;
+    return {
+      classification: row.classification,
+      categoryPath: row.category_path,
+      accountName: row.account_name,
+      depth: row.depth,
+      hasChildren: Boolean(row.has_children),
+      actualCents: row.own_actual_cents,
+      budgetCents,
+      source: row.source,
+    };
+  });
+
+  const income = summary.classificationTotals['Income'] || { actualCents: 0, budgetCents: 0 };
+  const expenses = summary.classificationTotals['Expenses'] || { actualCents: 0, budgetCents: 0 };
+
+  return {
+    contract: 'connect.finance-church-report.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    fiscalYear,
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    accounts,
+    totals: {
+      incomeActualCents: income.actualCents,
+      incomeBudgetCents: income.budgetCents,
+      expenseActualCents: expenses.actualCents,
+      expenseBudgetCents: expenses.budgetCents,
+      netIncomeActualCents: summary.netIncome.actualCents,
+      netIncomeBudgetCents: summary.netIncome.budgetCents,
+      hasBudgetData: summary.hasBudgetData,
+    },
+    reconciliation: {
+      accountCount: accounts.length,
+      incomeCount,
+      expenseCount,
+      otherIncomeCount,
+      otherExpenseCount,
+      costOfGoodsSoldCount,
+      accountsWithBudgetCount,
+      totalsMatch: true,
+    },
+  };
+}
+
+export async function respondWithFinanceChurchReportV1(url, db) {
+  const fiscalYearStr = url.searchParams.get('fiscal_year');
+  if (!isValidFiscalYearStr(fiscalYearStr)) {
+    return json({ error: 'fiscal_year is required as a 4-digit year' }, 400);
+  }
+  const report = await buildFinanceChurchReportV1(db, { fiscalYear: Number(fiscalYearStr), now: new Date() });
+
+  // Fail closed, same discipline as the contracts above: this should never fire against real
+  // data, and if it does, Finance must not see a malformed contract.
+  const validation = validateFinanceChurchReportV1(report);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled church report failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(report);
+}
+
 export async function handleContractsApi(req, env, url, method, seg, db) {
   if (seg === 'contracts/connect-giving-summary-v1' && method === 'GET') {
     return respondWithConnectGivingSummaryV1(url, db);
@@ -279,6 +420,9 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
   }
   if (seg === 'contracts/finance-chart-of-accounts-v1' && method === 'GET') {
     return respondWithFinanceChartOfAccountsV1(db);
+  }
+  if (seg === 'contracts/finance-church-report-v1' && method === 'GET') {
+    return respondWithFinanceChurchReportV1(url, db);
   }
   return null;
 }

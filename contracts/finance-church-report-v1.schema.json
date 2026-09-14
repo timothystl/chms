@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-church-report:v1",
+  "title": "Connect Finance Church Report v1",
+  "description": "One fiscal year of the real Church Report (finance_church_entries), precedence-resolved the same way production's own Church Report / Financial Health / Budget pages already resolve it: each account's own actual dollar amount, its budget amount when one has been entered (nullable -- real accounts commonly have an actual with no budget on file), and the headline income/expense/net-income totals. Real money crosses this contract, unlike the structural-only Chart of Accounts contract. This does not carry Balance Sheet data (finance_church_balances) -- that is a separate report and a separate future contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "currency", "fiscalYear", "generatedAt", "accounts", "totals", "reconciliation"],
+  "properties": {
+    "contract": { "const": "connect.finance-church-report.v1" },
+    "dataClassification": { "const": "aggregate" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "currency": { "const": "USD" },
+    "fiscalYear": { "type": "integer", "minimum": 2000, "maximum": 2100 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "accounts": {
+      "type": "array",
+      "description": "May legitimately be empty for a fiscal year with no synced or imported data yet -- that is a normal state, not an error. Includes group/header rows (hasChildren=true) alongside leaf accounts, exactly as finance_church_entries stores them; a header row's own actualCents/budgetCents almost always reads 0 (its children carry the real figures), matching production.",
+      "items": { "$ref": "#/$defs/account" }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["incomeActualCents", "incomeBudgetCents", "expenseActualCents", "expenseBudgetCents", "netIncomeActualCents", "netIncomeBudgetCents", "hasBudgetData"],
+      "properties": {
+        "incomeActualCents": { "type": "integer", "description": "Sum of actualCents for classification 'Income' only -- matches production's 'Total revenue' card exactly; does not include Other Income." },
+        "incomeBudgetCents": { "type": "integer", "description": "Sum of budgetCents for classification 'Income' accounts that actually have one set (nulls excluded, not treated as zero)." },
+        "expenseActualCents": { "type": "integer", "description": "Sum of actualCents for classification 'Expenses' only -- matches production's 'Total expenses' card exactly; does not include Other Expenses or Cost of Goods Sold." },
+        "expenseBudgetCents": { "type": "integer", "description": "Sum of budgetCents for classification 'Expenses' accounts that actually have one set." },
+        "netIncomeActualCents": { "type": "integer", "description": "The full reconciled bottom line: (Income - Cost of Goods Sold - Expenses) + (Other Income - Other Expenses) actuals -- matches production's 'Net income' card." },
+        "netIncomeBudgetCents": { "type": "integer", "description": "Same reconciliation as netIncomeActualCents, over each classification's summed budget amounts." },
+        "hasBudgetData": { "type": "boolean", "description": "True when at least one account in this fiscal year carries a non-null budgetCents. Mirrors production's own hasBudgetData flag, which gates whether the UI shows budget columns at all." }
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accountCount", "incomeCount", "expenseCount", "otherIncomeCount", "otherExpenseCount", "costOfGoodsSoldCount", "accountsWithBudgetCount", "totalsMatch"],
+      "properties": {
+        "accountCount": { "type": "integer", "minimum": 0, "description": "Must equal accounts.length." },
+        "incomeCount": { "type": "integer", "minimum": 0 },
+        "expenseCount": { "type": "integer", "minimum": 0 },
+        "otherIncomeCount": { "type": "integer", "minimum": 0, "description": "Production has real 'Other Income' rows today (confirmed 2026-09-14) -- not a theoretical classification." },
+        "otherExpenseCount": { "type": "integer", "minimum": 0, "description": "Production has real 'Other Expenses' rows today (confirmed 2026-09-14) -- not a theoretical classification." },
+        "costOfGoodsSoldCount": { "type": "integer", "minimum": 0, "description": "0 in every real fiscal year checked so far -- this church has never posted to a Cost of Goods Sold account -- but the classification is valid QuickBooks output, not schema-forbidden." },
+        "accountsWithBudgetCount": { "type": "integer", "minimum": 0, "description": "Accounts with a non-null budgetCents. Confirmed 2026-09-14: this is commonly LESS than accountCount even within one winning source/year." },
+        "totalsMatch": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "categoryPath", "accountName", "depth", "hasChildren", "actualCents", "budgetCents", "source"],
+      "properties": {
+        "classification": {
+          "enum": ["Income", "Expenses", "Other Income", "Other Expenses", "Cost of Goods Sold"],
+          "description": "Every P&L section finance_church_entries can hold. This table never carries Assets/Liabilities/Equity -- those live in the separate finance_church_balances table (Balance Sheet, a different report)."
+        },
+        "categoryPath": { "type": "string", "minLength": 1, "description": "Colon-joined account path from finance_church_entries.category_path, e.g. 'Expenses:50 Program Expenses:501 Mission & Outreach'." },
+        "accountName": { "type": "string", "minLength": 1 },
+        "depth": { "type": "integer", "minimum": 0 },
+        "hasChildren": { "type": "boolean" },
+        "actualCents": { "type": "integer", "description": "This account's own non-cumulative actual amount for the fiscal year -- never a rolled-up subtotal." },
+        "budgetCents": { "type": ["integer", "null"], "description": "Null when no budget was entered for this account. Genuinely common in real data; must not be assumed to always be set." },
+        "source": {
+          "enum": ["qbo_sync", "import", "import_activity", "plan_committed", "manual_actual_override"],
+          "description": "Which finance_church_entries source won this account's actual amount for this fiscal year, after resolveChurchYearPrecedence() -- a whole-year winner-take-all pick per CHURCH_SOURCE_PRIORITY, with manual_actual_override applied afterward per-account on top."
+        }
+      }
+    }
+  }
+}

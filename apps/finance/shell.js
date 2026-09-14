@@ -16,7 +16,7 @@ import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from '
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
 import { buildFinancialHealthView } from './health-view-model.js';
-import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends } from './church-report-service.js';
+import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends, resolveChurchReport } from './church-report-service.js';
 import { readSyntheticBalanceSheet, readSyntheticBalanceTrends } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, readSyntheticDaycareAllocation } from './daycare-report-service.js';
 import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers, readSyntheticPropertyValuation } from './property-report-service.js';
@@ -187,7 +187,7 @@ function renderEntityCards(entities) {
 
 function renderSectionBody(ctx) {
   const {
-    section, pageId, summary, giving, givingSource, churchReport, churchTrends, balanceSheet, balanceTrends,
+    section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrends, balanceSheet, balanceTrends,
     daycareReport, daycareAllocation, propertyReport, propertyReserves, propertyLedgers, propertyValuation,
     propertyForecast, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
     compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle,
@@ -250,7 +250,7 @@ function renderSectionBody(ctx) {
     return renderChartsPage(page.id, { churchReport, cashRunway, propertyReserves, giving, givingSource });
   }
   if (section.id === 'church') {
-    return renderChurchPage(page.id, { churchReport, churchTrends });
+    return renderChurchPage(page.id, { churchReport: churchReportLive, churchTrends });
   }
   if (section.id === 'balance') {
     return renderBalancePage(page.id, { balanceSheet, balanceTrends });
@@ -718,8 +718,15 @@ export default {
         }
         const summary = ['health', 'church', 'packet'].includes(section.id)
           ? await readSyntheticSummary(env.FINANCE_DB) : null;
-        const churchReport = ['church', 'health', 'charts', 'packet'].includes(section.id)
+        // Health/Charts/Packet still read the plain synthetic rows -- unchanged, out of scope for
+        // this contract. The 'church' section (Church Report itself) instead tries the real
+        // connect.finance-church-report.v1 endpoint first and falls back to the same synthetic
+        // fixture, labeled, via resolveChurchReport -- same live-first pattern as Budget's
+        // resolveBudgetReport for the 'planning' section below.
+        const churchReport = ['health', 'charts', 'packet'].includes(section.id)
           ? await readSyntheticChurchReport(env.FINANCE_DB) : null;
+        const churchReportLive = section.id === 'church'
+          ? await resolveChurchReport(env, env.FINANCE_DB) : null;
         const churchTrends = ['church', 'packet'].includes(section.id)
           ? await readSyntheticChurchTrends(env.FINANCE_DB) : null;
         const balanceSheet = section.id === 'balance'
@@ -766,7 +773,7 @@ export default {
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
         return response(renderShell({
-          metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchTrends,
+          metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrends,
           balanceSheet, balanceTrends, daycareReport, daycareAllocation, propertyReport, propertyReserves,
           propertyLedgers, propertyValuation, propertyForecast, propertyDistributions, budgetReport, accountsReport,
           dataStatus, compensationReport, compensationBenchmarks, compensationBenefits, cashRunway,
