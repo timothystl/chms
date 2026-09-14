@@ -1,4 +1,5 @@
 import { runBudgetedReadBatch } from './query-budget.js';
+import { fetchLiveFinancePropertyValuation } from './finance-property-valuation-client.js';
 
 const INTEGER_FIELDS = [
   'total_revenue_cents', 'total_expenses_cents', 'net_income_cents',
@@ -109,6 +110,42 @@ export async function readSyntheticPropertyValuation(db) {
     rentRoll: rentRoll.map((row) => ({ ...row })),
     operatingCosts: operatingCosts.map((row) => ({ ...row })),
   };
+}
+
+// Tries the real connect.finance-property-valuation.v1 endpoint for the default property
+// (3277 Ivanhoe); falls back to the existing synthetic fixture whenever the live call isn't
+// configured yet or fails for any reason -- same never-throws, always-labeled pattern as
+// balance-sheet-service.js's resolveBalanceSheet. `db` here is Finance's own FINANCE_DB, used
+// only for the synthetic fallback path. Returns the same {assumptions, rentRoll, operatingCosts}
+// shape either way (property_key/tenant_label/cost_key etc., snake_case) so
+// buildPropertyValuationView -- and both the 'rent-roll' and 'valuation' pages -- never need to
+// know which source produced it.
+export async function resolvePropertyValuation(env, db) {
+  const result = await fetchLiveFinancePropertyValuation(env);
+  if (result.ok) {
+    const v = result.valuation;
+    return {
+      source: 'live',
+      propertyKey: v.propertyKey,
+      asOfDate: v.asOfDate,
+      assumptions: {
+        property_key: v.assumptions.propertyKey,
+        utility_reimbursement_cents: v.assumptions.utilityReimbursementCents,
+        vacancy_rate_pct: v.assumptions.vacancyRatePct,
+        management_fee_pct: v.assumptions.managementFeePct,
+        cap_rate: v.assumptions.capRate,
+      },
+      rentRoll: v.rentRoll.map((row) => ({
+        unit_key: row.unitKey, tenant_label: row.tenantLabel,
+        square_feet: row.squareFeet, annual_rent_cents: row.annualRentCents,
+      })),
+      operatingCosts: v.operatingCosts.map((row) => ({
+        cost_key: row.costKey, cost_label: row.costLabel, annual_cost_cents: row.annualCostCents,
+      })),
+    };
+  }
+  const input = await readSyntheticPropertyValuation(db);
+  return { source: 'synthetic-fallback', fallbackReason: result.reason, ...input };
 }
 
 export function buildPropertyValuationView(input) {

@@ -249,6 +249,13 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // handler with NO permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note on
     // exactly this trap.
     { match: (s) => s.startsWith('contracts/finance-daycare-report'), item: 'finance' },
+    // Same trap, same fix, for the eighth contract: Property Valuation carries a real cap-rate
+    // income-approach worksheet (rent roll, itemized operating costs, assumptions) for the
+    // church's owned commercial property -- Finance-owned data, not Giving, so it takes the plain
+    // 'finance' item like the seven contracts above. Without this explicit rule this segment would
+    // match no rule above (it starts with 'contracts/', not 'finance') and reach the handler with
+    // NO permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note on exactly this trap.
+    { match: (s) => s.startsWith('contracts/finance-property-valuation'), item: 'finance' },
     { match: (s) => s.startsWith('tuition-aid'), item: 'tuitionaid' },
     { match: (s) => s.startsWith('finance'), item: 'finance' },
     { match: (s) => s.startsWith('attendance'), item: 'attendance' },
