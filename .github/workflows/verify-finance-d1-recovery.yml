@@ -1,0 +1,113 @@
+name: Verify Finance D1 backup and recovery
+
+# Finance's own port of this repo's tested "Verify D1 backup and recovery"
+# workflow (for the shared Connect database) -- see
+# scripts/verify-finance-d1-recovery.sh for what changed and what did not in
+# the port. No production Finance D1 database exists yet (see
+# docs/FINANCE_PRODUCTION_CUTOVER.md), so SOURCE_DB / SOURCE_DB_ID below
+# target the one Finance database that does exist today: staging's
+# `timothy-finance-db-staging`. Once a real production Finance database is
+# created per the cutover runbook, repointing this drill at it is a one-line
+# change to those two env values -- nothing else in this workflow or the
+# script should need to change.
+#
+# workflow_dispatch-only, gated the same way deploy.yml and
+# verify-d1-recovery.yml already are: an approved main commit SHA, a reason,
+# and the `production` GitHub Environment (this repo's existing convention
+# for where protected secrets live and approval is required for any
+# workflow_dispatch that touches real infrastructure -- deploy-finance.yml
+# and deploy-finance-staging.yml use the same environment name for the same
+# reason, not because this drill touches production data).
+#
+# Needs a new secret that does not exist yet -- see the env block below.
+# Nothing in this workflow can run unattended: it only fires on an explicit,
+# human-dispatched workflow_dispatch with the secret configured.
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full main commit SHA approved for the recovery exercise
+        required: true
+        type: string
+      reason:
+        description: Reason for this recovery exercise
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finance-d1-recovery-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Export, restore, and reconcile Finance D1
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    env:
+      # Deliberately NOT secrets.CLOUDFLARE_D1_API_TOKEN (the existing
+      # Connect drill's secret) -- its scope was set up for
+      # tlc-volunteer-db and has not been confirmed to also cover the
+      # Finance D1 database. Add a new, distinctly-scoped D1-only token as
+      # this secret name before dispatching this workflow.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_FINANCE_D1_API_TOKEN }}
+      SOURCE_DB: timothy-finance-db-staging
+      SOURCE_DB_ID: 59dfc662-9f43-469f-936e-d7a0d3247036
+      RESULT_FILE: /tmp/finance-d1-recovery-result.json
+    steps:
+      - name: Check out the approved commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.expected_sha }}
+
+      - name: Verify the approved commit is on main
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git merge-base --is-ancestor "$EXPECTED_SHA" origin/main
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Export, restore, reconcile, and clean up
+        run: bash scripts/verify-finance-d1-recovery.sh
+
+      - name: Record recovery summary
+        shell: bash
+        env:
+          RECOVERY_REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          {
+            echo '## Finance D1 recovery verification'
+            echo
+            echo "- Approved commit: \`${GITHUB_SHA}\`"
+            echo "- Reason: ${RECOVERY_REASON}"
+            jq -r '
+              "- Source database UUID verified: `" + .source_db_id_verified + "`",
+              "- Export: " + (.export_bytes | tostring) + " bytes; SHA-256 `" + .export_sha256 + "`",
+              "- Oversized export handling: " + (.oversized_export_statements_rewritten | tostring) + " statement rewritten; " + (.large_cells_length_verified | tostring) + " large value length-verified",
+              "- Schema: " + (.schema_objects_matched | tostring) + " objects matched; control SHA-256 `" + .schema_control_sha256 + "`",
+              "- Integrity: " + .integrity_check + "; foreign-key violations " + (.foreign_key_violations | tostring),
+              "- Rows: " + (.tables_matched | tostring) + " tables matched; control SHA-256 `" + .row_control_sha256 + "`",
+              "- Monetary controls: " + (.monetary_controls_matched | tostring) + " columns matched; control SHA-256 `" + .monetary_control_sha256 + "`",
+              "- Disposal: plaintext export removed and disposable D1 `" + .disposable_database + "` deleted",
+              "- Sensitive rows and monetary values were not printed or retained as artifacts"
+            ' "$RESULT_FILE"
+          } >> "$GITHUB_STEP_SUMMARY"
