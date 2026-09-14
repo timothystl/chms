@@ -1,4 +1,5 @@
 import { runBudgetedReadBatch } from './query-budget.js';
+import { fetchLiveFinanceChartOfAccounts } from './finance-chart-of-accounts-client.js';
 
 const CLASSIFICATIONS = new Set(['Income', 'Expenses']);
 
@@ -64,6 +65,37 @@ export function buildAccountHierarchy(rows) {
     children: node.children.map(stripIndex),
   });
   return [...roots.values()].map(stripIndex);
+}
+
+// Maps one connect.finance-chart-of-accounts.v1 account (camelCase, as the consumer returns it)
+// onto the exact row shape readSyntheticAccountsReport produces (snake_case, matching
+// finance_church_entries/finance_account_presentation column names) -- so buildAccountHierarchy
+// and buildAccountsReportView above work unchanged on either source, and the two never need a
+// second parallel set of view builders.
+function liveAccountToRow(account) {
+  return {
+    classification: account.classification,
+    category_path: account.categoryPath,
+    account_name: account.accountName,
+    board_category_key: account.boardCategoryKey,
+    board_category_label: account.boardCategoryLabel,
+    purpose_tag_id: account.purposeTagId,
+    purpose_tag_label: account.purposeTagLabel,
+  };
+}
+
+// Tries the real connect.finance-chart-of-accounts.v1 endpoint; falls back to the existing
+// synthetic fixture whenever the live call isn't configured yet or fails for any reason -- same
+// never-throws, always-labeled pattern as data-status-service.js's resolveDataStatus and shell.js's
+// resolveGivingSummary. `db` here is Finance's own FINANCE_DB, used only for the synthetic
+// fallback path.
+export async function resolveAccountsReport(env, db) {
+  const result = await fetchLiveFinanceChartOfAccounts(env);
+  if (result.ok) {
+    return { rows: result.chartOfAccounts.accounts.map(liveAccountToRow), source: 'live' };
+  }
+  const rows = await readSyntheticAccountsReport(db);
+  return { rows, source: 'synthetic-fallback', fallbackReason: result.reason };
 }
 
 export function buildAccountsReportView(rows) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAccountHierarchy, buildAccountsReportView, readSyntheticAccountsReport } from '../apps/finance/accounts-report-service.js';
+import { buildAccountHierarchy, buildAccountsReportView, readSyntheticAccountsReport, resolveAccountsReport } from '../apps/finance/accounts-report-service.js';
 
 const rows = [
   { classification: 'Expenses', category_path: 'Expenses:Synthetic Programs', account_name: 'Synthetic Programs', board_category_key: 'programs', board_category_label: 'Programs', purpose_tag_id: 'ministry', purpose_tag_label: 'Ministry' },
@@ -79,5 +79,61 @@ describe('Finance synthetic Chart of Accounts service', () => {
       };
       await expect(readSyntheticAccountsReport(db)).rejects.toThrow('Synthetic Chart of Accounts rows invalid');
     }
+  });
+});
+
+describe('resolveAccountsReport (live connect.finance-chart-of-accounts.v1 with synthetic fallback)', () => {
+  function fixtureDb() {
+    return {
+      prepare(sql) { return { sql }; },
+      async batch() { return [{ results: rows }]; },
+    };
+  }
+
+  it('falls back to the synthetic fixture when the live contract is not configured', async () => {
+    const result = await resolveAccountsReport({}, fixtureDb());
+    expect(result.source).toBe('synthetic-fallback');
+    expect(result.fallbackReason).toBe('not_configured');
+    expect(result.rows).toEqual(rows);
+  });
+
+  it('maps a live contract payload onto the exact row shape the synthetic reader produces', async () => {
+    const env = {
+      CONNECT_SERVICE: {
+        async fetch() {
+          return new Response(JSON.stringify({
+            contract: 'connect.finance-chart-of-accounts.v1', dataClassification: 'structural',
+            sourceProduct: 'connect', consumerProduct: 'finance', generatedAt: '2026-06-15T00:00:00Z',
+            accounts: [{
+              classification: 'Income', categoryPath: 'Income:Offerings:General Fund', accountName: 'General Fund',
+              depth: 1, hasChildren: false, boardCategoryKey: 'donor', boardCategoryLabel: 'Donor',
+              purposeTagId: null, purposeTagLabel: null,
+            }],
+            reconciliation: { accountCount: 1, incomeCount: 1, expenseCount: 0, unassignedCount: 0 },
+          }), { status: 200 });
+        },
+      },
+      FINANCE_CONTRACT_API_KEY: 'test-secret',
+    };
+    const result = await resolveAccountsReport(env, fixtureDb());
+    expect(result.source).toBe('live');
+    expect(result.fallbackReason).toBeUndefined();
+    expect(result.rows).toEqual([{
+      classification: 'Income', category_path: 'Income:Offerings:General Fund', account_name: 'General Fund',
+      board_category_key: 'donor', board_category_label: 'Donor', purpose_tag_id: null, purpose_tag_label: null,
+    }]);
+    // The mapped row shape must still satisfy buildAccountHierarchy/buildAccountsReportView unchanged.
+    expect(buildAccountsReportView(result.rows).counts).toEqual({ total: 1, income: 1, expenses: 0, boardCategories: 1, purposeTags: 0 });
+  });
+
+  it('falls back to the synthetic fixture, labeled with the failure reason, on a live contract-validation failure', async () => {
+    const env = {
+      CONNECT_SERVICE: { async fetch() { return new Response(JSON.stringify({ contract: 'connect.finance-chart-of-accounts.v1' }), { status: 200 }); } },
+      FINANCE_CONTRACT_API_KEY: 'test-secret',
+    };
+    const result = await resolveAccountsReport(env, fixtureDb());
+    expect(result.source).toBe('synthetic-fallback');
+    expect(result.fallbackReason).toBe('contract_validation_failed');
+    expect(result.rows).toEqual(rows);
   });
 });

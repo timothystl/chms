@@ -13,9 +13,10 @@ export function renderAccountHierarchy(nodes) {
 }
 
 export function renderAccountsPage(pageId, { accountsReport }) {
-  const report = buildAccountsReportView(accountsReport);
-  return `<section class="report" aria-label="Synthetic Chart of Accounts">
-    ${renderSectionHeading({ eyebrow: 'Chart of Accounts', heading: 'Account presentation', badge: 'Synthetic staging' })}
+  const isLive = accountsReport.source === 'live';
+  const report = buildAccountsReportView(accountsReport.rows);
+  return `<section class="report" aria-label="${isLive ? 'Chart of Accounts' : 'Synthetic Chart of Accounts'}">
+    ${renderSectionHeading({ eyebrow: 'Chart of Accounts', heading: 'Account presentation', badge: isLive ? 'Live from Connect' : 'Synthetic staging' })}
     ${renderKpiCards([
       { label: 'Total accounts', value: String(report.counts.total), hint: `${report.counts.income} income · ${report.counts.expenses} expense` },
       { label: 'Board categories', value: String(report.counts.boardCategories), hint: 'Presentation only; ledger paths unchanged' },
@@ -23,5 +24,8 @@ export function renderAccountsPage(pageId, { accountsReport }) {
     ])}
     ${renderSectionHeading({ eyebrow: 'Ledger hierarchy', heading: 'Account tree', badge: 'Paths preserved', trend: true })}
     ${renderTable({ head: ['Hierarchy', 'Ledger path', 'Account', 'Board category', 'Purpose'], rows: renderAccountHierarchy(report.hierarchy) })}
+    <p><small>${isLive
+      ? "Fetched live from Connect's real, structural-only finance-chart-of-accounts contract endpoint. No dollar figure, gift, donor, or person crosses this contract."
+      : `The committed synthetic fixture (the live endpoint is not configured or did not answer${accountsReport.fallbackReason ? `: ${escapeHtml(accountsReport.fallbackReason)}` : ''}).`}</small></p>
   </section>`;
 }

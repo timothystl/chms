@@ -7,6 +7,8 @@
 import { json } from './auth.js';
 import { validateConnectGivingSummaryV1 } from '../apps/finance/connect-giving-consumer.js';
 import { validateFinanceDataStatusV1 } from '../apps/finance/finance-data-status-consumer.js';
+import { validateFinanceChartOfAccountsV1 } from '../apps/finance/finance-chart-of-accounts-consumer.js';
+import { readPlanningBoardCategories, readPurposeTags, REVENUE_STREAMS, BOARD_EXPENSE_CATEGORIES } from './api-finance.js';
 
 function isValidDateStr(value) {
   if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])-([012]\d|3[01])$/.test(value)) return false;
@@ -159,12 +161,124 @@ export async function respondWithFinanceDataStatusV1(db) {
   return json(status);
 }
 
+// Third real slice of Finance separation: the Chart of Accounts section's account tree,
+// board-category assignment, and purpose tags have stood in on synthetic fixture data since the
+// staging rewrite began (see apps/finance/README.md's alpha.28/alpha.35 notes). This assembles the
+// real thing from three existing production sources — the church ledger's own account inventory
+// (finance_church_entries) plus the two finance_settings blobs the Chart of Accounts page itself
+// already reads and writes (readPlanningBoardCategories, readPurposeTags, both hoisted to module
+// scope in api-finance.js for this reuse). No dollar figure crosses this contract at all — only
+// account names, QuickBooks-derived category paths, and Finance's own categorization of them —
+// which is why dataClassification is 'structural' rather than 'aggregate' (contrast the Giving and
+// Data-status contracts above, which do aggregate money).
+//
+// An account with no board-category assignment yet (Chart of Accounts has historically been
+// filled in gradually, one account at a time — see api-finance.js's own comment on that page) is
+// reported as boardCategoryKey 'unassigned' / boardCategoryLabel 'Unassigned' rather than omitted
+// or guessed at; reconciliation.unassignedCount makes that count visible to any caller rather than
+// silently folding it into a category it was never actually given.
+const REVENUE_STREAM_DEFAULT_LABELS = { donor: 'Donor', earned: 'Earned', passive: 'Passive', restricted: 'Restricted' };
+
+function resolveAccountCategory(classification, categoryPath, boardCategories) {
+  const isIncome = classification === 'Income';
+  const assignments = isIncome ? boardCategories.revenue : boardCategories.expense;
+  const customLabels = isIncome ? boardCategories.revenueLabels : boardCategories.expenseLabels;
+  const validKeys = isIncome ? REVENUE_STREAMS : BOARD_EXPENSE_CATEGORIES.map((c) => c.key);
+  const defaultLabels = isIncome
+    ? REVENUE_STREAM_DEFAULT_LABELS
+    : Object.fromEntries(BOARD_EXPENSE_CATEGORIES.map((c) => [c.key, c.label]));
+  const assigned = assignments[categoryPath];
+  if (assigned && validKeys.includes(assigned)) {
+    return { key: assigned, label: customLabels[assigned] || defaultLabels[assigned] || assigned };
+  }
+  return { key: 'unassigned', label: 'Unassigned' };
+}
+
+// Pure apart from the two bounded reads: one SELECT over finance_church_entries (each leaf's most
+// recently synced/imported classification, path, name, depth -- ROW_NUMBER() over category_path
+// picks the latest row so a renamed or re-imported account never shows a stale account_name) plus
+// the two existing finance_settings reads Chart of Accounts already performs. Scoped to Income and
+// Expenses only, matching both the existing Chart of Accounts page and apps/finance's synthetic
+// fixture -- balance-sheet accounts (Assets/Liabilities/Equity) carry no board-category concept in
+// production today and are out of scope for this contract.
+export async function buildFinanceChartOfAccountsV1(db, { now = new Date() } = {}) {
+  const { results } = (await db.prepare(
+    `SELECT classification, category_path, account_name, depth, has_children FROM (
+       SELECT classification, category_path, account_name, depth, has_children,
+              ROW_NUMBER() OVER (
+                PARTITION BY category_path
+                ORDER BY synced_at DESC, fiscal_year DESC, period_month DESC, id DESC
+              ) AS rn
+         FROM finance_church_entries
+        WHERE classification IN ('Income','Expenses')
+     )
+     WHERE rn = 1
+     ORDER BY classification, category_path`
+  ).all()) || {};
+  const rows = results || [];
+
+  const boardCategories = await readPlanningBoardCategories(db);
+  const purposeTags = await readPurposeTags(db);
+  const tagLabelById = new Map(purposeTags.tags.map((t) => [t.id, t.label]));
+
+  let incomeCount = 0, expenseCount = 0, unassignedCount = 0;
+  const accounts = rows.map((row) => {
+    const category = resolveAccountCategory(row.classification, row.category_path, boardCategories);
+    if (row.classification === 'Income') incomeCount++; else expenseCount++;
+    if (category.key === 'unassigned') unassignedCount++;
+    const rawTagId = purposeTags.categories[row.category_path];
+    const hasTag = typeof rawTagId === 'string' && tagLabelById.has(rawTagId);
+    return {
+      classification: row.classification,
+      categoryPath: row.category_path,
+      accountName: row.account_name,
+      depth: row.depth,
+      hasChildren: Boolean(row.has_children),
+      boardCategoryKey: category.key,
+      boardCategoryLabel: category.label,
+      purposeTagId: hasTag ? rawTagId : null,
+      purposeTagLabel: hasTag ? tagLabelById.get(rawTagId) : null,
+    };
+  });
+
+  return {
+    contract: 'connect.finance-chart-of-accounts.v1',
+    dataClassification: 'structural',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    accounts,
+    reconciliation: {
+      accountCount: accounts.length,
+      incomeCount,
+      expenseCount,
+      unassignedCount,
+    },
+  };
+}
+
+export async function respondWithFinanceChartOfAccountsV1(db) {
+  const chartOfAccounts = await buildFinanceChartOfAccountsV1(db, { now: new Date() });
+
+  // Fail closed, same discipline as the two contracts above: this should never fire against real
+  // data, and if it does, Finance must not see a malformed contract.
+  const validation = validateFinanceChartOfAccountsV1(chartOfAccounts);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled chart of accounts failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(chartOfAccounts);
+}
+
 export async function handleContractsApi(req, env, url, method, seg, db) {
   if (seg === 'contracts/connect-giving-summary-v1' && method === 'GET') {
     return respondWithConnectGivingSummaryV1(url, db);
   }
   if (seg === 'contracts/finance-data-status-v1' && method === 'GET') {
     return respondWithFinanceDataStatusV1(db);
+  }
+  if (seg === 'contracts/finance-chart-of-accounts-v1' && method === 'GET') {
+    return respondWithFinanceChartOfAccountsV1(db);
   }
   return null;
 }

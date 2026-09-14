@@ -21,7 +21,7 @@ import { readSyntheticBalanceSheet, readSyntheticBalanceTrends } from './balance
 import { buildDaycareReportView, readSyntheticDaycareReport, readSyntheticDaycareAllocation } from './daycare-report-service.js';
 import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers, readSyntheticPropertyValuation } from './property-report-service.js';
 import { readSyntheticBudgetReport } from './budget-report-service.js';
-import { readSyntheticAccountsReport } from './accounts-report-service.js';
+import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport } from './compensation-report-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
@@ -745,7 +745,7 @@ export default {
         const budgetReport = section.id === 'planning'
           ? await readSyntheticBudgetReport(env.FINANCE_DB) : null;
         const accountsReport = ['accounts', 'quickbooks'].includes(section.id)
-          ? await readSyntheticAccountsReport(env.FINANCE_DB) : null;
+          ? await resolveAccountsReport(env, env.FINANCE_DB) : null;
         const dataStatus = ['data', 'health', 'quickbooks'].includes(section.id)
           ? await resolveDataStatus(env, env.FINANCE_DB) : null;
         const compensationReport = section.id === 'compensation'

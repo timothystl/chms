@@ -15,9 +15,10 @@ function renderMappingRows(nodes) {
 
 export function renderQuickbooksPage(pageId, { dataStatus, accountsReport }) {
   if (pageId === 'account-mapping') {
-    const report = buildAccountsReportView(accountsReport);
+    const isLive = accountsReport.source === 'live';
+    const report = buildAccountsReportView(accountsReport.rows);
     return `<section class="report" aria-label="QuickBooks account mapping">
-      ${renderSectionHeading({ eyebrow: 'QuickBooks', heading: 'Account mapping', badge: 'Finance category mapping' })}
+      ${renderSectionHeading({ eyebrow: 'QuickBooks', heading: 'Account mapping', badge: isLive ? 'Live from Connect' : 'Finance category mapping (synthetic)' })}
       <p>This is Finance’s own ledger-path-to-board-category mapping, not a live link to QuickBooks account IDs -- the <code>account_qbo_id</code> column Finance’s schema reserves for that is not populated by any import today.</p>
       ${renderTable({ head: ['Ledger path', 'Board category', 'Purpose'], rows: renderMappingRows(report.hierarchy) })}
     </section>`;

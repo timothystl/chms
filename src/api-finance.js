@@ -2834,7 +2834,7 @@ export const BOARD_EXPENSE_CATEGORIES = [
   { key: 'programs', label: 'Programs' },
 ];
 export const BOARD_EXPENSE_KEYS = BOARD_EXPENSE_CATEGORIES.map(c => c.key);
-async function readPlanningBoardCategories(db) {
+export async function readPlanningBoardCategories(db) {
   const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_planning_board_categories'").first();
   const empty = { revenue: {}, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '', accountLabels: {} };
   if (!row) return empty;
@@ -2855,6 +2855,23 @@ async function readPlanningBoardCategories(db) {
       // above (any non-empty path is a valid key; category_path is already unique across the
       // whole chart of accounts, so no fixed allowlist is needed here either).
       accountLabels: v.accountLabels && typeof v.accountLabels === 'object' ? v.accountLabels : {},
+    };
+  } catch { return empty; }
+}
+// Purpose tags reader — hoisted to module scope (was a closure inside handleFinanceApi) so it can
+// be imported by api-contracts.js's connect.finance-chart-of-accounts.v1 producer without
+// duplicating this parsing/defaulting logic. Behavior is unchanged from the original nested
+// version; see the 'finance/planning/purpose-tags' route below for the writer and
+// finSlugifyPurposeTag (still local to that route, since only the writer needs it).
+export async function readPurposeTags(db) {
+  const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_planning_purpose_tags'").first();
+  const empty = { tags: [], categories: {} };
+  if (!row) return empty;
+  try {
+    const v = JSON.parse(row.value) || {};
+    return {
+      tags: Array.isArray(v.tags) ? v.tags.filter(t => t && typeof t.id === 'string' && t.id && typeof t.label === 'string') : [],
+      categories: v.categories && typeof v.categories === 'object' ? v.categories : {},
     };
   } catch { return empty; }
 }
@@ -4518,18 +4535,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // every other per-worker field), read here only to know which tag ids are still valid. v1 is
   // single-tag-only per line (scoped and confirmed with the user 2026-09-05) — a percentage split
   // for a worker whose role spans two purposes was raised and deliberately deferred, not built.
-  async function readPurposeTags(db) {
-    const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_planning_purpose_tags'").first();
-    const empty = { tags: [], categories: {} };
-    if (!row) return empty;
-    try {
-      const v = JSON.parse(row.value) || {};
-      return {
-        tags: Array.isArray(v.tags) ? v.tags.filter(t => t && typeof t.id === 'string' && t.id && typeof t.label === 'string') : [],
-        categories: v.categories && typeof v.categories === 'object' ? v.categories : {},
-      };
-    } catch { return empty; }
-  }
+  // (readPurposeTags itself now lives at module scope, next to readPlanningBoardCategories, so
+  // the connect.finance-chart-of-accounts.v1 producer in api-contracts.js can read the exact same
+  // saved tags/categories this route reads and writes — see that file's own comment.)
   function finSlugifyPurposeTag(label, taken) {
     const base = String(label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'tag';
     let id = base, n = 2;

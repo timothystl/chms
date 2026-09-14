@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-chart-of-accounts:v1",
+  "title": "Connect Finance Chart of Accounts v1",
+  "description": "Structural ledger account inventory (names, QuickBooks-derived category paths) plus Finance's own board-category and purpose-tag presentation of it. No dollar figure, gift, donor, or person crosses this contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "generatedAt", "accounts", "reconciliation"],
+  "properties": {
+    "contract": { "const": "connect.finance-chart-of-accounts.v1" },
+    "dataClassification": { "const": "structural" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "accounts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/account" }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accountCount", "incomeCount", "expenseCount", "unassignedCount"],
+      "properties": {
+        "accountCount": { "type": "integer", "minimum": 0, "description": "Must equal accounts.length." },
+        "incomeCount": { "type": "integer", "minimum": 0 },
+        "expenseCount": { "type": "integer", "minimum": 0 },
+        "unassignedCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Accounts with boardCategoryKey 'unassigned' -- Chart of Accounts is filled in gradually, so this is expected to be nonzero and is surfaced rather than hidden."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classification", "categoryPath", "accountName", "depth", "hasChildren",
+        "boardCategoryKey", "boardCategoryLabel", "purposeTagId", "purposeTagLabel"
+      ],
+      "properties": {
+        "classification": { "enum": ["Income", "Expenses"] },
+        "categoryPath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Colon-joined ancestor chain from finance_church_entries.category_path; always starts with its own classification."
+        },
+        "accountName": { "type": "string", "minLength": 1 },
+        "depth": { "type": "integer", "minimum": 0 },
+        "hasChildren": { "type": "boolean" },
+        "boardCategoryKey": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "One of the REVENUE_STREAMS / BOARD_EXPENSE_CATEGORIES keys, or 'unassigned' when Chart of Accounts has not yet classified this account."
+        },
+        "boardCategoryLabel": { "type": "string", "minLength": 1 },
+        "purposeTagId": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "purposeTagLabel": { "type": ["string", "null"], "minLength": 1 }
+      }
+    }
+  }
+}
