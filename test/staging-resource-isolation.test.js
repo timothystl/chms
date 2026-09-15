@@ -21,7 +21,7 @@ describe('staging resource isolation', () => {
     const productionBucket = resourceValue(production, 'bucket_name');
     const stagingBucket = resourceValue(staging, 'bucket_name');
 
-    expect(productionBucket).toBe('tlc-chms-photos');
+    expect(productionBucket).toBe('timothy-connect-photos');
     expect(stagingBucket).toBe('timothy-connect-photos-staging');
     expect(stagingBucket).not.toBe(productionBucket);
     expect(stagingBucket).toMatch(/-staging$/);

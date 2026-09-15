@@ -55,9 +55,18 @@ migrations_dir = "migrations"
 binding = "RSVP_STORE"
 id = "f27b2da9a6ed403da45810617a3e7eb2"
 
+# Renamed from tlc-chms-photos (Cloudflare R2 bucket, not the binding name -- PHOTOS was
+# already generic) 2026-09-15: the old bucket still exists and is left untouched -- see the
+# data-copy workflow at .github/workflows/migrate-photos-r2.yml and
+# scripts/migrate-r2-bucket.sh for how its objects (member/household photos, register scans,
+# certificate templates, branding assets) were copied here. Because the old bucket stayed live
+# and writable throughout the copy, re-run that workflow once more immediately before deploying
+# this change to catch up on anything written since the last copy, then confirm a member/
+# household photo actually renders against the new bucket after deploy, before deleting the old
+# tlc-chms-photos bucket in a later, separate step.
 [[r2_buckets]]
 binding = "PHOTOS"
-bucket_name = "tlc-chms-photos"
+bucket_name = "timothy-connect-photos"
 
 [triggers]
 crons = ["0 14 * * *"]
