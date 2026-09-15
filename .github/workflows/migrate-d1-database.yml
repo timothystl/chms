@@ -1,0 +1,111 @@
+name: Migrate tlc-volunteer-db to timothy-connect-db
+
+# One-shot (but safely re-runnable) data-copy step for the legacy-resource renaming project (see
+# AGENTS.md's Timothy Digital overhaul checkpoint), same shape as migrate-rsvp-store-kv.yml and
+# migrate-photos-r2.yml. Cloudflare cannot rename a D1 database in place and has no fork/copy-
+# into-new-database capability, so renaming tlc-volunteer-db -> timothy-connect-db is: create the
+# new database (done) -> copy data (this workflow) -> repoint wrangler.toml's binding in a
+# separate PR -> a manual production deploy -> verify -> delete the old database once confirmed.
+# This workflow only copies; it never deletes or touches the Worker's live binding, so it is
+# safe to run ahead of the repoint/deploy, and safe to re-run (the destination is cleared and
+# reloaded fresh each time, keeping the same database id throughout) to catch up on writes made
+# since a prior pass -- the source stays live and writable right up until the deploy.
+#
+# CRITICAL: the destination (timothy-connect-db) must never be bound to any Worker until after a
+# clean run of this workflow -- see scripts/migrate-d1-database.sh's own header for why (chms's
+# initDb() would otherwise seed it with real hardcoded data using colliding AUTOINCREMENT ids).
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full main commit SHA approved for this data-copy exercise
+        required: true
+        type: string
+      reason:
+        description: Reason for this migration run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d1-database-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Copy tlc-volunteer-db into timothy-connect-db
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+      SOURCE_DB: tlc-volunteer-db
+      SOURCE_DB_ID: 9399ee53-3386-4084-9b6b-def46b88f96a
+      DEST_DB: timothy-connect-db
+      DEST_DB_ID: 9e65fb21-5b6c-4f7b-bc0a-8f0ecb38cf05
+      RESULT_FILE: /tmp/d1-migration-result.json
+    steps:
+      - name: Check out the approved commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.expected_sha }}
+
+      - name: Verify the approved commit is on main
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git merge-base --is-ancestor "$EXPECTED_SHA" origin/main
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Copy tlc-volunteer-db into timothy-connect-db and reconcile
+        run: bash scripts/migrate-d1-database.sh
+
+      - name: Record migration summary
+        if: always()
+        shell: bash
+        env:
+          MIGRATION_REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          if [[ ! -s "$RESULT_FILE" ]]; then
+            echo '## tlc-volunteer-db -> timothy-connect-db data copy' >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo '- The copy script did not produce a result file (failed before completing any phase). Check the job logs.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo '## tlc-volunteer-db -> timothy-connect-db data copy'
+            echo
+            echo "- Approved commit: \`${GITHUB_SHA}\`"
+            echo "- Reason: ${MIGRATION_REASON}"
+            jq -r '
+              "- Source database UUID verified: `" + .source_db_id_verified + "`; destination UUID verified: `" + .dest_db_id_verified + "`",
+              "- Export: " + (.export_bytes | tostring) + " bytes; SHA-256 `" + .export_sha256 + "`",
+              "- Oversized export handling: " + (.oversized_export_statements_rewritten | tostring) + " statement rewritten; " + (.large_cells_length_verified | tostring) + " large value length-verified",
+              "- Destination cleared before import (safe re-run): " + (.destination_cleared_before_import | tostring),
+              "- Schema: " + (.schema_objects_matched | tostring) + " objects matched; control SHA-256 `" + .schema_control_sha256 + "`",
+              "- Integrity: " + .integrity_check + "; foreign-key violations " + (.foreign_key_violations | tostring),
+              "- Rows: " + (.tables_matched | tostring) + " tables matched; control SHA-256 `" + .row_control_sha256 + "`",
+              "- Monetary controls: " + (.monetary_controls_matched | tostring) + " columns matched; control SHA-256 `" + .monetary_control_sha256 + "`",
+              "- AUTOINCREMENT sequences: " + (.autoincrement_sequences_matched | tostring) + " matched; control SHA-256 `" + .sequence_control_sha256 + "`",
+              "- Source database left unmodified: " + (.source_database_modified | tostring) + "; destination never bound to a Worker: " + (.destination_never_bound_to_a_worker | tostring),
+              "- Sensitive rows and monetary values were not printed or retained as artifacts"
+            ' "$RESULT_FILE"
+          } >> "$GITHUB_STEP_SUMMARY"
