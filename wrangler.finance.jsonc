@@ -1,18 +1,22 @@
 {
-  // Production Finance Worker config — PREPARATION ONLY, not yet deployed.
+  // Production Finance Worker config, per the ordered runbook in
+  // docs/FINANCE_PRODUCTION_CUTOVER.md.
   //
-  // This mirrors wrangler.finance.staging.jsonc's shape but targets the real
-  // production Finance cutover described in the digital-architecture repo's
-  // overhaul plan ("Finance separation" next step). It is intentionally NOT
-  // wired into any deploy workflow that can run unattended, and it is not
-  // usable as-is: see the placeholder database_id below and
-  // docs/FINANCE_PRODUCTION_CUTOVER.md for the ordered runbook this file is
-  // one step of.
+  // Progress as of 2026-09-15: Step 1 (real D1 created) and Step 3 (migrations
+  // 0001-0004 applied, confirmed empty) are done. The first production deploy
+  // (Step 4, routes: []) succeeded 2026-09-15 -- timothy-finance-app exists in
+  // production, unreachable by any hostname. This change adds the real route
+  // (Step 5, revised): Cloudflare Workers Custom Domains provision their own
+  // DNS record only once the route is deployed, so Access could not actually
+  // be attached to finance.timothystl.org beforehand as the runbook originally
+  // assumed -- ERR_NAME_NOT_RESOLVED confirmed no DNS existed yet. The
+  // corrected order: this route deploys first, then Cloudflare Access is
+  // attached immediately after, before the URL is used or shared, preserving
+  // the same "never expose Finance behind an unprotected route" property the
+  // runbook intended.
   //
-  // Do not add a route or dispatch a deploy using this config without
-  // Andrew's explicit go-ahead for that specific step — the database_id
-  // below is now real (Step 1 of the runbook, done 2026-09-13), but Steps
-  // 3-7 (migrations, Access attachment, route, deploy) are still ahead.
+  // Do not dispatch a deploy using this config without Andrew's explicit
+  // go-ahead for that specific step.
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "timothy-finance-app",
   "main": "apps/finance/shell.js",
@@ -20,20 +24,21 @@
   "workers_dev": false,
   "preview_urls": false,
 
-  // Deliberately empty, same reasoning wrangler.finance.staging.jsonc
-  // originally documented for itself: a route must never go live on this
-  // Worker before Cloudflare Access is confirmed attached to it, or the
-  // route would be a second, unprotected door into Finance. Add the
-  // "finance.timothystl.org" custom_domain route only after that
-  // confirmation — see the runbook.
-  "routes": [],
+  // Added 2026-09-15 (runbook Step 5, revised order -- see the file header
+  // comment above). Cloudflare Access must be attached to this hostname in
+  // the dashboard immediately after this deploys, before the URL is used or
+  // shared with anyone -- this route existing does not by itself mean
+  // Finance data is safely reachable yet.
+  "routes": [
+    { "pattern": "finance.timothystl.org", "custom_domain": true }
+  ],
 
   "d1_databases": [
     {
       "binding": "FINANCE_DB",
       "database_name": "timothy-finance-db",
-      // Real production database, created 2026-09-13 (runbook Step 1). Still empty --
-      // migrations have not been applied yet (runbook Step 3).
+      // Real production database, created 2026-09-13 (runbook Step 1). Migrations
+      // 0001-0004 applied 2026-09-14 (runbook Step 3); confirmed genuinely empty.
       "database_id": "04988828-94b7-43bc-9689-ff570951f1c7",
       "migrations_dir": "apps/finance/migrations"
     }

@@ -1,13 +1,14 @@
 name: Deploy Finance Production
 
-# NOT READY TO USE — see docs/FINANCE_PRODUCTION_CUTOVER.md.
+# Successfully dispatched once already, 2026-09-15 (runbook Step 4 -- routes: []
+# deploy). See docs/FINANCE_PRODUCTION_CUTOVER.md for the full ordered runbook
+# and current progress. Never dispatch this without Andrew's explicit
+# production-release approval for the specific commit being deployed.
 #
-# wrangler.finance.jsonc still carries a placeholder D1 database_id
-# (00000000-0000-0000-0000-000000000000). The guard step below refuses to
-# deploy while that placeholder is still in place, so dispatching this
-# workflow today fails safely rather than deploying a Worker wired to a
-# database that doesn't exist. Do not remove that guard as a way to make a
-# run succeed — replace the placeholder for real, per the runbook, instead.
+# The guard step below refuses to deploy while wrangler.finance.jsonc's D1
+# database_id is still the placeholder (00000000-0000-0000-0000-000000000000).
+# It is a backstop against dispatching before a real database exists, not a
+# sign this workflow is otherwise unready -- do not remove it.
 
 on:
   workflow_dispatch:
