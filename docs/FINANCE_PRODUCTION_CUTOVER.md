@@ -1,10 +1,14 @@
 # Finance production cutover runbook
 
-Status as of this writing: **not started.** `wrangler.finance.jsonc`,
-`.github/workflows/deploy-finance.yml`, and `npm run validate:finance:prod` exist as prepared
-config only — none of the steps below have been executed. This document exists so that when
-Andrew is ready to actually start the cutover, the steps are ordered and each one's prerequisites
-are explicit, rather than being decided live against production.
+Status as of 2026-09-15: **in progress.** Steps 1-4 are done — the real production D1
+(`timothy-finance-db`) exists, migrations 0001-0004 are applied and confirmed empty, and
+`timothy-finance-app` has been deployed once to production with `routes: []` (unreachable by any
+domain). Step 5 is revised below from its original form: Cloudflare Workers Custom Domains only
+provision DNS once the route is actually deployed, so attaching Access to `finance.timothystl.org`
+*before* any route existed (the original Step 4/5 order) was not actually possible —
+`ERR_NAME_NOT_RESOLVED` confirmed this directly when Andrew tried it. The corrected order still
+preserves the runbook's core safety property (never let a route become reachable before Access
+gates it) — see Step 5.
 
 ## Why this is a runbook and not a single deploy
 
@@ -51,32 +55,43 @@ copy any data from the shared Connect D1's `finance_*` tables. See
 `digital-architecture` repository for what does and does not carry over cleanly if/when a real data
 migration from the old `finance_*` tables is scoped as its own later slice.
 
-## Step 4 — Attach Cloudflare Access to the Worker, before any route
+## Step 4 — Deploy once with an empty route (done, 2026-09-15)
 
-Deploy once with `routes: []` (as `wrangler.finance.jsonc` already has it) so the Worker exists but
-is unreachable by any custom domain. In the Cloudflare dashboard, attach Access to
-`timothy-finance-app` and confirm a sign-in gate actually blocks an unauthenticated request. This
-is the same order staging followed for the same reason: a route must never go live before Access
-is confirmed attached, or it is a second, unprotected door into Finance.
+Deploy with `routes: []` so the Worker exists in production but is unreachable by any custom
+domain. This was the safe first deploy — no route, no exposure — and it succeeded.
 
-## Step 5 — Add the production route
+## Step 5 — Add the production route, then attach Access immediately
 
-Only after Step 4 is confirmed, add the real route back to `wrangler.finance.jsonc` in a reviewed
-PR:
+Originally this runbook called for attaching Cloudflare Access to `finance.timothystl.org` in the
+dashboard *before* adding any route, on the assumption that a hostname could be gated independent
+of whether a Worker route existed yet. That assumption was wrong for this account's setup:
+Cloudflare Workers Custom Domains (`"custom_domain": true`, the same mechanism
+`wrangler.finance.staging.jsonc` already uses) only provision a real DNS record once the route is
+actually deployed — there is no way to pre-stage Access against a hostname that doesn't resolve
+yet. Andrew confirmed this directly (`finance.timothystl.org` returned `ERR_NAME_NOT_RESOLVED`
+before any route existed).
 
-```jsonc
-"routes": [
-  { "pattern": "finance.timothystl.org", "custom_domain": true }
-]
-```
+**Corrected order**, which still keeps the same safety property (never let a route sit reachable
+without Access gating it):
 
-## Step 6 — Dispatch the production deploy
+1. Add the real route to `wrangler.finance.jsonc` in a reviewed PR:
 
-`.github/workflows/deploy-finance.yml`, dispatched with the approved `main` commit SHA and a
-release reason — same discipline as `.github/workflows/deploy.yml` for the main Connect Worker.
-Never dispatch it without Andrew's explicit production-release approval for that specific commit.
+   ```jsonc
+   "routes": [
+     { "pattern": "finance.timothystl.org", "custom_domain": true }
+   ]
+   ```
 
-## Step 7 — Smoke-check and confirm isolation
+2. Merge, then dispatch `.github/workflows/deploy-finance.yml` at that commit (this is what
+   actually creates the DNS record and connects the domain to the Worker).
+3. **Immediately** after that deploy finishes — before sharing or using the URL — attach Cloudflare
+   Access to `finance.timothystl.org` in the dashboard, mirroring the staging app's policy.
+4. Confirm a sign-in gate actually blocks an unauthenticated request (a private/incognito visit to
+   `https://finance.timothystl.org` should land on a Cloudflare Access login page, not any content).
+
+Only once step 4 above is confirmed should the URL be used or shared with anyone.
+
+## Step 6 — Smoke-check and confirm isolation
 
 - Confirm `/health` responds only through Access, not anonymously.
 - Confirm the Worker's `CONNECT_SERVICE`/`PAYROLL_SERVICE` bindings resolve to the real production
