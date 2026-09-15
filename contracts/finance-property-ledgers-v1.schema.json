@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-property-ledgers:v1",
+  "title": "Connect Finance Property Ledgers v1",
+  "description": "Itemized one-off transaction ledgers -- capital improvements and repairs/maintenance -- for one church-owned commercial property (3277 Ivanhoe by default). Not a recurring monthly statement (connect.finance-property-operating.v1) or a funding schedule (connect.finance-property-reserves.v1). Bundled into one contract deliberately, mirroring the staging fixture's own existing precedent (readSyntheticPropertyLedgers in apps/finance/property-report-service.js already reads finance_property_capital_ledger and finance_property_repairs together): the two ledgers share the exact same row shape (date, amount, payee, description) and the same 'Commercial Property' UI area, differing only in which table backs which page (Capital improvements vs. Work orders & repairs). Confirmed live against production on 2026-09-15: entry_date is not always a full YYYY-MM-DD date (one real capital ledger row -- an opening-balance entry predating the earliest available report -- has an EMPTY entry_date, and several real repairs rows carry only a YYYY-MM month), and repairs.amountCents is genuinely nullable (an as-yet-unbilled or pending repair).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "currency", "propertyKey", "generatedAt", "capital", "repairs", "totals"],
+  "properties": {
+    "contract": { "const": "connect.finance-property-ledgers.v1" },
+    "dataClassification": { "const": "aggregate" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "currency": { "const": "USD" },
+    "propertyKey": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "capital": {
+      "type": "array",
+      "description": "finance_property_capital_ledger. Empty is a normal, valid 'nothing recorded yet' state, not a 500.",
+      "items": { "$ref": "#/$defs/capitalRow" }
+    },
+    "repairs": {
+      "type": "array",
+      "description": "finance_property_repairs.",
+      "items": { "$ref": "#/$defs/repairRow" }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capitalCents", "repairsCents"],
+      "properties": {
+        "capitalCents": { "type": "integer", "description": "Sum of capital[].amountCents, nulls counted as 0." },
+        "repairsCents": { "type": "integer", "description": "Sum of repairs[].amountCents, nulls counted as 0." }
+      }
+    }
+  },
+  "$defs": {
+    "entryDate": { "type": "string", "pattern": "^(\\d{4}-\\d{2}(-\\d{2})?)?$", "description": "'', YYYY-MM, or YYYY-MM-DD -- not always a full date in real data (see the module description)." },
+    "capitalRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entryDate", "amountCents", "payee", "description", "checkRef", "project", "sortOrder"],
+      "properties": {
+        "entryDate": { "$ref": "#/$defs/entryDate" },
+        "amountCents": { "type": ["integer", "null"], "description": "No real capital ledger row is null today, but modeled nullable for the same as-yet-unbilled reason repairs' is." },
+        "payee": { "type": "string" },
+        "description": { "type": "string" },
+        "checkRef": { "type": "string" },
+        "project": { "type": "string" },
+        "sortOrder": { "type": "integer" }
+      }
+    },
+    "repairRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entryDate", "category", "description", "amountCents", "payee", "capitalized"],
+      "properties": {
+        "entryDate": { "$ref": "#/$defs/entryDate" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "amountCents": { "type": ["integer", "null"], "description": "Null for an as-yet-unbilled or pending repair -- confirmed against real production rows on 2026-09-15." },
+        "payee": { "type": "string" },
+        "capitalized": { "type": "boolean" }
+      }
+    }
+  }
+}

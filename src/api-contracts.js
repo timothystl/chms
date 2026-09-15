@@ -14,11 +14,14 @@ import { validateFinanceBalanceSheetV1 } from '../apps/finance/finance-balance-s
 import { validateFinanceDaycareReportV1 } from '../apps/finance/finance-daycare-consumer.js';
 import { validateFinancePropertyValuationV1 } from '../apps/finance/finance-property-valuation-consumer.js';
 import { validateFinanceCompensationV1 } from '../apps/finance/finance-compensation-consumer.js';
+import { validateFinancePropertyOperatingV1 } from '../apps/finance/finance-property-operating-consumer.js';
+import { validateFinancePropertyReservesV1 } from '../apps/finance/finance-property-reserves-consumer.js';
+import { validateFinancePropertyLedgersV1 } from '../apps/finance/finance-property-ledgers-consumer.js';
 import {
   readPlanningBoardCategories, readPurposeTags, REVENUE_STREAMS, BOARD_EXPENSE_CATEGORIES,
   resolveChurchYearPrecedence, computeYearSummary,
   applyDesignatedFundsAsEquity, computeBalanceSummary, computeEquityReclassification,
-  computeMdoUtilityInsuranceAllocation,
+  computeMdoUtilityInsuranceAllocation, computePropertyAnnualSummary,
 } from './api-finance.js';
 
 function isValidFiscalYearStr(value) {
@@ -1053,6 +1056,296 @@ export async function respondWithFinanceCompensationV1(db) {
   return json(compensation);
 }
 
+// ── Property Operating Results: the tenth contract ──────────────────────────────────────────
+// This, Reserves (the eleventh), and Ledgers (the twelfth) are the three contracts that finish
+// the Commercial Property slice PR #994 explicitly deferred: "The separately-sourced Commercial
+// Property monthly report/reserves/capital/repairs (finance_property_monthly,
+// finance_property_reserves, finance_property_capital_ledger, finance_property_repairs -- all
+// real tables already in the shared legacy schema with their own accumulated history) are a
+// different, already-schema-compatible slice, deliberately left for a future PR". Investigated
+// directly against production on 2026-09-15 rather than assumed: this contract, reserves, and
+// ledgers really are three different shapes (a monthly recurring statement vs. a reserve funding
+// schedule vs. itemized one-off ledgers), the same reasoning that kept Balance Sheet/Church
+// Report separate from Budget.
+//
+// This contract is the monthly recurring statement: one row per report month from
+// finance_property_monthly (30 real rows for 'ivanhoe' as of 2026-09-15, spanning 2023-12
+// through 2026-07), plus the same per-fiscal-year annualSummary production's own
+// `finance/property/<key>` GET route already returns alongside it -- reused directly via
+// computePropertyAnnualSummary (src/api-finance.js), not reimplemented here, so this contract's
+// annual rollups can never drift from what staff see in production today. distributions
+// (finance_property_distributions) is queried here ONLY as computePropertyAnnualSummary's own
+// second argument (it needs distribution rows to fill in confirmed_distributions_cents per
+// year) -- the per-period distribution rows themselves are NOT exposed by this contract; they
+// belong to, and are exposed by, the Reserves contract below, whose "Reserve & distribution" UI
+// page is the one that actually renders them.
+//
+// Two real findings from checking live production data directly (not assumed from the synthetic
+// fixture's own shape):
+//
+// 1. occupancy_pct is stored as a 0-1 FRACTION in real data (0.893, 1, 0.8892, ...), not the 0-100
+//    scale the committed synthetic fixture uses (finance_property_monthly seed row: occupancy_pct
+//    90). This contract follows the same 0-1 convention connect.finance-property-valuation.v1
+//    already established for vacancyRatePct/managementFeePct (see FIN_VAL_OP_COST_FIELDS above),
+//    not the synthetic fixture's 0-100 scale -- the *100 conversion needed to keep reusing the
+//    existing renderPropertyRows() (which expects 0-100, since that's what the synthetic fixture
+//    happens to store) is done once, in the staging live-view builder
+//    (apps/finance/property-report-service.js's buildLivePropertyOperatingRows), not baked into
+//    the contract's own number.
+// 2. total_expenses_cents, net_operating_income_cents, available_for_distribution_cents,
+//    reserve_balance_cents, loan_payment_cents, and interest_expense_cents are all genuinely
+//    nullable in real data (4, 23, 25, 25, 29, and 29 of the 30 real rows respectively) --
+//    several months' AHRA reports simply don't break out those figures. total_revenue_cents,
+//    net_income_cents, and occupancy_pct are never null. Every one of the 26 rows that DOES carry
+//    a total_expenses_cents reconciles exactly (total_revenue_cents - total_expenses_cents ===
+//    net_income_cents, to the cent, confirmed against all 26 such rows) -- this contract and its
+//    consumer cross-check that invariant on exactly those rows, the same way
+//    computePropertyAnnualSummary's own comment already documents deriving the missing months'
+//    expenses from revenue - net income rather than treating them as zero.
+export async function buildFinancePropertyOperatingV1(db, { propertyKey = 'ivanhoe', now = new Date() } = {}) {
+  const monthlyRows = (await db.prepare(
+    'SELECT period, occupancy_pct, total_revenue_cents, total_expenses_cents, net_income_cents, net_operating_income_cents, available_for_distribution_cents, reserve_balance_cents, loan_payment_cents, interest_expense_cents, source_report FROM finance_property_monthly WHERE property_key=? ORDER BY period ASC'
+  ).bind(propertyKey).all()).results || [];
+  const distributionRows = (await db.prepare(
+    'SELECT period, amount_cents FROM finance_property_distributions WHERE property_key=? ORDER BY period ASC'
+  ).bind(propertyKey).all()).results || [];
+
+  const periods = monthlyRows.map((r) => ({
+    period: r.period,
+    occupancyPct: Number(r.occupancy_pct),
+    totalRevenueCents: r.total_revenue_cents,
+    totalExpensesCents: r.total_expenses_cents ?? null,
+    netIncomeCents: r.net_income_cents,
+    netOperatingIncomeCents: r.net_operating_income_cents ?? null,
+    availableForDistributionCents: r.available_for_distribution_cents ?? null,
+    reserveBalanceCents: r.reserve_balance_cents ?? null,
+    loanPaymentCents: r.loan_payment_cents ?? null,
+    interestExpenseCents: r.interest_expense_cents ?? null,
+    sourceReport: r.source_report || '',
+  }));
+
+  // Same function, same input shape (property_key-scoped rows with a `period`/`amount_cents`
+  // column set) that production's own handlePropertyApi passes it -- reused, not reimplemented.
+  const annualSummary = computePropertyAnnualSummary(monthlyRows, distributionRows).map((y) => ({
+    year: y.year,
+    totalRevenueCents: y.total_revenue_cents,
+    totalExpensesCents: y.total_expenses_cents,
+    netIncomeCents: y.net_income_cents,
+    avgOccupancyPct: y.avg_occupancy_pct,
+    confirmedDistributionsCents: y.confirmed_distributions_cents,
+    expenseMonthsDerived: y.expense_months_derived,
+    notes: y.notes || '',
+  }));
+
+  return {
+    contract: 'connect.finance-property-operating.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    propertyKey,
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    periods,
+    annualSummary,
+  };
+}
+
+export async function respondWithFinancePropertyOperatingV1(url, db) {
+  const propertyKey = url.searchParams.get('property_key') || 'ivanhoe';
+  const operating = await buildFinancePropertyOperatingV1(db, { propertyKey, now: new Date() });
+
+  // Fail closed, same discipline as the contracts above: an empty periods array is a normal
+  // "nothing reported yet" state (same as Budget/Church Report/Balance Sheet/Daycare Report's own
+  // empty-fiscal-year convention) and passes validation, but a malformed shape must not reach
+  // Finance.
+  const validation = validateFinancePropertyOperatingV1(operating);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled property operating report failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(operating);
+}
+
+// ── Property Reserves: the eleventh contract ────────────────────────────────────────────────
+// A reserve FUNDING schedule, not a recurring operating statement (Operating, above) or an
+// itemized one-off ledger (Ledgers, below) -- its own shape, same reasoning as the module
+// comment above. Bundles three real, already-related tables that production's own
+// `finance/property/<key>` GET route already returns together in one response
+// (src/api-finance.js's handlePropertyApi): finance_property_reserves (the monthly
+// before/contribution/after schedule for each named reserve bucket, e.g. 'property_tax'),
+// finance_property_reserve_disbursements (the annual "paid" log against a reserve bucket --
+// production's own finRenderPropertyTaxReserve, src/frontend/js-finance.js, renders both of
+// these together under one "Property Tax Reserve" heading), and finance_property_distributions
+// (confirmed cash distributions to the church) -- all three are what production's UI, and this
+// contract's own "Reserve & distribution" staging page, present as one section.
+//
+// reserveKey is NOT hardcoded to 'property_tax' -- migrations/0023's own comment documents the
+// table as generic ("e.g. 'property_tax', 'capital_paint_asphalt_concrete'"), even though only
+// 'property_tax' has real rows for 'ivanhoe' today (confirmed live 2026-09-15).
+//
+// Real finding from checking live production data directly: reserve_after_cents does NOT always
+// equal reserve_before_cents + contribution_cents exactly -- 4 of the 30 real rows are off by
+// exactly ±1 cent (pure monthly-contribution rounding: $1,160.00/yr ÷ 12 = $96.666...67/mo,
+// confirmed against the 2024-04/07/10 rows; the 2026-08 row's own stored note independently
+// explains its own one-month-ahead convention). This contract's consumer tolerates that ±1 cent
+// rounding drift rather than requiring bit-exact reconciliation the way the synthetic fixture's
+// own reader (readSyntheticPropertyReserves) does.
+export async function buildFinancePropertyReservesV1(db, { propertyKey = 'ivanhoe', now = new Date() } = {}) {
+  const reserveRows = (await db.prepare(
+    'SELECT reserve_key, report_month, tax_year, target_estimate_cents, reserve_before_cents, contribution_cents, reserve_after_cents, note FROM finance_property_reserves WHERE property_key=? ORDER BY reserve_key ASC, report_month ASC'
+  ).bind(propertyKey).all()).results || [];
+  const disbursementRows = (await db.prepare(
+    'SELECT reserve_key, period_key, amount_cents, paid_via_report_month, note FROM finance_property_reserve_disbursements WHERE property_key=? ORDER BY reserve_key ASC, period_key ASC'
+  ).bind(propertyKey).all()).results || [];
+  const distributionRows = (await db.prepare(
+    'SELECT period, amount_cents FROM finance_property_distributions WHERE property_key=? ORDER BY period ASC'
+  ).bind(propertyKey).all()).results || [];
+
+  const reserves = reserveRows.map((r) => {
+    const targetEstimateCents = r.target_estimate_cents;
+    const reserveAfterCents = r.reserve_after_cents;
+    return {
+      reserveKey: r.reserve_key,
+      reportMonth: r.report_month,
+      taxYear: r.tax_year ?? null,
+      targetEstimateCents,
+      reserveBeforeCents: r.reserve_before_cents,
+      contributionCents: r.contribution_cents,
+      reserveAfterCents,
+      // Same formula, and same 0-100 scale, as the synthetic fixture reader's own funded_pct
+      // (apps/finance/property-report-service.js's readSyntheticPropertyReserves) -- reused
+      // convention, not a new one, so the reserve schedule table's "Funded" column never needs to
+      // know which source produced its input.
+      fundedPct: targetEstimateCents > 0 ? (reserveAfterCents / targetEstimateCents) * 100 : 0,
+      note: r.note || '',
+    };
+  });
+
+  const reserveDisbursements = disbursementRows.map((d) => ({
+    reserveKey: d.reserve_key,
+    periodKey: d.period_key,
+    amountCents: d.amount_cents ?? null,
+    paidViaReportMonth: d.paid_via_report_month || '',
+    note: d.note || '',
+  }));
+
+  const distributions = distributionRows.map((d) => ({
+    period: d.period,
+    amountCents: d.amount_cents,
+  }));
+
+  return {
+    contract: 'connect.finance-property-reserves.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    propertyKey,
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    reserves,
+    reserveDisbursements,
+    distributions,
+  };
+}
+
+export async function respondWithFinancePropertyReservesV1(url, db) {
+  const propertyKey = url.searchParams.get('property_key') || 'ivanhoe';
+  const reserves = await buildFinancePropertyReservesV1(db, { propertyKey, now: new Date() });
+
+  // Fail closed, same discipline as the contracts above: empty reserves/reserveDisbursements/
+  // distributions arrays are a normal "nothing recorded yet" state and pass validation, but a
+  // malformed shape must not reach Finance.
+  const validation = validateFinancePropertyReservesV1(reserves);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled property reserves report failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(reserves);
+}
+
+// ── Property Ledgers: the twelfth contract ──────────────────────────────────────────────────
+// Itemized one-off transaction ledgers -- capital improvements and repairs/maintenance -- not a
+// recurring monthly statement (Operating) or a funding schedule (Reserves). Bundled into one
+// contract deliberately, mirroring the staging fixture's own existing precedent: the synthetic
+// reader (apps/finance/property-report-service.js's readSyntheticPropertyLedgers) already reads
+// finance_property_capital_ledger and finance_property_repairs together into one
+// {capital, repairs, totals} shape, because the two ledgers share the exact same row shape
+// (date, amount, payee, description) and the same "Commercial Property" UI area -- they differ
+// only in which table backs which page (Capital improvements vs. Work orders & repairs).
+//
+// Two real findings from checking live production data directly, neither of which the synthetic
+// fixture's own reader assumes:
+// 1. entry_date is not always a full YYYY-MM-DD date. One real capital_ledger row (id 1, "Opening
+//    balance of the Capital Improvements account as of the earliest available report") has an
+//    EMPTY entry_date -- Jan/Feb 2024 reports predating the earliest available report are missing,
+//    so no real date exists for it. Several real repairs rows carry only a YYYY-MM month (e.g.
+//    '2024-11', '2025-07', '2026-05') rather than a full date, reflecting reports that only gave a
+//    month for that repair. This contract's consumer accepts '', YYYY-MM, or YYYY-MM-DD for
+//    entryDate rather than requiring the synthetic fixture's own strict YYYY-MM-DD pattern.
+// 2. repairs.amount_cents is genuinely nullable (4 of 13 real rows) -- an as-yet-unbilled or
+//    pending repair. payee is also genuinely empty on several real rows for the same reason
+//    (vendor not yet known/confirmed). capital_ledger has no nulls or empty payees in real data
+//    today, but amountCents is still modeled as nullable here for the same reason repairs' is:
+//    an itemized one-off ledger can legitimately have a not-yet-known amount.
+export async function buildFinancePropertyLedgersV1(db, { propertyKey = 'ivanhoe', now = new Date() } = {}) {
+  const capitalRows = (await db.prepare(
+    'SELECT entry_date, amount_cents, payee, description, check_ref, project, sort_order FROM finance_property_capital_ledger WHERE property_key=? ORDER BY sort_order ASC, entry_date ASC, id ASC'
+  ).bind(propertyKey).all()).results || [];
+  const repairRows = (await db.prepare(
+    'SELECT entry_date, category, description, amount_cents, payee, capitalized FROM finance_property_repairs WHERE property_key=? ORDER BY entry_date ASC, id ASC'
+  ).bind(propertyKey).all()).results || [];
+
+  const capital = capitalRows.map((r) => ({
+    entryDate: r.entry_date || '',
+    amountCents: r.amount_cents ?? null,
+    payee: r.payee || '',
+    description: r.description || '',
+    checkRef: r.check_ref || '',
+    project: r.project || '',
+    sortOrder: r.sort_order,
+  }));
+
+  const repairs = repairRows.map((r) => ({
+    entryDate: r.entry_date || '',
+    category: r.category || '',
+    description: r.description || '',
+    amountCents: r.amount_cents ?? null,
+    payee: r.payee || '',
+    capitalized: !!r.capitalized,
+  }));
+
+  return {
+    contract: 'connect.finance-property-ledgers.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    propertyKey,
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    capital,
+    repairs,
+    totals: {
+      capitalCents: capital.reduce((sum, r) => sum + (r.amountCents || 0), 0),
+      repairsCents: repairs.reduce((sum, r) => sum + (r.amountCents || 0), 0),
+    },
+  };
+}
+
+export async function respondWithFinancePropertyLedgersV1(url, db) {
+  const propertyKey = url.searchParams.get('property_key') || 'ivanhoe';
+  const ledgers = await buildFinancePropertyLedgersV1(db, { propertyKey, now: new Date() });
+
+  // Fail closed, same discipline as the contracts above: empty capital/repairs arrays are a
+  // normal "nothing recorded yet" state and pass validation, but a malformed shape must not reach
+  // Finance.
+  const validation = validateFinancePropertyLedgersV1(ledgers);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled property ledgers report failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(ledgers);
+}
+
 export async function handleContractsApi(req, env, url, method, seg, db) {
   if (seg === 'contracts/connect-giving-summary-v1' && method === 'GET') {
     return respondWithConnectGivingSummaryV1(url, db);
@@ -1080,6 +1373,15 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
   }
   if (seg === 'contracts/finance-compensation-v1' && method === 'GET') {
     return respondWithFinanceCompensationV1(db);
+  }
+  if (seg === 'contracts/finance-property-operating-v1' && method === 'GET') {
+    return respondWithFinancePropertyOperatingV1(url, db);
+  }
+  if (seg === 'contracts/finance-property-reserves-v1' && method === 'GET') {
+    return respondWithFinancePropertyReservesV1(url, db);
+  }
+  if (seg === 'contracts/finance-property-ledgers-v1' && method === 'GET') {
+    return respondWithFinancePropertyLedgersV1(url, db);
   }
   return null;
 }

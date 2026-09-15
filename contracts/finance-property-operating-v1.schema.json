@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-property-operating:v1",
+  "title": "Connect Finance Property Operating Results v1",
+  "description": "The monthly recurring operating statement for one church-owned commercial property (3277 Ivanhoe by default): one row per report month from finance_property_monthly, plus the same per-fiscal-year annualSummary production's own `finance/property/<key>` GET route already returns alongside it (computePropertyAnnualSummary, src/api-finance.js). A different shape from connect.finance-property-reserves.v1 (a reserve funding schedule) and connect.finance-property-ledgers.v1 (itemized one-off ledgers) -- the same reasoning that kept Balance Sheet/Church Report separate from Budget. Confirmed live against production on 2026-09-15: occupancy_pct is a 0-1 fraction (not the committed synthetic fixture's 0-100 scale), and total_expenses_cents/net_operating_income_cents/available_for_distribution_cents/reserve_balance_cents/loan_payment_cents/interest_expense_cents are all genuinely nullable -- several months' AHRA reports simply don't break out those figures.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "currency", "propertyKey", "generatedAt", "periods", "annualSummary"],
+  "properties": {
+    "contract": { "const": "connect.finance-property-operating.v1" },
+    "dataClassification": { "const": "aggregate" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "currency": { "const": "USD" },
+    "propertyKey": { "type": "string", "minLength": 1, "description": "Defaults to 'ivanhoe' -- the only property Finance/Connect track today." },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "periods": {
+      "type": "array",
+      "description": "One row per report month. Empty is a normal, valid 'nothing reported yet' state -- same convention as Budget/Church Report/Balance Sheet/Daycare Report's own empty-fiscal-year contracts, not a 500.",
+      "items": { "$ref": "#/$defs/periodRow" }
+    },
+    "annualSummary": {
+      "type": "array",
+      "description": "Reused directly from computePropertyAnnualSummary (src/api-finance.js), not reimplemented -- the exact per-fiscal-year rollup production's own Property tab already presents.",
+      "items": { "$ref": "#/$defs/annualSummaryRow" }
+    }
+  },
+  "$defs": {
+    "periodRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "period", "occupancyPct", "totalRevenueCents", "totalExpensesCents", "netIncomeCents",
+        "netOperatingIncomeCents", "availableForDistributionCents", "reserveBalanceCents",
+        "loanPaymentCents", "interestExpenseCents", "sourceReport"
+      ],
+      "properties": {
+        "period": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" },
+        "occupancyPct": { "type": "number", "minimum": 0, "description": "A 0-1 fraction (0.893 = 89.3% occupied), confirmed against real production data on 2026-09-15 -- not the 0-100 scale the committed synthetic fixture happens to store." },
+        "totalRevenueCents": { "type": "integer", "description": "Never null in real data." },
+        "totalExpensesCents": { "type": ["integer", "null"], "description": "Nullable -- 4 of 30 real rows for 'ivanhoe' have no total_expenses_cents on 2026-09-15. When present, totalRevenueCents - totalExpensesCents must equal netIncomeCents exactly (confirmed against all 26 such real rows)." },
+        "netIncomeCents": { "type": "integer", "description": "Never null in real data." },
+        "netOperatingIncomeCents": { "type": ["integer", "null"] },
+        "availableForDistributionCents": { "type": ["integer", "null"] },
+        "reserveBalanceCents": { "type": ["integer", "null"] },
+        "loanPaymentCents": { "type": ["integer", "null"], "description": "Nullable -- populated for only 1 of 30 real rows on 2026-09-15 (the one month a lender-confirmed loan payment/interest split was recorded)." },
+        "interestExpenseCents": { "type": ["integer", "null"] },
+        "sourceReport": { "type": "string" }
+      }
+    },
+    "annualSummaryRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["year", "totalRevenueCents", "totalExpensesCents", "netIncomeCents", "avgOccupancyPct", "confirmedDistributionsCents", "expenseMonthsDerived", "notes"],
+      "properties": {
+        "year": { "type": "integer" },
+        "totalRevenueCents": { "type": "integer" },
+        "totalExpensesCents": { "type": "integer", "description": "A month with no total_expenses_cents has its expenses derived as totalRevenueCents - netIncomeCents for that month, same as computePropertyAnnualSummary's own documented convention." },
+        "netIncomeCents": { "type": "integer" },
+        "avgOccupancyPct": { "type": ["number", "null"], "description": "Average of the year's periods' occupancyPct (same 0-1 fraction scale), or null if no period that year carried an occupancy figure." },
+        "confirmedDistributionsCents": { "type": "integer", "description": "Sum of finance_property_distributions for this year -- confirmed cash distributions, distinct from availableForDistributionCents (an estimate)." },
+        "expenseMonthsDerived": { "type": "integer", "minimum": 0, "description": "How many of this year's months had their expenses derived rather than reported, so the UI can say so." },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

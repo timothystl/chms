@@ -284,6 +284,18 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // 'contracts/', not 'finance') and reach the handler with NO permission check at all -- see
     // docs/ARCHITECTURE.md's ACCESS_GATE note on exactly this trap.
     { match: (s) => s.startsWith('contracts/finance-compensation'), item: 'compensation' },
+    // Same trap, same fix, for the tenth, eleventh, and twelfth contracts: Property Operating
+    // (a monthly recurring statement), Property Reserves (a reserve funding schedule plus
+    // disbursements/distributions), and Property Ledgers (itemized capital/repairs ledgers) --
+    // the follow-on PR #994 itself deferred, all real Commercial Property dollar data, none of it
+    // Giving or per-person compensation -- so all three take the plain 'finance' item like the
+    // eight non-compensation contracts above. Without this explicit rule any of these segments
+    // would match no rule above (they start with 'contracts/', not 'finance') and reach the
+    // handler with NO permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note on
+    // exactly this trap.
+    { match: (s) => s.startsWith('contracts/finance-property-operating'), item: 'finance' },
+    { match: (s) => s.startsWith('contracts/finance-property-reserves'), item: 'finance' },
+    { match: (s) => s.startsWith('contracts/finance-property-ledgers'), item: 'finance' },
     { match: (s) => s.startsWith('tuition-aid'), item: 'tuitionaid' },
     { match: (s) => s.startsWith('finance'), item: 'finance' },
     { match: (s) => s.startsWith('attendance'), item: 'attendance' },

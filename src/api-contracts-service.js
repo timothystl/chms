@@ -7,7 +7,7 @@
 // This stays a distinct, narrower grant from the human role/permission matrix in
 // api-chms.js: it reaches nothing but the contracts named below.
 import { json, timingSafeEqual } from './auth.js';
-import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, respondWithFinanceChartOfAccountsV1, respondWithFinanceBudgetV1, respondWithFinanceChurchReportV1, respondWithFinanceBalanceSheetV1, respondWithFinanceDaycareReportV1, respondWithFinancePropertyValuationV1, respondWithFinanceCompensationV1 } from './api-contracts.js';
+import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, respondWithFinanceChartOfAccountsV1, respondWithFinanceBudgetV1, respondWithFinanceChurchReportV1, respondWithFinanceBalanceSheetV1, respondWithFinanceDaycareReportV1, respondWithFinancePropertyValuationV1, respondWithFinanceCompensationV1, respondWithFinancePropertyOperatingV1, respondWithFinancePropertyReservesV1, respondWithFinancePropertyLedgersV1 } from './api-contracts.js';
 import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
@@ -58,6 +58,18 @@ export async function handleContractsServiceApi(req, env, path) {
   // attempts this fetch for a Connect role independently verified as admin/council/compensation.
   if (path === '/api/contracts/finance-compensation-v1' && req.method === 'GET') {
     return respondWithFinanceCompensationV1(env.DB);
+  }
+
+  if (path === '/api/contracts/finance-property-operating-v1' && req.method === 'GET') {
+    return respondWithFinancePropertyOperatingV1(new URL(req.url), env.DB);
+  }
+
+  if (path === '/api/contracts/finance-property-reserves-v1' && req.method === 'GET') {
+    return respondWithFinancePropertyReservesV1(new URL(req.url), env.DB);
+  }
+
+  if (path === '/api/contracts/finance-property-ledgers-v1' && req.method === 'GET') {
+    return respondWithFinancePropertyLedgersV1(new URL(req.url), env.DB);
   }
 
   if (path === '/api/contracts/giving-quick-entry-v1' && req.method === 'POST') {
