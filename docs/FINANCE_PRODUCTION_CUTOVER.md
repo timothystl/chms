@@ -1,14 +1,17 @@
 # Finance production cutover runbook
 
-Status as of 2026-09-15: **in progress.** Steps 1-4 are done — the real production D1
-(`timothy-finance-db`) exists, migrations 0001-0004 are applied and confirmed empty, and
-`timothy-finance-app` has been deployed once to production with `routes: []` (unreachable by any
-domain). Step 5 is revised below from its original form: Cloudflare Workers Custom Domains only
-provision DNS once the route is actually deployed, so attaching Access to `finance.timothystl.org`
-*before* any route existed (the original Step 4/5 order) was not actually possible —
-`ERR_NAME_NOT_RESOLVED` confirmed this directly when Andrew tried it. The corrected order still
-preserves the runbook's core safety property (never let a route become reachable before Access
-gates it) — see Step 5.
+Status as of 2026-09-15: **complete through Step 6.** All of Steps 1-6 below are done: a real,
+isolated, Access-gated production Finance Worker and database exist. `finance.timothystl.org`
+resolves and Cloudflare Access confirmed blocking unauthenticated requests (verified both by curl
+against the live edge and, separately, by Andrew's own browser once a local DNS cache from his
+earlier pre-route test cleared). Step 5 below was revised from its original form during execution:
+Cloudflare Workers Custom Domains only provision DNS once the route is actually deployed, so
+attaching Access to `finance.timothystl.org` *before* any route existed (the original Step 4/5
+order) was not actually possible — `ERR_NAME_NOT_RESOLVED` confirmed this directly when Andrew
+first tried it. The corrected order still preserved the runbook's core safety property (never let
+a route become reachable before Access gates it) — see Step 5. What this runbook deliberately does
+not cover (real data migration, user cutover, retiring the in-Connect module) remains open, later
+work — see the closing section.
 
 ## Why this is a runbook and not a single deploy
 
@@ -71,10 +74,10 @@ actually deployed — there is no way to pre-stage Access against a hostname tha
 yet. Andrew confirmed this directly (`finance.timothystl.org` returned `ERR_NAME_NOT_RESOLVED`
 before any route existed).
 
-**Corrected order**, which still keeps the same safety property (never let a route sit reachable
-without Access gating it):
+**Corrected order actually followed** (done, 2026-09-15), which still kept the same safety
+property (never let a route sit reachable without Access gating it):
 
-1. Add the real route to `wrangler.finance.jsonc` in a reviewed PR:
+1. Added the real route to `wrangler.finance.jsonc` in a reviewed PR (chms PR #998):
 
    ```jsonc
    "routes": [
@@ -82,24 +85,34 @@ without Access gating it):
    ]
    ```
 
-2. Merge, then dispatch `.github/workflows/deploy-finance.yml` at that commit (this is what
-   actually creates the DNS record and connects the domain to the Worker).
-3. **Immediately** after that deploy finishes — before sharing or using the URL — attach Cloudflare
-   Access to `finance.timothystl.org` in the dashboard, mirroring the staging app's policy.
-4. Confirm a sign-in gate actually blocks an unauthenticated request (a private/incognito visit to
-   `https://finance.timothystl.org` should land on a Cloudflare Access login page, not any content).
+2. Merged, then dispatched `.github/workflows/deploy-finance.yml` at that commit — this is what
+   actually created the DNS record and connected the domain to the Worker. (The same commit also
+   carried chms PR #999's fix repointing `CONNECT_SERVICE` from the now-defunct `tlc-chms` name to
+   `timothy-connect`, after Andrew renamed the production Connect Worker in the Cloudflare
+   dashboard — see that PR for the full account.)
+3. Andrew had already created the Cloudflare Access application for `finance.timothystl.org`
+   *before* the route/DNS existed (during the failed first attempt at the original Step 4/5 order);
+   that configuration was saved regardless of the hostname not yet resolving, and started enforcing
+   automatically the moment DNS came online in step 2 above — no separate "attach Access" action was
+   actually needed after the route deployed.
+4. Confirmed: a request to `https://finance.timothystl.org` redirects to
+   `https://timothystl.cloudflareaccess.com/cdn-cgi/access/login/...` with a proper
+   `www-authenticate: Cloudflare-Access` header — verified directly against the live edge, and
+   separately by Andrew once a stale local DNS cache from his earlier pre-route test cleared.
 
-Only once step 4 above is confirmed should the URL be used or shared with anyone.
+## Step 6 — Smoke-check and confirm isolation (done, 2026-09-15)
 
-## Step 6 — Smoke-check and confirm isolation
-
-- Confirm `/health` responds only through Access, not anonymously.
-- Confirm the Worker's `CONNECT_SERVICE`/`PAYROLL_SERVICE` bindings resolve to the real production
-  Workers (`tlc-chms`, `tlc-newsletter-admin`), not staging.
-- Confirm no route on the shared Connect Worker (`tlc-chms`) changed — this cutover stands up a new
-  surface, it does not yet remove or redirect the existing in-Connect Finance UI.
-- Confirm the new database is genuinely empty (no synthetic fixtures were applied to it — those are
-  a staging-only, explicitly-applied step per `apps/finance/README.md`, never part of a migration).
+- `/health` is only reachable through Access, not anonymously — confirmed by the redirect above;
+  there is no route on this Worker that bypasses Access.
+- The Worker's `CONNECT_SERVICE`/`PAYROLL_SERVICE` bindings resolve to the real production Workers
+  (`timothy-connect`, `tlc-newsletter-admin`), not staging — confirmed directly in
+  `wrangler.finance.jsonc`.
+- No route on the shared Connect Worker (`timothy-connect`) changed — this cutover only ever
+  touched `wrangler.finance.jsonc`, a separate config targeting a separate Worker; it does not
+  remove or redirect the existing in-Connect Finance UI.
+- The new database is confirmed genuinely empty (no synthetic fixtures were applied to it — those
+  are a staging-only, explicitly-applied step per `apps/finance/README.md`, never part of a
+  migration) — verified with a direct read-only row-count query.
 
 ## What this runbook deliberately does not cover yet
 
