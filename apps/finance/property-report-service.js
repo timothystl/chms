@@ -1,5 +1,8 @@
 import { runBudgetedReadBatch } from './query-budget.js';
 import { fetchLiveFinancePropertyValuation } from './finance-property-valuation-client.js';
+import { fetchLiveFinancePropertyOperating } from './finance-property-operating-client.js';
+import { fetchLiveFinancePropertyReserves } from './finance-property-reserves-client.js';
+import { fetchLiveFinancePropertyLedgers } from './finance-property-ledgers-client.js';
 
 const INTEGER_FIELDS = [
   'total_revenue_cents', 'total_expenses_cents', 'net_income_cents',
@@ -167,6 +170,105 @@ export function buildPropertyValuationView(input) {
       reconciled: effectiveRentalIncomeCents - itemizedOperatingCostsCents - managementFeeCents === noiCents,
     },
   };
+}
+
+// Tries the real connect.finance-property-operating.v1 endpoint for the default property (3277
+// Ivanhoe); falls back to the caller's own already-fetched synthetic readSyntheticPropertyReport
+// rows whenever the live call isn't configured yet or fails for any reason -- same never-throws,
+// always-labeled pattern as resolvePropertyValuation above. Takes the synthetic rows as a
+// parameter, rather than re-reading them itself, so a 'property'-section page load that ends up
+// on the synthetic fallback still only runs the query-budgeted synthetic read once (it's already
+// unconditionally fetched into the top-level `propertyReport` variable every 'property'/'health'
+// page needs) -- see query-budget.js's own per-request statement-count discipline. Only the
+// 'property' section's 'operating-results' page uses the result of this resolver;
+// 'overview'/'health' keep reading the plain synthetic rows directly, unchanged and out of scope
+// for this contract.
+//
+// Real finding confirmed against production on 2026-09-15 (see src/api-contracts.js's
+// buildFinancePropertyOperatingV1 header comment): occupancy_pct is a 0-1 fraction in real data,
+// not the synthetic fixture's 0-100 scale -- the *100 here is what keeps renderPropertyRows()
+// (which expects 0-100, matching what the synthetic fixture happens to store) correct for both
+// sources without renderPropertyRows itself needing to know which one produced its input.
+export async function resolvePropertyReport(env, syntheticRows) {
+  const result = await fetchLiveFinancePropertyOperating(env);
+  if (result.ok) {
+    return {
+      source: 'live',
+      rows: result.operating.periods.map((p) => ({
+        property_key: result.operating.propertyKey,
+        period: p.period,
+        occupancy_pct: p.occupancyPct * 100,
+        total_revenue_cents: p.totalRevenueCents,
+        total_expenses_cents: p.totalExpensesCents,
+        net_income_cents: p.netIncomeCents,
+        net_operating_income_cents: p.netOperatingIncomeCents,
+        available_for_distribution_cents: p.availableForDistributionCents,
+        reserve_balance_cents: p.reserveBalanceCents,
+      })),
+      annualSummary: result.operating.annualSummary,
+    };
+  }
+  return { source: 'synthetic-fallback', fallbackReason: result.reason, rows: syntheticRows };
+}
+
+// Tries the real connect.finance-property-reserves.v1 endpoint for the default property; falls
+// back to the caller's own already-fetched synthetic readSyntheticPropertyReserves rows whenever
+// the live call isn't configured yet or fails for any reason -- same never-throws, always-labeled
+// pattern as resolvePropertyValuation/resolvePropertyReport above. Only the 'property' section's
+// 'reserve-distribution' page uses this; the 'charts' section keeps reading the plain synthetic
+// propertyReserves array directly (unchanged, out of scope for this contract -- that section
+// never displays a live/synthetic distinction for any of its inputs today).
+//
+// reserveDisbursements is fetched and validated by the contract but not reshaped into a UI row
+// shape here -- production's own "Property Tax Reserve" section pairs it with the schedule
+// (src/frontend/js-finance.js's finRenderPropertyTaxReserve), but this staging page's existing
+// layout doesn't render a disbursements table yet; carried through unused rather than dropped, so
+// a follow-up UI change can pick it up without touching the contract again.
+export async function resolvePropertyReserves(env) {
+  const result = await fetchLiveFinancePropertyReserves(env);
+  if (result.ok) {
+    return {
+      source: 'live',
+      rows: result.reserves.reserves.map((r) => ({
+        reserve_key: r.reserveKey,
+        report_month: r.reportMonth,
+        tax_year: r.taxYear,
+        target_estimate_cents: r.targetEstimateCents,
+        reserve_before_cents: r.reserveBeforeCents,
+        contribution_cents: r.contributionCents,
+        reserve_after_cents: r.reserveAfterCents,
+        funded_pct: r.fundedPct,
+        note: r.note,
+      })),
+      distributions: result.reserves.distributions.map((d) => ({ period: d.period, amount_cents: d.amountCents })),
+    };
+  }
+  return { source: 'synthetic-fallback', fallbackReason: result.reason };
+}
+
+// Tries the real connect.finance-property-ledgers.v1 endpoint for the default property; falls
+// back to the caller's own already-fetched synthetic readSyntheticPropertyLedgers result whenever
+// the live call isn't configured yet or fails for any reason -- same never-throws, always-labeled
+// pattern as the resolvers above. Reshaped into the same snake_case row shape
+// readSyntheticPropertyLedgers already returns so renderPropertyCapitalRows/
+// renderPropertyRepairRows never need to know which source produced their input.
+export async function resolvePropertyLedgers(env) {
+  const result = await fetchLiveFinancePropertyLedgers(env);
+  if (result.ok) {
+    return {
+      source: 'live',
+      capital: result.ledgers.capital.map((c) => ({
+        entry_date: c.entryDate, amount_cents: c.amountCents, payee: c.payee,
+        description: c.description, project: c.project,
+      })),
+      repairs: result.ledgers.repairs.map((r) => ({
+        entry_date: r.entryDate, category: r.category, description: r.description,
+        amount_cents: r.amountCents, payee: r.payee, capitalized: r.capitalized ? 1 : 0,
+      })),
+      totals: { capital_cents: result.ledgers.totals.capitalCents, repairs_cents: result.ledgers.totals.repairsCents },
+    };
+  }
+  return { source: 'synthetic-fallback', fallbackReason: result.reason };
 }
 
 export function buildPropertyReportView(rows) {

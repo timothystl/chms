@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-property-reserves:v1",
+  "title": "Connect Finance Property Reserves v1",
+  "description": "A reserve FUNDING schedule for one church-owned commercial property (3277 Ivanhoe by default), not a recurring operating statement (connect.finance-property-operating.v1) or an itemized one-off ledger (connect.finance-property-ledgers.v1) -- its own shape. Bundles three real tables production's own `finance/property/<key>` GET route already returns together (finance_property_reserves, finance_property_reserve_disbursements, finance_property_distributions); production's own finRenderPropertyTaxReserve (src/frontend/js-finance.js) renders the reserve schedule and its disbursements together under one 'Property Tax Reserve' heading. reserveKey is a generic identifier (migrations/0023's own comment documents the table as generic), even though only 'property_tax' has real rows for 'ivanhoe' today. Confirmed live against production on 2026-09-15: reserve_after_cents does not always equal reserve_before_cents + contribution_cents exactly -- 4 of 30 real rows are off by exactly +/-1 cent, pure monthly-contribution rounding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "currency", "propertyKey", "generatedAt", "reserves", "reserveDisbursements", "distributions"],
+  "properties": {
+    "contract": { "const": "connect.finance-property-reserves.v1" },
+    "dataClassification": { "const": "aggregate" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "currency": { "const": "USD" },
+    "propertyKey": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "reserves": {
+      "type": "array",
+      "description": "One row per reserve bucket per report month. Empty is a normal, valid 'nothing recorded yet' state, not a 500.",
+      "items": { "$ref": "#/$defs/reserveRow" }
+    },
+    "reserveDisbursements": {
+      "type": "array",
+      "description": "Payments made out of a reserve bucket (e.g. the annual property tax bill, once paid).",
+      "items": { "$ref": "#/$defs/disbursementRow" }
+    },
+    "distributions": {
+      "type": "array",
+      "description": "Confirmed cash distributions to the church for this property -- finance_property_distributions.",
+      "items": { "$ref": "#/$defs/distributionRow" }
+    }
+  },
+  "$defs": {
+    "reserveRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reserveKey", "reportMonth", "taxYear", "targetEstimateCents", "reserveBeforeCents", "contributionCents", "reserveAfterCents", "fundedPct", "note"],
+      "properties": {
+        "reserveKey": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "description": "e.g. 'property_tax'. Generic, not a closed enum -- migrations/0023's own comment documents room for other buckets (e.g. 'capital_paint_asphalt_concrete')." },
+        "reportMonth": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" },
+        "taxYear": { "type": ["integer", "null"], "description": "Only meaningful for the 'property_tax' bucket; null for others, per migrations/0023's own comment." },
+        "targetEstimateCents": { "type": "integer" },
+        "reserveBeforeCents": { "type": "integer" },
+        "contributionCents": { "type": "integer" },
+        "reserveAfterCents": { "type": "integer", "description": "Should equal reserveBeforeCents + contributionCents, within 1 cent of monthly-contribution rounding drift (confirmed against production's own real rows on 2026-09-15)." },
+        "fundedPct": { "type": "number", "description": "reserveAfterCents / targetEstimateCents * 100, or 0 when targetEstimateCents is 0. Same 0-100 scale as the committed synthetic fixture's own funded_pct." },
+        "note": { "type": "string" }
+      }
+    },
+    "disbursementRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reserveKey", "periodKey", "amountCents", "paidViaReportMonth", "note"],
+      "properties": {
+        "reserveKey": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "periodKey": { "type": "string", "minLength": 1, "description": "Generic period identifier -- real 'property_tax' rows use a bare tax year (e.g. '2026'), not a report month." },
+        "amountCents": { "type": ["integer", "null"], "description": "Null when the bill has not yet been paid (confirmed against a real 2026 row on 2026-09-15)." },
+        "paidViaReportMonth": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
+    "distributionRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["period", "amountCents"],
+      "properties": {
+        "period": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" },
+        "amountCents": { "type": "integer" }
+      }
+    }
+  }
+}

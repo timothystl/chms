@@ -19,7 +19,10 @@ import { buildFinancialHealthView } from './health-view-model.js';
 import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends, resolveChurchReport } from './church-report-service.js';
 import { readSyntheticBalanceTrends, resolveBalanceSheet } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
-import { buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers, resolvePropertyValuation } from './property-report-service.js';
+import {
+  buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers,
+  resolvePropertyValuation, resolvePropertyReport, resolvePropertyReserves, resolvePropertyLedgers,
+} from './property-report-service.js';
 import { resolveBudgetReport } from './budget-report-service.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
@@ -188,7 +191,8 @@ function renderEntityCards(entities) {
 function renderSectionBody(ctx) {
   const {
     section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrends, balanceSheet, balanceTrends,
-    daycareReport, daycareReportLive, propertyReport, propertyReserves, propertyLedgers, propertyValuation,
+    daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
+    propertyLedgers, propertyLedgersLive, propertyValuation,
     propertyForecast, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
     compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle,
   } = ctx;
@@ -259,7 +263,10 @@ function renderSectionBody(ctx) {
     return renderDaycarePage(page.id, { daycareReport: daycareReportLive });
   }
   if (section.id === 'property') {
-    return renderPropertyPage(page.id, { propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyForecast, propertyDistributions });
+    return renderPropertyPage(page.id, {
+      propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
+      propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyDistributions,
+    });
   }
   if (section.id === 'planning') {
     return renderPlanningPage(page.id, { budgetReport });
@@ -759,6 +766,18 @@ export default {
         // resolveBalanceSheet above.
         const propertyValuation = section.id === 'property'
           ? await resolvePropertyValuation(env, env.FINANCE_DB) : null;
+        // Property Operating results/Reserves & distribution/Capital & repairs ledgers each try
+        // their own real connect.finance-property-*.v1 endpoint first and fall back to the same
+        // synthetic fixtures read just above, labeled -- same live-first pattern as Property
+        // Valuation above. Only the 'property' section's own pages use these; 'overview'/'health'/
+        // 'charts' keep reading the plain synthetic propertyReport/propertyReserves/propertyLedgers
+        // above directly, unchanged and out of scope for this contract.
+        const propertyReportLive = section.id === 'property'
+          ? await resolvePropertyReport(env, propertyReport) : null;
+        const propertyReservesLive = section.id === 'property'
+          ? await resolvePropertyReserves(env) : null;
+        const propertyLedgersLive = section.id === 'property'
+          ? await resolvePropertyLedgers(env) : null;
         const propertyForecast = section.id === 'property'
           ? await readSyntheticPropertyForecast(env.FINANCE_DB) : null;
         const propertyDistributions = section.id === 'property'
@@ -797,8 +816,8 @@ export default {
           : null;
         return response(renderShell({
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrends,
-          balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReserves,
-          propertyLedgers, propertyValuation, propertyForecast, propertyDistributions, budgetReport, accountsReport,
+          balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves,
+          propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyDistributions, budgetReport, accountsReport,
           dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
           givingEntryStatus, givingEntryMessage, payrollBundle,
         }), {
