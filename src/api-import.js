@@ -520,7 +520,7 @@ if (seg === 'config/letterhead-logo' && method === 'GET') {
 }
 if (seg === 'config/letterhead-logo' && method === 'POST') {
   if (!isStaff) return json({ error: 'Access denied' }, 403);
-  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket tlc-chms-photos' }, 503);
+  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket timothy-connect-photos' }, 503);
   let file;
   try { const fd = await req.formData(); file = fd.get('logo'); } catch { return json({ error: 'Invalid form data' }, 400); }
   const fileSize = file && file.size ? file.size : 0;
@@ -664,7 +664,7 @@ if (seg === 'register/scans' && method === 'GET') {
   return json({ pages: rows.map(r => ({ ...r, url: `/admin/r2photo/${r.r2_key}` })) });
 }
 if (seg === 'register/scans' && method === 'POST') {
-  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket tlc-chms-photos' }, 503);
+  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket timothy-connect-photos' }, 503);
   let fd; try { fd = await req.formData(); } catch { return json({ error: 'Invalid form data' }, 400); }
   const stype = String(fd.get('type') || '').trim();
   const spage = String(fd.get('page') || '').trim();
@@ -712,7 +712,7 @@ if (seg === 'register/certificate-template' && method === 'GET') {
 }
 if (seg === 'register/certificate-template' && method === 'POST') {
   if (!isAdmin) return json({ error: 'Access denied' }, 403);
-  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket tlc-chms-photos' }, 503);
+  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket timothy-connect-photos' }, 503);
   let fd; try { fd = await req.formData(); } catch { return json({ error: 'Invalid form data' }, 400); }
   const ctype = String(fd.get('type') || '').trim();
   const file = fd.get('file');

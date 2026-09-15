@@ -984,7 +984,7 @@ if (pushToBreezeMatch && method === 'POST') {
 const photoMatch = seg.match(/^people\/(\d+)\/photo$/);
 if (photoMatch && method === 'POST') {
   if (!canRegister) return json({ error: 'Insufficient permissions' }, 403);
-  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket tlc-chms-photos' }, 503);
+  if (!env.PHOTOS) return json({ error: 'Photo storage not configured — create R2 bucket timothy-connect-photos' }, 503);
   const pid = parseInt(photoMatch[1]);
   let file;
   try { const fd = await req.formData(); file = fd.get('photo'); } catch { return json({ error: 'Invalid form data' }, 400); }
