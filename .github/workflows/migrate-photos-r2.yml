@@ -1,0 +1,104 @@
+name: Migrate tlc-chms-photos R2 data to timothy-connect-photos
+
+# One-shot data-copy step for the legacy-resource renaming project (see AGENTS.md's Timothy
+# Digital overhaul checkpoint), same shape as migrate-rsvp-store-kv.yml. Cloudflare cannot rename
+# an R2 bucket in place, so renaming tlc-chms-photos -> timothy-connect-photos is: create the new
+# bucket (done) -> copy live objects (this workflow) -> repoint wrangler.toml's bucket_name in a
+# separate PR -> a manual production deploy -> verify -> delete the old bucket once confirmed.
+# This workflow only copies; it never deletes or touches the Worker's live binding, so it is safe
+# to run ahead of the repoint/deploy and safe to re-run if it needs to catch up on newer objects.
+#
+# The PHOTOS binding name itself does not change (already generic, unlike RSVP_STORE) -- only the
+# bucket's display name does, so no application code changes are needed alongside this.
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full main commit SHA approved for this data-copy exercise
+        required: true
+        type: string
+      reason:
+        description: Reason for this migration run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: photos-r2-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Copy tlc-chms-photos objects into timothy-connect-photos
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      # Object-level list/copy is S3-protocol-only for R2 (Cloudflare's own REST API does not
+      # expose it) -- see scripts/migrate-r2-bucket.sh's own header for why this is a separate
+      # credential type from the ordinary CLOUDFLARE_API_TOKEN used elsewhere in this repo.
+      R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_MIGRATION_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_MIGRATION_SECRET_ACCESS_KEY }}
+      SOURCE_BUCKET: tlc-chms-photos
+      DEST_BUCKET: timothy-connect-photos
+      RESULT_FILE: /tmp/r2-photos-migration-result.json
+    steps:
+      - name: Check out the approved commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.expected_sha }}
+
+      - name: Verify the approved commit is on main
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git merge-base --is-ancestor "$EXPECTED_SHA" origin/main
+
+      # Object-level work goes through the AWS CLI against R2's S3-compatible endpoint -- see
+      # the script's own header. ubuntu-latest ships the AWS CLI already; this only fills the
+      # gap if a runner image ever doesn't (same guard as website's verify-r2-recovery.yml).
+      - name: Ensure the AWS CLI is available
+        run: command -v aws >/dev/null || (curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip && unzip -q /tmp/awscliv2.zip -d /tmp && sudo /tmp/aws/install)
+
+      - name: Copy objects from tlc-chms-photos to timothy-connect-photos
+        run: bash scripts/migrate-r2-bucket.sh
+
+      - name: Record migration summary
+        if: always()
+        shell: bash
+        env:
+          MIGRATION_REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          if [[ ! -s "$RESULT_FILE" ]]; then
+            echo '## tlc-chms-photos -> timothy-connect-photos data copy' >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo '- The copy script did not produce a result file (failed before completing any phase). Check the job logs.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo '## tlc-chms-photos -> timothy-connect-photos data copy'
+            echo
+            echo "- Approved commit: \`${GITHUB_SHA}\`"
+            echo "- Reason: ${MIGRATION_REASON}"
+            jq -r '
+              "- Source objects found: " + (.source_objects_found | tostring) + " (" + (.source_bytes | tostring) + " bytes)",
+              "- Sync completed without error: " + (.sync_completed_without_error | tostring),
+              "- Destination object count after copy: " + (.dest_object_count_after | tostring),
+              "- Objects not yet matched in destination by key/etag/size: " + (.objects_not_yet_matched_in_dest | tostring) + " (converged: " + (.dest_count_verified | tostring) + ")",
+              "- \"Sync completed without error\" above is authoritative for whether the copy itself succeeded; the match count is best-effort secondary confirmation and never fails this run on its own -- the source bucket stays live and writable throughout",
+              "- Source bucket left unmodified: " + (.source_bucket_modified | tostring),
+              "- Object keys (filenames) were not printed or retained as artifacts",
+              (if (.first_failure_diagnostic // "") != "" then "- First-failure diagnostic (long token-like strings redacted):\n```\n" + .first_failure_diagnostic + "\n```" else empty end)
+            ' "$RESULT_FILE"
+          } >> "$GITHUB_STEP_SUMMARY"
