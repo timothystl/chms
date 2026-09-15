@@ -4,24 +4,23 @@ Status as of 2026-09-15: **complete through Step 6.** All of Steps 1-6 below are
 isolated, Access-gated production Finance Worker and database exist. `finance.timothystl.org`
 resolves and Cloudflare Access confirmed blocking unauthenticated requests (verified both by curl
 against the live edge and, separately, by Andrew's own browser once a local DNS cache from his
-earlier pre-route test cleared). Step 5 below was revised from its original form during execution:
-Cloudflare Workers Custom Domains only provision DNS once the route is actually deployed, so
-attaching Access to `finance.timothystl.org` *before* any route existed (the original Step 4/5
-order) was not actually possible — `ERR_NAME_NOT_RESOLVED` confirmed this directly when Andrew
-first tried it. The corrected order still preserved the runbook's core safety property (never let
-a route become reachable before Access gates it) — see Step 5. What this runbook deliberately does
-not cover (real data migration, user cutover, retiring the in-Connect module) remains open, later
-work — see the closing section.
+earlier pre-route test cleared). Step 5 records the actual DNS/Access sequence. The Access application had been saved before
+DNS resolved and began enforcing when the route deployed; failed DNS resolution was not evidence
+that an Access application could not be created. Real data migration, user cutover and retirement
+of the in-Connect module remain open; see the closing section.
 
-## Why this is a runbook and not a single deploy
+## Scope and acceptance limits
 
-`apps/finance` today is a staging-only shell serving synthetic fixture data
-(`apps/finance/README.md`). Its own scope note is explicit: "Existing Finance remains operational
-in the current Connect Worker. Moving a reader, writer, route, identity flow, or database table
-requires a later reviewed slice with contract, reconciliation, and rollback evidence." Standing up
-a production Finance Worker is that later slice. It is infrastructure creation and a real cutover
-of a live financial system, not a code change — each step below needs its own go-ahead, not a
-single blanket approval to "start Finance production."
+Steps 1–6 establish production infrastructure. They do not establish report parity, user cutover,
+data migration or retirement of legacy Finance. New Finance includes real contract reads and
+Giving/payroll relays as well as synthetic readers; the older “staging-only” description is obsolete.
+
+September 15 source review found that eager synthetic-row reads can fail against the empty
+production database even on sections with live report resolvers. The shell also continues when
+its role lookup fails, and its permission model is incomplete. Compensation has an additional
+verified-role gate. These are source findings, not live incidents reproduced in this review.
+See [Finance scope](../apps/finance/README.md); authenticated per-page and per-role verification
+remains required before general user cutover.
 
 ## Step 1 — Create the real production D1 database
 
@@ -65,14 +64,10 @@ domain. This was the safe first deploy — no route, no exposure — and it succ
 
 ## Step 5 — Add the production route, then attach Access immediately
 
-Originally this runbook called for attaching Cloudflare Access to `finance.timothystl.org` in the
-dashboard *before* adding any route, on the assumption that a hostname could be gated independent
-of whether a Worker route existed yet. That assumption was wrong for this account's setup:
-Cloudflare Workers Custom Domains (`"custom_domain": true`, the same mechanism
-`wrangler.finance.staging.jsonc` already uses) only provision a real DNS record once the route is
-actually deployed — there is no way to pre-stage Access against a hostname that doesn't resolve
-yet. Andrew confirmed this directly (`finance.timothystl.org` returned `ERR_NAME_NOT_RESOLVED`
-before any route existed).
+The initial attempt encountered an unresolved hostname before the custom-domain route was
+deployed. Andrew had nevertheless already saved the Access application. Once the route created
+DNS, that saved policy enforced automatically. The earlier inference that Access could not be
+preconfigured for an unresolved hostname was incorrect; do not repeat it as a platform limitation.
 
 **Corrected order actually followed** (done, 2026-09-15), which still kept the same safety
 property (never let a route sit reachable without Access gating it):
