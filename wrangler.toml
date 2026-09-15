@@ -1,4 +1,12 @@
-name = "tlc-chms"
+# Renamed from tlc-chms 2026-09-15, in place, via the Cloudflare dashboard's Worker Settings ->
+# General -> Name field -- unlike KV/R2/D1, Cloudflare Workers now support a true in-place
+# rename (same underlying script id, same routes/bindings/cron, confirmed via the dashboard and
+# the Workers API before and after). This file must match the live name; a stray deploy.yml
+# dispatch against a stale name here would fail (or worse, create a conflicting empty Worker
+# under the old name) rather than deploying to the real one. website's CONNECT_WORKER service
+# binding and this repo's own wrangler.finance.jsonc CONNECT_SERVICE binding both targeted the
+# old name by name (not id) and needed their own matching update -- see those repos/files.
+name = "timothy-connect"
 main = "connect-worker.js"
 compatibility_date = "2024-01-01"
 

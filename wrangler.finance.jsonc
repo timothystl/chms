@@ -42,7 +42,7 @@
   "services": [
     {
       "binding": "CONNECT_SERVICE",
-      "service": "tlc-chms"
+      "service": "timothy-connect"
     },
     {
       "binding": "PAYROLL_SERVICE",
