@@ -18,6 +18,7 @@ import { validateFinanceCompensationV1 } from '../apps/finance/finance-compensat
 import { validateFinancePropertyOperatingV1 } from '../apps/finance/finance-property-operating-consumer.js';
 import { validateFinancePropertyReservesV1 } from '../apps/finance/finance-property-reserves-consumer.js';
 import { validateFinancePropertyLedgersV1 } from '../apps/finance/finance-property-ledgers-consumer.js';
+import { validateFinancePropertyForecastV1 } from '../apps/finance/finance-property-forecast-consumer.js';
 import {
   readPlanningBoardCategories, readPurposeTags, REVENUE_STREAMS, BOARD_EXPENSE_CATEGORIES,
   resolveChurchYearPrecedence, computeYearSummary,
@@ -1465,6 +1466,109 @@ export async function respondWithFinancePropertyLedgersV1(url, db) {
   return json(ledgers);
 }
 
+// ── Property Forecast: the fourteenth contract ──────────────────────────────────────────────
+// The staging 'forecast' page's UI label ("Run-rate forecast") suggests a computed projection,
+// but production's own AHRA Budget Detail Excel import (src/api-finance.js, source='ahra_import')
+// writes a genuine monthly BUDGET/plan into finance_property_budget_monthly -- the same
+// already-real table migrations/0025 created for exactly this purpose. This contract is a
+// straight PORT of that table, the same way Operating/Reserves/Ledgers above ported their own
+// already-real tables; it does not invent a run-rate calculation.
+//
+// Real findings confirmed directly against production tlc-volunteer-db on 2026-09-16:
+// 1. property_key is 'ivanhoe' with source='ahra_import' -- the same default and property every
+//    other Property contract already uses, not a different key.
+// 2. There is exactly ONE year on file, 2026, with all 12 months present (2026-01 through
+//    2026-12) -- not a genuinely future year the way the committed synthetic fixture's own
+//    2027-only convention assumes (today, per this check, is 2026-09-16: 2026 is the CURRENT
+//    fiscal year's budget, already partly elapsed, not a forward plan for next year). There is no
+//    2027 data yet. Every one of the 12 real rows reconciles exactly
+//    (netIncomeCents === revenueCents - expensesCents to the cent) and none of
+//    revenue/expenses/net_income is null -- the columns are schema-level NOT NULL -- but nothing
+//    in the schema itself GUARANTEES that reconciliation for a future import, so this contract
+//    carries a per-row `reconciled` flag rather than asserting it (see the consumer's header
+//    comment for why it doesn't hard-reject a non-reconciling row).
+// 3. Real December's net income is NEGATIVE (-$6,118.96 -- a large annual expense, e.g. real
+//    estate tax, landing in that month) even though revenue/expenses are each non-negative --
+//    confirming netIncomeCents itself must stay signed, unlike revenue/expenses.
+//
+// Because there is no guarantee of exactly one clean future year (a real property could have a
+// partial year, multiple years, or none at all on file), this contract returns EVERY period on
+// file for the property (all years, ordered ascending) plus a computed `forecastYear`: the
+// nearest current-or-future calendar year that has a complete 12-month run, or -- if none of the
+// years on file is future/current -- the most recent complete year in the past. `forecastYear` is
+// null when no year on file has all 12 months. This mirrors Budget/Church Report/Balance Sheet's
+// own "the caller doesn't get to assume there's exactly one clean year" lesson rather than
+// hardcoding a year the way the synthetic fixture's own '2027-%' filter does. `totals` sums only
+// the selected forecastYear's periods (null/zeroed, with reconciled:false, when forecastYear is
+// null) -- the same "one headline year, all periods still on file" split
+// apps/finance/property-forecast-service.js's buildLivePropertyForecastView filters down from.
+function selectPropertyForecastYear(periods, currentYear) {
+  const countsByYear = new Map();
+  for (const p of periods) {
+    const year = Number(p.period.slice(0, 4));
+    countsByYear.set(year, (countsByYear.get(year) || 0) + 1);
+  }
+  const fullYears = [...countsByYear.entries()].filter(([, count]) => count === 12).map(([year]) => year);
+  if (fullYears.length === 0) return null;
+  const futureOrCurrent = fullYears.filter((year) => year >= currentYear).sort((a, b) => a - b);
+  if (futureOrCurrent.length) return futureOrCurrent[0];
+  return Math.max(...fullYears);
+}
+
+export async function buildFinancePropertyForecastV1(db, { propertyKey = 'ivanhoe', now = new Date() } = {}) {
+  const rows = (await db.prepare(
+    'SELECT period, revenue_cents, expenses_cents, net_income_cents, source FROM finance_property_budget_monthly WHERE property_key=? ORDER BY period ASC'
+  ).bind(propertyKey).all()).results || [];
+
+  const periods = rows.map((r) => ({
+    period: r.period,
+    revenueCents: r.revenue_cents,
+    expensesCents: r.expenses_cents,
+    netIncomeCents: r.net_income_cents,
+    reconciled: r.net_income_cents === r.revenue_cents - r.expenses_cents,
+    source: r.source || '',
+  }));
+
+  const forecastYear = selectPropertyForecastYear(periods, now.getUTCFullYear());
+  const forecastPeriods = forecastYear === null ? [] : periods.filter((p) => p.period.startsWith(String(forecastYear)));
+  const revenueCents = forecastPeriods.reduce((sum, p) => sum + p.revenueCents, 0);
+  const expensesCents = forecastPeriods.reduce((sum, p) => sum + p.expensesCents, 0);
+  const netIncomeCents = forecastPeriods.reduce((sum, p) => sum + p.netIncomeCents, 0);
+
+  return {
+    contract: 'connect.finance-property-forecast.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    propertyKey,
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    forecastYear,
+    periods,
+    totals: {
+      revenueCents,
+      expensesCents,
+      netIncomeCents,
+      reconciled: forecastYear !== null && forecastPeriods.every((p) => p.reconciled) && netIncomeCents === revenueCents - expensesCents,
+    },
+  };
+}
+
+export async function respondWithFinancePropertyForecastV1(url, db) {
+  const propertyKey = url.searchParams.get('property_key') || 'ivanhoe';
+  const forecast = await buildFinancePropertyForecastV1(db, { propertyKey, now: new Date() });
+
+  // Fail closed, same discipline as the contracts above: an empty periods array (and a null
+  // forecastYear) is a normal "nothing budgeted yet" state and passes validation, but a malformed
+  // shape must not reach Finance.
+  const validation = validateFinancePropertyForecastV1(forecast);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled property forecast failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(forecast);
+}
+
 export async function handleContractsApi(req, env, url, method, seg, db) {
   if (seg === 'contracts/connect-giving-summary-v1' && method === 'GET') {
     return respondWithConnectGivingSummaryV1(url, db);
@@ -1504,6 +1608,9 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
   }
   if (seg === 'contracts/finance-property-ledgers-v1' && method === 'GET') {
     return respondWithFinancePropertyLedgersV1(url, db);
+  }
+  if (seg === 'contracts/finance-property-forecast-v1' && method === 'GET') {
+    return respondWithFinancePropertyForecastV1(url, db);
   }
   return null;
 }

@@ -17,10 +17,12 @@ church reports (including the multi-year trend), balance sheet, daycare, propert
 compensation. All four Church Report sub-pages (Overview, Income & expense detail, Multi-year
 trend, Budget vs actual) are now live-first with synthetic fallback -- the trend page was the last
 one left on the synthetic reader; see `church-report-service.js`'s `resolveChurchTrend` and
-`connect.finance-church-report-trend.v1`. Property operating, reserves and ledgers joined main in
-#1002 after the production deployment inspected in this review; do not infer they are deployed.
-Giving writes relay to Connect and payroll operations relay to Website. Neither relay transfers
-ownership of those records to Finance.
+`connect.finance-church-report-trend.v1`. Property operating, reserves, ledgers, and forecast (a
+straight port of the AHRA-imported `finance_property_budget_monthly` budget/plan table, not a
+computed run-rate projection despite the page's label) joined main in #1002 and a follow-on PR
+respectively, after the production deployment inspected in this review; do not infer they are
+deployed. Giving writes relay to Connect and payroll operations relay to Website. Neither relay
+transfers ownership of those records to Finance.
 
 Existing Finance remains operational in Connect. Moving authoritative accounting data and writers,
 cutting users over and retiring the old module remain unfinished. The new schema does not include
