@@ -403,13 +403,70 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(detailHtml).toContain('Favorable variance');
     expect(statements).toHaveLength(6);
 
+    // No CONNECT_SERVICE binding/key is configured in this test env, so the live
+    // connect.finance-church-report-trend.v1 attempt also fails closed with 'not_configured' and
+    // the 'trend' page falls back to the same synthetic fixture as before, labeled as such.
     const trendHtml = await (await worker.fetch(new Request('https://finance.test/?section=church&page=trend'), env)).text();
     expect(trendHtml).toContain('Multi-year operating trend');
+    expect(trendHtml).toContain('Synthetic staging');
+    expect(trendHtml).toContain('the live endpoint is not configured or did not answer: not_configured');
     expect(trendHtml).toContain('$110,000');
 
     const budgetActualHtml = await (await worker.fetch(new Request('https://finance.test/?section=church&page=budget-actual'), env)).text();
     expect(budgetActualHtml).toContain('Budget vs actual');
     expect(budgetActualHtml).toContain('Favorable');
+  });
+
+  it('renders a live multi-year Church Report trend from the real contract, using the full net-income bottom line rather than a naive income-minus-expense figure', async () => {
+    // FY2025 deliberately carries a nonzero otherExpenseActualCents and FY2026 a nonzero
+    // otherIncomeActualCents -- the exact real-production shape found 2026-09-15 (see
+    // src/api-contracts.js's buildFinanceChurchReportTrendV1) where a naive income-minus-expense
+    // trend would silently disagree with the true bottom line. FY2025's naive figure would be
+    // $10,000 - $9,000 = $1,000; the real net (with the $500 Other Expense folded in) is $500.
+    const VALID_LIVE_TREND = {
+      contract: 'connect.finance-church-report-trend.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      generatedAt: '2026-09-15T12:00:00Z',
+      years: [
+        {
+          fiscalYear: 2025, incomeActualCents: 1000000, expenseActualCents: 900000,
+          otherIncomeActualCents: 0, otherExpenseActualCents: 50000, costOfGoodsSoldActualCents: 0,
+          netIncomeActualCents: 50000, accountCount: 118,
+        },
+        {
+          fiscalYear: 2026, incomeActualCents: 1200000, expenseActualCents: 950000,
+          otherIncomeActualCents: 20000, otherExpenseActualCents: 0, costOfGoodsSoldActualCents: 0,
+          netIncomeActualCents: 270000, accountCount: 98,
+        },
+      ],
+      reconciliation: { yearCount: 2, totalsMatch: true },
+    };
+    const liveEnv = envWithRoleService(async (request) => {
+      const url = new URL(request instanceof Request ? request.url : request);
+      if (url.pathname === '/api/contracts/staff-role-v1') {
+        return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+      }
+      if (url.pathname === '/api/contracts/finance-church-report-trend-v1') {
+        return new Response(JSON.stringify(VALID_LIVE_TREND), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    const res = await worker.fetch(new Request('https://finance.test/?section=church&page=trend', {
+      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+    }), liveEnv);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('Multi-year operating trend');
+    expect(html).toContain('Live from Connect');
+    expect(html).toContain('$10,000');
+    expect(html).toContain('$9,000');
+    expect(html).toContain('$500');
+    expect(html).toContain('$12,000');
+    expect(html).toContain('$2,700');
+    // The naive income-minus-expense figure for FY2025 ($1,000) must NOT be what's shown as its
+    // net result -- this is the exact regression this contract exists to avoid.
+    expect(html).not.toMatch(/2025[\s\S]{0,200}\$1,000/);
   });
 
   it('renders the board packet from the same real inputs as Church Report', async () => {

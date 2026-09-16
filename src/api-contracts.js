@@ -10,6 +10,7 @@ import { validateFinanceDataStatusV1 } from '../apps/finance/finance-data-status
 import { validateFinanceChartOfAccountsV1 } from '../apps/finance/finance-chart-of-accounts-consumer.js';
 import { validateFinanceBudgetV1 } from '../apps/finance/finance-budget-consumer.js';
 import { validateFinanceChurchReportV1 } from '../apps/finance/finance-church-report-consumer.js';
+import { validateFinanceChurchReportTrendV1 } from '../apps/finance/finance-church-report-trend-consumer.js';
 import { validateFinanceBalanceSheetV1 } from '../apps/finance/finance-balance-sheet-consumer.js';
 import { validateFinanceDaycareReportV1 } from '../apps/finance/finance-daycare-consumer.js';
 import { validateFinancePropertyValuationV1 } from '../apps/finance/finance-property-valuation-consumer.js';
@@ -505,6 +506,124 @@ export async function respondWithFinanceChurchReportV1(url, db) {
   }
 
   return json(report);
+}
+
+// Thirteenth real slice of Finance separation, and the last Church Report sub-page left on the
+// synthetic reader: the 'trend' (multi-year) page. buildFinanceChurchReportV1 above is
+// deliberately scoped to ONE fiscal year (its own comment explains why: CHURCH_SOURCE_PRIORITY
+// must pick a source WHOLESALE per year, not per account). This contract applies that exact same
+// resolveChurchYearPrecedence()/computeYearSummary() pair independently to EVERY fiscal year found
+// in finance_church_entries, rather than re-deriving a "latest row wins" trend of its own the way
+// Chart of Accounts' per-account query does -- the same reasoning, just repeated once per year
+// instead of once. It takes no query parameters (unlike the single-year contract): the trend is
+// inherently the whole multi-year history, not one period a caller names.
+//
+// A 2026-09-15 read-only check of production (`tlc-volunteer-db`, period_month=0 rows only) found
+// eight fiscal years on file, 2019-2026, each with a clean single winning source after precedence:
+//   - 2019-2025 each carry ONLY 'import_activity' (126 rows/year, 11 of them with a null budget --
+//     the same "actual with no budget entered" shape buildFinanceChurchReportV1's own comment
+//     already documents) -- 'import_activity' wins each of these years by elimination, not by
+//     outranking a competing source.
+//   - 2026 carries three sources: 'import' (98 rows, CHURCH_SOURCE_PRIORITY's 2nd-highest tier,
+//     wins wholesale), 'import_activity' (126 rows, loses), and 'manual_actual_override' (36 rows,
+//     every one of them a correction to a category_path already present in the winning 'import'
+//     98 -- confirmed none add a new account), so 2026 resolves to exactly 98 accounts, 36 with
+//     their actual corrected. No fiscal year resolved to zero accounts in this check, but the
+//     empty-years case (a totally empty table, or a future/gap year with nothing synced or
+//     imported yet) is still handled as a valid `years: []` state below, not an error -- the same
+//     honesty the single-year contract already applies to one empty fiscal year.
+//   - Every resolved row's classification was 'Income', 'Expenses', 'Other Income', or
+//     'Other Expenses' -- no 'Cost of Goods Sold' row exists in production today, the same finding
+//     buildFinanceChurchReportV1's own comment already recorded; the field is still carried below,
+//     defensively, since it is valid QuickBooks output the schema does not forbid.
+//
+// netIncomeActualCents is the FULL bottom line computeYearSummary() derives (Income - Cost of
+// Goods Sold - Expenses, plus Other Income - Other Expenses), the exact figure production's own
+// existing `finance/church/multi-year` endpoint and its "Net Income" trend row/chart series
+// already show today (see src/frontend/js-finance.js's finRenderChurchMultiYear, which reads
+// `d.byYear[y].netIncome.actualCents` directly) -- NOT the simpler income-minus-expense figure
+// apps/finance's own synthetic fixture uses (church-report-service.js's readSyntheticChurchTrends,
+// whose net_cents is literally income_cents - expense_cents). Those two figures are provably
+// different for real data: FY2019, FY2021, and FY2024 all carry nonzero Other Income/Other
+// Expenses in the checked snapshot above, so a naive income-minus-expense trend would silently
+// disagree with the "Net Income" row staff already look at on the existing live page for those
+// three years. This contract matches the real, already-shown production figure rather than the
+// fixture's simplification.
+//
+// otherIncomeActualCents/otherExpenseActualCents/costOfGoodsSoldActualCents are carried per year
+// specifically so the consumer can independently re-derive netIncomeActualCents from the wire
+// payload -- the same "never trust the arithmetic without re-deriving it" discipline the
+// single-year Church Report consumer applies to its own totals from its `accounts` array. The
+// trend contract does not carry account-level detail (that already exists via the single-year
+// contract for whichever year a caller wants to drill into); it stays a per-year rollup, matching
+// the shape the 'trend' page itself renders (Fiscal year / Income / Expenses / Net result).
+//
+// Unlike the single-year contract, there is deliberately no budget figure here: production's own
+// existing multi-year trend table and chart (finRenderChurchMultiYear, same file) do not show a
+// budget column or series at all -- only Income, Expenses, and Net Income, all actual. Adding a
+// budget figure this contract's only real consumer has never shown would not be matching
+// production, it would be inventing a new view.
+export async function buildFinanceChurchReportTrendV1(db, { now = new Date() } = {}) {
+  const { results } = (await db.prepare(
+    `SELECT fiscal_year, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source
+       FROM finance_church_entries WHERE period_month = 0`
+  ).all()) || {};
+  const rawRows = results || [];
+  const resolved = resolveChurchYearPrecedence(rawRows);
+
+  const rowsByYear = new Map();
+  for (const row of resolved) {
+    if (!rowsByYear.has(row.fiscal_year)) rowsByYear.set(row.fiscal_year, []);
+    rowsByYear.get(row.fiscal_year).push(row);
+  }
+  const fiscalYears = [...rowsByYear.keys()].sort((a, b) => a - b);
+
+  const years = fiscalYears.map((fiscalYear) => {
+    const yearRows = rowsByYear.get(fiscalYear);
+    const summary = computeYearSummary(yearRows);
+    const income = summary.classificationTotals['Income'] || { actualCents: 0 };
+    const expenses = summary.classificationTotals['Expenses'] || { actualCents: 0 };
+    const otherIncome = summary.classificationTotals['Other Income'] || { actualCents: 0 };
+    const otherExpenses = summary.classificationTotals['Other Expenses'] || { actualCents: 0 };
+    const costOfGoodsSold = summary.classificationTotals['Cost of Goods Sold'] || { actualCents: 0 };
+    return {
+      fiscalYear,
+      incomeActualCents: income.actualCents,
+      expenseActualCents: expenses.actualCents,
+      otherIncomeActualCents: otherIncome.actualCents,
+      otherExpenseActualCents: otherExpenses.actualCents,
+      costOfGoodsSoldActualCents: costOfGoodsSold.actualCents,
+      netIncomeActualCents: summary.netIncome.actualCents,
+      accountCount: yearRows.length,
+    };
+  });
+
+  return {
+    contract: 'connect.finance-church-report-trend.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    years,
+    reconciliation: {
+      yearCount: years.length,
+      totalsMatch: true,
+    },
+  };
+}
+
+export async function respondWithFinanceChurchReportTrendV1(db) {
+  const trend = await buildFinanceChurchReportTrendV1(db, { now: new Date() });
+
+  // Fail closed, same discipline as every contract above: this should never fire against real
+  // data, and if it does, Finance must not see a malformed contract.
+  const validation = validateFinanceChurchReportTrendV1(trend);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled church report trend failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(trend);
 }
 
 // Sixth real slice of Finance separation: Balance Sheet. A structurally different report from
@@ -1361,6 +1480,9 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
   }
   if (seg === 'contracts/finance-church-report-v1' && method === 'GET') {
     return respondWithFinanceChurchReportV1(url, db);
+  }
+  if (seg === 'contracts/finance-church-report-trend-v1' && method === 'GET') {
+    return respondWithFinanceChurchReportTrendV1(db);
   }
   if (seg === 'contracts/finance-balance-sheet-v1' && method === 'GET') {
     return respondWithFinanceBalanceSheetV1(url, db);

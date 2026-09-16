@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-church-report-trend:v1",
+  "title": "Connect Finance Church Report Trend v1",
+  "description": "The full multi-year Church operating trend (finance_church_entries, period_month=0 rows only): every fiscal year on file, each independently precedence-resolved the same way connect.finance-church-report.v1 resolves one fiscal year (resolveChurchYearPrecedence -- CHURCH_SOURCE_PRIORITY picks one source WHOLESALE per year), then rolled up with computeYearSummary(). Takes no parameters -- the trend is inherently the whole history, not one period a caller names. netIncomeActualCents is the same full bottom-line figure (Income - Cost of Goods Sold - Expenses, plus Other Income - Other Expenses) production's own existing multi-year trend chart/table already shows, not a naive income-minus-expense simplification. Deliberately actual-only: production's own multi-year view never shows a budget column or series.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "currency", "generatedAt", "years", "reconciliation"],
+  "properties": {
+    "contract": { "const": "connect.finance-church-report-trend.v1" },
+    "dataClassification": { "const": "aggregate" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "currency": { "const": "USD" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "years": {
+      "type": "array",
+      "description": "Ascending fiscal-year order. May legitimately be empty if finance_church_entries has no annual (period_month=0) rows at all yet -- a normal state, not an error, the same honesty the single-year contract applies to one empty fiscal year.",
+      "items": { "$ref": "#/$defs/year" }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["yearCount", "totalsMatch"],
+      "properties": {
+        "yearCount": { "type": "integer", "minimum": 0, "description": "Must equal years.length." },
+        "totalsMatch": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "year": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fiscalYear", "incomeActualCents", "expenseActualCents", "otherIncomeActualCents",
+        "otherExpenseActualCents", "costOfGoodsSoldActualCents", "netIncomeActualCents", "accountCount"
+      ],
+      "properties": {
+        "fiscalYear": { "type": "integer", "minimum": 2000, "maximum": 2100 },
+        "incomeActualCents": { "type": "integer", "description": "Sum of actualCents for classification 'Income' only for this fiscal year, after precedence resolution -- matches production's 'Total revenue' card for the same year exactly; does not include Other Income." },
+        "expenseActualCents": { "type": "integer", "description": "Sum of actualCents for classification 'Expenses' only -- does not include Other Expenses or Cost of Goods Sold." },
+        "otherIncomeActualCents": { "type": "integer", "description": "Carried so the consumer can independently re-derive netIncomeActualCents rather than trust it blindly. Nonzero in real production data for some fiscal years (confirmed 2026-09-15)." },
+        "otherExpenseActualCents": { "type": "integer" },
+        "costOfGoodsSoldActualCents": { "type": "integer", "description": "0 in every real fiscal year checked so far (this church has never posted to a Cost of Goods Sold account), but carried defensively -- valid QuickBooks output, not schema-forbidden." },
+        "netIncomeActualCents": { "type": "integer", "description": "The full reconciled bottom line: (incomeActualCents - costOfGoodsSoldActualCents - expenseActualCents) + (otherIncomeActualCents - otherExpenseActualCents). Matches production's own 'Net Income' multi-year trend row/chart series exactly (src/frontend/js-finance.js's finRenderChurchMultiYear) -- provably different from a naive incomeActualCents-minus-expenseActualCents figure in fiscal years with nonzero Other Income/Expenses." },
+        "accountCount": { "type": "integer", "minimum": 0, "description": "Number of precedence-resolved accounts for this fiscal year -- may legitimately be 0 for a year with nothing synced or imported yet." }
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends,
-  resolveChurchReport, buildLiveChurchReportView,
+  resolveChurchReport, resolveChurchTrend, buildLiveChurchReportView,
 } from '../apps/finance/church-report-service.js';
 
 const rows = [
@@ -100,6 +100,63 @@ describe('resolveChurchReport (live connect.finance-church-report.v1 with synthe
     expect(result.source).toBe('synthetic-fallback');
     expect(result.fallbackReason).toBe('contract_validation_failed');
     expect(result.rows).toEqual(rows);
+  });
+});
+
+describe('resolveChurchTrend (live connect.finance-church-report-trend.v1 with synthetic fallback)', () => {
+  it('falls back to the synthetic fixture when the live contract is not configured', async () => {
+    const result = await resolveChurchTrend({}, dbWith([
+      { fiscal_year: 2025, income_cents: 11000000, expense_cents: 7800000 },
+      { fiscal_year: 2026, income_cents: 12000000, expense_cents: 8000000 },
+    ]));
+    expect(result.source).toBe('synthetic-fallback');
+    expect(result.fallbackReason).toBe('not_configured');
+    expect(result.rows).toEqual([
+      { fiscal_year: 2025, income_cents: 11000000, expense_cents: 7800000, net_cents: 3200000 },
+      { fiscal_year: 2026, income_cents: 12000000, expense_cents: 8000000, net_cents: 4000000 },
+    ]);
+  });
+
+  it('sends no query parameters and returns the live payload\'s years as-is (camelCase, not remapped)', async () => {
+    let requestedUrl;
+    const liveYears = [{
+      fiscalYear: 2026, incomeActualCents: 1300000, expenseActualCents: 900000,
+      otherIncomeActualCents: 0, otherExpenseActualCents: 0, costOfGoodsSoldActualCents: 0,
+      netIncomeActualCents: 400000, accountCount: 12,
+    }];
+    const env = {
+      CONNECT_SERVICE: {
+        async fetch(req) {
+          requestedUrl = new URL(req.url);
+          return new Response(JSON.stringify({
+            contract: 'connect.finance-church-report-trend.v1', dataClassification: 'aggregate',
+            sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+            generatedAt: '2026-09-15T12:00:00Z',
+            years: liveYears,
+            reconciliation: { yearCount: 1, totalsMatch: true },
+          }), { status: 200 });
+        },
+      },
+      FINANCE_CONTRACT_API_KEY: 'test-secret',
+    };
+    const result = await resolveChurchTrend(env, dbWith(rows));
+    expect(result.source).toBe('live');
+    expect(result.years).toEqual(liveYears);
+    expect(requestedUrl.pathname).toBe('/api/contracts/finance-church-report-trend-v1');
+    expect(requestedUrl.search).toBe('');
+  });
+
+  it('falls back to the synthetic fixture, labeled with the failure reason, on a live contract-validation failure', async () => {
+    const env = {
+      CONNECT_SERVICE: { async fetch() { return new Response(JSON.stringify({ contract: 'connect.finance-church-report-trend.v1' }), { status: 200 }); } },
+      FINANCE_CONTRACT_API_KEY: 'test-secret',
+    };
+    const result = await resolveChurchTrend(env, dbWith([
+      { fiscal_year: 2025, income_cents: 11000000, expense_cents: 7800000 },
+      { fiscal_year: 2026, income_cents: 12000000, expense_cents: 8000000 },
+    ]));
+    expect(result.source).toBe('synthetic-fallback');
+    expect(result.fallbackReason).toBe('contract_validation_failed');
   });
 });
 

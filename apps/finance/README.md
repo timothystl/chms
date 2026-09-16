@@ -13,10 +13,14 @@ and preview URLs are disabled in production configuration. The runbook records A
 and an empty production database, not acceptance of every authenticated report.
 
 The application has real Connect contract paths for Giving, data status, accounts, budget,
-church reports, balance sheet, daycare, property valuation and compensation. Property operating,
-reserves and ledgers joined main in #1002 after the production deployment inspected in this
-review; do not infer they are deployed. Giving writes relay to Connect and payroll operations
-relay to Website. Neither relay transfers ownership of those records to Finance.
+church reports (including the multi-year trend), balance sheet, daycare, property valuation and
+compensation. All four Church Report sub-pages (Overview, Income & expense detail, Multi-year
+trend, Budget vs actual) are now live-first with synthetic fallback -- the trend page was the last
+one left on the synthetic reader; see `church-report-service.js`'s `resolveChurchTrend` and
+`connect.finance-church-report-trend.v1`. Property operating, reserves and ledgers joined main in
+#1002 after the production deployment inspected in this review; do not infer they are deployed.
+Giving writes relay to Connect and payroll operations relay to Website. Neither relay transfers
+ownership of those records to Finance.
 
 Existing Finance remains operational in Connect. Moving authoritative accounting data and writers,
 cutting users over and retiring the old module remain unfinished. The new schema does not include
@@ -60,7 +64,9 @@ noted above. Consult their source and the page registry for current per-page beh
 - `route-manifest.js` — executable route, method, contract, data-source, and query-budget registry.
 - `parity-manifest.js` — source-backed inventory of the existing Finance navigation and capabilities.
 - `health-view-model.js` — pure synthetic operating, position, Giving, and decision framing.
-- `church-report-service.js` — one-query synthetic account detail and report totals boundary.
+- `church-report-service.js` — one-query synthetic account detail and report totals boundary; `resolveChurchReport` and `resolveChurchTrend` each try their own real `connect.finance-church-report*.v1` contract first and fall back to the synthetic fixture on any failure.
+- `finance-church-report-trend-consumer.js` — fail-closed parser for the `connect.finance-church-report-trend.v1` contract (the multi-year trend; the single-year contract has its own consumer alongside it in this directory).
+- `finance-church-report-trend-client.js` — real transport for the live multi-year endpoint, with a fail-closed fallback to the synthetic fixture (same shape as `finance-church-report-client.js`).
 - `balance-sheet-service.js` — one-query synthetic position detail and equation reconciliation.
 - `daycare-report-service.js` — one-query synthetic actuals and operating-result detail.
 - `property-report-service.js` — one-query synthetic monthly property performance detail.
