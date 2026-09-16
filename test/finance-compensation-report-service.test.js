@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCompensationCouncilSnapshot, buildCompensationReportView, buildLiveCompensationCouncilSnapshot, readSyntheticCompensationReport } from '../apps/finance/compensation-report-service.js';
+import { buildCompensationCouncilSnapshot, buildCompensationReportView, buildLiveCompensationCouncilSnapshot, filterCompensationWorkersForViewer, readSyntheticCompensationReport, summarizeCompensationWorkers } from '../apps/finance/compensation-report-service.js';
 
 const rows = [
   { fiscal_year: 2027, role_label: 'Synthetic Ministry Role', salary_cents: 6000000, benefits_cents: 1200000, adjustment_pct: 3, basis: 'synthetic_fixture', notes: 'Synthetic fixture only' },
@@ -119,6 +119,38 @@ describe('buildLiveCompensationCouncilSnapshot (real aggregate rollup, admin/cou
       .toThrow('Live Compensation council snapshot requires a live compensation report');
     expect(() => buildLiveCompensationCouncilSnapshot({
       source: 'live', workers: [liveWorker({ currentPaySource: 'entered', currentPayCents: null })],
-    }, 'admin')).toThrow('Live Compensation council snapshot has an invalid entered current pay figure');
+    }, 'admin')).toThrow('Live Compensation worker summary has an invalid entered current pay figure');
+  });
+});
+
+// The Plan page's own worker table/KPIs reuse these two helpers directly (compensation-pages.js)
+// so a `council` viewer can never see a hideFromCouncil worker there either -- the same gap that
+// was open on the live Plan page before this section-level rollup existed on Council.
+describe('filterCompensationWorkersForViewer / summarizeCompensationWorkers (shared by Plan and Council)', () => {
+  const workers = [
+    liveWorker({ name: 'Worker A', currentPayCents: 5000000, currentPaySource: 'entered' }),
+    liveWorker({ name: 'Worker B', currentPayCents: null, currentPaySource: 'budget_line', accountCode: '58004' }),
+    liveWorker({ name: 'Worker C (hidden)', currentPayCents: 9000000, currentPaySource: 'entered', hideFromCouncil: true }),
+  ];
+
+  it('drops a hideFromCouncil worker only for the council role', () => {
+    expect(filterCompensationWorkersForViewer(workers, 'council').map((w) => w.name)).toEqual(['Worker A', 'Worker B']);
+    expect(filterCompensationWorkersForViewer(workers, 'admin').map((w) => w.name)).toEqual(['Worker A', 'Worker B', 'Worker C (hidden)']);
+    expect(filterCompensationWorkersForViewer(workers, 'compensation')).toHaveLength(3);
+  });
+
+  it('recomputes totals from whatever list it is given, never a stored total', () => {
+    expect(summarizeCompensationWorkers(workers)).toEqual({
+      workerCount: 3, enteredCurrentPayCount: 2, unenteredCurrentPayCount: 1, enteredCurrentPayCents: 14000000,
+    });
+    const councilVisible = filterCompensationWorkersForViewer(workers, 'council');
+    expect(summarizeCompensationWorkers(councilVisible)).toEqual({
+      workerCount: 2, enteredCurrentPayCount: 1, unenteredCurrentPayCount: 1, enteredCurrentPayCents: 5000000,
+    });
+  });
+
+  it('fails closed on an invalid entered current-pay figure', () => {
+    expect(() => summarizeCompensationWorkers([liveWorker({ currentPaySource: 'entered', currentPayCents: null })]))
+      .toThrow('Live Compensation worker summary has an invalid entered current pay figure');
   });
 });

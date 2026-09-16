@@ -115,6 +115,37 @@ export function buildCompensationCouncilSnapshot(report) {
   };
 }
 
+// hideFromCouncil is enforced HERE, not upstream: the contract producer (buildFinanceCompensationV1
+// in src/api-contracts.js) is a service-to-service call with no end-user identity attached, so it
+// intentionally does not filter by viewer role. Any Finance code rendering this real per-person
+// roster to an actual 'council' viewer must apply the same "never show a flagged worker to council"
+// rule production's own Salary Planner already enforces for that exact role (see api-finance.js's
+// finance/planning/salary GET handler and test/council-compensation-role.test.js). admin and the
+// dedicated `compensation` role are deliberately NOT filtered, matching that same precedent. Shared
+// by the Plan page's own worker table/KPIs and buildLiveCompensationCouncilSnapshot below so the two
+// pages can never drift out of sync on who council is allowed to see.
+export function filterCompensationWorkersForViewer(workers, viewerRole) {
+  return viewerRole === 'council' ? workers.filter((w) => !w.hideFromCouncil) : workers;
+}
+
+// Real per-person totals recomputed from an already-viewer-filtered worker list -- never the raw
+// contract `totals`, which are computed service-to-service with no viewer filtering applied (see
+// filterCompensationWorkersForViewer's own comment). Reusing the raw totals for a council viewer
+// would fold a hidden worker's entered current pay into "Entered current pay total" even though
+// their row is hidden -- a real, if indirect, disclosure this recomputation prevents.
+export function summarizeCompensationWorkers(workers) {
+  const entered = workers.filter((w) => w.currentPaySource === 'entered');
+  if (entered.some((w) => !Number.isInteger(w.currentPayCents))) {
+    throw new Error('Live Compensation worker summary has an invalid entered current pay figure');
+  }
+  return {
+    workerCount: workers.length,
+    enteredCurrentPayCount: entered.length,
+    unenteredCurrentPayCount: workers.length - entered.length,
+    enteredCurrentPayCents: entered.reduce((sum, w) => sum + w.currentPayCents, 0),
+  };
+}
+
 // Real, honestly-scoped Council rollup -- for the SAME roles who already see the real per-person
 // roster on the Plan page (admin/council/compensation; see COMPENSATION_LIVE_ALLOWED_ROLES above
 // and compensation-pages.js's 'plan' branch). Deliberately NOT a live version of
@@ -125,33 +156,16 @@ export function buildCompensationCouncilSnapshot(report) {
 // names to secretly mean something else. It surfaces only the real, already-stored aggregate facts
 // the contract's own `totals` are built from: how many real workers are on the roster and how much
 // of their current pay is hand-entered.
-//
-// hideFromCouncil is enforced HERE, not upstream: the contract producer (buildFinanceCompensationV1
-// in src/api-contracts.js) is a service-to-service call with no end-user identity attached, so it
-// intentionally does not filter by viewer role. Any Finance code rendering this data to an actual
-// 'council' viewer must apply the same "never show a flagged worker to council" rule production's
-// own Salary Planner already enforces for that exact role (see api-finance.js's
-// finance/planning/salary GET handler and test/council-compensation-role.test.js). admin and the
-// dedicated `compensation` role are deliberately NOT filtered here, matching that same precedent.
 export function buildLiveCompensationCouncilSnapshot(compensationReportLive, viewerRole) {
   if (!compensationReportLive || compensationReportLive.source !== 'live' || !Array.isArray(compensationReportLive.workers)) {
     throw new Error('Live Compensation council snapshot requires a live compensation report');
   }
-  const workers = viewerRole === 'council'
-    ? compensationReportLive.workers.filter((w) => !w.hideFromCouncil)
-    : compensationReportLive.workers;
-  const entered = workers.filter((w) => w.currentPaySource === 'entered');
-  if (entered.some((w) => !Number.isInteger(w.currentPayCents))) {
-    throw new Error('Live Compensation council snapshot has an invalid entered current pay figure');
-  }
-  const enteredCurrentPayCents = entered.reduce((sum, w) => sum + w.currentPayCents, 0);
+  const workers = filterCompensationWorkersForViewer(compensationReportLive.workers, viewerRole);
+  const summary = summarizeCompensationWorkers(workers);
   return {
     source: 'live',
     generatedAt: compensationReportLive.generatedAt,
-    workerCount: workers.length,
-    enteredCurrentPayCount: entered.length,
-    unenteredCurrentPayCount: workers.length - entered.length,
-    enteredCurrentPayCents,
+    ...summary,
     identitiesIncluded: false,
     reviewStatus: 'review_only',
     approved: false,
