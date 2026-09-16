@@ -110,9 +110,9 @@ noted above. Consult their source and the page registry for current per-page beh
 - `compensation-benchmark-service.js` — one-query role-level synthetic benchmark comparison with explicit non-published source classification.
 - `compensation-benefits-service.js` — one-query role-level benefits and employer-tax breakdown with exact plan reconciliation.
 - `cash-runway-service.js` — two-query synthetic operating-cash and expense-coverage boundary.
-- `financial-mix-service.js` — pure reconciled income/expense composition view.
-- `entity-overview-service.js` — pure separately-periodized Church, Daycare, and Property view.
-- `operating-bridge-service.js` — pure reconciled annual Church income-to-result bridge.
+- `financial-mix-service.js` — pure reconciled income/expense composition view; `buildLiveFinancialMixView` builds the same `{fiscalYear, income, expenses}` shape directly from a live church-report contract result, used by Charts' revenue/expense mix pages and now Financial Health's Operating mix, each independently, whenever `resolveChurchReport` came back live.
+- `entity-overview-service.js` — pure separately-periodized Church, Daycare, and Property view; still synthetic-only by investigated decision, not merely unwired -- see the Financial Health entry below.
+- `operating-bridge-service.js` — pure reconciled annual Church income-to-result bridge; reads only `fiscalYear`/`totals.{incomeActualCents,expenseActualCents,actualNetCents}`, a shape the live Church Report view (`buildLiveChurchReportView`) already matches exactly, so no live-aware wrapper was needed to make Financial Health's Church operating bridge live-first too.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data, served at `/api/v1/connect-giving-preview`.
@@ -287,6 +287,37 @@ guaranteed equal to `equityReclass.totalEquityCents` -- not one component of tha
 -- matching what this card has always meant by "net assets" (assets minus liabilities). No new
 contract, query budget, migration, or writer; this only adds a second consumer of two contracts
 already live in production.
+
+Financial Health's Operating mix and Church operating bridge are now live-first too, both reusing
+`churchReportLive` (already fetched for this section by the change above) rather than any new read.
+Operating mix calls `buildLiveFinancialMixView` -- the same function Charts' revenue/expense mix
+pages already use -- directly on `churchReportLive.accounts`/`.totals` when live. Church operating
+bridge passes the live church view straight into the existing `buildOperatingBridge` unchanged: its
+`fiscalYear`/`totals.{incomeActualCents,expenseActualCents,actualNetCents}` reads already match
+`buildLiveChurchReportView`'s output field-for-field, so no live-aware wrapper was needed, unlike
+Operating mix/Operating result/Financial position above. Both fall back to the existing synthetic
+builders and are labeled `Live from Connect`/`Synthetic staging` in their own section badge,
+independent of Operating result/Financial position and of each other.
+
+Entity overview was investigated for the same treatment and deliberately left fully synthetic.
+Daycare's live resolver (`resolveDaycareReport`/`buildLiveDaycareReportView`) reports one
+whole-fiscal-year total whose `period` is just the fiscal year (e.g. `"2026"`), not the monthly
+`YYYY-MM` window `buildEntityOverview`'s own validation requires for Daycare/Property (the
+synthetic fixture's own entity-overview periods are genuinely monthly, e.g. `Daycare · 2026-01`) --
+a real granularity mismatch, not a formatting detail, so "all three live" cannot occur with today's
+resolver shapes. Property's live resolver can also carry a null `totalExpensesCents`/
+`netOperatingIncomeCents`/`availableForDistributionCents`/`reserveBalanceCents` on any given period
+(confirmed production behavior -- see `property-report-service.js`'s `resolvePropertyReport`
+comment); summing those into `buildPropertyReportView`'s totals would produce `NaN`, and
+`buildEntityOverview`'s integer validation would then throw with no per-panel guard around that one
+call, taking down the entire Financial Health section rather than degrading just this row.
+Independently mixing sources instead (e.g. live Church alongside synthetic Daycare/Property) was
+also rejected: `renderEntityCards` carries no per-card source label today, so three cards from two
+different sources would sit side by side with no way for a reader to tell which is real Connect
+data -- the exact misleading mix this page's honest-degradation discipline exists to prevent.
+`daycareReportLive`/`propertyReportLive` are therefore still not resolved for `'health'` at all;
+resolving them unused would only add query-budget cost. No new contract, query budget, migration,
+or writer.
 
 Board packet is no longer 100% synthetic. Its Operating result, Financial position, and Operating
 trend cards each independently try the same live-first resolvers Church Report/Balance Sheet
