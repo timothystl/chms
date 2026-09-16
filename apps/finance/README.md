@@ -24,10 +24,25 @@ synthetic reader; see `balance-sheet-service.js`'s `resolveBalanceSheetTrend` an
 `connect.finance-balance-sheet-trend.v1`. Its `netAssetsCents` is total equity after the same
 Designated-Funds-as-Equity reclassification the single-year contract already applies, matching
 what the single-year 'position' page already labels "Net assets" for the same fiscal year, not a
-separately recomputed assets-minus-liabilities figure. Property operating, reserves and ledgers
-joined main in #1002 after the production deployment inspected in this review; do not infer they
-are deployed. Giving writes relay to Connect and payroll operations relay to Website. Neither
+separately recomputed assets-minus-liabilities figure. Property operating, reserves, ledgers, and
+forecast (a straight port of the AHRA-imported `finance_property_budget_monthly` budget/plan
+table, not a computed run-rate projection despite the page's label) joined main in #1002 and a
+follow-on PR respectively, after the production deployment inspected in this review; do not infer
+they are deployed. Giving writes relay to Connect and payroll operations relay to Website. Neither
 relay transfers ownership of those records to Finance.
+
+Compensation's four sub-pages split unevenly on whether a real substitute for their synthetic
+role-level fixture exists: Plan and Council snapshot both have an honest live version, gated to
+admin/council/compensation exactly like the underlying `connect.finance-compensation.v1` roster
+fetch; Benchmarks and Benefits & taxes stay synthetic for every role, permanently, because no real
+data anywhere in Connect can honestly back them (see `compensation-pages.js`'s comment above its
+`'benchmarks'`/`'benefits'` branches for exactly what was checked and why a real per-role
+benchmark salary or benefits-component dollar breakdown does not exist). Council's own real rollup
+carries only real, already-stored aggregate facts (worker count, entered/unentered current-pay
+counts and totals) -- it never reconstructs the synthetic view's `benefitsSharePct` or
+`weightedAdjustmentPct`, which have no real per-worker equivalent, and it drops any worker flagged
+`hideFromCouncil` from what a `council`-role viewer specifically sees, matching the same rule the
+real Salary Planner already enforces for that role.
 
 Existing Finance remains operational in Connect. Moving authoritative accounting data and writers,
 cutting users over and retiring the old module remain unfinished. The new schema does not include
@@ -85,7 +100,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `data-status-service.js` — resolves real-or-synthetic import provenance and isolation status; `resolveDataStatus` tries the live `connect.finance-data-status.v1` contract first, falls back to the one-query synthetic reader on any failure.
 - `finance-data-status-consumer.js` — fail-closed parser for the `connect.finance-data-status.v1` contract.
 - `finance-data-status-client.js` — real transport for the live endpoint, with a fail-closed fallback to the synthetic fixture (same shape as `connect-giving-client.js`).
-- `compensation-report-service.js` — one-query synthetic role-level compensation plan, reconciled totals, and a role-only council review snapshot that cannot imply approval.
+- `compensation-report-service.js` — one-query synthetic role-level compensation plan and reconciled totals, `resolveCompensationReport`'s live-with-synthetic-fallback for the real per-person `connect.finance-compensation.v1` roster (admin/council/compensation only), a synthetic role-only council review snapshot that cannot imply approval, and `buildLiveCompensationCouncilSnapshot`'s real aggregate equivalent for that same allowed-role set (real worker/entered-pay counts and totals only -- no fabricated benefits-share or weighted-adjustment figure, since the real roster stores neither per worker).
 - `compensation-benchmark-service.js` — one-query role-level synthetic benchmark comparison with explicit non-published source classification.
 - `compensation-benefits-service.js` — one-query role-level benefits and employer-tax breakdown with exact plan reconciliation.
 - `cash-runway-service.js` — two-query synthetic operating-cash and expense-coverage boundary.

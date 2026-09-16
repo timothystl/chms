@@ -1,5 +1,5 @@
 import { buildPropertyReportView, buildPropertyValuationView } from './property-report-service.js';
-import { buildPropertyForecastView } from './property-forecast-service.js';
+import { buildPropertyForecastView, buildLivePropertyForecastView } from './property-forecast-service.js';
 import { buildPropertyDistributionsView } from './property-distributions-service.js';
 import { escapeHtml, formatCents, formatSignedCents, renderKpiCards, renderSectionHeading, renderTable, renderUnavailablePage } from './render-helpers.js';
 
@@ -35,13 +35,22 @@ export function renderPropertyForecastRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${formatCents(row.revenue_cents)}</td><td>${formatCents(row.expenses_cents)}</td><td>${formatSignedCents(row.net_income_cents)}</td></tr>`).join('');
 }
 
+// Live rows are camelCase (period/revenueCents/expensesCents/netIncomeCents), matching the
+// connect.finance-property-forecast.v1 contract shape directly -- unlike the operating/reserves/
+// ledgers live resolvers, this one is not reshaped into the synthetic fixture's snake_case
+// convention, the same way church-pages.js's renderLiveChurchRows stays camelCase alongside
+// renderChurchRows.
+export function renderLivePropertyForecastRows(rows) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${formatCents(row.revenueCents)}</td><td>${formatCents(row.expensesCents)}</td><td>${formatSignedCents(row.netIncomeCents)}</td></tr>`).join('');
+}
+
 export function renderPropertyDistributionRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${formatCents(row.amount_cents)}</td></tr>`).join('');
 }
 
 export function renderPropertyPage(pageId, {
   propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
-  propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyDistributions,
+  propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions,
 }) {
   const report = buildPropertyReportView(propertyReport);
 
@@ -139,15 +148,41 @@ export function renderPropertyPage(pageId, {
     </section>`;
   }
   if (pageId === 'forecast') {
-    const forecast = buildPropertyForecastView(propertyForecast);
-    return `<section class="report" aria-label="Synthetic Commercial Property run-rate forecast">
-      ${renderSectionHeading({ eyebrow: 'Run-rate forecast', heading: `Fiscal year ${forecast.fiscalYear} monthly plan`, badge: forecast.reconciled ? '12 months · reconciled' : 'Review required' })}
+    // Live-first: tries connect.finance-property-forecast.v1 (property-forecast-service.js's
+    // resolvePropertyForecast), falls back to the committed synthetic fixture -- same
+    // isLive/fallbackNote convention as the other Property pages above. This is a straight port of
+    // finance_property_budget_monthly (AHRA-imported budget/plan rows), not a computed run-rate
+    // projection -- see the contract producer's own header comment.
+    const isLive = propertyForecastLive && propertyForecastLive.source === 'live';
+    if (!isLive) {
+      const forecast = buildPropertyForecastView(propertyForecast);
+      const fallbackNote = `<p><small>The committed synthetic fixture (the live endpoint is not configured or did not answer${propertyForecastLive && propertyForecastLive.fallbackReason ? `: ${escapeHtml(propertyForecastLive.fallbackReason)}` : ''}).</small></p>`;
+      return `<section class="report" aria-label="Synthetic Commercial Property run-rate forecast">
+        ${renderSectionHeading({ eyebrow: 'Run-rate forecast', heading: `Fiscal year ${forecast.fiscalYear} monthly plan`, badge: forecast.reconciled ? '12 months · reconciled' : 'Review required' })}
+        ${renderKpiCards([
+          { label: 'Forecast revenue', value: formatCents(forecast.totals.revenueCents) },
+          { label: 'Forecast expenses', value: formatCents(forecast.totals.expenseCents) },
+          { label: 'Forecast net income', value: formatSignedCents(forecast.totals.netIncomeCents), hint: 'Read-only synthetic plan' },
+        ])}
+        ${renderTable({ head: ['Month', 'Revenue', 'Expenses', 'Net income'], rows: renderPropertyForecastRows(forecast.rows) })}
+        ${fallbackNote}
+      </section>`;
+    }
+    const forecast = buildLivePropertyForecastView(propertyForecastLive.periods, propertyForecastLive.forecastYear, propertyForecastLive.totals);
+    if (!forecast.hasForecastYear) {
+      return `<section class="report" aria-label="Commercial Property run-rate forecast">
+        ${renderSectionHeading({ eyebrow: 'Run-rate forecast', heading: 'No complete forecast year on file', badge: 'Live from Connect' })}
+        <p>Connect has budget-plan rows for ${escapeHtml(propertyForecastLive.propertyKey || 'this property')}, but no single fiscal year with all 12 months on file yet.</p>
+      </section>`;
+    }
+    return `<section class="report" aria-label="Commercial Property run-rate forecast">
+      ${renderSectionHeading({ eyebrow: 'Run-rate forecast', heading: `Fiscal year ${forecast.fiscalYear} monthly plan`, badge: 'Live from Connect' })}
       ${renderKpiCards([
         { label: 'Forecast revenue', value: formatCents(forecast.totals.revenueCents) },
-        { label: 'Forecast expenses', value: formatCents(forecast.totals.expenseCents) },
-        { label: 'Forecast net income', value: formatSignedCents(forecast.totals.netIncomeCents), hint: 'Read-only synthetic plan' },
+        { label: 'Forecast expenses', value: formatCents(forecast.totals.expensesCents) },
+        { label: 'Forecast net income', value: formatSignedCents(forecast.totals.netIncomeCents), hint: forecast.totals.reconciled ? 'Reconciles to the cent' : 'Does not reconcile exactly -- review the source import' },
       ])}
-      ${renderTable({ head: ['Month', 'Revenue', 'Expenses', 'Net income'], rows: renderPropertyForecastRows(forecast.rows) })}
+      ${renderTable({ head: ['Month', 'Revenue', 'Expenses', 'Net income'], rows: renderLivePropertyForecastRows(forecast.rows) })}
     </section>`;
   }
   if (pageId === 'distributions') {

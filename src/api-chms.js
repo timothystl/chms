@@ -313,6 +313,14 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     { match: (s) => s.startsWith('contracts/finance-property-operating'), item: 'finance' },
     { match: (s) => s.startsWith('contracts/finance-property-reserves'), item: 'finance' },
     { match: (s) => s.startsWith('contracts/finance-property-ledgers'), item: 'finance' },
+    // Same trap, same fix, for the fourteenth contract: Property Forecast is a straight port of
+    // finance_property_budget_monthly (a real monthly budget/plan for the Commercial Property,
+    // AHRA-imported) -- real Commercial Property dollar data, not Giving or per-person
+    // compensation, so it takes the plain 'finance' item like the three contracts above. Without
+    // this explicit rule this segment would match no rule above (it starts with 'contracts/', not
+    // 'finance') and reach the handler with NO permission check at all -- see
+    // docs/ARCHITECTURE.md's ACCESS_GATE note on exactly this trap.
+    { match: (s) => s.startsWith('contracts/finance-property-forecast'), item: 'finance' },
     { match: (s) => s.startsWith('tuition-aid'), item: 'tuitionaid' },
     { match: (s) => s.startsWith('finance'), item: 'finance' },
     { match: (s) => s.startsWith('attendance'), item: 'attendance' },

@@ -677,6 +677,78 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).not.toContain('2026-01');
   });
 
+  it('renders the Run-rate forecast page live from Connect when connect.finance-property-forecast.v1 answers, real-data-shaped (a current-year plan, not a future one)', async () => {
+    const VALID_LIVE_FORECAST = {
+      contract: 'connect.finance-property-forecast.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      propertyKey: 'ivanhoe', generatedAt: '2026-09-16T12:00:00Z', forecastYear: 2026,
+      periods: [
+        { period: '2026-01', revenueCents: 1000000, expensesCents: 400000, netIncomeCents: 600000, reconciled: true, source: 'ahra_import' },
+        // Real finding: real December has a large annual expense landing in one month, making net
+        // income genuinely negative even though revenue/expenses are each nonnegative.
+        { period: '2026-12', revenueCents: 1000000, expensesCents: 1600000, netIncomeCents: -600000, reconciled: true, source: 'ahra_import' },
+      ],
+      totals: { revenueCents: 2000000, expensesCents: 2000000, netIncomeCents: 0, reconciled: true },
+    };
+    const liveEnv = envWithRoleService(async (request) => {
+      const url = new URL(request instanceof Request ? request.url : request);
+      if (url.pathname === '/api/contracts/staff-role-v1') {
+        return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+      }
+      if (url.pathname === '/api/contracts/finance-property-forecast-v1') {
+        return new Response(JSON.stringify(VALID_LIVE_FORECAST), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    const res = await worker.fetch(new Request('https://finance.test/?section=property&page=forecast', {
+      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+    }), liveEnv);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('Run-rate forecast');
+    expect(html).toContain('Fiscal year 2026 monthly plan');
+    expect(html).toContain('Live from Connect');
+    expect(html).toContain('$20,000');
+    expect(html).toContain('Reconciles to the cent');
+    // Real finding: real December net income is genuinely negative -- rendered signed, not
+    // fabricated as a positive or zeroed figure.
+    expect(html).toContain('2026-12');
+    expect(html).toContain('−$6,000');
+  });
+
+  it('real-data-shaped edge case: renders an honest "no complete forecast year" state, not a 500, when Connect has only a partial year on file', async () => {
+    const PARTIAL_YEAR_FORECAST = {
+      contract: 'connect.finance-property-forecast.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      propertyKey: 'ivanhoe', generatedAt: '2026-09-16T12:00:00Z', forecastYear: null,
+      periods: [
+        { period: '2027-01', revenueCents: 100000, expensesCents: 40000, netIncomeCents: 60000, reconciled: true, source: 'ahra_import' },
+        { period: '2027-02', revenueCents: 100000, expensesCents: 40000, netIncomeCents: 60000, reconciled: true, source: 'ahra_import' },
+      ],
+      totals: { revenueCents: 0, expensesCents: 0, netIncomeCents: 0, reconciled: false },
+    };
+    const liveEnv = envWithRoleService(async (request) => {
+      const url = new URL(request instanceof Request ? request.url : request);
+      if (url.pathname === '/api/contracts/staff-role-v1') {
+        return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+      }
+      if (url.pathname === '/api/contracts/finance-property-forecast-v1') {
+        return new Response(JSON.stringify(PARTIAL_YEAR_FORECAST), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    const res = await worker.fetch(new Request('https://finance.test/?section=property&page=forecast', {
+      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+    }), liveEnv);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('No complete forecast year on file');
+    expect(html).toContain('Live from Connect');
+    expect(html).not.toContain('undefined');
+  });
+
   it('renders honestly-labeled "not yet available" pages for the Commercial Property gaps', async () => {
     for (const [pageId, phrase] of [
       ['receivables', 'no tenant-receivable'],
@@ -798,6 +870,67 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(benefitsHtml).toContain('$10,000');
     expect(benefitsHtml).toContain('47.6%');
     expect(benefitsHtml).toContain('must exactly match the benefits plan');
+  });
+
+  describe('live Compensation Council snapshot for admin/council/compensation, Benchmarks/Benefits stay synthetic', () => {
+    // Every name/dollar figure below is entirely fabricated for this test -- never a real
+    // production value. Mirrors VALID_LIVE_PAYLOAD in finance-compensation-service.test.js.
+    function liveCompensationEnv(role) {
+      const workers = [
+        { name: 'Worker A', position: 'Fictional Director', accountCode: '', role: 'other', trackKey: '', education: 'bachelors', yearsExperience: 3, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: false, hasDependents: false, healthEnrolled: true, hideFromCouncil: false, currentPayCents: 5000000, currentPaySource: 'entered' },
+        { name: 'Worker B (hidden from council)', position: 'Fictional Assistant', accountCode: '', role: 'other', trackKey: '', education: 'bachelors', yearsExperience: 1, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: false, hasDependents: false, healthEnrolled: false, hideFromCouncil: true, currentPayCents: 9000000, currentPaySource: 'entered' },
+      ];
+      const payload = {
+        contract: 'connect.finance-compensation.v1', dataClassification: 'aggregate', sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+        generatedAt: '2026-09-15T00:00:00Z', workers,
+        totals: { workerCount: 2, enteredCurrentPayCount: 2, unenteredCurrentPayCount: 0, enteredCurrentPayCents: 14000000 },
+        reconciliation: { workerCount: 2, totalsMatch: true },
+      };
+      return envWithRoleService(async (req) => {
+        const url = new URL(req.url);
+        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role }), { status: 200 });
+        if (url.pathname === '/api/contracts/finance-compensation-v1') return new Response(JSON.stringify(payload), { status: 200 });
+        return new Response('not found', { status: 404 });
+      });
+    }
+    const req = (url) => new Request(url, { headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' } });
+
+    it('admin sees a real, aggregate Council snapshot including a worker flagged hideFromCouncil', async () => {
+      const html = await (await worker.fetch(req('https://finance.test/?section=compensation&page=council'), liveCompensationEnv('admin'))).text();
+      expect(html).toContain('Council review snapshot');
+      expect(html).toContain('Real roster decision context');
+      expect(html).toContain('Live from Connect · review-only · not approved');
+      expect(html).toContain('Workers on roster');
+      expect(html).toContain('>2<');
+      expect(html).toContain('Entered current pay total');
+      expect(html).toContain('$140,000');
+      expect(html).not.toContain('Weighted adjustment');
+      expect(html).not.toContain('Benefits share');
+    });
+
+    it('council sees the same real snapshot with the hideFromCouncil worker excluded from the aggregate', async () => {
+      const html = await (await worker.fetch(req('https://finance.test/?section=compensation&page=council'), liveCompensationEnv('council'))).text();
+      expect(html).toContain('>1<');
+      expect(html).toContain('$50,000');
+      expect(html).not.toContain('$140,000');
+      expect(html).toContain('Excludes any worker not shown to council');
+    });
+
+    it('Benchmarks and Benefits stay fully synthetic even for admin with a live compensation roster available', async () => {
+      const roleEnv = liveCompensationEnv('admin');
+      const benchmarkHtml = await (await worker.fetch(req('https://finance.test/?section=compensation&page=benchmarks'), roleEnv)).text();
+      expect(benchmarkHtml).toContain('Synthetic · not published guidance');
+      expect(benchmarkHtml).not.toContain('Worker A');
+      const benefitsHtml = await (await worker.fetch(req('https://finance.test/?section=compensation&page=benefits'), roleEnv)).text();
+      expect(benefitsHtml).toContain('No personal identities are included');
+      expect(benefitsHtml).not.toContain('Worker A');
+    });
+
+    it("the Plan page still shows every worker verbatim (unchanged, out of this change's scope) -- Council is the only page that filters hideFromCouncil", async () => {
+      const html = await (await worker.fetch(req('https://finance.test/?section=compensation&page=plan'), liveCompensationEnv('council'))).text();
+      expect(html).toContain('Worker A');
+      expect(html).toContain('Worker B (hidden from council)');
+    });
   });
 
   it('serves only synthetic read-only summary data', async () => {
