@@ -3049,6 +3049,58 @@ function coalesceChurchYear(year, compute) {
   return p;
 }
 
+// ── Shared Budget Plan override-row writer ───────────────────────────────────
+// Used by both the admin/council override-bulk route below and the finance-budget-write-v1
+// relay contract (src/api-contracts-service.js) that lets Finance's own Worker forward the
+// identical write on behalf of an admin/council identity it verified via Cloudflare Access.
+// One implementation means the two entry points can never drift on validation or on council's
+// fork-into-their-own-overlay behavior. See the override-bulk route below for the full history/
+// rationale comment (kept there since that's still the primary, human-facing entry point).
+export function councilBudgetKey(username) {
+  return 'finance_budget_council_' + String(username || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+}
+
+export async function applyBudgetPlanOverrideRows(db, role, username, rowsInput) {
+  const rows = Array.isArray(rowsInput) ? rowsInput : [];
+  if (!rows.length) return { error: 'No rows to save', status: 400 };
+  const parsed = [];
+  for (const r of rows) {
+    const category = String(r.category || '').trim();
+    const fiscalYear = parseInt(r.fiscal_year, 10);
+    if (!category || !Number.isFinite(fiscalYear)) return { error: 'Every row needs a category and fiscal_year', status: 400 };
+    // Whole dollars only (see finPlanSanitizeWholeDollarInput on the frontend) — round to the
+    // nearest dollar before converting to cents rather than trusting a fractional client value.
+    const amountCents = Math.round(Number(r.planned_amount)) * 100;
+    if (!Number.isFinite(amountCents)) return { error: `Invalid amount for ${category}`, status: 400 };
+    parsed.push({ category, fiscalYear, classification: r.classification || 'Expenses', amountCents, notes: r.notes || '' });
+  }
+  if (role === 'council') {
+    if (!username) return { error: 'Access denied: this account has no username to save under', status: 403 };
+    const key = councilBudgetKey(username);
+    const existingRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(key).first();
+    let overlay = {};
+    if (existingRow) { try { overlay = JSON.parse(existingRow.value) || {}; } catch { overlay = {}; } }
+    for (const p of parsed) {
+      const fyKey = String(p.fiscalYear);
+      overlay[fyKey] = Object.assign({}, overlay[fyKey]);
+      overlay[fyKey][p.category] = { planned_amount_cents: p.amountCents, classification: p.classification, notes: p.notes };
+    }
+    await db.prepare(
+      `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(key, JSON.stringify(overlay)).run();
+    return { ok: true, saved: parsed.length };
+  }
+  const ops = parsed.map((p) => db.prepare(
+    `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,notes,updated_at)
+     VALUES (?,?,?,?,'manual',?,datetime('now'))
+     ON CONFLICT(category,fiscal_year) DO UPDATE SET
+       classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis='manual',
+       growth_pct=NULL, base_amount_cents=NULL, notes=excluded.notes, updated_at=excluded.updated_at`
+  ).bind(p.category, p.classification, p.fiscalYear, p.amountCents, p.notes));
+  await db.batch(ops);
+  return { ok: true, saved: ops.length };
+}
+
 export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, isFinance, role = 'admin') {
   if (!isFinance) return json({ error: 'Access denied: finance data requires finance access' }, 403);
 
@@ -4225,9 +4277,6 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // generate-all/commit/delete stay admin-only — those regenerate or finalize the shared plan
   // wholesale, unlike a single hand-typed correction, mirroring the same seed-data-vs-steering
   // split the salary planner's COUNCIL_EDITABLE_FIELDS already draws.
-  function councilBudgetKey(username) {
-    return 'finance_budget_council_' + String(username || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
-  }
   if (seg === 'finance/planning/church' && method === 'GET') {
     const rows = (await db.prepare('SELECT * FROM finance_budget_plan ORDER BY category ASC, fiscal_year ASC').all()).results || [];
     if (role === 'council') {
@@ -4326,46 +4375,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/planning/church/override-bulk' && method === 'POST') {
     if (!isAdmin && role !== 'council') return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const rows = Array.isArray(b.rows) ? b.rows : [];
-    if (!rows.length) return json({ error: 'No rows to save' }, 400);
-    const parsed = [];
-    for (const r of rows) {
-      const category = String(r.category || '').trim();
-      const fiscalYear = parseInt(r.fiscal_year, 10);
-      if (!category || !Number.isFinite(fiscalYear)) return json({ error: 'Every row needs a category and fiscal_year' }, 400);
-      // Whole dollars only (see finPlanSanitizeWholeDollarInput on the frontend) — round to the
-      // nearest dollar before converting to cents rather than trusting a fractional client value.
-      const amountCents = Math.round(Number(r.planned_amount)) * 100;
-      if (!Number.isFinite(amountCents)) return json({ error: `Invalid amount for ${category}` }, 400);
-      parsed.push({ category, fiscalYear, classification: r.classification || 'Expenses', amountCents, notes: r.notes || '' });
-    }
+    let username = '';
     if (role === 'council') {
-      let username = '';
       try { username = ((await getAuthInfo(req, env)) || {}).username || ''; } catch { username = ''; }
-      if (!username) return json({ error: 'Access denied: this account has no username to save under' }, 403);
-      const key = councilBudgetKey(username);
-      const existingRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(key).first();
-      let overlay = {};
-      if (existingRow) { try { overlay = JSON.parse(existingRow.value) || {}; } catch { overlay = {}; } }
-      for (const p of parsed) {
-        const fyKey = String(p.fiscalYear);
-        overlay[fyKey] = Object.assign({}, overlay[fyKey]);
-        overlay[fyKey][p.category] = { planned_amount_cents: p.amountCents, classification: p.classification, notes: p.notes };
-      }
-      await db.prepare(
-        `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-      ).bind(key, JSON.stringify(overlay)).run();
-      return json({ ok: true, saved: parsed.length });
     }
-    const ops = parsed.map((p) => db.prepare(
-      `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,notes,updated_at)
-       VALUES (?,?,?,?,'manual',?,datetime('now'))
-       ON CONFLICT(category,fiscal_year) DO UPDATE SET
-         classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis='manual',
-         growth_pct=NULL, base_amount_cents=NULL, notes=excluded.notes, updated_at=excluded.updated_at`
-    ).bind(p.category, p.classification, p.fiscalYear, p.amountCents, p.notes));
-    await db.batch(ops);
-    return json({ ok: true, saved: ops.length });
+    const result = await applyBudgetPlanOverrideRows(db, role, username, b.rows);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json({ ok: true, saved: result.saved });
   }
 
   // Salary & Benefits Calculator + Health Insurance card state (worker roster, COLA/pension

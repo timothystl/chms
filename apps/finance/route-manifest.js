@@ -12,6 +12,11 @@ const ROUTES = [
   // and a `methods` override are both explicit here so the exception is visible in this one file,
   // not buried in a conditional elsewhere -- see test/finance-route-manifest.test.js's invariant.
   { id: 'giving-quick-entry-v1', paths: ['/api/v1/connect-giving-quick-entry'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.giving-quick-entry-relay.v1' },
+  // Same deliberate exception as the Giving relay above, for Budget Planner's manual edit/save:
+  // relays a hand-typed planned-amount row to Connect's own finance-budget-write-v1 contract
+  // endpoint (never writes to Finance's own database). Gated admin/council only, on Connect's
+  // side, matching the legacy in-Connect Budget Planner's own override-bulk route exactly.
+  { id: 'budget-plan-write-v1', paths: ['/api/v1/connect-budget-plan-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-write-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no
