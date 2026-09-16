@@ -4,28 +4,46 @@ This directory is the separately deployable Finance application boundary being b
 existing CHMS repository. It begins at `1.0.0-alpha.1`; legacy Connect/Finance version history is
 preserved separately.
 
-## Current scope
+## Current scope — September 15, 2026
 
-The alpha serves a branded staging shell, `/health`, and a versioned read-only
-`/api/v1/summary` contract over explicitly
-synthetic fixture data. It has no database mutation path, KV, R2, service binding, queue,
-cron, email, payment, application authentication, production route, or production data connection.
-A successful shell deployment proves packaging and release isolation only.
+Finance has independent staging and production Workers/D1 databases. Production infrastructure
+was deployed September 15; see [the runbook](../../docs/FINANCE_PRODUCTION_CUTOVER.md).
+`finance.timothystl.org` and `finance-staging.timothystl.org` are separate surfaces; workers.dev
+and preview URLs are disabled in production configuration. The runbook records Access protection
+and an empty production database, not acceptance of every authenticated report.
 
-The initial deployment was intentionally unrouted until Cloudflare Access was enabled and attached
-to the whole Worker. The only configured hostname is `finance-staging.timothystl.org`; both
-`workers_dev` and preview URLs remain disabled. This prevents a second, unprotected URL from
-bypassing the staging sign-in gate.
+The application has real Connect contract paths for Giving, data status, accounts, budget,
+church reports, balance sheet, daycare, property valuation and compensation. Property operating,
+reserves and ledgers joined main in #1002 after the production deployment inspected in this
+review; do not infer they are deployed. Giving writes relay to Connect and payroll operations
+relay to Website. Neither relay transfers ownership of those records to Finance.
 
-Existing Finance remains operational in the current Connect Worker. Moving a reader, writer,
-route, identity flow, or database table requires a later reviewed slice with contract,
-reconciliation, and rollback evidence.
+Existing Finance remains operational in Connect. Moving authoritative accounting data and writers,
+cutting users over and retiring the old module remain unfinished. The new schema does not include
+the legacy QuickBooks OAuth/cache tables; that is not evidence the existing integration was retired.
 
-The isolated database migration starts empty. It omits the retired QuickBooks OAuth/cache tables
-and replaces Finance settings formerly mixed into `chms_config` with `finance_settings`. Applying
-the migration does not copy production data or authorize a new writer.
+### Known readiness limitations
 
-## Files
+- The shell eagerly loads synthetic rows for Financial Health and companion data in Church,
+  Balance, Property and Compensation. Empty/non-fixture production data can make these readers
+  throw, yielding 503 “Synthetic staging data unavailable,” even when a real contract exists.
+  This is a source finding, not an authenticated live reproduction. Remove fixture dependencies
+  and verify real/empty/error states; do not populate production with sample financial data.
+- Section denial is conditional on successful role lookup. An unverified role currently continues,
+  and the coarse section mapping does not reproduce all legacy permissions. Compensation's live
+  fetch separately requires an allowed verified role. Access sign-in is not product authorization.
+- `status: 'live'` in `parity-manifest.js` means a renderer exists, not that its data is production
+  data or its workflow has passed acceptance. Several pages remain explicitly unavailable.
+- Older alpha notes and blanket “synthetic/read-only/no writers” copy describe historical stages;
+  they must not be used to characterize current Giving/payroll relays or real report contracts.
+
+Finance's database migrations start empty. Fixtures are explicit staging inputs, never a migration.
+A schema migration does not copy Connect history or authorize a new writer.
+
+## File orientation
+
+This list began with the synthetic alpha; service files now also contain live resolvers where
+noted above. Consult their source and the page registry for current per-page behavior.
 
 - `shell.js` — Cloudflare Worker entry point and safe health endpoint.
 - `version.js` — intentional semantic prerelease version.
@@ -255,8 +273,9 @@ Use intentional versions only:
 
 `1.0.0-alpha.x` → `1.0.0-beta.x` → `1.0.0-rc.x` → `1.0.0`
 
-Every staging deployment records the exact main commit in `RELEASE_SHA`. Do not deploy this Worker
-to a production route, attach production resources, or treat an alpha version as authoritative.
+Deployments record the approved release SHA. Production infrastructure now exists; further
+production releases still require approval. A prerelease version, successful deployment or
+reachable login page does not establish authoritative data or workflow parity.
 
 `/api/summary` remains a deprecated compatibility alias during alpha and points clients to
 `/api/v1/summary`. New consumers must use the versioned path and validate its contract.

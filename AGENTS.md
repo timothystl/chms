@@ -8,8 +8,11 @@ against current source, tests, GitHub, deployed configuration, and live behavior
 ## Product boundary
 
 This repository currently serves Connect, Giving, Finance, Serve, and Scheduler from the
-Cloudflare Worker `tlc-chms`. Production uses D1 `tlc-volunteer-db`, KV `RSVP_STORE`, R2
-`tlc-chms-photos`, and a daily `14:00 UTC` cron. Staging uses a separate D1 database and no cron.
+Cloudflare Worker now named `timothy-connect`. September 15 source configuration uses D1
+`tlc-volunteer-db`, the replacement Connect KV namespace through binding `RSVP_STORE`, R2
+`timothy-connect-photos`, and a daily `14:00 UTC` cron. Staging has separate D1 and no cron.
+A successful D1-copy workflow does not itself switch the configured database.
+New Finance also has separate production/staging Workers and D1 databases in this repository.
 
 The target architecture has four staff products: Church Website, Connect, Finance, and myMDO.
 
@@ -25,12 +28,15 @@ The target architecture has four staff products: Church Website, Connect, Financ
 
 ## Settled operational facts
 
-- Finance is already a separate backend/frontend module, but it still shares the Worker and D1
-  database with Connect.
-- Finance currently has fifteen `finance_*` tables plus Finance-owned JSON settings mixed into
-  shared `chms_config`.
-- Finance directly reads Connect-owned `funds` and `giving_monthly_fund_totals`. A versioned
-  Giving-summary contract must exist before physical Finance extraction.
+- Legacy Finance still shares Connect's Worker/D1. New `apps/finance` has independent production
+  infrastructure; authoritative data/writer migration and user cutover are unfinished.
+- Finance-owned configuration was extracted to `finance_settings`; do not describe it as still
+  entirely mixed into `chms_config`. Verify live migration state before any data movement.
+- Versioned Giving/report contracts and Giving/payroll relays exist. Giving stays Connect-owned;
+  payroll's backend remains in Website. Contract reads do not establish Finance data ownership.
+- The new shell still has eager synthetic-row dependencies and only denies section access when
+  role lookup succeeds. Its coarse role model is incomplete; compensation live data has an
+  additional verified-role restriction. See `apps/finance/README.md` before proposing cutover.
 - QuickBooks Online OAuth actually connected and synced successfully once, in production on
   2026-07-28 (see `SECRETS.md`'s `QB_CLIENT_ID`/`QB_CLIENT_SECRET` entry and `NOTES.md`) — the
   "never connected successfully" claim this line used to carry was stale. QuickBooks' own native
@@ -93,7 +99,9 @@ becomes its own application; shared staff login across products; code normalized
 current scope; real developer documentation; and better observability so a resource spike (like
 the earlier hard-to-diagnose D1 usage spike) is easy to root-cause. None of these are gated behind
 each other — pick up whichever is asked for. CHMS's own backup/restore is real and tested (a
-disposable database restore drill passed); Website and myMDO do not have an equivalent yet.
+disposable database restore drill passed). Website D1/R2 recovery workflows passed September 11,
+Finance D1 September 14, and myMDO public-schema restore September 13. myMDO's drill does not
+cover Auth's separate schema, Storage bytes or hosted services; drill success is not backup retention.
 Renaming any live D1 database, R2 bucket, or KV namespace needs a deploy that repoints bindings —
 batch those with other planned deploys and back up first. myMDO's authorization migrations are
 already live and synchronized to source through childcare-portal PR #328; do not reapply them.

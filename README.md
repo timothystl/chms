@@ -1,8 +1,15 @@
 # Timothy Connect and Finance
 
-This repository currently contains the production Connect, Giving, Finance, Serve, and Scheduler
-application plus the separately deployable Finance staging alpha. Connect remains the system of
-record for people and Giving. The Finance alpha is isolated, read-only, and synthetic-only.
+This repository contains production Connect, Giving, Serve/Scheduler and the legacy Finance
+module, plus the independently deployed Finance application under `apps/finance/`.
+Connect remains authoritative for people and Giving. New Finance has separate staging and
+production Workers/databases, real contract reads and Giving/payroll relays, alongside synthetic
+readers and unfinished pages. It is no longer accurately described as synthetic-only or read-only.
+
+The [production infrastructure runbook](docs/FINANCE_PRODUCTION_CUTOVER.md) records the September 15
+deployment. Financial data/user cutover and retirement of legacy Finance remain open. Source review
+also found synthetic-row dependencies and incomplete section authorization in the new shell;
+see [Finance scope and limitations](apps/finance/README.md). Deployment success is not report parity.
 
 Start with [AGENTS.md](AGENTS.md) for development and release boundaries. Current reference docs:
 
