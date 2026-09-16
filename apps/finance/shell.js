@@ -16,7 +16,7 @@ import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from '
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
-import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
+import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
 import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
@@ -191,7 +191,7 @@ function renderEntityCards(entities) {
 
 function renderSectionBody(ctx) {
   const {
-    section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrends, churchTrendLive, balanceSheet, balanceTrends,
+    section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends,
     daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
     propertyLedgers, propertyLedgersLive, propertyValuation,
     propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
@@ -369,7 +369,7 @@ function renderSectionBody(ctx) {
     return renderQuickbooksPage(page.id, { dataStatus, accountsReport });
   }
   if (section.id === 'packet') {
-    return renderPacketPage({ summary, churchReport, churchTrends, giving });
+    return renderPacketPage({ churchReportLive, balanceSheetLive: balanceSheet, churchTrendLive, giving, givingSource });
   }
   if (section.id === 'data') {
     const isLive = dataStatus.source === 'live';
@@ -859,7 +859,11 @@ export default {
         // never a fabricated blank/zero, and never a crash of the rest of the page. `null` still
         // means "not applicable to this section" everywhere below; the sentinel is a distinct value
         // exactly so the two are never confused.
-        const summary = ['health', 'church', 'packet'].includes(section.id)
+        // 'packet' no longer reads the plain synthetic summary directly -- Board packet's
+        // Financial position card now reads the SAME live-first balanceSheet resolver result
+        // Financial Health/Balance Sheet already use (see balanceSheet's own gate below), instead
+        // of this section's own separately-summed synthetic aggregate. Health/Church are unchanged.
+        const summary = ['health', 'church'].includes(section.id)
           ? await safeSyntheticRead(() => readSyntheticSummary(env.FINANCE_DB)) : null;
         // Health/Packet still read the plain synthetic rows -- unchanged, out of scope for this
         // contract. The 'church' section (Church Report itself) instead tries the real
@@ -877,7 +881,11 @@ export default {
         // same synthetic fixture in one request (one for `churchReport`, one inside
         // `churchReportLive`'s fallback) -- a known, accepted duplicate-read cost of reusing an
         // existing single-purpose resolver here rather than changing its shared signature.
-        const churchReport = ['health', 'charts', 'packet'].includes(section.id)
+        // 'packet' no longer reads the plain synthetic churchReport array directly either -- Board
+        // packet's Operating result card now reads churchReportLive just below (its own fallback
+        // re-reads readSyntheticChurchReport() internally when needed), same split as 'church'
+        // already has with churchReport/churchReportLive here. Health/Charts are unchanged.
+        const churchReport = ['health', 'charts'].includes(section.id)
           ? await safeSyntheticRead(() => readSyntheticChurchReport(env.FINANCE_DB)) : null;
         // Financial Health's Operating result card also tries the real endpoint now, via the same
         // resolveChurchReport used by the 'church' section -- see health-view-model.js's
@@ -888,21 +896,24 @@ export default {
         // out of scope for this contract, so it can't simply be reused here without those panels
         // also silently switching shape. Charts' revenue-mix/expense-mix/giving-pace pages
         // independently prefer this same live result too.
-        const churchReportLive = ['health', 'church', 'charts'].includes(section.id)
+        // Board packet's Operating result card now also uses this live-first result (see
+        // board-packet-service.js's resolveBoardPacketOperating) -- same deliberate second/
+        // independent-read tradeoff already noted above for Health's own Operating result card,
+        // not a new one introduced by 'packet'.
+        const churchReportLive = ['health', 'church', 'charts', 'packet'].includes(section.id)
           ? await safeSyntheticRead(() => resolveChurchReport(env, env.FINANCE_DB)) : null;
-        // Only 'packet' reads the plain synthetic churchTrends directly now -- same split as
-        // churchReport/churchReportLive just above, where 'church' reads ONLY the live-first
-        // resolver (its own fallback calls readSyntheticChurchTrends itself when needed) rather
-        // than both, which would double the synthetic read for the same section.
-        const churchTrends = section.id === 'packet'
-          ? await safeSyntheticRead(() => readSyntheticChurchTrends(env.FINANCE_DB)) : null;
+        // The plain synthetic `churchTrends` read that used to live here is gone -- only Board
+        // packet ever used it, and Board packet now uses churchTrendLive below instead (same split
+        // as churchReport/churchReportLive just above).
         // The 'trend' page of the 'church' section (multi-year operating trend) tries the real
         // connect.finance-church-report-trend.v1 endpoint first and falls back to the same
         // synthetic fixture (readSyntheticChurchTrends, called internally by resolveChurchTrend's
-        // own fallback), same live-first pattern as Church Report's own resolveChurchReport. The
-        // Financial Health/Charts/Packet sections' own `churchTrends` read above is untouched and
-        // stays synthetic-only -- out of scope for this contract, same as churchReport's split above.
-        const churchTrendLive = section.id === 'church'
+        // own fallback), same live-first pattern as Church Report's own resolveChurchReport. Board
+        // packet's Operating trend card now uses this same live-first result too (see
+        // board-packet-service.js's resolveBoardPacketTrend) instead of a separate plain synthetic
+        // `churchTrends` read -- same deliberate second/independent-read tradeoff as
+        // churchReportLive just above, not a new query-budget type.
+        const churchTrendLive = ['church', 'packet'].includes(section.id)
           ? await safeSyntheticRead(() => resolveChurchTrend(env, env.FINANCE_DB)) : null;
         // Balance Sheet tries the real connect.finance-balance-sheet.v1 endpoint first and falls
         // back to the same synthetic fixture, labeled, via resolveBalanceSheet -- same live-first
@@ -911,8 +922,11 @@ export default {
         // resolveBalanceSheet's own fallback path, not called directly here anymore. Financial
         // Health's Financial position card also uses this now (see health-view-model.js's
         // resolvePosition) -- same deliberate second/independent-read tradeoff noted above
-        // churchReportLive for Health's Operating result card.
-        const balanceSheet = ['health', 'balance'].includes(section.id)
+        // churchReportLive for Health's Operating result card. Board packet's own Financial
+        // position card uses this same result too (see board-packet-service.js's
+        // resolveBoardPacketPosition) instead of its old separate synthetic `summary.balanceSheet`
+        // aggregate -- not a new query-budget type, the same tradeoff as churchReportLive above.
+        const balanceSheet = ['health', 'balance', 'packet'].includes(section.id)
           ? await safeSyntheticRead(() => resolveBalanceSheet(env, env.FINANCE_DB)) : null;
         // Multi-year position tries the real connect.finance-balance-sheet-trend.v1 endpoint first
         // and falls back to the same synthetic trend fixture, labeled, via resolveBalanceSheetTrend
@@ -1006,7 +1020,7 @@ export default {
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
         return response(renderShell({
-          metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrends, churchTrendLive,
+          metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,

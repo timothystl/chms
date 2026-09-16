@@ -319,6 +319,23 @@ data -- the exact misleading mix this page's honest-degradation discipline exist
 resolving them unused would only add query-budget cost. No new contract, query budget, migration,
 or writer.
 
+Board packet is no longer 100% synthetic. Its Operating result, Financial position, and Operating
+trend cards each independently try the same live-first resolvers Church Report/Balance Sheet
+already use -- `resolveChurchReport`, `resolveBalanceSheet`, and `resolveChurchTrend` -- falling
+back to the same synthetic fixture, labeled `live from Connect`/`synthetic fixture` per card, the
+same convention Church Report/Balance Sheet/Property/Charts already use. Giving evidence was
+already live-first and unconditional for this section before this change; only its own label is
+newly shown here. The retired all-or-nothing `buildSyntheticBoardPacket` (all four inputs present
+and reconciled, or it throws) is untouched and keeps its own test coverage, but nothing on this
+page calls it anymore -- `buildLiveBoardPacket` replaces it, resolving each card independently and
+degrading only that one card to an honest "unavailable" placeholder (never a fabricated $0, never a
+crash of the other three) when its own data isn't there, matching the standard Financial Health's
+cards already apply. Operating trend's "net" figure is each fiscal year's own reconciled
+`netIncomeActualCents` -- the same bottom line Operating result and Financial Health's own
+Operating result card already use -- not a naive income-minus-expense figure, and the trend card's
+fiscal year is no longer required to match Operating result's, since each card is now independently
+sourced. No new contract, query budget, migration, or writer.
+
 ## Validate
 
 From the repository root:

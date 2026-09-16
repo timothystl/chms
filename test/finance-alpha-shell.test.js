@@ -482,17 +482,124 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).not.toMatch(/2025[\s\S]{0,200}\$1,000/);
   });
 
-  it('renders the board packet from the same real inputs as Church Report', async () => {
+  it('renders the board packet from the same real inputs as Church Report, synthetic-fallback and labeled per card when no CONNECT_SERVICE is configured', async () => {
+    // Same staging state as the rest of this file's default `env` (no CONNECT_SERVICE binding) --
+    // every card below falls back to the same synthetic fixture Church Report/Balance Sheet/Giving
+    // already use, labeled per card, rather than the old direct-synthetic-only read this replaced.
     const html = await (await worker.fetch(new Request('https://finance.test/?section=packet'), env)).text();
     expect(html).toContain('Board packet');
     expect(html).toContain('Decision-ready FY2026 summary');
     expect(html).toContain('Reconciled');
     expect(html).toContain('FY2025 to FY2026');
-    expect(html).toContain('Prepared from the same bounded synthetic reads shown across Church Report, Balance Sheet, and Giving Entry');
+    expect(html).toContain('Prepared from the same bounded reads shown across Church Report, Balance Sheet, and Giving Entry');
     expect(html).toContain('$40,000');
     expect(html).toContain('$200,000');
     expect(html).toContain('$1,450');
     expect(html).toContain('Not saved');
+    // All four cards are on the synthetic fallback (no CONNECT_SERVICE configured in this env).
+    expect(html).toContain('Budget $40,000 · on budget $0 · synthetic fixture');
+    expect(html).toContain('Assets $300,000 · liabilities $100,000 · synthetic fixture');
+    expect(html).toContain('FY2025 to FY2026 · synthetic fixture');
+    expect(html).toContain('6 aggregate records · totals reconcile · synthetic fixture');
+    expect(html).not.toContain('live from Connect');
+  });
+
+  it('shows the board packet live-first, per card, once CONNECT_SERVICE resolvers succeed -- and degrades only the one card whose live resolver fails', async () => {
+    const LIVE_PACKET_CHURCH_REPORT = {
+      contract: 'connect.finance-church-report.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      fiscalYear: new Date().getUTCFullYear(), generatedAt: '2026-09-15T12:00:00Z',
+      accounts: [
+        { classification: 'Income', categoryPath: 'Income:40000 Contributions', accountName: '40000 Contributions', depth: 0, hasChildren: false, actualCents: 17500000, budgetCents: 16000000, source: 'import' },
+        { classification: 'Expenses', categoryPath: 'Expenses:60000 Programs', accountName: '60000 Programs', depth: 0, hasChildren: false, actualCents: 9500000, budgetCents: 9000000, source: 'import' },
+      ],
+      totals: {
+        incomeActualCents: 17500000, incomeBudgetCents: 16000000, expenseActualCents: 9500000, expenseBudgetCents: 9000000,
+        netIncomeActualCents: 8000000, netIncomeBudgetCents: 7000000, hasBudgetData: true,
+      },
+      reconciliation: {
+        accountCount: 2, incomeCount: 1, expenseCount: 1, otherIncomeCount: 0, otherExpenseCount: 0,
+        costOfGoodsSoldCount: 0, accountsWithBudgetCount: 2, totalsMatch: true,
+      },
+    };
+    const LIVE_PACKET_TREND = {
+      contract: 'connect.finance-church-report-trend.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      generatedAt: '2026-09-15T12:00:00Z',
+      years: [
+        {
+          fiscalYear: 2025, incomeActualCents: 1000000, expenseActualCents: 900000,
+          otherIncomeActualCents: 0, otherExpenseActualCents: 50000, costOfGoodsSoldActualCents: 0,
+          netIncomeActualCents: 50000, accountCount: 118,
+        },
+        {
+          fiscalYear: 2026, incomeActualCents: 1200000, expenseActualCents: 950000,
+          otherIncomeActualCents: 20000, otherExpenseActualCents: 0, costOfGoodsSoldActualCents: 0,
+          netIncomeActualCents: 270000, accountCount: 98,
+        },
+      ],
+      reconciliation: { yearCount: 2, totalsMatch: true },
+    };
+    // Balance Sheet's own live attempt 404s below, so Financial position stays on the synthetic
+    // fallback -- this is the "partial availability" case: two cards live, one card synthetic, none
+    // of them crashing the others or the rest of the page.
+    const liveEnv = {
+      ...env,
+      FINANCE_CONTRACT_API_KEY: 'test-secret',
+      CONNECT_SERVICE: {
+        async fetch(request) {
+          const url = new URL(request instanceof Request ? request.url : request);
+          if (url.pathname === '/api/contracts/staff-role-v1') {
+            return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+          }
+          if (url.pathname === '/api/contracts/finance-church-report-v1') {
+            return new Response(JSON.stringify(LIVE_PACKET_CHURCH_REPORT), { status: 200 });
+          }
+          if (url.pathname === '/api/contracts/finance-church-report-trend-v1') {
+            return new Response(JSON.stringify(LIVE_PACKET_TREND), { status: 200 });
+          }
+          return new Response('not found', { status: 404 });
+        },
+      },
+    };
+    const html = await (await worker.fetch(new Request('https://finance.test/?section=packet', {
+      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+    }), liveEnv)).text();
+    expect(html).toContain('Board packet');
+    // Operating result: $175,000 - $95,000 = $80,000 actual net; budget $70,000; +$10,000 variance.
+    expect(html).toContain('$80,000');
+    expect(html).toContain('Budget $70,000 · favorable $10,000 · live from Connect');
+    // Operating trend: the reconciled netIncomeActualCents bottom line ($500 to $2,700), NOT the
+    // naive income-minus-expense figure ($1,000 for FY2025) -- see board-packet-service.js's
+    // resolveBoardPacketTrend comment for why.
+    expect(html).toContain('$2,200'); // change: $2,700 - $500
+    expect(html).toContain('FY2025 to FY2026 · live from Connect');
+    expect(html).not.toMatch(/Operating trend[\s\S]{0,400}\$1,500/); // the naive ($12,000-$9,500) - ($10,000-$9,000) = $1,500 change would be wrong here too
+    // Financial position stayed synthetic (its own live attempt 404s in this env) -- still renders,
+    // still labeled, never crashes the two live cards next to it.
+    expect(html).toContain('Assets $300,000 · liabilities $100,000 · synthetic fixture');
+    expect(html).not.toContain('Data unavailable');
+  });
+
+  it('shows an honest per-card "unavailable" placeholder, never a crash of the rest of the page, when the synthetic fallback data underneath board packet is entirely missing', async () => {
+    // Same empty-database shape used elsewhere in this file to exercise safeSyntheticRead's
+    // degrade-to-SYNTHETIC_UNAVAILABLE path (see synthetic-read-guard.js) -- no CONNECT_SERVICE, and
+    // the underlying synthetic tables are empty, so every one of Board packet's four live-first
+    // resolvers falls all the way through to nothing.
+    const emptyEnv = {
+      ...env,
+      FINANCE_DB: {
+        prepare(sql) { return { sql }; },
+        async batch(batchStatements) { return batchStatements.map(() => ({ results: [] })); },
+      },
+    };
+    const res = await worker.fetch(new Request('https://finance.test/?section=packet'), emptyEnv);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('Board packet');
+    expect(html).toContain('Partial data');
+    expect(html).toContain('Data temporarily unavailable.');
+    expect(html).not.toContain('Reconciled');
   });
 
   it('renders a synthetic Balance Sheet position, its sub-pages, and its own read budget', async () => {
