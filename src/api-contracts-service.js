@@ -7,7 +7,7 @@
 // This stays a distinct, narrower grant from the human role/permission matrix in
 // api-chms.js: it reaches nothing but the contracts named below.
 import { json, timingSafeEqual } from './auth.js';
-import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, respondWithFinanceChartOfAccountsV1, respondWithFinanceBudgetV1, respondWithFinanceChurchReportV1, respondWithFinanceChurchReportTrendV1, respondWithFinanceBalanceSheetV1, respondWithFinanceDaycareReportV1, respondWithFinancePropertyValuationV1, respondWithFinanceCompensationV1, respondWithFinancePropertyOperatingV1, respondWithFinancePropertyReservesV1, respondWithFinancePropertyLedgersV1 } from './api-contracts.js';
+import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, respondWithFinanceChartOfAccountsV1, respondWithFinanceBudgetV1, respondWithFinanceChurchReportV1, respondWithFinanceChurchReportTrendV1, respondWithFinanceBalanceSheetV1, respondWithFinanceBalanceSheetTrendV1, respondWithFinanceDaycareReportV1, respondWithFinancePropertyValuationV1, respondWithFinanceCompensationV1, respondWithFinancePropertyOperatingV1, respondWithFinancePropertyReservesV1, respondWithFinancePropertyLedgersV1 } from './api-contracts.js';
 import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
@@ -44,6 +44,10 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-balance-sheet-v1' && req.method === 'GET') {
     return respondWithFinanceBalanceSheetV1(new URL(req.url), env.DB);
+  }
+
+  if (path === '/api/contracts/finance-balance-sheet-trend-v1' && req.method === 'GET') {
+    return respondWithFinanceBalanceSheetTrendV1(env.DB);
   }
 
   if (path === '/api/contracts/finance-daycare-report-v1' && req.method === 'GET') {

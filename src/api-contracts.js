@@ -12,6 +12,7 @@ import { validateFinanceBudgetV1 } from '../apps/finance/finance-budget-consumer
 import { validateFinanceChurchReportV1 } from '../apps/finance/finance-church-report-consumer.js';
 import { validateFinanceChurchReportTrendV1 } from '../apps/finance/finance-church-report-trend-consumer.js';
 import { validateFinanceBalanceSheetV1 } from '../apps/finance/finance-balance-sheet-consumer.js';
+import { validateFinanceBalanceSheetTrendV1 } from '../apps/finance/finance-balance-sheet-trend-consumer.js';
 import { validateFinanceDaycareReportV1 } from '../apps/finance/finance-daycare-consumer.js';
 import { validateFinancePropertyValuationV1 } from '../apps/finance/finance-property-valuation-consumer.js';
 import { validateFinanceCompensationV1 } from '../apps/finance/finance-compensation-consumer.js';
@@ -760,6 +761,100 @@ export async function respondWithFinanceBalanceSheetV1(url, db) {
   return json(balanceSheet);
 }
 
+// Balance Sheet multi-year trend -- the multi-year sibling of buildFinanceBalanceSheetV1 above,
+// backing the 'balance' section's 'multi-year' page (apps/finance/balance-pages.js), which today
+// only reads the untouched synthetic fixture (readSyntheticBalanceTrends in
+// apps/finance/balance-sheet-service.js). No fiscal_year parameter: like Chart of Accounts' own
+// whole-tree/no-params shape, this always returns every distinct fiscal year on file, ascending --
+// production only has eight (2019-2026, 1,056 rows total, confirmed both on 2026-09-14 for the
+// single-year contract above and again while building this trend contract), so this is a single
+// one-query read, not a windowed or paginated one.
+//
+// Reuses applyDesignatedFundsAsEquity() and computeBalanceSummary() per fiscal year -- the exact
+// same two functions, in the exact same order, as buildFinanceBalanceSheetV1 above -- rather than
+// re-deriving this report's math independently. That is a deliberate choice, not an oversight:
+// production's OWN existing multi-year route (src/api-finance.js's
+// `finance/church/balances/multi-year` GET handler, which backs the legacy Finance UI's
+// "Net Worth Growth by Year" table in src/frontend/js-finance.js) computes
+// `computeBalanceSummary(applyDesignatedFundsAsEquity(yearRows)).equityCents` for every year the
+// exact same way, and that legacy table's own caption reads "Change in total equity (assets minus
+// liabilities)" -- i.e., legacy already treats total equity (post reclassification) and "net
+// assets" as the same figure. This contract's `netAssetsCents` is therefore defined as
+// `equityCents`, not a separately recomputed `assetsCents - liabilitiesCents`, so it can never
+// diverge from what the single-year Balance Sheet contract's own 'position' page already labels
+// "Net assets" for the same fiscal year (see balance-pages.js: `{ label: 'Net assets', value:
+// formatCents(report.totals.equityCents) }`). A 2026-09-14 check of every real fiscal year on file
+// found every year balances to the penny (balancedCents === 0), so netAssetsCents and a naive
+// assets-minus-liabilities figure are numerically identical today either way -- but only the
+// equityCents-based definition is guaranteed to keep matching the single-year page if that ever
+// stops being true.
+//
+// Also confirmed while investigating this contract: as_of_date is NOT a consistently formatted
+// date across fiscal years. FY2019 through FY2025 store the literal placeholder string
+// "FY2019".."FY2025" (not a real calendar date), and only FY2026 stores a real formatted date
+// ("December 31, 2026"). Every fiscal year has exactly one distinct as_of_date value (no MAX-style
+// pick is needed today, unlike the synthetic fixture's own defensive MAX(as_of_date)), but this
+// contract deliberately never parses or date-sorts asOfDate -- `years` is ordered by the real
+// integer fiscalYear column instead.
+export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date() } = {}) {
+  const { results } = (await db.prepare(
+    `SELECT fiscal_year, as_of_date, classification, category_path, account_name, depth, has_children, own_balance_cents
+       FROM finance_church_balances ORDER BY fiscal_year, category_path`
+  ).all()) || {};
+  const rawRows = results || [];
+
+  const rowsByYear = new Map();
+  for (const row of rawRows) {
+    if (!rowsByYear.has(row.fiscal_year)) rowsByYear.set(row.fiscal_year, []);
+    rowsByYear.get(row.fiscal_year).push(row);
+  }
+
+  const years = [...rowsByYear.keys()].sort((a, b) => a - b).map((fiscalYear) => {
+    const yearRawRows = rowsByYear.get(fiscalYear);
+    // Same transform-then-summarize order as buildFinanceBalanceSheetV1 above -- see that
+    // function's own module comment for why this intentionally reproduces production's actual
+    // route behavior rather than a separately "corrected" one.
+    const displayRows = applyDesignatedFundsAsEquity(yearRawRows);
+    const summary = computeBalanceSummary(displayRows);
+    return {
+      fiscalYear,
+      asOfDate: yearRawRows[0]?.as_of_date || '',
+      assetsCents: summary.assetsCents,
+      liabilitiesCents: summary.liabilitiesCents,
+      equityCents: summary.equityCents,
+      netAssetsCents: summary.equityCents,
+      balancedCents: summary.balancedCents,
+    };
+  });
+
+  return {
+    contract: 'connect.finance-balance-sheet-trend.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    years,
+    reconciliation: {
+      yearCount: years.length,
+      totalsMatch: years.every((y) => y.balancedCents === 0),
+    },
+  };
+}
+
+export async function respondWithFinanceBalanceSheetTrendV1(db) {
+  const trend = await buildFinanceBalanceSheetTrendV1(db, { now: new Date() });
+
+  // Fail closed, same discipline as the contracts above: this should never fire against real
+  // data, and if it does, Finance must not see a malformed contract.
+  const validation = validateFinanceBalanceSheetTrendV1(trend);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled balance sheet trend failed contract validation', details: validation.errors }, 500);
+  }
+
+  return json(trend);
+}
+
 // Seventh real slice of Finance separation: Daycare Report. This looks, at first read, like the
 // cross-product boundary case AGENTS.md's product-boundary section warns about ("myMDO owns raw
 // childcare operations, billing... Finance consumes narrow summaries, never becomes a second
@@ -1486,6 +1581,9 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
   }
   if (seg === 'contracts/finance-balance-sheet-v1' && method === 'GET') {
     return respondWithFinanceBalanceSheetV1(url, db);
+  }
+  if (seg === 'contracts/finance-balance-sheet-trend-v1' && method === 'GET') {
+    return respondWithFinanceBalanceSheetTrendV1(db);
   }
   if (seg === 'contracts/finance-daycare-report-v1' && method === 'GET') {
     return respondWithFinanceDaycareReportV1(url, db);

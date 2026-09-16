@@ -256,6 +256,18 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // just above, rolled up per fiscal year instead of scoped to one. No separate rule was added
     // deliberately, so a future reader does not wonder whether it was missed.
     { match: (s) => s.startsWith('contracts/finance-church-report'), item: 'finance' },
+    // Thirteenth contract: Balance Sheet's multi-year trend -- one row per fiscal year on file,
+    // still real point-in-time Assets/Liabilities/Equity account data, still Finance-owned, not
+    // Giving. Listed explicitly (and before the single-year rule directly below, so it's the one
+    // that actually matches) even though 'contracts/finance-balance-sheet-trend' would also match
+    // that rule's own startsWith('contracts/finance-balance-sheet') prefix -- same documentation
+    // discipline as every other contract rule here, and it keeps this rule easy to find/remove on
+    // its own later without touching the single-year rule. Without an explicit rule at all, this
+    // segment would still happen to match the single-year rule below (same 'finance' item, same
+    // outcome) -- but see docs/ARCHITECTURE.md's ACCESS_GATE note on why a *new* contracts/*
+    // segment must never be assumed to inherit a permission check just because a similarly-named
+    // one already exists.
+    { match: (s) => s.startsWith('contracts/finance-balance-sheet-trend'), item: 'finance' },
     { match: (s) => s.startsWith('contracts/finance-balance-sheet'), item: 'finance' },
     // Same trap, same fix, for the seventh contract: Daycare Report carries real actual/budget
     // dollar amounts per MDO category/fiscal-year (finance_daycare_entries, counted sources only)

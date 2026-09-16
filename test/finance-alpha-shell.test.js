@@ -506,8 +506,15 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(detailHtml).toContain('Synthetic Note');
     expect(detailHtml).toContain('Synthetic Net Assets');
 
+    // No CONNECT_SERVICE binding/key is configured in this test env, so the live
+    // connect.finance-balance-sheet-trend.v1 attempt also fails closed with 'not_configured' and
+    // the 'multi-year' page falls back to the same synthetic trend fixture as before, now via
+    // resolveBalanceSheetTrend rather than a direct synthetic read -- labeled the same way the
+    // 'position' page above already is.
     const trendHtml = await (await worker.fetch(new Request('https://finance.test/?section=balance&page=multi-year'), env)).text();
     expect(trendHtml).toContain('Multi-year financial position');
+    expect(trendHtml).toContain('Synthetic staging');
+    expect(trendHtml).toContain('the live endpoint is not configured or did not answer: not_configured');
     expect(trendHtml).toContain('$270,000');
     expect(trendHtml).toContain('$110,000');
     expect(trendHtml).toContain('$160,000');

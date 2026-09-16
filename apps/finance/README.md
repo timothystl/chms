@@ -13,14 +13,21 @@ and preview URLs are disabled in production configuration. The runbook records A
 and an empty production database, not acceptance of every authenticated report.
 
 The application has real Connect contract paths for Giving, data status, accounts, budget,
-church reports (including the multi-year trend), balance sheet, daycare, property valuation and
-compensation. All four Church Report sub-pages (Overview, Income & expense detail, Multi-year
-trend, Budget vs actual) are now live-first with synthetic fallback -- the trend page was the last
-one left on the synthetic reader; see `church-report-service.js`'s `resolveChurchTrend` and
-`connect.finance-church-report-trend.v1`. Property operating, reserves and ledgers joined main in
-#1002 after the production deployment inspected in this review; do not infer they are deployed.
-Giving writes relay to Connect and payroll operations relay to Website. Neither relay transfers
-ownership of those records to Finance.
+church reports (including the multi-year trend), balance sheet (including the multi-year
+position), daycare, property valuation and compensation. All four Church Report sub-pages
+(Overview, Income & expense detail, Multi-year trend, Budget vs actual) are now live-first with
+synthetic fallback -- the trend page was the last one left on the synthetic reader; see
+`church-report-service.js`'s `resolveChurchTrend` and `connect.finance-church-report-trend.v1`.
+All three Balance Sheet sub-pages (Position, Account detail, Multi-year position) are likewise
+now live-first with synthetic fallback -- the multi-year page was the last one left on the
+synthetic reader; see `balance-sheet-service.js`'s `resolveBalanceSheetTrend` and
+`connect.finance-balance-sheet-trend.v1`. Its `netAssetsCents` is total equity after the same
+Designated-Funds-as-Equity reclassification the single-year contract already applies, matching
+what the single-year 'position' page already labels "Net assets" for the same fiscal year, not a
+separately recomputed assets-minus-liabilities figure. Property operating, reserves and ledgers
+joined main in #1002 after the production deployment inspected in this review; do not infer they
+are deployed. Giving writes relay to Connect and payroll operations relay to Website. Neither
+relay transfers ownership of those records to Finance.
 
 Existing Finance remains operational in Connect. Moving authoritative accounting data and writers,
 cutting users over and retiring the old module remain unfinished. The new schema does not include
@@ -67,7 +74,9 @@ noted above. Consult their source and the page registry for current per-page beh
 - `church-report-service.js` — one-query synthetic account detail and report totals boundary; `resolveChurchReport` and `resolveChurchTrend` each try their own real `connect.finance-church-report*.v1` contract first and fall back to the synthetic fixture on any failure.
 - `finance-church-report-trend-consumer.js` — fail-closed parser for the `connect.finance-church-report-trend.v1` contract (the multi-year trend; the single-year contract has its own consumer alongside it in this directory).
 - `finance-church-report-trend-client.js` — real transport for the live multi-year endpoint, with a fail-closed fallback to the synthetic fixture (same shape as `finance-church-report-client.js`).
-- `balance-sheet-service.js` — one-query synthetic position detail and equation reconciliation.
+- `balance-sheet-service.js` — one-query synthetic position detail and equation reconciliation; `resolveBalanceSheet` and `resolveBalanceSheetTrend` each try their own real `connect.finance-balance-sheet*.v1` contract first and fall back to the synthetic fixture on any failure.
+- `finance-balance-sheet-trend-consumer.js` — fail-closed parser for the `connect.finance-balance-sheet-trend.v1` contract (the multi-year trend; the single-year contract has its own consumer alongside it in this directory).
+- `finance-balance-sheet-trend-client.js` — real transport for the live multi-year endpoint, with a fail-closed fallback to the synthetic fixture (same shape as `finance-balance-sheet-client.js`).
 - `daycare-report-service.js` — one-query synthetic actuals and operating-result detail.
 - `property-report-service.js` — one-query synthetic monthly property performance detail.
 - `property-forecast-service.js` — one-query 12-month synthetic property plan with monthly and annual reconciliation.

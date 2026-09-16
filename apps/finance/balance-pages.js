@@ -20,13 +20,21 @@ export function renderBalanceTrendRows(rows) {
 // `balanceSheet` here is resolveBalanceSheet()'s result -- { source: 'live', fiscalYear,
 // asOfDate, accounts, totals, equityReclass } or { source: 'synthetic-fallback', fallbackReason,
 // rows } -- never the raw synthetic row array balance-pages.js used to receive directly.
-// 'multi-year' has no live equivalent yet and always reads balanceTrends, the untouched synthetic
-// reader -- out of scope for this contract, same as Church Report's own still-synthetic trend page.
+// `balanceTrends` is now resolveBalanceSheetTrend()'s result, the SAME { source, rows } /
+// { source, fallbackReason, rows } shape -- not the raw synthetic trend row array balance-pages.js
+// used to receive directly either. Both the live and synthetic-fallback `rows` are already
+// normalized to the same snake_case shape (see balance-sheet-service.js's resolveBalanceSheetTrend),
+// so renderBalanceTrendRows itself needs no live/synthetic branch -- only the badge/fallback note
+// below it does, same pattern as 'position'/'account-detail' just below.
 export function renderBalancePage(pageId, { balanceSheet, balanceTrends }) {
   if (pageId === 'multi-year') {
-    return `<section class="report" aria-label="Synthetic Balance Sheet multi-year position">
-      ${renderSectionHeading({ eyebrow: 'Balance Sheet', heading: 'Multi-year financial position', badge: 'Synthetic staging' })}
-      ${renderTable({ head: ['Fiscal year', 'As of', 'Assets', 'Liabilities', 'Net assets'], rows: renderBalanceTrendRows(balanceTrends) })}
+    const isLiveTrend = balanceTrends.source === 'live';
+    const trendBadge = isLiveTrend ? 'Live from Connect' : 'Synthetic staging';
+    const trendFallbackNote = isLiveTrend ? '' : `<p><small>The committed synthetic fixture (the live endpoint is not configured or did not answer${balanceTrends.fallbackReason ? `: ${escapeHtml(balanceTrends.fallbackReason)}` : ''}).</small></p>`;
+    return `<section class="report" aria-label="Balance Sheet multi-year position">
+      ${renderSectionHeading({ eyebrow: 'Balance Sheet', heading: 'Multi-year financial position', badge: trendBadge })}
+      ${renderTable({ head: ['Fiscal year', 'As of', 'Assets', 'Liabilities', 'Net assets'], rows: renderBalanceTrendRows(balanceTrends.rows) })}
+      ${trendFallbackNote}
     </section>`;
   }
 

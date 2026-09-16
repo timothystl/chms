@@ -17,7 +17,7 @@ import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.j
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
 import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
-import { readSyntheticBalanceTrends, resolveBalanceSheet } from './balance-sheet-service.js';
+import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
   buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers,
@@ -817,8 +817,13 @@ export default {
         // resolveBalanceSheet's own fallback path, not called directly here anymore.
         const balanceSheet = section.id === 'balance'
           ? await safeSyntheticRead(() => resolveBalanceSheet(env, env.FINANCE_DB)) : null;
+        // Multi-year position tries the real connect.finance-balance-sheet-trend.v1 endpoint first
+        // and falls back to the same synthetic trend fixture, labeled, via resolveBalanceSheetTrend
+        // -- same live-first pattern as resolveBalanceSheet just above. readSyntheticBalanceTrends
+        // is still used internally by resolveBalanceSheetTrend's own fallback path, not called
+        // directly here anymore.
         const balanceTrends = section.id === 'balance'
-          ? await safeSyntheticRead(() => readSyntheticBalanceTrends(env.FINANCE_DB)) : null;
+          ? await safeSyntheticRead(() => resolveBalanceSheetTrend(env, env.FINANCE_DB)) : null;
         const daycareReport = section.id === 'health'
           ? await safeSyntheticRead(() => readSyntheticDaycareReport(env.FINANCE_DB)) : null;
         // The 'daycare' section (Daycare Report itself) tries the real

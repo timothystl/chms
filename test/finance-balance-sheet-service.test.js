@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildBalanceSheetView, readSyntheticBalanceSheet, readSyntheticBalanceTrends,
-  resolveBalanceSheet, buildLiveBalanceSheetView,
+  resolveBalanceSheet, resolveBalanceSheetTrend, buildLiveBalanceSheetView,
 } from '../apps/finance/balance-sheet-service.js';
 
 const rows = [
@@ -145,6 +145,63 @@ describe('resolveBalanceSheet (live connect.finance-balance-sheet.v1 with synthe
     expect(result.source).toBe('synthetic-fallback');
     expect(result.fallbackReason).toBe('contract_validation_failed');
     expect(result.rows).toEqual(rows);
+  });
+});
+
+const TREND_ROWS = [
+  { fiscal_year: 2025, as_of_date: '2025-12-31', assets_cents: 27000000, liabilities_cents: 11000000, equity_cents: 16000000 },
+  { fiscal_year: 2026, as_of_date: '2026-12-31', assets_cents: 30000000, liabilities_cents: 10000000, equity_cents: 20000000 },
+];
+
+const VALID_LIVE_TREND_PAYLOAD = {
+  contract: 'connect.finance-balance-sheet-trend.v1', dataClassification: 'aggregate',
+  sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+  generatedAt: '2026-09-16T12:00:00Z',
+  years: [
+    { fiscalYear: 2025, asOfDate: 'FY2025', assetsCents: 27000000, liabilitiesCents: 11000000, equityCents: 16000000, netAssetsCents: 16000000, balancedCents: 0 },
+    { fiscalYear: 2026, asOfDate: '2026-12-31', assetsCents: 30000000, liabilitiesCents: 10000000, equityCents: 20000000, netAssetsCents: 20000000, balancedCents: 0 },
+  ],
+  reconciliation: { yearCount: 2, totalsMatch: true },
+};
+
+describe('resolveBalanceSheetTrend (live connect.finance-balance-sheet-trend.v1 with synthetic fallback)', () => {
+  it('falls back to the synthetic trend fixture when the live contract is not configured', async () => {
+    const result = await resolveBalanceSheetTrend({}, dbWith(TREND_ROWS));
+    expect(result.source).toBe('synthetic-fallback');
+    expect(result.fallbackReason).toBe('not_configured');
+    expect(result.rows).toEqual(TREND_ROWS.map((row) => ({ ...row, net_assets_cents: row.assets_cents - row.liabilities_cents })));
+  });
+
+  it('requests no fiscal_year parameter and remaps the live camelCase years to the same snake_case row shape the synthetic fixture returns', async () => {
+    let requestedUrl;
+    const env = {
+      CONNECT_SERVICE: {
+        async fetch(req) {
+          requestedUrl = new URL(req.url);
+          return new Response(JSON.stringify(VALID_LIVE_TREND_PAYLOAD), { status: 200 });
+        },
+      },
+      FINANCE_CONTRACT_API_KEY: 'test-secret',
+    };
+    const result = await resolveBalanceSheetTrend(env, dbWith(TREND_ROWS));
+    expect(result.source).toBe('live');
+    expect(requestedUrl.pathname).toBe('/api/contracts/finance-balance-sheet-trend-v1');
+    expect(requestedUrl.searchParams.has('fiscal_year')).toBe(false);
+    expect(result.rows).toEqual([
+      { fiscal_year: 2025, as_of_date: 'FY2025', assets_cents: 27000000, liabilities_cents: 11000000, equity_cents: 16000000, net_assets_cents: 16000000 },
+      { fiscal_year: 2026, as_of_date: '2026-12-31', assets_cents: 30000000, liabilities_cents: 10000000, equity_cents: 20000000, net_assets_cents: 20000000 },
+    ]);
+  });
+
+  it('falls back to the synthetic trend fixture, labeled with the failure reason, on a live contract-validation failure', async () => {
+    const env = {
+      CONNECT_SERVICE: { async fetch() { return new Response(JSON.stringify({ contract: 'connect.finance-balance-sheet-trend.v1' }), { status: 200 }); } },
+      FINANCE_CONTRACT_API_KEY: 'test-secret',
+    };
+    const result = await resolveBalanceSheetTrend(env, dbWith(TREND_ROWS));
+    expect(result.source).toBe('synthetic-fallback');
+    expect(result.fallbackReason).toBe('contract_validation_failed');
+    expect(result.rows).toEqual(TREND_ROWS.map((row) => ({ ...row, net_assets_cents: row.assets_cents - row.liabilities_cents })));
   });
 });
 

@@ -1,5 +1,6 @@
 import { runBudgetedReadBatch } from './query-budget.js';
 import { fetchLiveFinanceBalanceSheet, defaultLiveBalanceSheetFiscalYear } from './finance-balance-sheet-client.js';
+import { fetchLiveFinanceBalanceSheetTrend } from './finance-balance-sheet-trend-client.js';
 
 const CLASSIFICATIONS = new Set(['Assets', 'Liabilities', 'Equity']);
 
@@ -37,8 +38,7 @@ export async function readSyntheticBalanceTrends(db) {
 // any reason -- same never-throws, always-labeled pattern as church-report-service.js's
 // resolveChurchReport. `db` here is Finance's own FINANCE_DB, used only for the synthetic
 // fallback path. Only the 'balance' section's 'position'/'account-detail' pages use this; the
-// 'multi-year' page has no live equivalent yet and stays on the synthetic trend reader below --
-// out of scope for this contract, the same way Church Report left its own multi-year trend out.
+// 'multi-year' page has its own live resolver, resolveBalanceSheetTrend, right below.
 export async function resolveBalanceSheet(env, db) {
   const fiscalYear = defaultLiveBalanceSheetFiscalYear();
   const result = await fetchLiveFinanceBalanceSheet(env, fiscalYear);
@@ -53,6 +53,40 @@ export async function resolveBalanceSheet(env, db) {
     };
   }
   const rows = await readSyntheticBalanceSheet(db);
+  return { source: 'synthetic-fallback', fallbackReason: result.reason, rows };
+}
+
+// Tries the real connect.finance-balance-sheet-trend.v1 endpoint (every fiscal year on file, no
+// year parameter); falls back to the existing synthetic trend fixture whenever the live call isn't
+// configured yet or fails for any reason -- same never-throws, always-labeled pattern as
+// resolveBalanceSheet above and church-report-service.js's resolveChurchReport. `db` here is
+// Finance's own FINANCE_DB, used only for the synthetic fallback path.
+//
+// The live payload's `years` (camelCase fiscalYear/asOfDate/assetsCents/liabilitiesCents/
+// equityCents/netAssetsCents) is remapped to the SAME snake_case row shape
+// readSyntheticBalanceTrends already returns (fiscal_year/as_of_date/assets_cents/
+// liabilities_cents/equity_cents/net_assets_cents) so renderBalanceTrendRows in balance-pages.js
+// needs exactly one rendering path regardless of source -- only the badge/fallback note above the
+// table differs, the same as the 'position'/'account-detail' pages already do. net_assets_cents
+// here is the contract's own netAssetsCents (total equity after the Designated-Funds-as-Equity
+// reclassification), NOT a locally recomputed assets-minus-liabilities figure -- see
+// finance-balance-sheet-trend-consumer.js's header comment for why.
+export async function resolveBalanceSheetTrend(env, db) {
+  const result = await fetchLiveFinanceBalanceSheetTrend(env);
+  if (result.ok) {
+    return {
+      source: 'live',
+      rows: result.trend.years.map((y) => ({
+        fiscal_year: y.fiscalYear,
+        as_of_date: y.asOfDate,
+        assets_cents: y.assetsCents,
+        liabilities_cents: y.liabilitiesCents,
+        equity_cents: y.equityCents,
+        net_assets_cents: y.netAssetsCents,
+      })),
+    };
+  }
+  const rows = await readSyntheticBalanceTrends(db);
   return { source: 'synthetic-fallback', fallbackReason: result.reason, rows };
 }
 
