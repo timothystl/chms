@@ -751,6 +751,33 @@ export async function schedKvPut(env, key, value) {
   await env.RSVP_STORE.put(key, JSON.stringify(value), { expirationTtl: 31536000 });
 }
 
+// Write a volunteer's RSVP response straight into the same D1 scheduler_data
+// 'ws_confirmations' blob the desktop Scheduler and Mobile Admin both read —
+// so a click on the email link shows up everywhere immediately, without
+// waiting on an admin's browser to hold that person's RSVP token locally and
+// click "Sync Confirmations" (the per-browser token cache can and does fall
+// out of sync between admins/devices; this bypasses it for the RSVP path).
+// Best-effort and non-fatal: never let this break the volunteer's response.
+async function writeConfirmationsToD1(env, assignments) {
+  if (!env.DB || !assignments || !assignments.length) return;
+  const pairs = [];
+  for (const a of assignments) {
+    if (!a.dateISO || !a.role) continue;
+    const svcKey = a.svc === 'both services' ? 'shared' : a.svc;
+    pairs.push('$.' + JSON.stringify(a.dateISO + '|' + a.role + '|' + svcKey), a.status || 'pending');
+  }
+  if (!pairs.length) return;
+  try {
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO scheduler_data (key, value) VALUES ('ws_confirmations', '{}')"
+    ).run();
+    const placeholders = pairs.map(() => '?').join(', ');
+    await env.DB.prepare(
+      `UPDATE scheduler_data SET value = json_set(value, ${placeholders}), updated_at = datetime('now') WHERE key = 'ws_confirmations'`
+    ).bind(...pairs).run();
+  } catch (e) { /* non-fatal — KV remains the source of truth for the RSVP itself */ }
+}
+
 // ── /email/send ──────────────────────────────────────────────────────────────
 export async function handleSchedEmailSend(req, env) {
   // env is the single source of truth — set RESEND_API_KEY + EMAIL_FROM on
@@ -1012,6 +1039,7 @@ export async function handleSchedRsvp(req, env, url) {
   record.overallStatus = status;
   record.updatedAt = new Date().toISOString();
   await schedKvPut(env, token, record);
+  await writeConfirmationsToD1(env, record.assignments);
   // Notify admin (non-fatal)
   const notifyEmail = record.notifyEmail || '';
   if (notifyEmail) {
