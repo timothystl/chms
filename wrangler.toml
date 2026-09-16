@@ -45,10 +45,25 @@ pattern = "chms.timothystl.org/*"
 zone_name = "timothystl.org"
 custom_domain = false
 
+# Renamed from tlc-volunteer-db (Cloudflare D1 database, not the binding name -- DB was
+# already generic) -- the old database still exists and is left untouched. D1 has no in-place
+# rename and no fork/copy-into-new-database capability, so this is a full copy: see the
+# data-copy workflow at .github/workflows/migrate-d1-database.yml and
+# scripts/migrate-d1-database.sh for how the schema and every row (people, households, giving,
+# scheduler/serve, the legacy Finance tables) were copied here, with a from-scratch dry run
+# already reconciled clean (schema, row counts, foreign keys, monetary control totals, and
+# AUTOINCREMENT sequence state all matched exactly). CRITICAL: this database must never be
+# bound to any Worker until after a clean copy run -- see the script's own header for why
+# (initDb() would seed it with real hardcoded data using colliding AUTOINCREMENT ids). Because
+# the old database stays live and writable right up until this change deploys, re-run that
+# workflow once more immediately before deploying this change to catch up on anything written
+# since the last copy, then confirm real people/household/giving/scheduler data actually
+# renders against the new database after deploy, before deleting the old tlc-volunteer-db
+# database in a later, separate step.
 [[d1_databases]]
 binding = "DB"
-database_name = "tlc-volunteer-db"
-database_id = "9399ee53-3386-4084-9b6b-def46b88f96a"
+database_name = "timothy-connect-db"
+database_id = "9e65fb21-5b6c-4f7b-bc0a-8f0ecb38cf05"
 migrations_dir = "migrations"
 
 # Renamed from RSVP_STORE (Cloudflare KV namespace, not the binding name) 2026-09-14: the old
