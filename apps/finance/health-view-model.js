@@ -1,3 +1,13 @@
+// Hoisted so shell.js can render the same, purely-static decision framing even when `summary` (and
+// so the rest of this view) could not be read for this request (see synthetic-read-guard.js) --
+// these three rows describe fixed board-authority boundaries, not fetched data, so there is nothing
+// dishonest about still showing them while every data-backed card on the same page says "unavailable".
+export const FINANCE_HEALTH_DECISIONS = Object.freeze([
+  { stream: 'Donor income', authority: 'Full control', action: 'Set the ask and stewardship plan' },
+  { stream: 'Earned income', authority: 'Reported, not managed', action: 'Review operating performance' },
+  { stream: 'Passive income', authority: 'Timing decision', action: 'Decide distribution timing' },
+]);
+
 export function buildFinancialHealthView(summary, giving) {
   const incomeActualCents = Number(summary.church.income_actual_cents || 0);
   const expenseActualCents = Number(summary.church.expense_actual_cents || 0);
@@ -26,10 +36,6 @@ export function buildFinancialHealthView(summary, giving) {
       sourceRecordCount: Number(giving.reconciliation.sourceRecordCount || 0),
       reconciled: giving.reconciliation.totalsMatch === true,
     },
-    decisions: [
-      { stream: 'Donor income', authority: 'Full control', action: 'Set the ask and stewardship plan' },
-      { stream: 'Earned income', authority: 'Reported, not managed', action: 'Review operating performance' },
-      { stream: 'Passive income', authority: 'Timing decision', action: 'Decide distribution timing' },
-    ],
+    decisions: FINANCE_HEALTH_DECISIONS,
   };
 }

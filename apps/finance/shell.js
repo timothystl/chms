@@ -15,7 +15,7 @@ import { decodeJwtClaimsUnsafe } from './jwt-decode-unsafe.js';
 import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from './summary-service.js';
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
-import { buildFinancialHealthView } from './health-view-model.js';
+import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
 import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends, resolveChurchReport } from './church-report-service.js';
 import { readSyntheticBalanceTrends, resolveBalanceSheet } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
@@ -35,7 +35,8 @@ import { readSyntheticPropertyForecast } from './property-forecast-service.js';
 import { readSyntheticCompensationBenchmarks } from './compensation-benchmark-service.js';
 import { readSyntheticCompensationBenefits } from './compensation-benefits-service.js';
 import { readSyntheticPropertyDistributions } from './property-distributions-service.js';
-import { escapeHtml, formatCents, formatSignedCents, renderUnavailablePage } from './render-helpers.js';
+import { escapeHtml, formatCents, formatSignedCents, renderDataUnavailablePage, renderUnavailableCard, renderUnavailablePage } from './render-helpers.js';
+import { isSyntheticUnavailable, safeSyntheticRead } from './synthetic-read-guard.js';
 import { renderChurchPage } from './church-pages.js';
 import { renderBalancePage } from './balance-pages.js';
 import { renderDaycarePage } from './daycare-pages.js';
@@ -197,24 +198,29 @@ function renderSectionBody(ctx) {
     compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle,
   } = ctx;
   if (section.id === 'health') {
-    const health = buildFinancialHealthView(summary, giving);
-    const runway = buildCashRunwayView(cashRunway);
-    const mix = buildFinancialMixView(churchReport);
-    const church = buildChurchReportView(churchReport);
-    const entities = buildEntityOverview({
-      church,
-      daycare: buildDaycareReportView(daycareReport),
-      property: buildPropertyReportView(propertyReport),
-    });
-    const bridge = buildOperatingBridge(church);
-    const status = dataStatus ? buildDataStatusView(dataStatus.row, new Date(), {
+    // Each panel below is independently guarded against its own upstream synthetic read having
+    // degraded to SYNTHETIC_UNAVAILABLE (see synthetic-read-guard.js) -- one missing dependency
+    // (e.g. cash runway) renders an honest "unavailable" panel in its own place, never a
+    // fabricated blank/zero, and never takes down the rest of this already-synthetic-only page.
+    const health = isSyntheticUnavailable(summary) ? null : buildFinancialHealthView(summary, giving);
+    const runway = isSyntheticUnavailable(cashRunway) ? null : buildCashRunwayView(cashRunway);
+    const mix = isSyntheticUnavailable(churchReport) ? null : buildFinancialMixView(churchReport);
+    const church = isSyntheticUnavailable(churchReport) ? null : buildChurchReportView(churchReport);
+    const daycareEntity = isSyntheticUnavailable(daycareReport) ? null : buildDaycareReportView(daycareReport);
+    const propertyEntity = isSyntheticUnavailable(propertyReport) ? null : buildPropertyReportView(propertyReport);
+    const entities = (church && daycareEntity && propertyEntity)
+      ? buildEntityOverview({ church, daycare: daycareEntity, property: propertyEntity })
+      : null;
+    const bridge = church ? buildOperatingBridge(church) : null;
+    const status = (dataStatus && !isSyntheticUnavailable(dataStatus)) ? buildDataStatusView(dataStatus.row, new Date(), {
       productionConnected: dataStatus.productionConnected,
       writerConnected: dataStatus.writerConnected,
     }) : null;
     const attentionItems = [];
     if (status?.freshness === 'stale') attentionItems.push(`Source data hasn't been reviewed in over ${status.freshnessWindowDays} days (${status.ageDays} days old) — see Data &amp; Imports.`);
-    if (!health.giving.reconciled) attentionItems.push('Giving totals do not reconcile yet — review before relying on them.');
-    if (health.operating.varianceCents < 0) attentionItems.push(`Operating result is ${formatSignedCents(health.operating.varianceCents)} behind budget.`);
+    if (health && !health.giving.reconciled) attentionItems.push('Giving totals do not reconcile yet — review before relying on them.');
+    if (health && health.operating.varianceCents < 0) attentionItems.push(`Operating result is ${formatSignedCents(health.operating.varianceCents)} behind budget.`);
+    const unavailableNote = (what) => `<p class="status status-pending">${escapeHtml(what)} could not be read for this request. Nothing shown here is a real $0 or blank figure — see Data &amp; Imports.</p>`;
     return `<section aria-label="Synthetic financial health">
       <div class="dashboard-intro"><div class="eyebrow">Dashboard</div><h2 class="dashboard-title">Are we okay?</h2><p>Four questions the council asks first — each one links to the report it came from.</p></div>
       <div class="section-heading"><div><div class="eyebrow">Needs your attention</div><h2>${attentionItems.length ? `${attentionItems.length} item${attentionItems.length === 1 ? '' : 's'} flagged` : 'Nothing flagged right now'}</h2></div><span class="badge">${attentionItems.length ? 'Review' : 'Clear'}</span></div>
@@ -223,21 +229,29 @@ function renderSectionBody(ctx) {
         : '<p class="status">Nothing needs your attention right now.</p>'}
       <div class="section-heading"><div><div class="eyebrow">Financial Health</div><h2>How are we doing, and what should we decide?</h2></div><span class="badge">Synthetic staging</span></div>
       <div class="grid">
-        <div class="card"><small>Operating result</small><strong>${formatSignedCents(health.operating.actualNetCents)}</strong><span>Budget ${formatSignedCents(health.operating.budgetNetCents)} · variance ${formatSignedCents(health.operating.varianceCents)}</span></div>
-        <div class="card"><small>Financial position</small><strong>${formatCents(health.position.netAssetsCents)}</strong><span>Assets ${formatCents(health.position.assetsCents)} · liabilities ${formatCents(health.position.liabilitiesCents)}</span></div>
-        <div class="card"><small>Giving reconciliation</small><strong>${formatCents(health.giving.netCents)}</strong><span>${health.giving.sourceRecordCount} aggregate records · ${health.giving.reconciled ? 'totals match' : 'review required'} · ${givingSource === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>
+        ${health ? `<div class="card"><small>Operating result</small><strong>${formatSignedCents(health.operating.actualNetCents)}</strong><span>Budget ${formatSignedCents(health.operating.budgetNetCents)} · variance ${formatSignedCents(health.operating.varianceCents)}</span></div>` : renderUnavailableCard('Operating result')}
+        ${health ? `<div class="card"><small>Financial position</small><strong>${formatCents(health.position.netAssetsCents)}</strong><span>Assets ${formatCents(health.position.assetsCents)} · liabilities ${formatCents(health.position.liabilitiesCents)}</span></div>` : renderUnavailableCard('Financial position')}
+        ${health ? `<div class="card"><small>Giving reconciliation</small><strong>${formatCents(health.giving.netCents)}</strong><span>${health.giving.sourceRecordCount} aggregate records · ${health.giving.reconciled ? 'totals match' : 'review required'} · ${givingSource === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>` : renderUnavailableCard('Giving reconciliation')}
       </div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Liquidity</div><h2>Operating cash runway</h2></div><span class="badge">As of ${escapeHtml(runway.asOfDate)}</span></div>
-      <div class="grid"><div class="card"><small>Operating cash</small><strong>${formatCents(runway.operatingCashCents)}</strong><span>${escapeHtml(runway.accountName)} · synthetic fixture</span></div><div class="card"><small>Average monthly expense</small><strong>${formatCents(runway.monthlyExpenseCents)}</strong><span>FY${runway.fiscalYear} annual expense ${formatCents(runway.annualExpenseCents)}</span></div><div class="card"><small>Expense coverage</small><strong>${runway.runwayMonths.toFixed(1)} months</strong><span>Cash divided by average monthly expense · read-only</span></div></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Operating mix</div><h2>Where money comes from and goes</h2></div><span class="badge">FY${mix.fiscalYear} · reconciled</span></div>
-      <div class="grid"><div><h3>Revenue mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.income.items)}</tbody></table></div></div><div><h3>Expense mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.expenses.items)}</tbody></table></div></div></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Liquidity</div><h2>Operating cash runway</h2></div><span class="badge">${runway ? `As of ${escapeHtml(runway.asOfDate)}` : 'Unavailable'}</span></div>
+      ${runway
+        ? `<div class="grid"><div class="card"><small>Operating cash</small><strong>${formatCents(runway.operatingCashCents)}</strong><span>${escapeHtml(runway.accountName)} · synthetic fixture</span></div><div class="card"><small>Average monthly expense</small><strong>${formatCents(runway.monthlyExpenseCents)}</strong><span>FY${runway.fiscalYear} annual expense ${formatCents(runway.annualExpenseCents)}</span></div><div class="card"><small>Expense coverage</small><strong>${runway.runwayMonths.toFixed(1)} months</strong><span>Cash divided by average monthly expense · read-only</span></div></div>`
+        : unavailableNote('Operating cash runway')}
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Operating mix</div><h2>Where money comes from and goes</h2></div><span class="badge">${mix ? `FY${mix.fiscalYear} · reconciled` : 'Unavailable'}</span></div>
+      ${mix
+        ? `<div class="grid"><div><h3>Revenue mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.income.items)}</tbody></table></div></div><div><h3>Expense mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.expenses.items)}</tbody></table></div></div></div>`
+        : unavailableNote('Revenue and expense mix')}
       <div class="section-heading trend-heading"><div><div class="eyebrow">Entity overview</div><h2>Separate operating views</h2></div><span class="badge">Not consolidated</span></div>
-      <div class="grid">${renderEntityCards(entities.entities)}</div>
-      <p>Periods are shown separately because these synthetic sources do not share one reporting window; their results are not added together.</p>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Money flow</div><h2>FY${bridge.fiscalYear} Church operating bridge</h2></div><span class="badge">Reconciled</span></div>
-      <div class="grid"><div class="card"><small>1 · Income</small><strong>${formatCents(bridge.incomeCents)}</strong></div><div class="card"><small>2 · Expenses</small><strong>−${formatCents(bridge.expenseCents)}</strong></div><div class="card"><small>3 · ${bridge.resultLabel}</small><strong>${formatSignedCents(bridge.resultCents)}</strong><span>Income minus expenses</span></div></div>
-      <p>This is an arithmetic operating bridge, not donor-to-expense tracing or a claim that particular revenue funded particular costs.</p>
-      <div class="decision-grid">${health.decisions.map((decision) => `<div class="decision"><small>${decision.stream}</small><b>${decision.authority}</b><span>${decision.action}</span></div>`).join('')}</div>
+      ${entities
+        ? `<div class="grid">${renderEntityCards(entities.entities)}</div>
+      <p>Periods are shown separately because these synthetic sources do not share one reporting window; their results are not added together.</p>`
+        : unavailableNote('The entity overview')}
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Money flow</div><h2>${bridge ? `FY${bridge.fiscalYear} ` : ''}Church operating bridge</h2></div><span class="badge">${bridge ? 'Reconciled' : 'Unavailable'}</span></div>
+      ${bridge
+        ? `<div class="grid"><div class="card"><small>1 · Income</small><strong>${formatCents(bridge.incomeCents)}</strong></div><div class="card"><small>2 · Expenses</small><strong>−${formatCents(bridge.expenseCents)}</strong></div><div class="card"><small>3 · ${bridge.resultLabel}</small><strong>${formatSignedCents(bridge.resultCents)}</strong><span>Income minus expenses</span></div></div>
+      <p>This is an arithmetic operating bridge, not donor-to-expense tracing or a claim that particular revenue funded particular costs.</p>`
+        : unavailableNote('The Church operating bridge')}
+      <div class="decision-grid">${FINANCE_HEALTH_DECISIONS.map((decision) => `<div class="decision"><small>${decision.stream}</small><b>${decision.authority}</b><span>${decision.action}</span></div>`).join('')}</div>
     </section>`;
   }
   const page = resolveFinancePage(section, pageId);
@@ -311,6 +325,24 @@ function renderShell(ctx) {
   const { metadata, section, pageId, givingSource, councilPreview, roleResult } = ctx;
   const page = resolveFinancePage(section, pageId);
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
+  // renderSectionBody() (and the *-pages.js render functions it delegates to) can still throw --
+  // e.g. a page that unconditionally builds a view from a companion synthetic read shell.js could
+  // only degrade to SYNTHETIC_UNAVAILABLE, not repair (see synthetic-read-guard.js). This is the
+  // per-section safety net that replaces the old whole-route 503: the rest of this page (nav,
+  // banners, footer) still renders, and the visitor sees an honest "data unavailable" message
+  // scoped to the one section that failed, not a generic error for the entire app. The route-level
+  // try/catch around this whole handler (shell.js's fetch()) remains as a final backstop for
+  // genuinely unexpected errors outside this render path.
+  let sectionBody;
+  try {
+    sectionBody = renderSectionBody(ctx);
+  } catch {
+    sectionBody = renderDataUnavailablePage({
+      eyebrow: section.label,
+      heading: page.label,
+      reason: 'This section could not be rendered because required data was unavailable for this request. Nothing else on this page was affected.',
+    });
+  }
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -454,7 +486,7 @@ function renderShell(ctx) {
           ? `<span>Previewing what a view-only council/auditor login would see. Editing controls are hidden. Everything shown is already aggregate/role-only synthetic data, so there is nothing further to redact here.</span><a class="council-toggle" href="/?section=${section.id}&amp;page=${page.id}">Exit preview</a>`
           : `<span>Not a real access boundary yet -- Finance has no verified staff-identity/role check of its own (that is the still-unbuilt shared-login piece of the overhaul). This only previews what a future council view’s chrome would hide.</span><a class="council-toggle" href="/?section=${section.id}&amp;page=${page.id}&amp;council=1">Preview council view</a>`}
       </div>
-      ${renderSectionBody(ctx)}
+      ${sectionBody}
       <p><small>Every value besides Giving shown here comes from deterministic synthetic staging fixtures. Giving is ${givingSource === 'live' ? 'fetched live from Connect’s real, aggregate-only contract endpoint' : 'the committed Connect contract example (the live endpoint is not configured or did not answer), validated locally with no network call'}.</small></p>
       <footer>Timothy Lutheran Church · ${release}</footer>
     </main>
@@ -708,103 +740,137 @@ export default {
         // nothing, compensation gets only the compensation-tagged section -- and only when a
         // role was actually verified. See connect-role-client.js's own comment for why this
         // deliberately stops short of replicating the full legacy permission matrix, and the
-        // council-banner markup below for how the unconfigured/unverified case is disclosed
-        // rather than silently treated as fully open.
-        if (roleResult.ok && !roleCanAccessSection(roleResult.role, section)) {
+        // council-banner markup below for how the sole remaining fail-open case (verification
+        // genuinely not configured -- staging's permanent, intentional state) is disclosed rather
+        // than silently treated as fully open.
+        //
+        // Every OTHER verification failure -- no Access identity reached this deep, a network
+        // error, a non-200 from Connect, malformed JSON, or a malformed role payload -- must fail
+        // CLOSED, not open: those are exactly the conditions under which a real production
+        // member/volunteer/compensation-only identity could otherwise see every section simply
+        // because the verification call happened to fail at that moment. 'not_configured' is
+        // structurally different: it is staging's normal, permanent, disclosed state (no
+        // CONNECT_SERVICE binding/key exists there at all), not a runtime failure of a real check,
+        // so it alone keeps failing open exactly as before.
+        const roleVerificationBrokenUnsafely = !roleResult.ok && roleResult.reason !== 'not_configured';
+        if (roleVerificationBrokenUnsafely || (roleResult.ok && !roleCanAccessSection(roleResult.role, section))) {
           // Not just "/" -- the default section (Financial Health) is itself off-limits to a
-          // role this narrow, so that would only bounce straight back into another denial.
-          const availableSection = FINANCE_PARITY_SECTIONS.find((s) => roleCanAccessSection(roleResult.role, s));
+          // role this narrow, so that would only bounce straight back into another denial. There
+          // is no available-section link to offer when verification itself is broken -- there is
+          // no verified role to compute one from.
+          const availableSection = roleResult.ok
+            ? FINANCE_PARITY_SECTIONS.find((s) => roleCanAccessSection(roleResult.role, s))
+            : null;
           const returnLink = availableSection
             ? `<p><a href="/?section=${escapeHtml(availableSection.id)}">Return to your available section</a></p>` : '';
+          const denialMessage = roleVerificationBrokenUnsafely
+            ? 'Role verification failed and access cannot be safely confirmed for this request. Try reloading the page; if this continues, contact the Finance administrator.'
+            : 'Your verified Connect role does not have access to this section of Finance.';
           return response(
             `<!doctype html><html><body style="font-family:Arial,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1.5rem;color:#1a1a2a">`
-            + `<h1>Access denied</h1><p>Your verified Connect role does not have access to this section of Finance.</p>`
+            + `<h1>Access denied</h1><p>${denialMessage}</p>`
             + `${returnLink}</body></html>`,
             { status: 403, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
           );
         }
+        // Every conditional read below is wrapped in safeSyntheticRead() (see
+        // synthetic-read-guard.js): production's real Finance D1 starts with zero
+        // `source='synthetic_fixture'` rows, and several of these readers correctly throw when
+        // their expected fixture row is entirely absent rather than genuinely erroring. Before this
+        // guard, one such throw took down the ENTIRE response with a generic 503 -- even for a
+        // section whose own independent live-first resolver (church/balance/daycare/property/
+        // compensation) had already succeeded. Now a failed read degrades to the
+        // SYNTHETIC_UNAVAILABLE sentinel instead, and renderSectionBody/the per-section render
+        // functions below show an honest "data unavailable" indication for just that piece --
+        // never a fabricated blank/zero, and never a crash of the rest of the page. `null` still
+        // means "not applicable to this section" everywhere below; the sentinel is a distinct value
+        // exactly so the two are never confused.
         const summary = ['health', 'church', 'packet'].includes(section.id)
-          ? await readSyntheticSummary(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticSummary(env.FINANCE_DB)) : null;
         // Health/Charts/Packet still read the plain synthetic rows -- unchanged, out of scope for
         // this contract. The 'church' section (Church Report itself) instead tries the real
         // connect.finance-church-report.v1 endpoint first and falls back to the same synthetic
         // fixture, labeled, via resolveChurchReport -- same live-first pattern as Budget's
         // resolveBudgetReport for the 'planning' section below.
         const churchReport = ['health', 'charts', 'packet'].includes(section.id)
-          ? await readSyntheticChurchReport(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticChurchReport(env.FINANCE_DB)) : null;
         const churchReportLive = section.id === 'church'
-          ? await resolveChurchReport(env, env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => resolveChurchReport(env, env.FINANCE_DB)) : null;
         const churchTrends = ['church', 'packet'].includes(section.id)
-          ? await readSyntheticChurchTrends(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticChurchTrends(env.FINANCE_DB)) : null;
         // Balance Sheet tries the real connect.finance-balance-sheet.v1 endpoint first and falls
         // back to the same synthetic fixture, labeled, via resolveBalanceSheet -- same live-first
         // pattern as Church Report's resolveChurchReport just above and Budget's
         // resolveBudgetReport below. readSyntheticBalanceSheet is still used internally by
         // resolveBalanceSheet's own fallback path, not called directly here anymore.
         const balanceSheet = section.id === 'balance'
-          ? await resolveBalanceSheet(env, env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => resolveBalanceSheet(env, env.FINANCE_DB)) : null;
         const balanceTrends = section.id === 'balance'
-          ? await readSyntheticBalanceTrends(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticBalanceTrends(env.FINANCE_DB)) : null;
         const daycareReport = section.id === 'health'
-          ? await readSyntheticDaycareReport(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticDaycareReport(env.FINANCE_DB)) : null;
         // The 'daycare' section (Daycare Report itself) tries the real
         // connect.finance-daycare-report.v1 endpoint first and falls back to the same synthetic
         // fixture, labeled, via resolveDaycareReport -- same live-first pattern as Church Report's
         // resolveChurchReport and Balance Sheet's resolveBalanceSheet above. 'health' keeps reading
         // the plain synthetic rows above -- unchanged, out of scope for this contract.
         const daycareReportLive = section.id === 'daycare'
-          ? await resolveDaycareReport(env, env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => resolveDaycareReport(env, env.FINANCE_DB)) : null;
         const propertyReport = section.id === 'property' || section.id === 'health'
-          ? await readSyntheticPropertyReport(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticPropertyReport(env.FINANCE_DB)) : null;
         const propertyReserves = ['property', 'charts'].includes(section.id)
-          ? await readSyntheticPropertyReserves(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticPropertyReserves(env.FINANCE_DB)) : null;
         const propertyLedgers = section.id === 'property'
-          ? await readSyntheticPropertyLedgers(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticPropertyLedgers(env.FINANCE_DB)) : null;
         // Property Valuation tries the real connect.finance-property-valuation.v1 endpoint first
         // and falls back to the same synthetic fixture, labeled, via resolvePropertyValuation --
         // same live-first pattern as Church Report's resolveChurchReport and Balance Sheet's
         // resolveBalanceSheet above.
         const propertyValuation = section.id === 'property'
-          ? await resolvePropertyValuation(env, env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => resolvePropertyValuation(env, env.FINANCE_DB)) : null;
         // Property Operating results/Reserves & distribution/Capital & repairs ledgers each try
         // their own real connect.finance-property-*.v1 endpoint first and fall back to the same
         // synthetic fixtures read just above, labeled -- same live-first pattern as Property
         // Valuation above. Only the 'property' section's own pages use these; 'overview'/'health'/
         // 'charts' keep reading the plain synthetic propertyReport/propertyReserves/propertyLedgers
-        // above directly, unchanged and out of scope for this contract.
+        // above directly, unchanged and out of scope for this contract. propertyReport may itself
+        // already be SYNTHETIC_UNAVAILABLE here -- resolvePropertyReport only threads it through as
+        // its own fallback's `rows`, it never dereferences it, so this call still can't throw.
         const propertyReportLive = section.id === 'property'
-          ? await resolvePropertyReport(env, propertyReport) : null;
+          ? await safeSyntheticRead(() => resolvePropertyReport(env, propertyReport)) : null;
         const propertyReservesLive = section.id === 'property'
-          ? await resolvePropertyReserves(env) : null;
+          ? await safeSyntheticRead(() => resolvePropertyReserves(env)) : null;
         const propertyLedgersLive = section.id === 'property'
-          ? await resolvePropertyLedgers(env) : null;
+          ? await safeSyntheticRead(() => resolvePropertyLedgers(env)) : null;
         const propertyForecast = section.id === 'property'
-          ? await readSyntheticPropertyForecast(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticPropertyForecast(env.FINANCE_DB)) : null;
         const propertyDistributions = section.id === 'property'
-          ? await readSyntheticPropertyDistributions(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticPropertyDistributions(env.FINANCE_DB)) : null;
         const budgetReport = section.id === 'planning'
-          ? await resolveBudgetReport(env, env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => resolveBudgetReport(env, env.FINANCE_DB)) : null;
         const accountsReport = ['accounts', 'quickbooks'].includes(section.id)
-          ? await resolveAccountsReport(env, env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => resolveAccountsReport(env, env.FINANCE_DB)) : null;
         const dataStatus = ['data', 'health', 'quickbooks'].includes(section.id)
-          ? await resolveDataStatus(env, env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => resolveDataStatus(env, env.FINANCE_DB)) : null;
         const compensationReport = section.id === 'compensation'
-          ? await readSyntheticCompensationReport(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticCompensationReport(env.FINANCE_DB)) : null;
         // The 'plan' page of the compensation section tries the real connect.finance-compensation.v1
         // endpoint and falls back to the same synthetic fixture, labeled, via resolveCompensationReport
         // -- same live-first pattern as every resolver above, with one deliberate difference: the live
         // fetch is only ever attempted when roleResult independently confirms the viewer is
         // admin/council/compensation (see compensation-report-service.js's own comment on why this
         // one contract cannot safely fail open the way the aggregate contracts above do).
+        // compensationReport may already be SYNTHETIC_UNAVAILABLE here -- same as propertyReport
+        // above, resolveCompensationReport only threads it through, it never dereferences it.
         const compensationRoleVerified = roleResult.ok && COMPENSATION_LIVE_ALLOWED_ROLES.includes(roleResult.role);
         const compensationReportLive = section.id === 'compensation'
-          ? await resolveCompensationReport(env, compensationReport, compensationRoleVerified) : null;
+          ? await safeSyntheticRead(() => resolveCompensationReport(env, compensationReport, compensationRoleVerified)) : null;
         const compensationBenchmarks = section.id === 'compensation'
-          ? await readSyntheticCompensationBenchmarks(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticCompensationBenchmarks(env.FINANCE_DB)) : null;
         const compensationBenefits = section.id === 'compensation'
-          ? await readSyntheticCompensationBenefits(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticCompensationBenefits(env.FINANCE_DB)) : null;
         const cashRunway = ['health', 'charts'].includes(section.id)
-          ? await readSyntheticCashRunway(env.FINANCE_DB) : null;
+          ? await safeSyntheticRead(() => readSyntheticCashRunway(env.FINANCE_DB)) : null;
         const { giving, source: givingSource } = ['health', 'giving', 'charts', 'packet'].includes(section.id)
           ? await resolveGivingSummary(env) : { giving: SYNTHETIC_GIVING, source: 'synthetic-fallback' };
         const givingEntryStatus = section.id === 'giving' ? url.searchParams.get('status') : null;
