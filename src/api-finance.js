@@ -3101,6 +3101,43 @@ export async function applyBudgetPlanOverrideRows(db, role, username, rowsInput)
   return { ok: true, saved: ops.length };
 }
 
+// ── Shared Salary/Compensation Planner writer ────────────────────────────────
+// Used by both the admin/compensation/council finance/planning/salary PUT route below and the
+// finance-compensation-write-v1 relay contract (src/api-contracts-service.js) that lets Finance's
+// own Worker forward the identical write on behalf of an identity it verified via Cloudflare
+// Access. One implementation means the two entry points can never drift on validation, on the
+// compensation role's separate-fork behavior, or on exactly which fields council may steer. See
+// the finance/planning/salary PUT route below for the full history/rationale comment (kept there
+// since that's still the primary, human-facing entry point).
+const SALARY_PLANNER_KEY = 'finance_salary_planner';
+const SALARY_PLANNER_COMPENSATION_KEY = 'finance_salary_planner_compensation';
+const COUNCIL_EDITABLE_FIELDS = ['compMethod', 'compPerWorkerMethod', 'compCustomPct', 'compScalePct', 'compBaselineRosterOnly'];
+export function councilPlannerKey(username) {
+  return 'finance_salary_planner_council_' + String(username || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+}
+
+export async function applySalaryPlannerWrite(db, role, username, body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'Invalid payload', status: 400 };
+  if (body.roster !== undefined && !Array.isArray(body.roster)) return { error: 'roster must be an array', status: 400 };
+  if (role === 'council') {
+    if (!username) return { error: 'Access denied: this account has no username to save under', status: 403 };
+    // Only the raise-plan fields survive — the roster itself, reference figures, hand-typed
+    // overrides, target category and health-plan settings are silently dropped even if the
+    // caller sent them, so a modified request body can never smuggle a seed-data edit through.
+    const overlay = {};
+    for (const f of COUNCIL_EDITABLE_FIELDS) if (body[f] !== undefined) overlay[f] = body[f];
+    await db.prepare(
+      `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+    ).bind(councilPlannerKey(username), JSON.stringify(overlay)).run();
+    return { ok: true };
+  }
+  const key = role === 'compensation' ? SALARY_PLANNER_COMPENSATION_KEY : SALARY_PLANNER_KEY;
+  await db.prepare(
+    `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(key, JSON.stringify(body)).run();
+  return { ok: true };
+}
+
 export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, isFinance, role = 'admin') {
   if (!isFinance) return json({ error: 'Access denied: finance data requires finance access' }, 403);
 
@@ -4403,12 +4440,6 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // inputs) or a hand-typed dollar override. Each council login saves under its OWN username,
   // not one shared fork, so one council member's plan can never overwrite another's, and never
   // the real admin/finance plan. See COUNCIL_EDITABLE_FIELDS/councilPlannerKey below.
-  const SALARY_PLANNER_KEY = 'finance_salary_planner';
-  const SALARY_PLANNER_COMPENSATION_KEY = 'finance_salary_planner_compensation';
-  const COUNCIL_EDITABLE_FIELDS = ['compMethod', 'compPerWorkerMethod', 'compCustomPct', 'compScalePct', 'compBaselineRosterOnly'];
-  function councilPlannerKey(username) {
-    return 'finance_salary_planner_council_' + String(username || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
-  }
   if (seg === 'finance/planning/salary' && method === 'GET') {
     let key = SALARY_PLANNER_KEY;
     if (role === 'compensation') {
@@ -4470,26 +4501,12 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/planning/salary' && method === 'PUT') {
     if (!isAdmin && role !== 'compensation' && role !== 'council') return json({ error: 'Access denied: editing the salary planner requires admin access' }, 403);
     const b = await req.json().catch(() => null);
-    if (!b || typeof b !== 'object' || Array.isArray(b)) return json({ error: 'Invalid payload' }, 400);
-    if (b.roster !== undefined && !Array.isArray(b.roster)) return json({ error: 'roster must be an array' }, 400);
+    let username = '';
     if (role === 'council') {
-      let username = '';
       try { username = ((await getAuthInfo(req, env)) || {}).username || ''; } catch { username = ''; }
-      if (!username) return json({ error: 'Access denied: this account has no username to save under' }, 403);
-      // Only the raise-plan fields survive — the roster itself, reference figures, hand-typed
-      // overrides, target category and health-plan settings are silently dropped even if the
-      // client sent them, so a modified request body can never smuggle a seed-data edit through.
-      const overlay = {};
-      for (const f of COUNCIL_EDITABLE_FIELDS) if (b[f] !== undefined) overlay[f] = b[f];
-      await db.prepare(
-        `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-      ).bind(councilPlannerKey(username), JSON.stringify(overlay)).run();
-      return json({ ok: true });
     }
-    const key = role === 'compensation' ? SALARY_PLANNER_COMPENSATION_KEY : SALARY_PLANNER_KEY;
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(key, JSON.stringify(b)).run();
+    const result = await applySalaryPlannerWrite(db, role, username, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
     return json({ ok: true });
   }
 
