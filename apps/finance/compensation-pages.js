@@ -1,4 +1,4 @@
-import { buildCompensationCouncilSnapshot, buildCompensationReportView } from './compensation-report-service.js';
+import { buildCompensationCouncilSnapshot, buildCompensationReportView, buildLiveCompensationCouncilSnapshot } from './compensation-report-service.js';
 import { buildCompensationBenchmarkView } from './compensation-benchmark-service.js';
 import { buildCompensationBenefitsView } from './compensation-benefits-service.js';
 import { escapeHtml, formatCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
@@ -24,9 +24,25 @@ export function renderLiveCompensationWorkerRows(workers) {
   return workers.map((w) => `<tr><td>${escapeHtml(w.name || '(unnamed)')}</td><td>${escapeHtml(w.position || 'Role not set')}</td><td>${w.currentPayCents != null ? formatCents(w.currentPayCents) : '—'}</td><td>${escapeHtml(CURRENT_PAY_SOURCE_LABELS[w.currentPaySource] || w.currentPaySource)}</td></tr>`).join('');
 }
 
-export function renderCompensationPage(pageId, { compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits }) {
+export function renderCompensationPage(pageId, { compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, viewerRole }) {
   const report = buildCompensationReportView(compensationReport);
 
+  // Benchmarks and Benefits stay synthetic for every role, unconditionally -- unlike Plan and
+  // Council below, no honest live version of either exists to switch to. Benchmarks needs a real
+  // external district/market salary reference; the only "benchmark" concept anywhere in this
+  // codebase is finCompWorksheetCents (src/frontend/js-finance.js), a live computation off LCMS
+  // pay-scale multiplier tables, per WORKER, not a stored per-role figure, and porting that whole
+  // table-driven calculation server-side is separate, larger work this contract's own producer
+  // comment (src/api-contracts.js) already declines to duplicate. There is no other real benchmark
+  // source anywhere in Connect (checked finance_compensation_benchmarks and its one fixture-only
+  // migration/fixture pair -- every row is source_kind='synthetic_fixture'). Benefits needs a real
+  // per-role Pension/Group health/Disability/Employer-taxes DOLLAR breakdown; those figures
+  // (pensionCents/healthCents/disabilityCents in js-finance.js) are likewise computed client-side
+  // from formulas and rate/health-tier tables for the currently-viewed target year, never stored --
+  // there is nothing in finance_settings or the real contract to read them from. Fabricating either
+  // from real salary data (e.g. "120% of current pay" or a guessed split of benefits_cents) would
+  // be exactly the kind of invented number this codebase's every other contract avoids, so both
+  // pages keep reading the same synthetic role-level fixture regardless of viewer role.
   if (pageId === 'benchmarks') {
     const benchmark = buildCompensationBenchmarkView(report, compensationBenchmarks);
     return `<section class="report" aria-label="Synthetic Compensation Report benchmarks">
@@ -48,6 +64,23 @@ export function renderCompensationPage(pageId, { compensationReport, compensatio
     </section>`;
   }
   if (pageId === 'council') {
+    // Unlike Benchmarks/Benefits above, a real council rollup IS possible for the roles who
+    // already see this same roster, per person, on the Plan page -- see
+    // buildLiveCompensationCouncilSnapshot's own header comment in compensation-report-service.js
+    // for exactly which real fields it uses and which synthetic-only fields (benefitsSharePct,
+    // weightedAdjustmentPct) it deliberately does not try to reconstruct.
+    if (compensationReportLive && compensationReportLive.source === 'live') {
+      const council = buildLiveCompensationCouncilSnapshot(compensationReportLive, viewerRole);
+      return `<section class="report" aria-label="Compensation Report council snapshot">
+        ${renderSectionHeading({ eyebrow: 'Council review snapshot', heading: 'Real roster decision context', badge: 'Live from Connect · review-only · not approved' })}
+        ${renderKpiCards([
+          { label: 'Workers on roster', value: String(council.workerCount), hint: viewerRole === 'council' ? 'Excludes any worker not shown to council' : 'Real per-person roster, aggregated' },
+          { label: 'Current pay entered', value: String(council.enteredCurrentPayCount), hint: `${council.unenteredCurrentPayCount} read from a linked budget line or not yet set` },
+          { label: 'Entered current pay total', value: formatCents(council.enteredCurrentPayCents), hint: 'Sum of hand-entered current-pay figures only' },
+        ])}
+        <p>Real, aggregate roster facts only -- restricted to the admin, council, and compensation roles who already see this same data, per person, on the Plan page. No benefits-share or weighted-adjustment figure is shown here: those are planning assumptions Connect does not store per worker, so this page never estimates or reconstructs them.</p>
+      </section>`;
+    }
     const council = buildCompensationCouncilSnapshot(report);
     return `<section class="report" aria-label="Synthetic Compensation Report council snapshot">
       ${renderSectionHeading({ eyebrow: 'Council review snapshot', heading: 'Plan-level decision context', badge: 'Role-only · review-only · not approved' })}
@@ -58,11 +91,13 @@ export function renderCompensationPage(pageId, { compensationReport, compensatio
       ])}
     </section>`;
   }
-  // 'plan' (default) -- the one page of this section with a live equivalent (the real, per-person
-  // finance-salary-planner roster). Benchmarks/Benefits/Council above are unchanged: they are
-  // built around a role-level rollup this real roster does not (and, at 7 real workers, safely
-  // cannot) produce -- see finance-compensation-consumer.js's header comment -- so they keep
-  // reading the synthetic role-level fixture regardless of whether the plan page below is live.
+  // 'plan' (default) -- the first page of this section with a live equivalent (the real,
+  // per-person finance-salary-planner roster). Benchmarks and Benefits above are unchanged and
+  // stay synthetic for every role: they are built around a role-level rollup this real roster does
+  // not (and, at 7 real workers, safely cannot) produce, and no honest real substitute exists for
+  // either (see the comment above the 'benchmarks'/'benefits' branches). Council above now has its
+  // own honest live rollup for the same allowed roles, built only from real, already-stored
+  // aggregate facts -- see buildLiveCompensationCouncilSnapshot's header comment.
   if (compensationReportLive && compensationReportLive.source === 'live') {
     const { workers, totals } = compensationReportLive;
     return `<section class="report" aria-label="Compensation Report plan">
@@ -73,7 +108,7 @@ export function renderCompensationPage(pageId, { compensationReport, compensatio
         { label: 'Entered current pay total', value: formatCents(totals.enteredCurrentPayCents), hint: 'Sum of hand-entered current-pay figures only' },
       ])}
       ${renderTable({ head: ['Name', 'Position', 'Current pay', 'Source'], rows: renderLiveCompensationWorkerRows(workers) })}
-      <p>Real, individually-identifiable compensation data -- restricted to the admin, council, and compensation roles. See Benefits &amp; taxes, Benchmarks, and Council snapshot for the still-synthetic, role-level rest of the compensation picture.</p>
+      <p>Real, individually-identifiable compensation data -- restricted to the admin, council, and compensation roles. See Council snapshot for a real aggregate view, and Benefits &amp; taxes / Benchmarks for the still-synthetic, role-level rest of the compensation picture.</p>
     </section>`;
   }
   const fallbackNote = compensationReportLive

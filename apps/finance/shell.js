@@ -196,6 +196,7 @@ function renderSectionBody(ctx) {
     propertyLedgers, propertyLedgersLive, propertyValuation,
     propertyForecast, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
     compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle,
+    roleResult,
   } = ctx;
   if (section.id === 'health') {
     // Each panel below is independently guarded against its own upstream synthetic read having
@@ -289,7 +290,14 @@ function renderSectionBody(ctx) {
     return renderAccountsPage(page.id, { accountsReport });
   }
   if (section.id === 'compensation') {
-    return renderCompensationPage(page.id, { compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits });
+    // viewerRole (not just the compensationRoleVerified boolean that gates the live fetch itself)
+    // is threaded through so the Council sub-page can apply the same hideFromCouncil filtering the
+    // real Salary Planner already enforces for that exact role -- see
+    // buildLiveCompensationCouncilSnapshot's header comment in compensation-report-service.js.
+    return renderCompensationPage(page.id, {
+      compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits,
+      viewerRole: roleResult && roleResult.ok ? roleResult.role : null,
+    });
   }
   if (section.id === 'quickbooks') {
     return renderQuickbooksPage(page.id, { dataStatus, accountsReport });

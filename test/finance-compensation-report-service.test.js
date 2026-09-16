@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCompensationCouncilSnapshot, buildCompensationReportView, readSyntheticCompensationReport } from '../apps/finance/compensation-report-service.js';
+import { buildCompensationCouncilSnapshot, buildCompensationReportView, buildLiveCompensationCouncilSnapshot, readSyntheticCompensationReport } from '../apps/finance/compensation-report-service.js';
 
 const rows = [
   { fiscal_year: 2027, role_label: 'Synthetic Ministry Role', salary_cents: 6000000, benefits_cents: 1200000, adjustment_pct: 3, basis: 'synthetic_fixture', notes: 'Synthetic fixture only' },
@@ -51,5 +51,74 @@ describe('Finance synthetic Compensation service', () => {
       .toThrow('Synthetic Compensation council totals do not reconcile');
     expect(() => buildCompensationReportView([{ ...rows[0], salary_cents: -1 }]))
       .toThrow('Synthetic Compensation report rows invalid');
+  });
+});
+
+// Every name/dollar figure below is entirely fabricated for this test -- never a real production
+// value. Mirrors the shape `resolveCompensationReport` returns on a successful live fetch (see
+// finance-compensation-service.test.js's VALID_LIVE_PAYLOAD).
+function liveWorker(overrides) {
+  return {
+    name: 'Test Worker', position: 'Fictional Role', accountCode: '', role: 'other', trackKey: '',
+    education: 'bachelors', yearsExperience: 1, responsibilityStipend: 0, attendanceBonus: 0,
+    selfEmployedFica: false, hasDependents: false, healthEnrolled: true, hideFromCouncil: false,
+    currentPayCents: 5000000, currentPaySource: 'entered',
+    ...overrides,
+  };
+}
+
+describe('buildLiveCompensationCouncilSnapshot (real aggregate rollup, admin/council/compensation only)', () => {
+  const liveReport = {
+    source: 'live',
+    generatedAt: '2026-09-15T00:00:00Z',
+    workers: [
+      liveWorker({ name: 'Worker A', currentPayCents: 5000000, currentPaySource: 'entered' }),
+      liveWorker({ name: 'Worker B', currentPayCents: null, currentPaySource: 'budget_line', accountCode: '58004' }),
+      liveWorker({ name: 'Worker C (hidden)', currentPayCents: 9000000, currentPaySource: 'entered', hideFromCouncil: true }),
+    ],
+  };
+
+  it('for admin/compensation, aggregates every real worker, including one flagged hideFromCouncil', () => {
+    const snapshot = buildLiveCompensationCouncilSnapshot(liveReport, 'admin');
+    expect(snapshot).toEqual({
+      source: 'live',
+      generatedAt: '2026-09-15T00:00:00Z',
+      workerCount: 3,
+      enteredCurrentPayCount: 2,
+      unenteredCurrentPayCount: 1,
+      enteredCurrentPayCents: 14000000,
+      identitiesIncluded: false,
+      reviewStatus: 'review_only',
+      approved: false,
+    });
+    expect(buildLiveCompensationCouncilSnapshot(liveReport, 'compensation').workerCount).toBe(3);
+  });
+
+  it('for the council role, drops a worker flagged hideFromCouncil before aggregating -- same rule the real Salary Planner enforces', () => {
+    const snapshot = buildLiveCompensationCouncilSnapshot(liveReport, 'council');
+    expect(snapshot.workerCount).toBe(2);
+    expect(snapshot.enteredCurrentPayCount).toBe(1);
+    expect(snapshot.unenteredCurrentPayCount).toBe(1);
+    // Worker C's $90,000 entered pay never reaches the council-visible total.
+    expect(snapshot.enteredCurrentPayCents).toBe(5000000);
+  });
+
+  it('never fabricates a benefits-share or weighted-adjustment figure', () => {
+    const snapshot = buildLiveCompensationCouncilSnapshot(liveReport, 'admin');
+    expect(snapshot.benefitsSharePct).toBeUndefined();
+    expect(snapshot.weightedAdjustmentPct).toBeUndefined();
+    expect(snapshot.roleCount).toBeUndefined();
+  });
+
+  it('fails closed on a non-live or malformed report', () => {
+    expect(() => buildLiveCompensationCouncilSnapshot({ source: 'synthetic-fallback', workers: [] }, 'admin'))
+      .toThrow('Live Compensation council snapshot requires a live compensation report');
+    expect(() => buildLiveCompensationCouncilSnapshot(null, 'admin'))
+      .toThrow('Live Compensation council snapshot requires a live compensation report');
+    expect(() => buildLiveCompensationCouncilSnapshot({ source: 'live', workers: 'nope' }, 'admin'))
+      .toThrow('Live Compensation council snapshot requires a live compensation report');
+    expect(() => buildLiveCompensationCouncilSnapshot({
+      source: 'live', workers: [liveWorker({ currentPaySource: 'entered', currentPayCents: null })],
+    }, 'admin')).toThrow('Live Compensation council snapshot has an invalid entered current pay figure');
   });
 });
