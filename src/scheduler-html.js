@@ -6147,6 +6147,12 @@ function syncConfirmations(silent) {
 
       saveConfirmations(confs);
 
+      // Persist to D1 so other admin sessions and Mobile Admin see the
+      // refreshed statuses too -- without this, a synced confirmation stays
+      // stuck in this browser's localStorage until an unrelated save happens
+      // to carry it along.
+      if (updated > 0) queueD1Push();
+
       // Re-render confirmation pills without rebuilding the whole table
       if (currentSchedule.length) {
         var people = getPeople();
