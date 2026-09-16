@@ -742,6 +742,148 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).not.toContain('undefined');
   });
 
+  describe('Charts section reuses the Church Report and Property Reserves live resolvers', () => {
+    // Deliberately different figures than both the committed synthetic fixture (Income
+    // $120,000/$40,000 contributions+program, Expenses $80,000 programs+operations -- see the top
+    // of this file) and the property-reserves fixture ($35,000 reserve after / 58.3% funded as of
+    // 2026-03), so a passing assertion can only mean the live values actually rendered.
+    const liveFiscalYear = new Date().getUTCFullYear();
+    const VALID_LIVE_CHURCH_REPORT = {
+      contract: 'connect.finance-church-report.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      fiscalYear: liveFiscalYear, generatedAt: '2026-09-16T12:00:00Z',
+      accounts: [
+        { classification: 'Income', categoryPath: 'Income:40000 Contributions', accountName: 'Live Contributions', depth: 0, hasChildren: false, actualCents: 18000000, budgetCents: 17500000, source: 'import' },
+        { classification: 'Income', categoryPath: 'Income:40100 Program Income', accountName: 'Live Program Income', depth: 0, hasChildren: false, actualCents: 6000000, budgetCents: 5800000, source: 'import' },
+        { classification: 'Expenses', categoryPath: 'Expenses:50000 Programs', accountName: 'Live Programs', depth: 0, hasChildren: false, actualCents: 10000000, budgetCents: 9800000, source: 'import' },
+        { classification: 'Expenses', categoryPath: 'Expenses:50100 Operations', accountName: 'Live Operations', depth: 0, hasChildren: false, actualCents: 6000000, budgetCents: 5800000, source: 'import' },
+      ],
+      totals: {
+        incomeActualCents: 24000000, incomeBudgetCents: 23300000, expenseActualCents: 16000000, expenseBudgetCents: 15600000,
+        netIncomeActualCents: 8000000, netIncomeBudgetCents: 7700000, hasBudgetData: true,
+      },
+      reconciliation: {
+        accountCount: 4, incomeCount: 2, expenseCount: 2, otherIncomeCount: 0, otherExpenseCount: 0,
+        costOfGoodsSoldCount: 0, accountsWithBudgetCount: 4, totalsMatch: true,
+      },
+    };
+    const VALID_LIVE_PROPERTY_RESERVES = {
+      contract: 'connect.finance-property-reserves.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      propertyKey: 'ivanhoe', generatedAt: '2026-09-15T12:00:00Z',
+      reserves: [
+        { reserveKey: 'property_tax', reportMonth: '2026-05', taxYear: 2026, targetEstimateCents: 1140000, reserveBeforeCents: 380000, contributionCents: 95000, reserveAfterCents: 475000, fundedPct: (475000 / 1140000) * 100, note: '' },
+      ],
+      reserveDisbursements: [],
+      distributions: [],
+    };
+    const chartsRequest = (page) => new Request(`https://finance.test/?section=charts&page=${page}`, {
+      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+    });
+
+    it('prefers both live resolvers when each is configured and answers, labeling every KPI by its own source', async () => {
+      const liveEnv = envWithRoleService(async (request) => {
+        const url = new URL(request instanceof Request ? request.url : request);
+        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+        if (url.pathname === '/api/contracts/finance-church-report-v1') return new Response(JSON.stringify(VALID_LIVE_CHURCH_REPORT), { status: 200 });
+        if (url.pathname === '/api/contracts/finance-property-reserves-v1') return new Response(JSON.stringify(VALID_LIVE_PROPERTY_RESERVES), { status: 200 });
+        return new Response('not found', { status: 404 });
+      });
+
+      const revenueHtml = await (await worker.fetch(chartsRequest('revenue-mix'), liveEnv)).text();
+      expect(revenueHtml).toContain(`FY${liveFiscalYear} · reconciled · Live from Connect`);
+      expect(revenueHtml).toContain('Live Contributions');
+      expect(revenueHtml).toContain('$180,000');
+      expect(revenueHtml).toContain('75.0%');
+      expect(revenueHtml).toContain('Live Program Income');
+      expect(revenueHtml).toContain('$60,000');
+      expect(revenueHtml).toContain('25.0%');
+      expect(revenueHtml).not.toContain('Synthetic Contributions');
+
+      const expenseHtml = await (await worker.fetch(chartsRequest('expense-mix'), liveEnv)).text();
+      expect(expenseHtml).toContain(`FY${liveFiscalYear} · reconciled · Live from Connect`);
+      expect(expenseHtml).toContain('Live Programs');
+      expect(expenseHtml).toContain('$100,000');
+      expect(expenseHtml).toContain('62.5%');
+      expect(expenseHtml).toContain('Live Operations');
+      expect(expenseHtml).toContain('$60,000');
+      expect(expenseHtml).toContain('37.5%');
+      expect(expenseHtml).not.toContain('Synthetic Programs');
+
+      const cashReserveHtml = await (await worker.fetch(chartsRequest('cash-reserve'), liveEnv)).text();
+      expect(cashReserveHtml).toContain('Property tax reserve');
+      expect(cashReserveHtml).toContain('$4,750');
+      expect(cashReserveHtml).toContain('41.7% funded, 2026-05 · live from Connect');
+      // Operating cash / expense coverage have no live equivalent and must keep saying so.
+      expect(cashReserveHtml).toContain('Operating cash');
+      expect(cashReserveHtml).toContain('$300,000');
+      expect(cashReserveHtml).toContain('Synthetic Cash · synthetic fixture');
+      expect(cashReserveHtml).toContain('45.0 months');
+      expect(cashReserveHtml).toContain('synthetic fixture');
+      expect(cashReserveHtml).not.toContain('$35,000');
+
+      const pacingHtml = await (await worker.fetch(chartsRequest('giving-pace'), liveEnv)).text();
+      expect(pacingHtml).toContain('Naive monthly pace');
+      expect(pacingHtml).toContain('$20,000');
+      expect(pacingHtml).toContain(`1/12 of FY${liveFiscalYear} church income budget · live from Connect`);
+      expect(pacingHtml).not.toContain('$10,000');
+    });
+
+    it('renders each Charts page from the synthetic fixtures alone when no CONNECT_SERVICE is configured (unchanged regression baseline)', async () => {
+      const revenueHtml = await (await worker.fetch(new Request('https://finance.test/?section=charts&page=revenue-mix'), env)).text();
+      expect(revenueHtml).toContain('FY2026 · reconciled · Synthetic staging');
+      expect(revenueHtml).toContain('Synthetic Contributions');
+      expect(revenueHtml).toContain('100.0%');
+      expect(revenueHtml).not.toContain('Live from Connect');
+
+      const cashReserveHtml = await (await worker.fetch(new Request('https://finance.test/?section=charts&page=cash-reserve'), env)).text();
+      expect(cashReserveHtml).toContain('$35,000');
+      expect(cashReserveHtml).toContain('58.3% funded, 2026-03 · synthetic fixture');
+      expect(cashReserveHtml).not.toContain('live from Connect');
+
+      const pacingHtml = await (await worker.fetch(new Request('https://finance.test/?section=charts&page=giving-pace'), env)).text();
+      expect(pacingHtml).toContain('$10,000');
+      expect(pacingHtml).toContain('church income budget · synthetic fixture');
+    });
+
+    it('labels each KPI by its own independent source when only one live resolver answers (partial availability)', async () => {
+      const churchOnlyEnv = envWithRoleService(async (request) => {
+        const url = new URL(request instanceof Request ? request.url : request);
+        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+        if (url.pathname === '/api/contracts/finance-church-report-v1') return new Response(JSON.stringify(VALID_LIVE_CHURCH_REPORT), { status: 200 });
+        // Property Reserves contract answers with an error here, so only the church-report-derived
+        // figures go live while the reserve KPI independently falls back to its own synthetic fixture.
+        return new Response('not found', { status: 404 });
+      });
+
+      const revenueHtml = await (await worker.fetch(chartsRequest('revenue-mix'), churchOnlyEnv)).text();
+      expect(revenueHtml).toContain('Live from Connect');
+      expect(revenueHtml).toContain('Live Contributions');
+
+      const cashReserveHtml = await (await worker.fetch(chartsRequest('cash-reserve'), churchOnlyEnv)).text();
+      expect(cashReserveHtml).toContain('$35,000');
+      expect(cashReserveHtml).toContain('58.3% funded, 2026-03 · synthetic fixture');
+      expect(cashReserveHtml).not.toContain('$4,750');
+
+      const reserveOnlyEnv = envWithRoleService(async (request) => {
+        const url = new URL(request instanceof Request ? request.url : request);
+        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+        if (url.pathname === '/api/contracts/finance-property-reserves-v1') return new Response(JSON.stringify(VALID_LIVE_PROPERTY_RESERVES), { status: 200 });
+        // Church Report contract answers with an error here, so the reserve KPI goes live while
+        // revenue mix independently falls back to its own synthetic fixture.
+        return new Response('not found', { status: 404 });
+      });
+
+      const expenseHtml = await (await worker.fetch(chartsRequest('expense-mix'), reserveOnlyEnv)).text();
+      expect(expenseHtml).toContain('Synthetic Programs');
+      expect(expenseHtml).not.toContain('Live from Connect');
+
+      const cashReserveHtml2 = await (await worker.fetch(chartsRequest('cash-reserve'), reserveOnlyEnv)).text();
+      expect(cashReserveHtml2).toContain('$4,750');
+      expect(cashReserveHtml2).toContain('41.7% funded, 2026-05 · live from Connect');
+    });
+  });
+
   it('renders honestly-labeled "not yet available" pages for the Commercial Property gaps', async () => {
     for (const [pageId, phrase] of [
       ['receivables', 'no tenant-receivable'],
