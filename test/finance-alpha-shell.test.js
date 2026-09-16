@@ -556,6 +556,61 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(distributionsHtml).toContain('Distributions');
     expect(distributionsHtml).toContain('$5,000');
     expect(distributionsHtml).toContain('2026-01');
+    expect(distributionsHtml).toContain('Synthetic staging');
+  });
+
+  it('prefers live connect.finance-property-reserves.v1 distributions over the synthetic fixture on the standalone Distributions page', async () => {
+    // Reuses the exact same live payload shape as resolvePropertyReserves's own test
+    // (test/finance-property-reserves-service.test.js), but with distribution periods/amounts that
+    // differ from the committed synthetic fixture's $5,000/2026-01, so a passing assertion can only
+    // mean the live values actually rendered, not a coincidental match with the fixture.
+    const livePayload = {
+      contract: 'connect.finance-property-reserves.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      propertyKey: 'ivanhoe', generatedAt: '2026-09-15T12:00:00Z',
+      reserves: [
+        { reserveKey: 'property_tax', reportMonth: '2026-05', taxYear: 2026, targetEstimateCents: 1140000, reserveBeforeCents: 380000, contributionCents: 95000, reserveAfterCents: 475000, fundedPct: (475000 / 1140000) * 100, note: '' },
+      ],
+      reserveDisbursements: [],
+      distributions: [
+        { period: '2026-06', amountCents: 750000 },
+        { period: '2026-07', amountCents: 825000 },
+      ],
+    };
+    const liveEnv = {
+      ...env,
+      FINANCE_CONTRACT_API_KEY: 'test-secret',
+      CONNECT_SERVICE: {
+        async fetch(req) {
+          const url = new URL(req.url);
+          if (url.pathname === '/api/contracts/staff-role-v1') {
+            return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+          }
+          if (url.pathname === '/api/contracts/finance-property-reserves-v1') {
+            return new Response(JSON.stringify(livePayload), { status: 200 });
+          }
+          // Every other property contract (operating, ledgers, valuation) intentionally answers
+          // with an error here so those unrelated resolvers fall back to their own synthetic
+          // fixtures, unaffected -- only the reserves/distributions contract is under test.
+          return new Response('not found', { status: 404 });
+        },
+      },
+    };
+    const res = await worker.fetch(new Request('https://finance.test/?section=property&page=distributions', {
+      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+    }), liveEnv);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('Distributions');
+    expect(html).toContain('Live from Connect');
+    expect(html).toContain('2026-06');
+    expect(html).toContain('2026-07');
+    expect(html).toContain('$7,500');
+    expect(html).toContain('$8,250');
+    expect(html).toContain('$15,750');
+    expect(html).toContain('$7,875');
+    expect(html).not.toContain('$5,000');
+    expect(html).not.toContain('2026-01');
   });
 
   it('renders honestly-labeled "not yet available" pages for the Commercial Property gaps', async () => {

@@ -151,15 +151,25 @@ export function renderPropertyPage(pageId, {
     </section>`;
   }
   if (pageId === 'distributions') {
-    const distributions = buildPropertyDistributionsView(propertyDistributions);
-    return `<section class="report" aria-label="Synthetic Commercial Property distributions">
-      ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Distributions', badge: `${distributions.totals.distributionCount} period${distributions.totals.distributionCount === 1 ? '' : 's'}` })}
+    // Live-first: reuses propertyReservesLive (property-report-service.js's resolvePropertyReserves,
+    // already fetched unconditionally for every 'property'-section request in shell.js) rather than
+    // adding a second resolver for the same data -- 'reserve-distribution' above already reads this
+    // exact same live/synthetic distributions half side by side with its reserve schedule; this
+    // standalone page applies the identical live-first pattern to it, same isLive/fallbackNote
+    // convention as 'operating-results'/'work-orders'/'capital'/'valuation' above.
+    const isLive = propertyReservesLive && propertyReservesLive.source === 'live';
+    const distributionRows = isLive ? propertyReservesLive.distributions : propertyDistributions;
+    const distributions = buildPropertyDistributionsView(distributionRows);
+    const fallbackNote = isLive ? '' : `<p><small>The committed synthetic fixture (the live endpoint is not configured or did not answer${propertyReservesLive && propertyReservesLive.fallbackReason ? `: ${escapeHtml(propertyReservesLive.fallbackReason)}` : ''}).</small></p>`;
+    return `<section class="report" aria-label="${isLive ? 'Commercial Property distributions' : 'Synthetic Commercial Property distributions'}">
+      ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Distributions', badge: isLive ? 'Live from Connect' : 'Synthetic staging' })}
       ${renderKpiCards([
         { label: 'Total distributed', value: formatCents(distributions.totals.distributionCents) },
         { label: 'Average per period', value: formatCents(distributions.totals.averageCents) },
         { label: 'Periods recorded', value: String(distributions.totals.distributionCount) },
       ])}
       ${renderTable({ head: ['Period', 'Amount distributed'], rows: renderPropertyDistributionRows(distributions.rows) })}
+      ${fallbackNote}
     </section>`;
   }
   const unavailable = {
