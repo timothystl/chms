@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-balance-sheet-trend:v1",
+  "title": "Connect Finance Balance Sheet Trend v1",
+  "description": "Every fiscal year on file (finance_church_balances), one bounded row per year -- the multi-year sibling of connect.finance-balance-sheet.v1. Unlike the single-year contract, this carries no per-account detail and no Donor-Restricted/Unrestricted equityReclass breakdown; it is the bounded trend shape backing the 'balance' section's 'multi-year' page (Fiscal year / As of / Assets / Liabilities / Net assets). No fiscal-year parameter: like Chart of Accounts' own whole-tree/no-params shape, this always names every distinct fiscal year present, ascending.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "currency", "generatedAt", "years", "reconciliation"],
+  "properties": {
+    "contract": { "const": "connect.finance-balance-sheet-trend.v1" },
+    "dataClassification": { "const": "aggregate" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "currency": { "const": "USD" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "years": {
+      "type": "array",
+      "description": "Ascending by fiscalYear. May legitimately be empty when finance_church_balances has no rows at all.",
+      "items": { "$ref": "#/$defs/year" }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["yearCount", "totalsMatch"],
+      "properties": {
+        "yearCount": { "type": "integer", "minimum": 0, "description": "Must equal years.length." },
+        "totalsMatch": { "type": "boolean", "description": "True only when every year's balancedCents is exactly 0 -- computed honestly from the real per-year figures, not hardcoded, unlike the single-year contract's own always-true reconciliation.totalsMatch." }
+      }
+    }
+  },
+  "$defs": {
+    "year": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fiscalYear", "asOfDate", "assetsCents", "liabilitiesCents", "equityCents", "netAssetsCents", "balancedCents"],
+      "properties": {
+        "fiscalYear": { "type": "integer", "minimum": 2000, "maximum": 2100 },
+        "asOfDate": {
+          "type": "string",
+          "description": "The raw \"As of ...\" label from the import that produced this fiscal year's snapshot. Empty string for a fiscal year with nothing imported. Confirmed 2026-09-14: NOT a consistently formatted date across fiscal years (FY2019-2025 store the literal placeholder string 'FY<year>'; only FY2026 stores a real formatted date) -- never parsed or date-sorted, only ordered by the real integer fiscalYear."
+        },
+        "assetsCents": { "type": "integer", "description": "Sum of ownBalanceCents for every 'Assets' account in this fiscal year, group rows included, after the same applyDesignatedFundsAsEquity()/computeBalanceSummary() pipeline the single-year contract uses." },
+        "liabilitiesCents": { "type": "integer", "description": "Sum of ownBalanceCents for every 'Liabilities' account in this fiscal year, post-reclassification -- does not include the '25000 Funds' branch, which reads 'Equity' here." },
+        "equityCents": { "type": "integer", "description": "Sum of ownBalanceCents for every 'Equity' account in this fiscal year, post-reclassification -- includes the '25000 Funds' branch. Always equal to netAssetsCents." },
+        "netAssetsCents": { "type": "integer", "description": "Defined as equityCents (total equity after the Designated-Funds-as-Equity reclassification), matching what the single-year contract's own 'position' page already labels 'Net assets' and production's own legacy multi-year 'Net Worth Growth by Year' table -- never a separately recomputed assetsCents minus liabilitiesCents figure." },
+        "balancedCents": { "type": "integer", "description": "assetsCents - (liabilitiesCents + equityCents) for this fiscal year. Zero in a correctly balanced import; reported as-is, never hidden, when it is not." }
+      }
+    }
+  }
+}
