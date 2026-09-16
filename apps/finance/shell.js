@@ -24,6 +24,7 @@ import {
   resolvePropertyValuation, resolvePropertyReport, resolvePropertyReserves, resolvePropertyLedgers,
 } from './property-report-service.js';
 import { resolveBudgetReport } from './budget-report-service.js';
+import { postConnectFinanceBudgetWrite } from './finance-budget-client.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
@@ -124,6 +125,18 @@ function describeGivingEntryError(reason, message) {
   }
 }
 
+// Same shape as describeGivingEntryError above, for postConnectFinanceBudgetWrite() failures.
+function describeBudgetEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Budget Plan editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the edit.';
+    default: return 'The Budget Plan edit was not saved.';
+  }
+}
+
 // Confirms the payroll relay actually reached Website's proxy and got real data back, without
 // ever putting a staff name, ID, or wage figure in the response -- a count and the real result's
 // field names are enough to prove the round trip is genuine, and this is deliberately reachable
@@ -195,7 +208,8 @@ function renderSectionBody(ctx) {
     daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
     propertyLedgers, propertyLedgersLive, propertyValuation,
     propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
-    compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle,
+    compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage,
+    budgetEntryStatus, budgetEntryMessage, payrollBundle,
     roleResult,
   } = ctx;
   if (section.id === 'health') {
@@ -350,7 +364,11 @@ function renderSectionBody(ctx) {
     });
   }
   if (section.id === 'planning') {
-    return renderPlanningPage(page.id, { budgetReport });
+    // Same gate as the legacy in-Connect Budget Planner's override-bulk route (admin or council
+    // only) -- UI hiding is never authorization, the real gate is finance-budget-write-v1's own
+    // role check on Connect's side, but there's no reason to show a form that will only 403.
+    const canEditBudget = roleResult.ok && (roleResult.role === 'admin' || roleResult.role === 'council');
+    return renderPlanningPage(page.id, { budgetReport, canEditBudget, budgetEntryStatus, budgetEntryMessage });
   }
   if (section.id === 'accounts') {
     return renderAccountsPage(page.id, { accountsReport });
@@ -649,6 +667,30 @@ export default {
         return response(null, { status: 303, headers: { Location: '/?section=giving&status=ok' } });
       }
       const params = new URLSearchParams({ section: 'giving', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'budget-plan-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=planning&status=error&reason=invalid_json' } });
+      }
+      const row = {
+        category: form.get('category') || '',
+        fiscal_year: form.get('fiscal_year') || '',
+        classification: form.get('classification') || 'Expenses',
+        planned_amount: form.get('planned_amount') || '',
+        notes: form.get('notes') || '',
+      };
+      const result = await postConnectFinanceBudgetWrite(env, accessJwt, [row]);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=planning&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'planning', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -1016,6 +1058,10 @@ export default {
         const givingEntryMessage = givingEntryStatus === 'error'
           ? describeGivingEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        const budgetEntryStatus = section.id === 'planning' ? url.searchParams.get('status') : null;
+        const budgetEntryMessage = budgetEntryStatus === 'error'
+          ? describeBudgetEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
@@ -1024,7 +1070,7 @@ export default {
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
-          givingEntryStatus, givingEntryMessage, payrollBundle,
+          givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
         }), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });

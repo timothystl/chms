@@ -101,7 +101,8 @@ noted above. Consult their source and the page registry for current per-page beh
 - `daycare-report-service.js` — one-query synthetic actuals and operating-result detail.
 - `property-report-service.js` — one-query synthetic monthly property performance detail.
 - `property-forecast-service.js` — one-query 12-month synthetic property plan with monthly and annual reconciliation.
-- `budget-report-service.js` — one-query synthetic future-plan detail and totals.
+- `budget-report-service.js` — one-query synthetic future-plan detail and totals; `resolveBudgetReport` tries the real `connect.finance-budget.v1` contract first and falls back to the synthetic fixture on any failure.
+- `finance-budget-client.js` — real transport for the live budget read (same shape as `finance-data-status-client.js`), plus `postConnectFinanceBudgetWrite`, the write relay for Budget Planner's manual edit/save form (see the route-manifest paragraph below).
 - `accounts-report-service.js` — one-query synthetic account inventory and classification summary.
 - `data-status-service.js` — resolves real-or-synthetic import provenance and isolation status; `resolveDataStatus` tries the live `connect.finance-data-status.v1` contract first, falls back to the one-query synthetic reader on any failure.
 - `finance-data-status-consumer.js` — fail-closed parser for the `connect.finance-data-status.v1` contract.
@@ -132,10 +133,20 @@ expectation.
 The route manifest is the closed inventory for the alpha Worker. Every published path defaults to
 read-only (`GET`/`HEAD`) and declares whether it uses no data, the dedicated synthetic D1, or a
 committed synthetic static fixture. Routes that read D1 name their query budget; unknown paths fail
-closed with `404`. One route is a deliberate exception: `giving-quick-entry-v1` accepts `POST` and
-relays the entry to Connect's own contract endpoint — it never writes to Finance's own database,
-and its own `methods`/`writer` fields in the manifest keep that exception visible in one place
-rather than hidden behind a runtime check.
+closed with `404`. Two routes are deliberate exceptions: `giving-quick-entry-v1` and
+`budget-plan-write-v1` each accept `POST` and relay the write to Connect's own contract endpoint —
+neither ever writes to Finance's own database, and their own `methods`/`writer` fields in the
+manifest keep both exceptions visible in one place rather than hidden behind a runtime check.
+`budget-plan-write-v1` relays a hand-typed Budget Plan category/fiscal-year edit from the new
+Budget builder edit form (`planning-pages.js`'s `renderBudgetEditForm`, shown only to a viewer
+Finance's own role check independently verified as admin or council) to Connect's
+`finance-budget-write-v1` contract endpoint, which itself calls the exact same
+`applyBudgetPlanOverrideRows()` helper (`src/api-finance.js`) the legacy in-Connect Budget
+Planner's `finance/planning/church/override-bulk` route already uses — one shared implementation,
+so the two entry points can never drift on validation, on the admin/council-only gate, or on
+council's fork-into-their-own-overlay behavior. This is the first write capability in the new
+Finance app outside Giving/payroll; Budget Planner's generate/generate-all/commit/delete
+operations remain legacy-only (in Connect) for now.
 
 Alpha.9 begins interface parity with the existing nine-section Finance information architecture.
 Only Financial Health renders synthetic metrics; the other familiar sections are explicit staging

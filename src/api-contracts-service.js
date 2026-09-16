@@ -11,6 +11,7 @@ import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, resp
 import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
+import { applyBudgetPlanOverrideRows } from './api-finance.js';
 
 export async function handleContractsServiceApi(req, env, path) {
   const expectedKey = env.FINANCE_CONTRACT_API_KEY || '';
@@ -88,6 +89,10 @@ export async function handleContractsServiceApi(req, env, path) {
     return handleGivingQuickEntryContract(req, env);
   }
 
+  if (path === '/api/contracts/finance-budget-write-v1' && req.method === 'POST') {
+    return handleFinanceBudgetWriteContract(req, env);
+  }
+
   if (path === '/api/contracts/staff-role-v1' && req.method === 'GET') {
     return handleStaffRoleContract(req, env);
   }
@@ -163,4 +168,49 @@ async function handleGivingQuickEntryContract(req, env) {
   ).bind(result.id, '', email).run().catch(() => {});
 
   return json({ ...result, enteredBy: user.username });
+}
+
+// ── Budget Plan write, relayed from Finance's own Budget Planner UI ─────────
+// Same shape as handleGivingQuickEntryContract above: the X-Contract-Key check only proves the
+// call came from Finance's Worker, this proves WHO Finance says is acting (independently
+// re-verified against Access's own published keys, never trusted from Finance directly), and the
+// verified identity's real Connect role is what actually decides whether the write is allowed --
+// admin or council, matching finance/planning/church/override-bulk's own gate exactly, since this
+// calls the identical applyBudgetPlanOverrideRows() helper that route uses (src/api-finance.js).
+// One shared implementation means the legacy in-Connect Budget Planner and this relay can never
+// drift on validation, on council's fork-into-their-own-overlay behavior, or on the exact set of
+// roles allowed to write -- finance/staff/compensation/member/volunteer all get the same 403 here
+// that they'd get in Connect directly.
+async function handleFinanceBudgetWriteContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(
+    `SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`
+  ).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  if (user.role !== 'admin' && user.role !== 'council') {
+    return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+  }
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+
+  const result = await applyBudgetPlanOverrideRows(db, user.role, user.username, body.rows);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+
+  // Best-effort audit trail, same pattern as the Giving relay above -- never blocks the write
+  // itself if this insert fails.
+  await db.prepare(
+    `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+     VALUES('budget_plan_write_via_finance','finance_budget_plan',?,?,'saved_by','',?)`
+  ).bind('', '', email).run().catch(() => {});
+
+  return json({ ok: true, saved: result.saved, savedBy: user.username });
 }
