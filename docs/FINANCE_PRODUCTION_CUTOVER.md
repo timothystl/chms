@@ -1,6 +1,6 @@
 # Finance production cutover runbook
 
-Status as of 2026-09-15: **complete through Step 6.** All of Steps 1-6 below are done: a real,
+Status as of 2026-09-15: **complete through Step 6; Step 7 drafted, not yet executed.** All of Steps 1-6 below are done: a real,
 isolated, Access-gated production Finance Worker and database exist. `finance.timothystl.org`
 resolves and Cloudflare Access confirmed blocking unauthenticated requests (verified both by curl
 against the live edge and, separately, by Andrew's own browser once a local DNS cache from his
@@ -108,6 +108,42 @@ property (never let a route sit reachable without Access gating it):
 - The new database is confirmed genuinely empty (no synthetic fixtures were applied to it — those
   are a staging-only, explicitly-applied step per `apps/finance/README.md`, never part of a
   migration) — verified with a direct read-only row-count query.
+
+## Step 7 — Access app parity with staging (drafted 2026-09-15, not yet executed)
+
+Production's Access application (`finance.timothystl.org`) was created and is enforcing (Step 5),
+but nothing in Steps 1-6 gave it the branding, Google Workspace sign-in, or session-duration
+settings that Finance *staging*'s Access app already received on 2026-09-10 in response to
+Andrew's live complaint that a bare Access page "reads as leaving the site." Production is a
+**separate Access application** from staging's — fixing staging did not touch this one. This step
+is Cloudflare Zero Trust dashboard configuration only; no application code, schema, or deploy is
+involved. Fill in each item below as it's actually done — this runbook records what happened, not
+just what was planned (see Step 5's own correction above for why).
+
+- [ ] **Policy fixed.** Confirmed production's policy is not `Include: Everyone` (staging had
+  drifted there before its own fix). Set to: `Emails ending in @timothystl.org`
+  _[ ]_ plus a named-exception list for staff without a church Workspace account: `___________`
+  (leave blank if none needed). Done by: _______ on: _______.
+
+- [ ] **Google Workspace added as sign-in method.** Not restricted at the identity-provider level —
+  the policy above is what filters who's actually let in. Done by: _______ on: _______.
+
+- [ ] **Login page branded.** Zero Trust → Settings → Custom Pages → Customize Login Page: org
+  name, logo, header text, message set to match staging's. Confirmed applied to *this* application,
+  not just an org-wide default. Done by: _______ on: _______.
+
+- [ ] **Session duration shortened.** Application or policy session duration set to one hour or
+  less (Configure → Session Duration), per the revocation requirement in `digital-architecture`
+  architecture/04-identity-and-security.md. Value set: _______. Done by: _______ on: _______.
+
+- [ ] **Offboarding procedure confirmed real.** Verified that removing a Finance staff member
+  requires both suspending/deleting their Google Workspace account *and* an explicit Revoke in
+  Zero Trust → Team & Resources → Users — neither alone is sufficient. Where this procedure is
+  written down for whoever handles staff departures: _______.
+
+- [ ] **Re-verified live.** From an incognito window, `https://finance.timothystl.org` shows the
+  branded page with Google Workspace as a sign-in option; a non-`@timothystl.org`/non-listed email
+  is rejected; the shortened session duration is in effect. Verified by: _______ on: _______.
 
 ## What this runbook deliberately does not cover yet
 
