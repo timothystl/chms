@@ -202,8 +202,25 @@ function renderSectionBody(ctx) {
     // Each panel below is independently guarded against its own upstream synthetic read having
     // degraded to SYNTHETIC_UNAVAILABLE (see synthetic-read-guard.js) -- one missing dependency
     // (e.g. cash runway) renders an honest "unavailable" panel in its own place, never a
-    // fabricated blank/zero, and never takes down the rest of this already-synthetic-only page.
-    const health = isSyntheticUnavailable(summary) ? null : buildFinancialHealthView(summary, giving);
+    // fabricated blank/zero, and never takes down the rest of this page. Operating result and
+    // Financial position are no longer purely synthetic: buildFinancialHealthView tries the live
+    // churchReportLive/balanceSheet results (each already resolved above, live-first, for this
+    // section too) before falling back to the synthetic `summary` fields, independently per card --
+    // see health-view-model.js. It never throws and never returns null itself; `operating`/
+    // `position` inside it are each independently null only when neither their own live result nor
+    // `summary` was usable, which is what the per-card renders below check for. Giving was already
+    // live-first and unconditional before this change (resolveGivingSummary always succeeds to at
+    // least the synthetic fixture) and is untouched here.
+    const health = buildFinancialHealthView(summary, giving, { churchReportLive, balanceSheetLive: balanceSheet });
+    // Reflects only Operating result/Financial position -- the two cards this badge has ever
+    // summarized. Giving already carries its own independent, always-shown inline label right next
+    // to it (see the Giving reconciliation card below) and was never represented by this badge
+    // even before this change, so folding it in here would not add information, only ambiguity.
+    const healthSources = [health.operating?.source, health.position?.source].filter(Boolean);
+    const liveHealthSources = healthSources.filter((source) => source === 'live').length;
+    const healthBadge = healthSources.length === 0 ? 'Unavailable'
+      : liveHealthSources === healthSources.length ? 'Live from Connect'
+      : liveHealthSources === 0 ? 'Synthetic staging' : 'Partially live';
     const runway = isSyntheticUnavailable(cashRunway) ? null : buildCashRunwayView(cashRunway);
     const mix = isSyntheticUnavailable(churchReport) ? null : buildFinancialMixView(churchReport);
     const church = isSyntheticUnavailable(churchReport) ? null : buildChurchReportView(churchReport);
@@ -219,8 +236,8 @@ function renderSectionBody(ctx) {
     }) : null;
     const attentionItems = [];
     if (status?.freshness === 'stale') attentionItems.push(`Source data hasn't been reviewed in over ${status.freshnessWindowDays} days (${status.ageDays} days old) — see Data &amp; Imports.`);
-    if (health && !health.giving.reconciled) attentionItems.push('Giving totals do not reconcile yet — review before relying on them.');
-    if (health && health.operating.varianceCents < 0) attentionItems.push(`Operating result is ${formatSignedCents(health.operating.varianceCents)} behind budget.`);
+    if (!health.giving.reconciled) attentionItems.push('Giving totals do not reconcile yet — review before relying on them.');
+    if (health.operating && health.operating.varianceCents < 0) attentionItems.push(`Operating result is ${formatSignedCents(health.operating.varianceCents)} behind budget.`);
     const unavailableNote = (what) => `<p class="status status-pending">${escapeHtml(what)} could not be read for this request. Nothing shown here is a real $0 or blank figure — see Data &amp; Imports.</p>`;
     return `<section aria-label="Synthetic financial health">
       <div class="dashboard-intro"><div class="eyebrow">Dashboard</div><h2 class="dashboard-title">Are we okay?</h2><p>Four questions the council asks first — each one links to the report it came from.</p></div>
@@ -228,11 +245,11 @@ function renderSectionBody(ctx) {
       ${attentionItems.length
         ? `<ul class="attention-list">${attentionItems.map((item) => `<li>${item}</li>`).join('')}</ul>`
         : '<p class="status">Nothing needs your attention right now.</p>'}
-      <div class="section-heading"><div><div class="eyebrow">Financial Health</div><h2>How are we doing, and what should we decide?</h2></div><span class="badge">Synthetic staging</span></div>
+      <div class="section-heading"><div><div class="eyebrow">Financial Health</div><h2>How are we doing, and what should we decide?</h2></div><span class="badge">${healthBadge}</span></div>
       <div class="grid">
-        ${health ? `<div class="card"><small>Operating result</small><strong>${formatSignedCents(health.operating.actualNetCents)}</strong><span>Budget ${formatSignedCents(health.operating.budgetNetCents)} · variance ${formatSignedCents(health.operating.varianceCents)}</span></div>` : renderUnavailableCard('Operating result')}
-        ${health ? `<div class="card"><small>Financial position</small><strong>${formatCents(health.position.netAssetsCents)}</strong><span>Assets ${formatCents(health.position.assetsCents)} · liabilities ${formatCents(health.position.liabilitiesCents)}</span></div>` : renderUnavailableCard('Financial position')}
-        ${health ? `<div class="card"><small>Giving reconciliation</small><strong>${formatCents(health.giving.netCents)}</strong><span>${health.giving.sourceRecordCount} aggregate records · ${health.giving.reconciled ? 'totals match' : 'review required'} · ${givingSource === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>` : renderUnavailableCard('Giving reconciliation')}
+        ${health.operating ? `<div class="card"><small>Operating result</small><strong>${formatSignedCents(health.operating.actualNetCents)}</strong><span>Budget ${formatSignedCents(health.operating.budgetNetCents)} · variance ${formatSignedCents(health.operating.varianceCents)} · ${health.operating.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>` : renderUnavailableCard('Operating result')}
+        ${health.position ? `<div class="card"><small>Financial position</small><strong>${formatCents(health.position.netAssetsCents)}</strong><span>Assets ${formatCents(health.position.assetsCents)} · liabilities ${formatCents(health.position.liabilitiesCents)} · ${health.position.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>` : renderUnavailableCard('Financial position')}
+        <div class="card"><small>Giving reconciliation</small><strong>${formatCents(health.giving.netCents)}</strong><span>${health.giving.sourceRecordCount} aggregate records · ${health.giving.reconciled ? 'totals match' : 'review required'} · ${givingSource === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>
       </div>
       <div class="section-heading trend-heading"><div><div class="eyebrow">Liquidity</div><h2>Operating cash runway</h2></div><span class="badge">${runway ? `As of ${escapeHtml(runway.asOfDate)}` : 'Unavailable'}</span></div>
       ${runway
@@ -802,7 +819,15 @@ export default {
         // resolveBudgetReport for the 'planning' section below.
         const churchReport = ['health', 'charts', 'packet'].includes(section.id)
           ? await safeSyntheticRead(() => readSyntheticChurchReport(env.FINANCE_DB)) : null;
-        const churchReportLive = section.id === 'church'
+        // Financial Health's Operating result card also tries the real endpoint now, via the same
+        // resolveChurchReport used by the 'church' section -- see health-view-model.js's
+        // resolveOperating. This is a deliberate second, independent call/read of the same
+        // synthetic fallback as `churchReport` just above when the live fetch isn't configured or
+        // fails (one extra query-budgeted SELECT on that path): `churchReport`'s raw rows still
+        // feed Health's own Revenue/expense mix and Church operating bridge panels unchanged and
+        // out of scope for this contract, so it can't simply be reused here without those panels
+        // also silently switching shape.
+        const churchReportLive = ['health', 'church'].includes(section.id)
           ? await safeSyntheticRead(() => resolveChurchReport(env, env.FINANCE_DB)) : null;
         // Only 'packet' reads the plain synthetic churchTrends directly now -- same split as
         // churchReport/churchReportLive just above, where 'church' reads ONLY the live-first
@@ -822,8 +847,11 @@ export default {
         // back to the same synthetic fixture, labeled, via resolveBalanceSheet -- same live-first
         // pattern as Church Report's resolveChurchReport just above and Budget's
         // resolveBudgetReport below. readSyntheticBalanceSheet is still used internally by
-        // resolveBalanceSheet's own fallback path, not called directly here anymore.
-        const balanceSheet = section.id === 'balance'
+        // resolveBalanceSheet's own fallback path, not called directly here anymore. Financial
+        // Health's Financial position card also uses this now (see health-view-model.js's
+        // resolvePosition) -- same deliberate second/independent-read tradeoff noted above
+        // churchReportLive for Health's Operating result card.
+        const balanceSheet = ['health', 'balance'].includes(section.id)
           ? await safeSyntheticRead(() => resolveBalanceSheet(env, env.FINANCE_DB)) : null;
         const balanceTrends = section.id === 'balance'
           ? await safeSyntheticRead(() => readSyntheticBalanceTrends(env.FINANCE_DB)) : null;

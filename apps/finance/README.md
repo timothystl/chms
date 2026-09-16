@@ -78,7 +78,10 @@ noted above. Consult their source and the page registry for current per-page beh
 - `summary-service.js` — synthetic D1 read and `finance.summary.v1` contract assembly boundary.
 - `route-manifest.js` — executable route, method, contract, data-source, and query-budget registry.
 - `parity-manifest.js` — source-backed inventory of the existing Finance navigation and capabilities.
-- `health-view-model.js` — pure synthetic operating, position, Giving, and decision framing.
+- `health-view-model.js` — Operating result and Financial position each try the same live-first
+  `resolveChurchReport`/`resolveBalanceSheet` results Church Report/Balance Sheet already use
+  (labeled `live` or `synthetic-fallback` per card, independently), falling back to the synthetic
+  `summary` aggregate; Giving and the decision framing are unchanged.
 - `church-report-service.js` — one-query synthetic account detail and report totals boundary; `resolveChurchReport` and `resolveChurchTrend` each try their own real `connect.finance-church-report*.v1` contract first and fall back to the synthetic fixture on any failure.
 - `finance-church-report-trend-consumer.js` — fail-closed parser for the `connect.finance-church-report-trend.v1` contract (the multi-year trend; the single-year contract has its own consumer alongside it in this directory).
 - `finance-church-report-trend-client.js` — real transport for the live multi-year endpoint, with a fail-closed fallback to the synthetic fixture (same shape as `finance-church-report-client.js`).
@@ -260,6 +263,18 @@ real import-log recency and QuickBooks connection presence (never tokens) at
 `/api/contracts/finance-data-status-v1`, and the Data & Imports section tries that live before
 falling back to the synthetic fixture, labeling which happened the same way Giving already does.
 No other section changes; imports, uploads, and administrative tools remain disconnected.
+
+Financial Health's Operating result and Financial position cards now try the same live
+`connect.finance-church-report.v1`/`connect.finance-balance-sheet.v1` resolvers the Church
+Report/Balance Sheet sections already use (`resolveChurchReport`/`resolveBalanceSheet`), each
+independently falling back to the existing synthetic `summary` aggregate and labeling itself
+`live from Connect` or `synthetic fixture` per card -- Giving reconciliation (already live-first)
+is unchanged. "Net assets" on the Financial position card is `totals.equityCents`: the whole
+Designated-Funds-reclassified Equity total the live Balance Sheet contract already computes,
+guaranteed equal to `equityReclass.totalEquityCents` -- not one component of that reclassification
+-- matching what this card has always meant by "net assets" (assets minus liabilities). No new
+contract, query budget, migration, or writer; this only adds a second consumer of two contracts
+already live in production.
 
 ## Validate
 
