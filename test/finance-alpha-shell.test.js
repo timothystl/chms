@@ -203,7 +203,9 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('Where money comes from and goes');
     expect(html).toContain('Revenue mix');
     expect(html).toContain('Expense mix');
-    expect(html).toContain('FY2026 · reconciled');
+    // No CONNECT_SERVICE is configured in this env, so Operating mix (like Operating result/
+    // Financial position above) falls back to the synthetic fixture and now says so in its badge.
+    expect(html).toContain('FY2026 · reconciled · Synthetic staging');
     expect(html).toContain('100.0%');
     expect(html).toContain('Entity overview');
     expect(html).toContain('Separate operating views');
@@ -214,6 +216,8 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('their results are not added together');
     expect(html).toContain('Money flow');
     expect(html).toContain('FY2026 Church operating bridge');
+    // Same synthetic-fallback labeling as Operating mix just above -- no CONNECT_SERVICE configured.
+    expect(html).toContain('Reconciled · Synthetic staging');
     expect(html).toContain('1 · Income');
     expect(html).toContain('2 · Expenses');
     expect(html).toContain('3 · Surplus');
@@ -667,6 +671,54 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       expect(html).toContain('Synthetic staging');
       expect(html).not.toContain('Partially live');
       expect(html).not.toContain('<span class="badge">Live from Connect</span>');
+    });
+
+    describe('Operating mix / Church operating bridge live-first (reuses churchReportLive directly, independent of Entity overview)', () => {
+      // Same LIVE_CHURCH_REPORT fixture as the describe block above: Income $175,000/Expenses
+      // $95,000 (40000 Contributions/60000 Programs), distinct from the synthetic fixture's
+      // $120,000/$80,000 Income/Expenses and its "Synthetic ..." account names.
+      it('shows the real live revenue/expense mix and operating bridge, badged "Live from Connect", when churchReportLive is live', async () => {
+        const { res, html } = await fetchHealth(connectServiceEnv({ church: LIVE_CHURCH_REPORT }));
+        expect(res.status).toBe(200);
+        // Operating mix: live account names/amounts render, badge says so, and the old synthetic
+        // account names/fiscal-year-2026-reconciled-with-no-source badge text are both gone.
+        expect(html).toContain('40000 Contributions');
+        expect(html).toContain('60000 Programs');
+        expect(html).toContain('$175,000');
+        expect(html).toContain('$95,000');
+        expect(html).toContain(`FY${LIVE_CHURCH_REPORT.fiscalYear} · reconciled · Live from Connect`);
+        expect(html).not.toContain('FY2026 · reconciled · Synthetic staging');
+        // Church operating bridge: income $175,000 - expenses $95,000 = $80,000 surplus, badged live.
+        expect(html).toContain(`FY${LIVE_CHURCH_REPORT.fiscalYear} Church operating bridge`);
+        expect(html).toContain('Reconciled · Live from Connect');
+        expect(html).toContain('3 · Surplus');
+        // Entity overview stayed synthetic (its own investigated, deliberate decision -- see
+        // shell.js) even though churchReportLive is live here: still the old fixture's Church card.
+        expect(html).toContain('Church · FY2026');
+        expect(html).toContain('Daycare · 2026-01');
+      });
+
+      it('stays synthetic, badged "Synthetic staging", when churchReportLive is not live (Balance Sheet live but Church Report not)', async () => {
+        const { res, html } = await fetchHealth(connectServiceEnv({ balance: LIVE_BALANCE_SHEET }));
+        expect(res.status).toBe(200);
+        // Financial position went live (proves this env really did configure CONNECT_SERVICE), but
+        // Operating mix/Church operating bridge -- which depend only on churchReportLive, not
+        // balanceSheet -- correctly did not follow it live.
+        expect(html).toContain('Assets $450,000 · liabilities $150,000 · live from Connect');
+        expect(html).toContain('FY2026 · reconciled · Synthetic staging');
+        expect(html).toContain('Reconciled · Synthetic staging');
+        expect(html).not.toContain('40000 Contributions');
+      });
+
+      it('goes live independently of Financial position (Church Report live but Balance Sheet not)', async () => {
+        const { res, html } = await fetchHealth(connectServiceEnv({ church: LIVE_CHURCH_REPORT }));
+        expect(res.status).toBe(200);
+        // Financial position stayed synthetic (proves the mix/bridge result below isn't just
+        // "everything on the page went live together").
+        expect(html).toContain('Assets $300,000 · liabilities $100,000 · synthetic fixture');
+        expect(html).toContain(`FY${LIVE_CHURCH_REPORT.fiscalYear} · reconciled · Live from Connect`);
+        expect(html).toContain('Reconciled · Live from Connect');
+      });
     });
   });
 
