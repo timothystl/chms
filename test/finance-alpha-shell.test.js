@@ -310,6 +310,74 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     }
   });
 
+  // Bug fix: previously, ANY role-verification failure (not just the disclosed, intentional
+  // 'not_configured' staging state) fell through to fully unrestricted access -- see the
+  // 'discloses that role verification is unconfigured/unreachable...' test above for the one case
+  // that must keep failing open. Every other failure reason must now fail CLOSED with a 403,
+  // because each one is a real runtime failure in an environment where CONNECT_SERVICE genuinely
+  // is configured (i.e. production), under which a member/volunteer/compensation-only identity
+  // could otherwise see every section simply because the verification call happened to fail.
+  describe('fails closed (403) on every role-verification failure except not_configured', () => {
+    it('no_access_identity: CONNECT_SERVICE is configured but no Cf-Access-Jwt-Assertion header reached this deep', async () => {
+      const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role: 'admin' }), { status: 200 }));
+      const res = await worker.fetch(new Request('https://finance.test/?section=health'), roleEnv);
+      expect(res.status).toBe(403);
+      const html = await res.text();
+      expect(html).toContain('Access denied');
+      expect(html).toContain('Role verification failed and access cannot be safely confirmed');
+      // Distinct wording from the "your verified role does not have access" denial -- these are
+      // different failure modes a future reader should be able to tell apart.
+      expect(html).not.toContain('Your verified Connect role does not have access');
+    });
+
+    it('network_error: the CONNECT_SERVICE fetch throws', async () => {
+      const roleEnv = envWithRoleService(async () => { throw new Error('simulated network failure'); });
+      const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+        headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+      }), roleEnv);
+      expect(res.status).toBe(403);
+      expect(await res.text()).toContain('Role verification failed and access cannot be safely confirmed');
+    });
+
+    it('http_error: Connect answers with a non-200 status', async () => {
+      const roleEnv = envWithRoleService(async () => new Response('server error', { status: 500 }));
+      const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+        headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+      }), roleEnv);
+      expect(res.status).toBe(403);
+      expect(await res.text()).toContain('Role verification failed and access cannot be safely confirmed');
+    });
+
+    it('invalid_json: Connect answers 200 with a body that is not valid JSON', async () => {
+      const roleEnv = envWithRoleService(async () => new Response('not json at all', { status: 200 }));
+      const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+        headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+      }), roleEnv);
+      expect(res.status).toBe(403);
+      expect(await res.text()).toContain('Role verification failed and access cannot be safely confirmed');
+    });
+
+    it('invalid_role: Connect answers 200 with JSON that has no usable role string', async () => {
+      for (const payload of [{ role: 123 }, {}, { role: '' }]) {
+        const roleEnv = envWithRoleService(async () => new Response(JSON.stringify(payload), { status: 200 }));
+        const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+          headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+        }), roleEnv);
+        expect(res.status, JSON.stringify(payload)).toBe(403);
+        expect(await res.text(), JSON.stringify(payload)).toContain('Role verification failed and access cannot be safely confirmed');
+      }
+    });
+
+    it('still leaves not_configured (no CONNECT_SERVICE binding/key at all) failing open, unchanged', async () => {
+      // Same request shape as the 'discloses that role verification is unconfigured/unreachable'
+      // test above, confirmed again here so the two behaviors are visibly contrasted in one place.
+      const res = await worker.fetch(new Request('https://finance.test/?section=health'), env);
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain('Role verification unavailable in this environment (reason: not_configured)');
+    });
+  });
+
   it('renders a synthetic Church Report overview, its sub-pages, and a separate read budget', async () => {
     // No CONNECT_SERVICE binding/key is configured in this test env, so the live
     // connect.finance-church-report.v1 attempt fails closed with 'not_configured' and Church
@@ -691,7 +759,16 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     const liveEnv = {
       ...env,
       CONNECT_SERVICE: {
-        async fetch() {
+        // Branches on the request URL because this same binding now also serves shell.js's own
+        // connect.staff-role-v1 role check (see connect-role-client.js) -- with CONNECT_SERVICE
+        // configured, a request that reaches the shell route with no verified role now fails
+        // closed (see the "fails closed" describe block below), so this mock must answer the role
+        // check with an allowed role rather than only ever returning the giving-summary shape.
+        async fetch(request) {
+          const url = new URL(request instanceof Request ? request.url : request);
+          if (url.pathname === '/api/contracts/staff-role-v1') {
+            return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+          }
           return new Response(JSON.stringify({
             contract: 'connect.giving-summary.v1', dataClassification: 'aggregate',
             sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
@@ -713,8 +790,12 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(body.totals).toEqual({ grossCents: 500000, refundCents: 0, netCents: 500000 });
     expect(body.funds[0].fundLabel).toBe('Live Test Fund');
 
-    // The Financial Health section renders from the same resolver and says so.
-    const shellRes = await worker.fetch(new Request('https://finance.test/?section=health'), liveEnv);
+    // The Financial Health section renders from the same resolver and says so. A verified,
+    // allowed role (Access JWT header + the role mock above) is required now that role
+    // verification failing for any reason other than 'not_configured' fails closed.
+    const shellRes = await worker.fetch(new Request('https://finance.test/?section=health', {
+      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+    }), liveEnv);
     const html = await shellRes.text();
     expect(html).toContain('live from Connect');
   });
@@ -745,5 +826,96 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     const post = await worker.fetch(new Request('https://finance.test/', { method: 'POST' }), env);
     expect(post.status).toBe(405);
     expect(post.headers.get('allow')).toBe('GET, HEAD');
+  });
+
+  // Bug fix: production's real Finance D1 genuinely has zero `source='synthetic_fixture'` rows
+  // (fixtures are a staging-only, explicitly applied step, never part of a migration -- see
+  // apps/finance/README.md's "Known readiness limitations"). Several readSynthetic*() functions
+  // correctly throw when their expected fixture row is entirely absent (a real data-integrity
+  // check), but before this fix that throw was caught only by the ONE big try/catch around the
+  // whole route handler, which turned "no fixture row exists yet" into a generic full-page 503 --
+  // even for a section (like Church Report) whose own independent live-first resolver had already
+  // succeeded. This env simulates that empty-but-not-erroring production database: every D1 batch
+  // call succeeds and returns zero rows for every statement, rather than throwing itself.
+  describe('degrades per-field instead of 503ing the whole page when synthetic fixture rows are empty', () => {
+    const emptyFinanceDb = {
+      prepare(sql) { return { sql }; },
+      async batch(batchStatements) {
+        return batchStatements.map(() => ({ results: [] }));
+      },
+    };
+
+    it('reproduces the bug directly against the unpatched synthetic readers (sanity check)', async () => {
+      const { readSyntheticSummary } = await import('../apps/finance/summary-service.js');
+      await expect(readSyntheticSummary(emptyFinanceDb)).rejects.toThrow();
+      const { readSyntheticChurchTrends } = await import('../apps/finance/church-report-service.js');
+      await expect(readSyntheticChurchTrends(emptyFinanceDb)).rejects.toThrow();
+    });
+
+    it('still renders a section with its own live resolver (Church Report) with real live data, not a 503', async () => {
+      const VALID_LIVE_CHURCH_REPORT = {
+        contract: 'connect.finance-church-report.v1', dataClassification: 'aggregate',
+        sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+        fiscalYear: new Date().getUTCFullYear(), generatedAt: '2026-09-14T12:00:00Z',
+        accounts: [{
+          classification: 'Income', categoryPath: 'Income:40000 Contributions', accountName: '40000 Contributions',
+          depth: 0, hasChildren: false, actualCents: 1300000, budgetCents: 1250000, source: 'import',
+        }],
+        totals: {
+          incomeActualCents: 1300000, incomeBudgetCents: 1250000, expenseActualCents: 0, expenseBudgetCents: 0,
+          netIncomeActualCents: 1300000, netIncomeBudgetCents: 1250000, hasBudgetData: true,
+        },
+        reconciliation: {
+          accountCount: 1, incomeCount: 1, expenseCount: 0, otherIncomeCount: 0, otherExpenseCount: 0,
+          costOfGoodsSoldCount: 0, accountsWithBudgetCount: 1, totalsMatch: true,
+        },
+      };
+      const liveEnv = envWithRoleService(async (request) => {
+        const url = new URL(request instanceof Request ? request.url : request);
+        if (url.pathname === '/api/contracts/staff-role-v1') {
+          return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+        }
+        if (url.pathname === '/api/contracts/finance-church-report-v1') {
+          return new Response(JSON.stringify(VALID_LIVE_CHURCH_REPORT), { status: 200 });
+        }
+        return new Response('not found', { status: 404 });
+      });
+      liveEnv.FINANCE_DB = emptyFinanceDb;
+
+      const res = await worker.fetch(new Request('https://finance.test/?section=church', {
+        headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+      }), liveEnv);
+      // Before the fix: this 503'd because the unconditional, unrelated synthetic `summary` and
+      // `churchTrends` reads (eagerly fetched for the 'church' section too) threw against the
+      // empty database, even though churchReportLive above already succeeded.
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain('Church Report overview');
+      expect(html).toContain('Live from Connect');
+      expect(html).toContain('$13,000');
+      expect(html).not.toContain('Synthetic staging data unavailable');
+    });
+
+    it('renders a genuinely synthetic-only section (Financial Health) as 200 with honest "unavailable" panels, never a blank/zero or a 503', async () => {
+      const emptyEnv = { ...env, FINANCE_DB: emptyFinanceDb };
+      const res = await worker.fetch(new Request('https://finance.test/?section=health'), emptyEnv);
+      // Before the fix: this 503'd with the generic "Synthetic staging data unavailable" -- every
+      // one of Financial Health's several unconditional synthetic reads throws against this empty
+      // database, and the single outer try/catch turned the first one into a full-page 503.
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).not.toContain('Synthetic staging data unavailable');
+      // Every data-backed panel says so honestly -- never a fabricated blank or $0 figure.
+      expect(html).toContain('Operating result');
+      expect(html).toContain('Data temporarily unavailable');
+      expect(html).toContain('Financial position');
+      expect(html).toContain('Giving reconciliation');
+      expect(html).not.toContain('<strong>$0</strong>');
+      // The purely-static decision framing (not data-derived) still renders even though every
+      // data-backed card on the same page is unavailable.
+      expect(html).toContain('Full control');
+      expect(html).toContain('Reported, not managed');
+      expect(html).toContain('Timing decision');
+    });
   });
 });

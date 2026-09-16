@@ -38,3 +38,22 @@ export function renderUnavailablePage({ eyebrow, heading, reason }) {
     <p class="status status-pending">${reason}</p>
   </section>`;
 }
+
+// A distinct message from renderUnavailablePage above: that one means "this workflow is not built
+// yet" (a product-completeness fact); this one means "this is a real, built report, but its data
+// could not be read for this request" (a transient/data-integrity fact -- see
+// synthetic-read-guard.js). Keeping the wording and badge different so a future reader, or Andrew
+// looking at a live page, never conflates "not built" with "temporarily unavailable."
+export function renderDataUnavailablePage({ eyebrow, heading, reason }) {
+  return `<section class="report unavailable" aria-label="${escapeHtml(heading)} (data unavailable)">
+    ${renderSectionHeading({ eyebrow, heading: escapeHtml(heading), badge: 'Data unavailable' })}
+    <p class="status status-error">${reason}</p>
+  </section>`;
+}
+
+// One card-sized "this figure could not be read" placeholder for a page that otherwise renders
+// fine -- used so a missing companion synthetic read (see synthetic-read-guard.js) never shows a
+// blank or fabricated $0/0% in place of a real figure. The em dash is deliberately not a number.
+export function renderUnavailableCard(label, note = 'Data temporarily unavailable.') {
+  return `<div class="card"><small>${escapeHtml(label)}</small><strong>—</strong><span>${escapeHtml(note)}</span></div>`;
+}
