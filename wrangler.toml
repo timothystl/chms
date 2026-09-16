@@ -14,6 +14,16 @@ compatibility_date = "2024-01-01"
 EMAIL_FROM     = "Connect <noreply@notify.timothystl.org>"
 REPLY_TO_EMAIL = "dinger@timothystl.org"
 
+# Used only to verify the Cf-Access-Jwt-Assertion header Finance's Worker forwards on the
+# staff-role-v1 and giving-quick-entry-v1 contract calls -- proves WHO Finance says is acting, not
+# whether the call itself is authorized (that's still X-Contract-Key). Neither value is a
+# secret: they identify which Cloudflare Access application's public keys to check against,
+# not a credential -- see src/access-jwt.js and Zero Trust > Access > Applications >
+# "Timothy Finance" > Overview for the source of truth if these ever need to change. Mirrors
+# wrangler.staging.toml's own FINANCE_ACCESS_TEAM_DOMAIN/FINANCE_ACCESS_AUD for the staging pair.
+FINANCE_ACCESS_TEAM_DOMAIN = "timothystl.cloudflareaccess.com"
+FINANCE_ACCESS_AUD         = "74de33dfe1e65b4eea9b8bf51e04d654e470a60773175bf34d74d55e940b66eb"
+
 [observability]
 enabled = true
 
