@@ -11,7 +11,7 @@ import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, resp
 import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
-import { applyBudgetPlanOverrideRows } from './api-finance.js';
+import { applyBudgetPlanOverrideRows, applySalaryPlannerWrite } from './api-finance.js';
 
 export async function handleContractsServiceApi(req, env, path) {
   const expectedKey = env.FINANCE_CONTRACT_API_KEY || '';
@@ -91,6 +91,10 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-budget-write-v1' && req.method === 'POST') {
     return handleFinanceBudgetWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-compensation-write-v1' && req.method === 'POST') {
+    return handleFinanceCompensationWriteContract(req, env);
   }
 
   if (path === '/api/contracts/staff-role-v1' && req.method === 'GET') {
@@ -213,4 +217,49 @@ async function handleFinanceBudgetWriteContract(req, env) {
   ).bind('', '', email).run().catch(() => {});
 
   return json({ ok: true, saved: result.saved, savedBy: user.username });
+}
+
+// ── Salary/Compensation Planner write, relayed from Finance's own Compensation Planner UI ───
+// Same shape as handleFinanceBudgetWriteContract above: the X-Contract-Key check only proves the
+// call came from Finance's Worker, this proves WHO Finance says is acting, and the verified
+// identity's real Connect role decides whether the write is allowed -- admin, compensation, or
+// council, matching finance/planning/salary's own gate exactly, since this calls the identical
+// applySalaryPlannerWrite() helper that route uses (src/api-finance.js). One shared
+// implementation means the legacy in-Connect Salary Planner and this relay can never drift on
+// validation, on the compensation role's separate-fork behavior, or on exactly which fields
+// council may steer.
+//
+// The request body carries real, individually-identifiable compensation data (worker names,
+// positions, current pay, District Worksheet inputs) -- unlike the Giving/Budget relays' audit
+// entries, this one deliberately never logs the body itself, only who saved and when.
+async function handleFinanceCompensationWriteContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(
+    `SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`
+  ).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  if (user.role !== 'admin' && user.role !== 'compensation' && user.role !== 'council') {
+    return json({ error: 'Access denied: editing the salary planner requires admin access' }, 403);
+  }
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+
+  const result = await applySalaryPlannerWrite(db, user.role, user.username, body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+
+  await db.prepare(
+    `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+     VALUES('salary_planner_write_via_finance','finance_settings',?,?,'saved_by','',?)`
+  ).bind('', '', email).run().catch(() => {});
+
+  return json({ ok: true, savedBy: user.username });
 }

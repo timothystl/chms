@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { fetchLiveFinanceCompensation } from '../apps/finance/finance-compensation-client.js';
+import { fetchLiveFinanceCompensation, postConnectFinanceCompensationWrite } from '../apps/finance/finance-compensation-client.js';
+
+const PLAN = { roster: [{ name: 'Test Worker' }], compMethod: 'flat' };
 
 // Every name/dollar figure below is entirely fabricated for this test -- never a real production
 // value.
@@ -74,5 +76,51 @@ describe('fetchLiveFinanceCompensation', () => {
     const result = await fetchLiveFinanceCompensation(env);
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('contract_validation_failed');
+  });
+});
+
+describe('postConnectFinanceCompensationWrite', () => {
+  it('is not_configured when the service binding or shared secret is missing', async () => {
+    expect(await postConnectFinanceCompensationWrite({ FINANCE_CONTRACT_API_KEY: 'x' }, 'jwt', PLAN))
+      .toEqual({ ok: false, reason: 'not_configured' });
+    expect(await postConnectFinanceCompensationWrite({ CONNECT_SERVICE: { fetch: async () => new Response('{}') } }, 'jwt', PLAN))
+      .toEqual({ ok: false, reason: 'not_configured' });
+  });
+
+  it('is no_access_identity when there is no Access JWT to forward, without ever calling out', async () => {
+    let called = false;
+    const env = envWith(async () => { called = true; return new Response('{}'); });
+    const result = await postConnectFinanceCompensationWrite(env, '', PLAN);
+    expect(result).toEqual({ ok: false, reason: 'no_access_identity' });
+    expect(called).toBe(false);
+  });
+
+  it('POSTs the whole plan as JSON with the shared secret and the forwarded Access JWT, and accepts a valid response', async () => {
+    let capturedRequest;
+    const env = envWith(async (req) => {
+      capturedRequest = req;
+      return new Response(JSON.stringify({ ok: true, savedBy: 'andrew' }), { status: 200 });
+    });
+    const result = await postConnectFinanceCompensationWrite(env, 'signed.jwt.here', PLAN);
+    expect(result).toEqual({ ok: true, result: { ok: true, savedBy: 'andrew' } });
+    expect(capturedRequest.method).toBe('POST');
+    expect(capturedRequest.headers.get('X-Contract-Key')).toBe('test-secret');
+    expect(capturedRequest.headers.get('Cf-Access-Jwt-Assertion')).toBe('signed.jwt.here');
+    const url = new URL(capturedRequest.url);
+    expect(url.pathname).toBe('/api/contracts/finance-compensation-write-v1');
+    expect(JSON.parse(await capturedRequest.text())).toEqual(PLAN);
+  });
+
+  it('fails closed, not throws, on a network error', async () => {
+    const env = envWith(async () => { throw new Error('boom'); });
+    const result = await postConnectFinanceCompensationWrite(env, 'signed.jwt.here', PLAN);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('network_error');
+  });
+
+  it('surfaces the refusal reason and message on a non-200 response', async () => {
+    const env = envWith(async () => new Response(JSON.stringify({ error: 'Access denied: editing the salary planner requires admin access' }), { status: 403 }));
+    const result = await postConnectFinanceCompensationWrite(env, 'signed.jwt.here', PLAN);
+    expect(result).toEqual({ ok: false, reason: 'http_error', status: 403, message: 'Access denied: editing the salary planner requires admin access' });
   });
 });
