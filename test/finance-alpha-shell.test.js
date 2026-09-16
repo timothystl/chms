@@ -1218,10 +1218,24 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       expect(benefitsHtml).not.toContain('Worker A');
     });
 
-    it("the Plan page still shows every worker verbatim (unchanged, out of this change's scope) -- Council is the only page that filters hideFromCouncil", async () => {
-      const html = await (await worker.fetch(req('https://finance.test/?section=compensation&page=plan'), liveCompensationEnv('council'))).text();
+    it('admin sees every worker verbatim on the Plan page, including one flagged hideFromCouncil', async () => {
+      const html = await (await worker.fetch(req('https://finance.test/?section=compensation&page=plan'), liveCompensationEnv('admin'))).text();
       expect(html).toContain('Worker A');
       expect(html).toContain('Worker B (hidden from council)');
+      expect(html).toContain('>2<');
+      expect(html).toContain('$140,000');
+    });
+
+    it('a council viewer never sees a worker flagged hideFromCouncil on the Plan page -- same rule the Council page enforces', async () => {
+      const html = await (await worker.fetch(req('https://finance.test/?section=compensation&page=plan'), liveCompensationEnv('council'))).text();
+      expect(html).toContain('Worker A');
+      expect(html).not.toContain('Worker B (hidden from council)');
+      // KPI totals are recomputed from the filtered roster too, so the hidden worker's $90,000
+      // never leaks into "Entered current pay total" even in aggregate.
+      expect(html).toContain('>1<');
+      expect(html).toContain('$50,000');
+      expect(html).not.toContain('$140,000');
+      expect(html).toContain('Excludes any worker not shown to council');
     });
   });
 

@@ -1,4 +1,4 @@
-import { buildCompensationCouncilSnapshot, buildCompensationReportView, buildLiveCompensationCouncilSnapshot } from './compensation-report-service.js';
+import { buildCompensationCouncilSnapshot, buildCompensationReportView, buildLiveCompensationCouncilSnapshot, filterCompensationWorkersForViewer, summarizeCompensationWorkers } from './compensation-report-service.js';
 import { buildCompensationBenchmarkView } from './compensation-benchmark-service.js';
 import { buildCompensationBenefitsView } from './compensation-benefits-service.js';
 import { escapeHtml, formatCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
@@ -98,12 +98,21 @@ export function renderCompensationPage(pageId, { compensationReport, compensatio
   // either (see the comment above the 'benchmarks'/'benefits' branches). Council above now has its
   // own honest live rollup for the same allowed roles, built only from real, already-stored
   // aggregate facts -- see buildLiveCompensationCouncilSnapshot's header comment.
+  //
+  // A verified `council` viewer must never see a worker flagged `hideFromCouncil`, matching the
+  // same rule production's own Salary Planner and this section's own Council page already enforce
+  // for that role (see filterCompensationWorkersForViewer's header comment) -- the raw contract
+  // fetch has no viewer identity attached and returns every worker, flagged or not, so this page
+  // must filter here rather than trust the fetch to have done it. The KPI totals are recomputed
+  // from the SAME filtered list (summarizeCompensationWorkers), never the raw contract `totals`,
+  // so a hidden worker's entered pay can never leak into "Entered current pay total" either.
   if (compensationReportLive && compensationReportLive.source === 'live') {
-    const { workers, totals } = compensationReportLive;
+    const workers = filterCompensationWorkersForViewer(compensationReportLive.workers, viewerRole);
+    const totals = summarizeCompensationWorkers(workers);
     return `<section class="report" aria-label="Compensation Report plan">
       ${renderSectionHeading({ eyebrow: 'Compensation', heading: 'Per-person compensation roster', badge: 'Live from Connect' })}
       ${renderKpiCards([
-        { label: 'Workers on roster', value: String(totals.workerCount) },
+        { label: 'Workers on roster', value: String(totals.workerCount), hint: viewerRole === 'council' ? 'Excludes any worker not shown to council' : undefined },
         { label: 'Current pay entered', value: String(totals.enteredCurrentPayCount), hint: `${totals.unenteredCurrentPayCount} read from a linked budget line or not yet set` },
         { label: 'Entered current pay total', value: formatCents(totals.enteredCurrentPayCents), hint: 'Sum of hand-entered current-pay figures only' },
       ])}

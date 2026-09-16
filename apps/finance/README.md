@@ -40,9 +40,12 @@ data anywhere in Connect can honestly back them (see `compensation-pages.js`'s c
 benchmark salary or benefits-component dollar breakdown does not exist). Council's own real rollup
 carries only real, already-stored aggregate facts (worker count, entered/unentered current-pay
 counts and totals) -- it never reconstructs the synthetic view's `benefitsSharePct` or
-`weightedAdjustmentPct`, which have no real per-worker equivalent, and it drops any worker flagged
-`hideFromCouncil` from what a `council`-role viewer specifically sees, matching the same rule the
-real Salary Planner already enforces for that role.
+`weightedAdjustmentPct`, which have no real per-worker equivalent. Both Plan's per-person worker
+table/KPIs and Council's rollup drop any worker flagged `hideFromCouncil` from what a `council`-role
+viewer specifically sees, matching the same rule the real Salary Planner already enforces for that
+role -- `filterCompensationWorkersForViewer`/`summarizeCompensationWorkers` in
+`compensation-report-service.js` are the shared implementation both pages call, so the two can
+never drift out of sync on who council is allowed to see.
 
 Existing Finance remains operational in Connect. Moving authoritative accounting data and writers,
 cutting users over and retiring the old module remain unfinished. The new schema does not include
