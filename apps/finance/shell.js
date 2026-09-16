@@ -16,7 +16,7 @@ import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from '
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
-import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
+import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
 import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
@@ -28,7 +28,7 @@ import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
-import { buildFinancialMixView } from './financial-mix-service.js';
+import { buildFinancialMixView, buildLiveFinancialMixView } from './financial-mix-service.js';
 import { buildEntityOverview } from './entity-overview-service.js';
 import { buildOperatingBridge } from './operating-bridge-service.js';
 import { readSyntheticPropertyForecast, resolvePropertyForecast } from './property-forecast-service.js';
@@ -211,7 +211,16 @@ function renderSectionBody(ctx) {
     // `summary` was usable, which is what the per-card renders below check for. Giving was already
     // live-first and unconditional before this change (resolveGivingSummary always succeeds to at
     // least the synthetic fixture) and is untouched here.
+    //
+    // Operating mix and Church operating bridge are now live-first too, reusing the same
+    // churchReportLive result (and buildLiveFinancialMixView/buildLiveChurchReportView, the exact
+    // functions Charts' revenue-mix/expense-mix/giving-pace pages already use -- see
+    // charts-pages.js) rather than a new resolver, contract, or read. Entity overview deliberately
+    // stays fully synthetic -- see the comment just above its own build below for why: the live
+    // Daycare/Property resolvers' shapes were investigated and found genuinely incompatible with
+    // it, not merely unwired.
     const health = buildFinancialHealthView(summary, giving, { churchReportLive, balanceSheetLive: balanceSheet });
+    const isChurchLive = churchReportLive != null && !isSyntheticUnavailable(churchReportLive) && churchReportLive.source === 'live';
     // Reflects only Operating result/Financial position -- the two cards this badge has ever
     // summarized. Giving already carries its own independent, always-shown inline label right next
     // to it (see the Giving reconciliation card below) and was never represented by this badge
@@ -222,14 +231,54 @@ function renderSectionBody(ctx) {
       : liveHealthSources === healthSources.length ? 'Live from Connect'
       : liveHealthSources === 0 ? 'Synthetic staging' : 'Partially live';
     const runway = isSyntheticUnavailable(cashRunway) ? null : buildCashRunwayView(cashRunway);
-    const mix = isSyntheticUnavailable(churchReport) ? null : buildFinancialMixView(churchReport);
+    // Same live-first pattern as Charts' revenue-mix/expense-mix pages (charts-pages.js):
+    // buildLiveFinancialMixView(accounts, fiscalYear, totals) reads churchReportLive's own contract
+    // shape directly, so no synthetic churchReport read is needed on the live path at all.
+    const mix = isChurchLive
+      ? buildLiveFinancialMixView(churchReportLive.accounts, churchReportLive.fiscalYear, churchReportLive.totals)
+      : (isSyntheticUnavailable(churchReport) ? null : buildFinancialMixView(churchReport));
+    // `church` stays synthetic-only -- it feeds Entity overview below, which is a deliberate,
+    // investigated decision to NOT mix live and synthetic entities (see that comment). It is
+    // intentionally a separate variable from `churchForBridge` just below, which IS live-first.
     const church = isSyntheticUnavailable(churchReport) ? null : buildChurchReportView(churchReport);
     const daycareEntity = isSyntheticUnavailable(daycareReport) ? null : buildDaycareReportView(daycareReport);
     const propertyEntity = isSyntheticUnavailable(propertyReport) ? null : buildPropertyReportView(propertyReport);
+    // Entity overview (church/daycare/property side by side) was investigated for the same
+    // live-first treatment and deliberately left fully synthetic:
+    //  - Daycare's live resolver (resolveDaycareReport/buildLiveDaycareReportView) reports one
+    //    whole-fiscal-year total, and its `period` is just String(fiscalYear) (e.g. "2026") --
+    //    buildEntityOverview's own validation requires a monthly `YYYY-MM` period for daycare/
+    //    property (confirmed against the synthetic fixture's own periods, e.g. "Daycare · 2026-01"
+    //    in this same page today). That is a genuine granularity mismatch, not a formatting
+    //    detail -- reformatting an annual total to look like one month would misrepresent it, and
+    //    "all three live" can therefore never actually happen with today's resolver shapes.
+    //  - Property's live resolver can carry null totalExpensesCents/netOperatingIncomeCents/
+    //    availableForDistributionCents/reserveBalanceCents per period (confirmed real production
+    //    behavior -- see property-report-service.js's resolvePropertyReport comment); summing those
+    //    into buildPropertyReportView's totals would silently produce NaN, and
+    //    buildEntityOverview's integer validation would then throw -- with no per-panel guard
+    //    around this specific call (unlike the null-checks above it), that throw would take down
+    //    the ENTIRE Financial Health section, not just this one card row.
+    //  - Since "all three live" can't occur today anyway, independently mixing (e.g. live Church
+    //    with synthetic Daycare/Property) was also rejected: renderEntityCards has no per-card
+    //    source label today, so three cards from two different sources would sit side by side with
+    //    no way for a reader to tell which are real Connect data -- exactly the misleading mix this
+    //    page's honest-degradation discipline exists to prevent.
+    // daycareReportLive/propertyReportLive are therefore also NOT resolved for 'health' in this
+    // request (no gate change above) -- there is nothing on this page that would use them yet, and
+    // fetching them anyway would only add unused query-budget cost.
     const entities = (church && daycareEntity && propertyEntity)
       ? buildEntityOverview({ church, daycare: daycareEntity, property: propertyEntity })
       : null;
-    const bridge = church ? buildOperatingBridge(church) : null;
+    // Church operating bridge prefers the live church view instead: buildOperatingBridge reads only
+    // fiscalYear/totals.{incomeActualCents,expenseActualCents,actualNetCents}, which is exactly what
+    // buildLiveChurchReportView's output already provides (see church-report-service.js) -- no
+    // live-aware wrapper needed here, the same direct reuse Charts' giving-pace page already relies
+    // on. Independent of `church` above (which stays synthetic-only for Entity overview).
+    const churchForBridge = isChurchLive
+      ? buildLiveChurchReportView(churchReportLive.accounts, churchReportLive.fiscalYear, churchReportLive.totals)
+      : church;
+    const bridge = churchForBridge ? buildOperatingBridge(churchForBridge) : null;
     const status = (dataStatus && !isSyntheticUnavailable(dataStatus)) ? buildDataStatusView(dataStatus.row, new Date(), {
       productionConnected: dataStatus.productionConnected,
       writerConnected: dataStatus.writerConnected,
@@ -255,7 +304,7 @@ function renderSectionBody(ctx) {
       ${runway
         ? `<div class="grid"><div class="card"><small>Operating cash</small><strong>${formatCents(runway.operatingCashCents)}</strong><span>${escapeHtml(runway.accountName)} · synthetic fixture</span></div><div class="card"><small>Average monthly expense</small><strong>${formatCents(runway.monthlyExpenseCents)}</strong><span>FY${runway.fiscalYear} annual expense ${formatCents(runway.annualExpenseCents)}</span></div><div class="card"><small>Expense coverage</small><strong>${runway.runwayMonths.toFixed(1)} months</strong><span>Cash divided by average monthly expense · read-only</span></div></div>`
         : unavailableNote('Operating cash runway')}
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Operating mix</div><h2>Where money comes from and goes</h2></div><span class="badge">${mix ? `FY${mix.fiscalYear} · reconciled` : 'Unavailable'}</span></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Operating mix</div><h2>Where money comes from and goes</h2></div><span class="badge">${mix ? `FY${mix.fiscalYear} · reconciled · ${isChurchLive ? 'Live from Connect' : 'Synthetic staging'}` : 'Unavailable'}</span></div>
       ${mix
         ? `<div class="grid"><div><h3>Revenue mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.income.items)}</tbody></table></div></div><div><h3>Expense mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.expenses.items)}</tbody></table></div></div></div>`
         : unavailableNote('Revenue and expense mix')}
@@ -264,7 +313,7 @@ function renderSectionBody(ctx) {
         ? `<div class="grid">${renderEntityCards(entities.entities)}</div>
       <p>Periods are shown separately because these synthetic sources do not share one reporting window; their results are not added together.</p>`
         : unavailableNote('The entity overview')}
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Money flow</div><h2>${bridge ? `FY${bridge.fiscalYear} ` : ''}Church operating bridge</h2></div><span class="badge">${bridge ? 'Reconciled' : 'Unavailable'}</span></div>
+      <div class="section-heading trend-heading"><div><div class="eyebrow">Money flow</div><h2>${bridge ? `FY${bridge.fiscalYear} ` : ''}Church operating bridge</h2></div><span class="badge">${bridge ? `Reconciled · ${isChurchLive ? 'Live from Connect' : 'Synthetic staging'}` : 'Unavailable'}</span></div>
       ${bridge
         ? `<div class="grid"><div class="card"><small>1 · Income</small><strong>${formatCents(bridge.incomeCents)}</strong></div><div class="card"><small>2 · Expenses</small><strong>−${formatCents(bridge.expenseCents)}</strong></div><div class="card"><small>3 · ${bridge.resultLabel}</small><strong>${formatSignedCents(bridge.resultCents)}</strong><span>Income minus expenses</span></div></div>
       <p>This is an arithmetic operating bridge, not donor-to-expense tracing or a claim that particular revenue funded particular costs.</p>`
