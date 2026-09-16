@@ -31,3 +31,37 @@ export function buildFinancialMixView(rows) {
   };
   return { fiscalYear, income: buildSide('Income'), expenses: buildSide('Expenses') };
 }
+
+// Live sibling of buildFinancialMixView above -- same {fiscalYear, income, expenses} shape (each
+// side's {totalCents, items: [{accountName, amountCents, sharePct}], reconciled}), but built from
+// the live connect.finance-church-report.v1 contract's own `accounts`/`totals` shape (see
+// church-report-service.js's resolveChurchReport/buildLiveChurchReportView) rather than the
+// synthetic fixture's flat classification/account_name/own_actual_cents rows. `totals` supplies
+// each side's authoritative sum directly from the contract instead of re-deriving it from
+// `accounts`, matching buildLiveChurchReportView's own totals usage -- accounts can be a partial
+// hierarchy (see the contract's `depth`/`hasChildren` fields), so summing accounts here would risk
+// double-counting parent/child rows the same way buildLiveChurchReportView already avoids for its
+// own income/expense totals.
+export function buildLiveFinancialMixView(accounts, fiscalYear, totals) {
+  if (!Number.isInteger(fiscalYear)) throw new Error('Live financial mix requires a fiscal year');
+  const buildSide = (classification, totalCents) => {
+    const items = accounts
+      .filter((account) => account.classification === classification)
+      .map((account) => ({
+        accountName: account.accountName,
+        amountCents: account.actualCents,
+        sharePct: totalCents !== 0 ? (account.actualCents / totalCents) * 100 : 0,
+      }));
+    if (items.length === 0 || totalCents <= 0) throw new Error('Live financial mix totals invalid');
+    return {
+      totalCents,
+      items,
+      reconciled: items.reduce((sum, item) => sum + item.amountCents, 0) === totalCents,
+    };
+  };
+  return {
+    fiscalYear,
+    income: buildSide('Income', totals.incomeActualCents),
+    expenses: buildSide('Expenses', totals.expenseActualCents),
+  };
+}

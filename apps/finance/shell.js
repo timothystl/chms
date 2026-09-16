@@ -266,7 +266,7 @@ function renderSectionBody(ctx) {
     return renderUnavailablePage({ eyebrow: section.label, heading: page.label, reason: 'Not yet available.' });
   }
   if (section.id === 'charts') {
-    return renderChartsPage(page.id, { churchReport, cashRunway, propertyReserves, giving, givingSource });
+    return renderChartsPage(page.id, { churchReport, churchReportLive, cashRunway, propertyReserves, propertyReservesLive, giving, givingSource });
   }
   if (section.id === 'church') {
     return renderChurchPage(page.id, { churchReport: churchReportLive, churchTrendLive });
@@ -795,14 +795,25 @@ export default {
         // exactly so the two are never confused.
         const summary = ['health', 'church', 'packet'].includes(section.id)
           ? await safeSyntheticRead(() => readSyntheticSummary(env.FINANCE_DB)) : null;
-        // Health/Charts/Packet still read the plain synthetic rows -- unchanged, out of scope for
-        // this contract. The 'church' section (Church Report itself) instead tries the real
+        // Health/Packet still read the plain synthetic rows -- unchanged, out of scope for this
+        // contract. The 'church' section (Church Report itself) instead tries the real
         // connect.finance-church-report.v1 endpoint first and falls back to the same synthetic
         // fixture, labeled, via resolveChurchReport -- same live-first pattern as Budget's
-        // resolveBudgetReport for the 'planning' section below.
+        // resolveBudgetReport for the 'planning' section below. 'charts' now also computes
+        // churchReportLive (its revenue-mix/expense-mix/giving-pace pages prefer it), still
+        // alongside the plain synthetic `churchReport` array below that Health/Packet need.
+        // Unlike propertyReservesLive/propertyReserves further down -- where resolvePropertyReserves
+        // deliberately has no fallback re-read of its own, and the caller supplies the
+        // already-fetched synthetic array instead -- resolveChurchReport's own fallback re-reads
+        // readSyntheticChurchReport() itself (see church-report-service.js; the 'church' section
+        // never also needed the plain array, so this never came up there). For 'charts' specifically,
+        // when the live call isn't configured or fails, this does mean two separate reads of the
+        // same synthetic fixture in one request (one for `churchReport`, one inside
+        // `churchReportLive`'s fallback) -- a known, accepted duplicate-read cost of reusing an
+        // existing single-purpose resolver here rather than changing its shared signature.
         const churchReport = ['health', 'charts', 'packet'].includes(section.id)
           ? await safeSyntheticRead(() => readSyntheticChurchReport(env.FINANCE_DB)) : null;
-        const churchReportLive = section.id === 'church'
+        const churchReportLive = ['church', 'charts'].includes(section.id)
           ? await safeSyntheticRead(() => resolveChurchReport(env, env.FINANCE_DB)) : null;
         // Only 'packet' reads the plain synthetic churchTrends directly now -- same split as
         // churchReport/churchReportLive just above, where 'church' reads ONLY the live-first
@@ -851,14 +862,18 @@ export default {
         // Property Operating results/Reserves & distribution/Capital & repairs ledgers each try
         // their own real connect.finance-property-*.v1 endpoint first and fall back to the same
         // synthetic fixtures read just above, labeled -- same live-first pattern as Property
-        // Valuation above. Only the 'property' section's own pages use these; 'overview'/'health'/
-        // 'charts' keep reading the plain synthetic propertyReport/propertyReserves/propertyLedgers
-        // above directly, unchanged and out of scope for this contract. propertyReport may itself
-        // already be SYNTHETIC_UNAVAILABLE here -- resolvePropertyReport only threads it through as
-        // its own fallback's `rows`, it never dereferences it, so this call still can't throw.
+        // Valuation above. Only the 'property' section's own pages use propertyReportLive/
+        // propertyLedgersLive; 'overview'/'health' keep reading the plain synthetic
+        // propertyReport/propertyLedgers above directly, unchanged and out of scope for this
+        // contract. propertyReport may itself already be SYNTHETIC_UNAVAILABLE here --
+        // resolvePropertyReport only threads it through as its own fallback's `rows`, it never
+        // dereferences it, so this call still can't throw. propertyReservesLive is also computed
+        // for 'charts' (its cash-reserve page's property-tax-reserve KPI prefers it, falling back
+        // to the already-fetched synthetic `propertyReserves` array above) -- same shape as
+        // churchReportLive's 'church'/'charts' split above.
         const propertyReportLive = section.id === 'property'
           ? await safeSyntheticRead(() => resolvePropertyReport(env, propertyReport)) : null;
-        const propertyReservesLive = section.id === 'property'
+        const propertyReservesLive = ['property', 'charts'].includes(section.id)
           ? await safeSyntheticRead(() => resolvePropertyReserves(env)) : null;
         const propertyLedgersLive = section.id === 'property'
           ? await safeSyntheticRead(() => resolvePropertyLedgers(env)) : null;
