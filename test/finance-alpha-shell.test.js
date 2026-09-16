@@ -186,7 +186,11 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('How are we doing, and what should we decide?');
     expect(html).toContain('Operating result');
     expect(html).toContain('$40,000');
-    expect(html).toContain('Assets $300,000 · liabilities $100,000');
+    // No CONNECT_SERVICE is configured in this env, so Operating result and Financial position
+    // (like Church Report/Balance Sheet themselves elsewhere in this file) fall back to the
+    // synthetic fixture and say so per-card now, instead of the old single page-wide badge.
+    expect(html).toContain('variance $0 · synthetic fixture');
+    expect(html).toContain('Assets $300,000 · liabilities $100,000 · synthetic fixture');
     expect(html).toContain('$1,450');
     expect(html).toContain('6 aggregate records · totals match');
     expect(html).toContain('Full control');
@@ -219,7 +223,12 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('class="sidebar-brand"');
     expect(html).toContain('Are we okay?');
     expect(html).toContain("Source data hasn't been reviewed in over 30 days");
-    expect(statements).toHaveLength(10);
+    // 10 before Operating result/Financial position gained their own live-first resolvers (see
+    // health-view-model.js): +1 for churchReportLive's own synthetic-fallback read (a second,
+    // independent read of the same fixture `churchReport` above already reads, since `churchReport`
+    // still feeds Health's own Revenue/expense mix and Church operating bridge panels unchanged)
+    // and +1 for balanceSheet's (the 'balance' section's live-first resolver, now also used here).
+    expect(statements).toHaveLength(12);
     expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
   });
 
@@ -518,6 +527,147 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(trendHtml).toContain('$270,000');
     expect(trendHtml).toContain('$110,000');
     expect(trendHtml).toContain('$160,000');
+  });
+
+  describe('Financial Health: Operating result / Financial position live-first (reuses Church Report/Balance Sheet)', () => {
+    // Distinct from both the committed synthetic fixture's figures ($120,000/$80,000 income/expense,
+    // $300,000/$100,000/$200,000 assets/liabilities/equity) and from each other, so a passing
+    // assertion can only mean the live values actually rendered.
+    const LIVE_CHURCH_REPORT = {
+      contract: 'connect.finance-church-report.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      fiscalYear: new Date().getUTCFullYear(), generatedAt: '2026-09-15T12:00:00Z',
+      accounts: [
+        { classification: 'Income', categoryPath: 'Income:40000 Contributions', accountName: '40000 Contributions', depth: 0, hasChildren: false, actualCents: 17500000, budgetCents: 16000000, source: 'import' },
+        { classification: 'Expenses', categoryPath: 'Expenses:60000 Programs', accountName: '60000 Programs', depth: 0, hasChildren: false, actualCents: 9500000, budgetCents: 9000000, source: 'import' },
+      ],
+      totals: {
+        incomeActualCents: 17500000, incomeBudgetCents: 16000000, expenseActualCents: 9500000, expenseBudgetCents: 9000000,
+        netIncomeActualCents: 8000000, netIncomeBudgetCents: 7000000, hasBudgetData: true,
+      },
+      reconciliation: {
+        accountCount: 2, incomeCount: 1, expenseCount: 1, otherIncomeCount: 0, otherExpenseCount: 0,
+        costOfGoodsSoldCount: 0, accountsWithBudgetCount: 2, totalsMatch: true,
+      },
+    };
+    // equityCents (45,000,000 assets minus 15,000,000 liabilities) is the whole reclassified
+    // Equity total -- see health-view-model.js's resolvePosition comment on why that field, not a
+    // piece of equityReclass, is "net assets" here. donorRestricted+unrestricted still sums to it.
+    const LIVE_BALANCE_SHEET = {
+      contract: 'connect.finance-balance-sheet.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      fiscalYear: new Date().getUTCFullYear(), asOfDate: '2026-09-15', generatedAt: '2026-09-15T12:00:00Z',
+      accounts: [
+        { classification: 'Assets', categoryPath: 'Assets:Current Assets:11000 Cash', accountName: '11000 Cash', depth: 1, hasChildren: false, ownBalanceCents: 45000000 },
+        { classification: 'Liabilities', categoryPath: 'Liabilities:21000 Note Payable', accountName: '21000 Note Payable', depth: 0, hasChildren: false, ownBalanceCents: 15000000 },
+        { classification: 'Equity', categoryPath: 'Equity:30000 Net Assets', accountName: '30000 Net Assets', depth: 0, hasChildren: false, ownBalanceCents: 30000000 },
+      ],
+      totals: {
+        assetsCents: 45000000, liabilitiesCents: 15000000, equityCents: 30000000,
+        currentAssetsCents: 45000000, fixedAssetsCents: 0, otherAssetsCents: 0,
+        liabilitiesPlusEquityCents: 45000000, balancedCents: 0,
+      }, // currentAssetsCents matches because categoryPath's "Current Assets" segment groups here (see assetGroupOf in finance-balance-sheet-consumer.js)
+      equityReclass: {
+        donorRestrictedCents: 10000000, unrestrictedCents: 20000000, totalEquityCents: 30000000,
+        breakdown: {
+          perpetual: { label: 'Perpetual endowments', cents: 0 },
+          purpose_time: { label: 'Purpose/time restricted', cents: 10000000 },
+          designated: { label: 'Designated ministry/purpose funds', cents: 0 },
+        },
+        unclassified: [],
+      },
+      reconciliation: { accountCount: 3, assetsCount: 1, liabilitiesCount: 1, equityCount: 1, unclassifiedEquityCount: 0, totalsMatch: true },
+    };
+
+    function connectServiceEnv({ church = null, balance = null } = {}) {
+      return {
+        ...env,
+        FINANCE_CONTRACT_API_KEY: 'test-secret',
+        CONNECT_SERVICE: {
+          async fetch(request) {
+            const url = new URL(request instanceof Request ? request.url : request);
+            if (url.pathname === '/api/contracts/staff-role-v1') {
+              return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+            }
+            if (url.pathname === '/api/contracts/finance-church-report-v1') {
+              return church ? new Response(JSON.stringify(church), { status: 200 }) : new Response('not found', { status: 404 });
+            }
+            if (url.pathname === '/api/contracts/finance-balance-sheet-v1') {
+              return balance ? new Response(JSON.stringify(balance), { status: 200 }) : new Response('not found', { status: 404 });
+            }
+            // Giving deliberately answers 404 here in every case below so its card stays on the
+            // synthetic fixture -- out of scope for this contract, and it keeps the assertions
+            // below unambiguous about which card's source label they are reading.
+            return new Response('not found', { status: 404 });
+          },
+        },
+      };
+    }
+
+    async function fetchHealth(testEnv) {
+      const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+        headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+      }), testEnv);
+      return { res, html: await res.text() };
+    }
+
+    it('shows real live figures with a "live from Connect" indicator on both cards when both live resolvers succeed', async () => {
+      const { res, html } = await fetchHealth(connectServiceEnv({ church: LIVE_CHURCH_REPORT, balance: LIVE_BALANCE_SHEET }));
+      expect(res.status).toBe(200);
+      expect(html).toContain('Live from Connect'); // the Financial Health section-heading badge
+      // Operating result: income $175,000 - expense $95,000 = $80,000 actual net; budget $70,000;
+      // variance +$10,000. None of these figures exist in the synthetic fixture.
+      expect(html).toContain('$80,000');
+      expect(html).toContain('Budget $70,000 · variance $10,000 · live from Connect');
+      // Financial position: assets $450,000, liabilities $150,000, net assets (equityCents) $300,000.
+      expect(html).toContain('$450,000');
+      expect(html).toContain('Assets $450,000 · liabilities $150,000 · live from Connect');
+      // Giving stayed synthetic (404 above) -- its own existing per-card label, unchanged, and
+      // still prints its own always-present synthetic-fallback footer note regardless of what
+      // Operating result/Financial position are doing (out of scope, untouched).
+      expect(html).toContain('synthetic fixture');
+      // Neither of the two now-live-capable cards fell back to the old synthetic totals -- this
+      // checks the Operating result/Financial position cards specifically (not the still-synthetic
+      // Entity overview/Church operating bridge panels a few sections down, which legitimately still
+      // show the old $40,000/$300,000 figures from the untouched, always-synthetic `churchReport` --
+      // out of scope for this contract, see shell.js's own comment on why it can't simply be reused).
+      expect(html).not.toContain('Budget $40,000 · variance $0');
+      expect(html).not.toContain('Assets $300,000 · liabilities $100,000');
+    });
+
+    it('shows each card independently in its own correct state when only one live resolver succeeds', async () => {
+      // Church Report live, Balance Sheet not (its own live attempt 404s and it falls back to the
+      // same synthetic fixture Balance Sheet's own section uses, labeled as such).
+      const { res, html } = await fetchHealth(connectServiceEnv({ church: LIVE_CHURCH_REPORT }));
+      expect(res.status).toBe(200);
+      expect(html).toContain('Budget $70,000 · variance $10,000 · live from Connect');
+      expect(html).toContain('Assets $300,000 · liabilities $100,000 · synthetic fixture');
+      expect(html).not.toContain('Budget $40,000 · variance $0');
+      // Mixed sources -- the section-heading badge no longer claims a single blanket state.
+      expect(html).toContain('Partially live');
+      expect(html).not.toContain('<span class="badge">Live from Connect</span>');
+    });
+
+    it('shows the reverse independently: Balance Sheet live, Church Report not', async () => {
+      const { res, html } = await fetchHealth(connectServiceEnv({ balance: LIVE_BALANCE_SHEET }));
+      expect(res.status).toBe(200);
+      expect(html).toContain('Assets $450,000 · liabilities $150,000 · live from Connect');
+      expect(html).toContain('variance $0 · synthetic fixture');
+      expect(html).not.toContain('Assets $300,000 · liabilities $100,000');
+      expect(html).toContain('Partially live');
+    });
+
+    it('falls back to the synthetic fixture, labeled per-card, when neither live resolver is configured (unconfigured/staging)', async () => {
+      // Same request shape as the two tests above, but with no CONNECT_SERVICE at all -- the exact
+      // staging state this repository runs in today (see the top-of-file `env`).
+      const { res, html } = await fetchHealth(env);
+      expect(res.status).toBe(200);
+      expect(html).toContain('variance $0 · synthetic fixture');
+      expect(html).toContain('Assets $300,000 · liabilities $100,000 · synthetic fixture');
+      expect(html).toContain('Synthetic staging');
+      expect(html).not.toContain('Partially live');
+      expect(html).not.toContain('<span class="badge">Live from Connect</span>');
+    });
   });
 
   it('renders a synthetic Daycare Report overview, its sub-pages, and its own read budget', async () => {
