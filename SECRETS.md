@@ -82,6 +82,13 @@ All secrets are stored as Cloudflare Worker secrets (`wrangler secret put <NAME>
 - **Rotation**: `wrangler secret put WORKER_SECRET` on this Worker, then update the same value in any calling Workers. Brief window during rotation where calls will be rejected.
 - **Risk if leaked**: Ability to call scheduler admin endpoints without a user session.
 
+### `FINANCE_CONTRACT_API_KEY`
+- **Purpose**: Shared secret for the server-to-server Finance contract endpoints (`/api/contracts/*` in `connect-worker.js` — `finance-church-report-v1`, `finance-balance-sheet-v1`, `finance-compensation-v1`, `finance-data-status-v1`, `finance-budget-v1`, `staff-role-v1`, `connect-giving-summary-v1`, `giving-quick-entry-v1`, and the rest of the `finance-*-v1` contracts in `src/api-contracts-service.js`). The `apps/finance` Worker sends this as `X-Contract-Key` when calling into `timothy-connect` over the `CONNECT_SERVICE` binding — same shared-secret shape as `CHMS_INTAKE_API_KEY`/`ADMIN_PUSH_API_KEY` above, not a user session. As of 2026-09-16 this key is not documented as provisioned anywhere and every `apps/finance/finance-*-client.js` reader reports `reason: 'not_configured'` in production, so all of Finance's live-first report pages are currently falling back to synthetic fixture data (or, where no fixture exists — e.g. Compensation Plan against the genuinely empty production Finance D1 — to an honest "data unavailable" state) instead of real Connect data.
+- **Must be set, with the identical value, on two separate pairs of Workers**: `timothy-connect` (validates it as the server) and `timothy-finance-app` (sends it as the client) for production; `timothy-connect-staging` and `timothy-finance-app-staging` for staging. The prod and staging values do not need to match each other, but each pair must match internally.
+- **Format**: Any strong random string (≥32 chars).
+- **Rotation**: `wrangler secret put FINANCE_CONTRACT_API_KEY` on `timothy-connect`, then the identical value on `timothy-finance-app` (and separately for the staging pair). Brief window during rotation where Finance's live contract reads will fail closed to synthetic/"data unavailable" rather than being rejected insecurely.
+- **Risk if leaked**: Ability to call Finance's read contract endpoints on `timothy-connect` (church report, balance sheet, compensation roster, data status, budget, staff role, Giving summary) and to relay a `giving-quick-entry-v1` write, without a user session. No credential or payment data is directly returned by these contracts, but compensation and Giving data are sensitive — see `apps/finance/README.md`'s access notes.
+
 ---
 
 ## Optional Secrets
