@@ -31,7 +31,7 @@ import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-serv
 import { buildFinancialMixView } from './financial-mix-service.js';
 import { buildEntityOverview } from './entity-overview-service.js';
 import { buildOperatingBridge } from './operating-bridge-service.js';
-import { readSyntheticPropertyForecast } from './property-forecast-service.js';
+import { readSyntheticPropertyForecast, resolvePropertyForecast } from './property-forecast-service.js';
 import { readSyntheticCompensationBenchmarks } from './compensation-benchmark-service.js';
 import { readSyntheticCompensationBenefits } from './compensation-benefits-service.js';
 import { readSyntheticPropertyDistributions } from './property-distributions-service.js';
@@ -194,7 +194,7 @@ function renderSectionBody(ctx) {
     section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrends, churchTrendLive, balanceSheet, balanceTrends,
     daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
     propertyLedgers, propertyLedgersLive, propertyValuation,
-    propertyForecast, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
+    propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
     compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle,
     roleResult,
   } = ctx;
@@ -280,7 +280,7 @@ function renderSectionBody(ctx) {
   if (section.id === 'property') {
     return renderPropertyPage(page.id, {
       propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
-      propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyDistributions,
+      propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions,
     });
   }
   if (section.id === 'planning') {
@@ -864,6 +864,13 @@ export default {
           ? await safeSyntheticRead(() => resolvePropertyLedgers(env)) : null;
         const propertyForecast = section.id === 'property'
           ? await safeSyntheticRead(() => readSyntheticPropertyForecast(env.FINANCE_DB)) : null;
+        // Run-rate forecast tries the real connect.finance-property-forecast.v1 endpoint first and
+        // falls back to the plain synthetic rows just above, labeled -- same live-first pattern as
+        // Property Operating/Reserves/Ledgers above. propertyForecast may itself already be
+        // SYNTHETIC_UNAVAILABLE here -- resolvePropertyForecast only threads it through as its own
+        // fallback's `rows`, it never dereferences it, so this call still can't throw.
+        const propertyForecastLive = section.id === 'property'
+          ? await safeSyntheticRead(() => resolvePropertyForecast(env, propertyForecast)) : null;
         const propertyDistributions = section.id === 'property'
           ? await safeSyntheticRead(() => readSyntheticPropertyDistributions(env.FINANCE_DB)) : null;
         const budgetReport = section.id === 'planning'
@@ -903,7 +910,7 @@ export default {
         return response(renderShell({
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrends, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves,
-          propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyDistributions, budgetReport, accountsReport,
+          propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
           givingEntryStatus, givingEntryMessage, payrollBundle,
         }), {
