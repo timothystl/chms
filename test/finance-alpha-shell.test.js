@@ -670,78 +670,6 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).not.toContain('2026-01');
   });
 
-  it('renders the Run-rate forecast page live from Connect when connect.finance-property-forecast.v1 answers, real-data-shaped (a current-year plan, not a future one)', async () => {
-    const VALID_LIVE_FORECAST = {
-      contract: 'connect.finance-property-forecast.v1', dataClassification: 'aggregate',
-      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
-      propertyKey: 'ivanhoe', generatedAt: '2026-09-16T12:00:00Z', forecastYear: 2026,
-      periods: [
-        { period: '2026-01', revenueCents: 1000000, expensesCents: 400000, netIncomeCents: 600000, reconciled: true, source: 'ahra_import' },
-        // Real finding: real December has a large annual expense landing in one month, making net
-        // income genuinely negative even though revenue/expenses are each nonnegative.
-        { period: '2026-12', revenueCents: 1000000, expensesCents: 1600000, netIncomeCents: -600000, reconciled: true, source: 'ahra_import' },
-      ],
-      totals: { revenueCents: 2000000, expensesCents: 2000000, netIncomeCents: 0, reconciled: true },
-    };
-    const liveEnv = envWithRoleService(async (request) => {
-      const url = new URL(request instanceof Request ? request.url : request);
-      if (url.pathname === '/api/contracts/staff-role-v1') {
-        return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
-      }
-      if (url.pathname === '/api/contracts/finance-property-forecast-v1') {
-        return new Response(JSON.stringify(VALID_LIVE_FORECAST), { status: 200 });
-      }
-      return new Response('not found', { status: 404 });
-    });
-
-    const res = await worker.fetch(new Request('https://finance.test/?section=property&page=forecast', {
-      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
-    }), liveEnv);
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain('Run-rate forecast');
-    expect(html).toContain('Fiscal year 2026 monthly plan');
-    expect(html).toContain('Live from Connect');
-    expect(html).toContain('$20,000');
-    expect(html).toContain('Reconciles to the cent');
-    // Real finding: real December net income is genuinely negative -- rendered signed, not
-    // fabricated as a positive or zeroed figure.
-    expect(html).toContain('2026-12');
-    expect(html).toContain('−$6,000');
-  });
-
-  it('real-data-shaped edge case: renders an honest "no complete forecast year" state, not a 500, when Connect has only a partial year on file', async () => {
-    const PARTIAL_YEAR_FORECAST = {
-      contract: 'connect.finance-property-forecast.v1', dataClassification: 'aggregate',
-      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
-      propertyKey: 'ivanhoe', generatedAt: '2026-09-16T12:00:00Z', forecastYear: null,
-      periods: [
-        { period: '2027-01', revenueCents: 100000, expensesCents: 40000, netIncomeCents: 60000, reconciled: true, source: 'ahra_import' },
-        { period: '2027-02', revenueCents: 100000, expensesCents: 40000, netIncomeCents: 60000, reconciled: true, source: 'ahra_import' },
-      ],
-      totals: { revenueCents: 0, expensesCents: 0, netIncomeCents: 0, reconciled: false },
-    };
-    const liveEnv = envWithRoleService(async (request) => {
-      const url = new URL(request instanceof Request ? request.url : request);
-      if (url.pathname === '/api/contracts/staff-role-v1') {
-        return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
-      }
-      if (url.pathname === '/api/contracts/finance-property-forecast-v1') {
-        return new Response(JSON.stringify(PARTIAL_YEAR_FORECAST), { status: 200 });
-      }
-      return new Response('not found', { status: 404 });
-    });
-
-    const res = await worker.fetch(new Request('https://finance.test/?section=property&page=forecast', {
-      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
-    }), liveEnv);
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain('No complete forecast year on file');
-    expect(html).toContain('Live from Connect');
-    expect(html).not.toContain('undefined');
-  });
-
   describe('Charts section reuses the Church Report and Property Reserves live resolvers', () => {
     // Deliberately different figures than both the committed synthetic fixture (Income
     // $120,000/$40,000 contributions+program, Expenses $80,000 programs+operations -- see the top
@@ -882,6 +810,78 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       expect(cashReserveHtml2).toContain('$4,750');
       expect(cashReserveHtml2).toContain('41.7% funded, 2026-05 · live from Connect');
     });
+  });
+
+  it('renders the Run-rate forecast page live from Connect when connect.finance-property-forecast.v1 answers, real-data-shaped (a current-year plan, not a future one)', async () => {
+    const VALID_LIVE_FORECAST = {
+      contract: 'connect.finance-property-forecast.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      propertyKey: 'ivanhoe', generatedAt: '2026-09-16T12:00:00Z', forecastYear: 2026,
+      periods: [
+        { period: '2026-01', revenueCents: 1000000, expensesCents: 400000, netIncomeCents: 600000, reconciled: true, source: 'ahra_import' },
+        // Real finding: real December has a large annual expense landing in one month, making net
+        // income genuinely negative even though revenue/expenses are each nonnegative.
+        { period: '2026-12', revenueCents: 1000000, expensesCents: 1600000, netIncomeCents: -600000, reconciled: true, source: 'ahra_import' },
+      ],
+      totals: { revenueCents: 2000000, expensesCents: 2000000, netIncomeCents: 0, reconciled: true },
+    };
+    const liveEnv = envWithRoleService(async (request) => {
+      const url = new URL(request instanceof Request ? request.url : request);
+      if (url.pathname === '/api/contracts/staff-role-v1') {
+        return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+      }
+      if (url.pathname === '/api/contracts/finance-property-forecast-v1') {
+        return new Response(JSON.stringify(VALID_LIVE_FORECAST), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    const res = await worker.fetch(new Request('https://finance.test/?section=property&page=forecast', {
+      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+    }), liveEnv);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('Run-rate forecast');
+    expect(html).toContain('Fiscal year 2026 monthly plan');
+    expect(html).toContain('Live from Connect');
+    expect(html).toContain('$20,000');
+    expect(html).toContain('Reconciles to the cent');
+    // Real finding: real December net income is genuinely negative -- rendered signed, not
+    // fabricated as a positive or zeroed figure.
+    expect(html).toContain('2026-12');
+    expect(html).toContain('−$6,000');
+  });
+
+  it('real-data-shaped edge case: renders an honest "no complete forecast year" state, not a 500, when Connect has only a partial year on file', async () => {
+    const PARTIAL_YEAR_FORECAST = {
+      contract: 'connect.finance-property-forecast.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      propertyKey: 'ivanhoe', generatedAt: '2026-09-16T12:00:00Z', forecastYear: null,
+      periods: [
+        { period: '2027-01', revenueCents: 100000, expensesCents: 40000, netIncomeCents: 60000, reconciled: true, source: 'ahra_import' },
+        { period: '2027-02', revenueCents: 100000, expensesCents: 40000, netIncomeCents: 60000, reconciled: true, source: 'ahra_import' },
+      ],
+      totals: { revenueCents: 0, expensesCents: 0, netIncomeCents: 0, reconciled: false },
+    };
+    const liveEnv = envWithRoleService(async (request) => {
+      const url = new URL(request instanceof Request ? request.url : request);
+      if (url.pathname === '/api/contracts/staff-role-v1') {
+        return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+      }
+      if (url.pathname === '/api/contracts/finance-property-forecast-v1') {
+        return new Response(JSON.stringify(PARTIAL_YEAR_FORECAST), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    const res = await worker.fetch(new Request('https://finance.test/?section=property&page=forecast', {
+      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+    }), liveEnv);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('No complete forecast year on file');
+    expect(html).toContain('Live from Connect');
+    expect(html).not.toContain('undefined');
   });
 
   it('renders honestly-labeled "not yet available" pages for the Commercial Property gaps', async () => {
