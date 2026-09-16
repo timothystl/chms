@@ -28,16 +28,34 @@ export function renderChurchTrendRows(rows) {
   return rows.map((row) => `<tr><td>${row.fiscal_year}</td><td>${formatCents(row.income_cents)}</td><td>${formatCents(row.expense_cents)}</td><td>${formatSignedCents(row.net_cents)}</td></tr>`).join('');
 }
 
+// Live trend rows carry the connect.finance-church-report-trend.v1 contract's own camelCase shape
+// (see church-report-service.js's resolveChurchTrend) -- fiscalYear/incomeActualCents/
+// expenseActualCents/netIncomeActualCents, the same full bottom-line netIncomeActualCents
+// definition the single-year contract's own totals use (folds in Cost of Goods Sold and Other
+// Income/Expenses), NOT a naive income-minus-expense figure. This matches production's own
+// existing multi-year trend chart/table (src/frontend/js-finance.js's finRenderChurchMultiYear),
+// which never shows a budget column here either -- actual-only, same as this render.
+export function renderLiveChurchTrendRows(years) {
+  return years.map((row) => `<tr><td>${row.fiscalYear}</td><td>${formatCents(row.incomeActualCents)}</td><td>${formatCents(row.expenseActualCents)}</td><td>${formatSignedCents(row.netIncomeActualCents)}</td></tr>`).join('');
+}
+
 // `churchReport` here is resolveChurchReport()'s result -- { source: 'live', fiscalYear, accounts,
 // totals } or { source: 'synthetic-fallback', fallbackReason, rows } -- never the raw synthetic row
-// array church-pages.js used to receive directly. 'trend' (multi-year) has no live equivalent yet
-// and always reads churchTrends, the untouched synthetic reader -- out of scope for this contract,
-// same as Health/Charts/Packet's own still-synthetic churchReport usage in shell.js.
-export function renderChurchPage(pageId, { churchReport, churchTrends }) {
+// array church-pages.js used to receive directly. `churchTrendLive` is resolveChurchTrend()'s
+// result in the same two shapes -- { source: 'live', years } or { source: 'synthetic-fallback',
+// fallbackReason, rows } -- for the 'trend' (multi-year) page specifically. Health/Charts/Packet's
+// own still-synthetic churchReport/churchTrends usage in shell.js is untouched, out of scope for
+// this contract.
+export function renderChurchPage(pageId, { churchReport, churchTrendLive }) {
   if (pageId === 'trend') {
-    return `<section class="report" aria-label="Synthetic Church Report multi-year trend">
-      ${renderSectionHeading({ eyebrow: 'Church Report', heading: 'Multi-year operating trend', badge: 'Synthetic staging' })}
-      ${renderTable({ head: ['Fiscal year', 'Income', 'Expenses', 'Net result'], rows: renderChurchTrendRows(churchTrends) })}
+    const isTrendLive = churchTrendLive.source === 'live';
+    const badge = isTrendLive ? 'Live from Connect' : 'Synthetic staging';
+    const rows = isTrendLive ? renderLiveChurchTrendRows(churchTrendLive.years) : renderChurchTrendRows(churchTrendLive.rows);
+    const fallbackNote = isTrendLive ? '' : `<p><small>The committed synthetic fixture (the live endpoint is not configured or did not answer${churchTrendLive.fallbackReason ? `: ${escapeHtml(churchTrendLive.fallbackReason)}` : ''}).</small></p>`;
+    return `<section class="report" aria-label="Church Report multi-year trend">
+      ${renderSectionHeading({ eyebrow: 'Church Report', heading: 'Multi-year operating trend', badge })}
+      ${renderTable({ head: ['Fiscal year', 'Income', 'Expenses', 'Net result'], rows })}
+      ${fallbackNote}
     </section>`;
   }
 

@@ -1,5 +1,6 @@
 import { runBudgetedReadBatch } from './query-budget.js';
 import { fetchLiveFinanceChurchReport, defaultLiveChurchReportFiscalYear } from './finance-church-report-client.js';
+import { fetchLiveFinanceChurchReportTrend } from './finance-church-report-trend-client.js';
 
 const CLASSIFICATIONS = new Set(['Income', 'Expenses']);
 
@@ -34,9 +35,10 @@ export async function readSyntheticChurchTrends(db) {
 // reason -- same never-throws, always-labeled pattern as budget-report-service.js's
 // resolveBudgetReport. `db` here is Finance's own FINANCE_DB, used only for the synthetic fallback
 // path. Only the 'church' section's overview/income-expense/budget-actual pages use this; the
-// 'trend' page (multi-year) and the Financial Health/Charts/Packet sections that also read
-// churchReport remain on the synthetic reader below -- out of scope for this contract, the same way
-// Budget's own live slice left editing and growth scenarios out of scope.
+// Financial Health/Charts/Packet sections that also read churchReport remain on the synthetic
+// reader below -- out of scope for this contract, the same way Budget's own live slice left
+// editing and growth scenarios out of scope. The 'trend' (multi-year) page now has its own live
+// resolver, resolveChurchTrend, just below.
 export async function resolveChurchReport(env, db) {
   const fiscalYear = defaultLiveChurchReportFiscalYear();
   const result = await fetchLiveFinanceChurchReport(env, fiscalYear);
@@ -49,6 +51,24 @@ export async function resolveChurchReport(env, db) {
     };
   }
   const rows = await readSyntheticChurchReport(db);
+  return { source: 'synthetic-fallback', fallbackReason: result.reason, rows };
+}
+
+// Tries the real connect.finance-church-report-trend.v1 endpoint (no query parameters -- the trend
+// is inherently the whole multi-year history, not one period); falls back to the existing
+// readSyntheticChurchTrends fixture whenever the live call isn't configured yet or fails for any
+// reason -- same never-throws, always-labeled pattern as resolveChurchReport just above. `db` here
+// is Finance's own FINANCE_DB, used only for the synthetic fallback path. Only the 'church'
+// section's 'trend' page uses this; the Financial Health/Charts/Packet sections' own multi-year
+// reads of churchTrends (readSyntheticChurchTrends called directly) are untouched and stay
+// synthetic-only, out of scope for this contract, the same way the single-year contract above left
+// them out of scope too.
+export async function resolveChurchTrend(env, db) {
+  const result = await fetchLiveFinanceChurchReportTrend(env);
+  if (result.ok) {
+    return { source: 'live', years: result.trend.years };
+  }
+  const rows = await readSyntheticChurchTrends(db);
   return { source: 'synthetic-fallback', fallbackReason: result.reason, rows };
 }
 

@@ -16,7 +16,7 @@ import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from '
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
-import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends, resolveChurchReport } from './church-report-service.js';
+import { buildChurchReportView, readSyntheticChurchReport, readSyntheticChurchTrends, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
 import { readSyntheticBalanceTrends, resolveBalanceSheet } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
@@ -191,7 +191,7 @@ function renderEntityCards(entities) {
 
 function renderSectionBody(ctx) {
   const {
-    section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrends, balanceSheet, balanceTrends,
+    section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrends, churchTrendLive, balanceSheet, balanceTrends,
     daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
     propertyLedgers, propertyLedgersLive, propertyValuation,
     propertyForecast, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
@@ -268,7 +268,7 @@ function renderSectionBody(ctx) {
     return renderChartsPage(page.id, { churchReport, cashRunway, propertyReserves, giving, givingSource });
   }
   if (section.id === 'church') {
-    return renderChurchPage(page.id, { churchReport: churchReportLive, churchTrends });
+    return renderChurchPage(page.id, { churchReport: churchReportLive, churchTrendLive });
   }
   if (section.id === 'balance') {
     return renderBalancePage(page.id, { balanceSheet, balanceTrends });
@@ -796,8 +796,20 @@ export default {
           ? await safeSyntheticRead(() => readSyntheticChurchReport(env.FINANCE_DB)) : null;
         const churchReportLive = section.id === 'church'
           ? await safeSyntheticRead(() => resolveChurchReport(env, env.FINANCE_DB)) : null;
-        const churchTrends = ['church', 'packet'].includes(section.id)
+        // Only 'packet' reads the plain synthetic churchTrends directly now -- same split as
+        // churchReport/churchReportLive just above, where 'church' reads ONLY the live-first
+        // resolver (its own fallback calls readSyntheticChurchTrends itself when needed) rather
+        // than both, which would double the synthetic read for the same section.
+        const churchTrends = section.id === 'packet'
           ? await safeSyntheticRead(() => readSyntheticChurchTrends(env.FINANCE_DB)) : null;
+        // The 'trend' page of the 'church' section (multi-year operating trend) tries the real
+        // connect.finance-church-report-trend.v1 endpoint first and falls back to the same
+        // synthetic fixture (readSyntheticChurchTrends, called internally by resolveChurchTrend's
+        // own fallback), same live-first pattern as Church Report's own resolveChurchReport. The
+        // Financial Health/Charts/Packet sections' own `churchTrends` read above is untouched and
+        // stays synthetic-only -- out of scope for this contract, same as churchReport's split above.
+        const churchTrendLive = section.id === 'church'
+          ? await safeSyntheticRead(() => resolveChurchTrend(env, env.FINANCE_DB)) : null;
         // Balance Sheet tries the real connect.finance-balance-sheet.v1 endpoint first and falls
         // back to the same synthetic fixture, labeled, via resolveBalanceSheet -- same live-first
         // pattern as Church Report's resolveChurchReport just above and Budget's
@@ -881,7 +893,7 @@ export default {
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
         return response(renderShell({
-          metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrends,
+          metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrends, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyDistributions, budgetReport, accountsReport,
           dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,

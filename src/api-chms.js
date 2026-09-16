@@ -250,6 +250,11 @@ export async function handleChmsApi(req, env, url, method, seg, role = 'admin') 
     // the handler with NO permission check at all -- see docs/ARCHITECTURE.md's ACCESS_GATE note
     // on exactly this trap.
     { match: (s) => s.startsWith('contracts/finance-budget'), item: 'finance' },
+    // The prefix match below also covers the thirteenth contract, 'contracts/finance-church-
+    // report-trend-v1' (the multi-year Church Report page) -- same 'finance' item, same reasoning:
+    // it is the same finance_church_entries actual/budget dollar data as the single-year contract
+    // just above, rolled up per fiscal year instead of scoped to one. No separate rule was added
+    // deliberately, so a future reader does not wonder whether it was missed.
     { match: (s) => s.startsWith('contracts/finance-church-report'), item: 'finance' },
     { match: (s) => s.startsWith('contracts/finance-balance-sheet'), item: 'finance' },
     // Same trap, same fix, for the seventh contract: Daycare Report carries real actual/budget
