@@ -793,6 +793,67 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(benefitsHtml).toContain('must exactly match the benefits plan');
   });
 
+  describe('live Compensation Council snapshot for admin/council/compensation, Benchmarks/Benefits stay synthetic', () => {
+    // Every name/dollar figure below is entirely fabricated for this test -- never a real
+    // production value. Mirrors VALID_LIVE_PAYLOAD in finance-compensation-service.test.js.
+    function liveCompensationEnv(role) {
+      const workers = [
+        { name: 'Worker A', position: 'Fictional Director', accountCode: '', role: 'other', trackKey: '', education: 'bachelors', yearsExperience: 3, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: false, hasDependents: false, healthEnrolled: true, hideFromCouncil: false, currentPayCents: 5000000, currentPaySource: 'entered' },
+        { name: 'Worker B (hidden from council)', position: 'Fictional Assistant', accountCode: '', role: 'other', trackKey: '', education: 'bachelors', yearsExperience: 1, responsibilityStipend: 0, attendanceBonus: 0, selfEmployedFica: false, hasDependents: false, healthEnrolled: false, hideFromCouncil: true, currentPayCents: 9000000, currentPaySource: 'entered' },
+      ];
+      const payload = {
+        contract: 'connect.finance-compensation.v1', dataClassification: 'aggregate', sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+        generatedAt: '2026-09-15T00:00:00Z', workers,
+        totals: { workerCount: 2, enteredCurrentPayCount: 2, unenteredCurrentPayCount: 0, enteredCurrentPayCents: 14000000 },
+        reconciliation: { workerCount: 2, totalsMatch: true },
+      };
+      return envWithRoleService(async (req) => {
+        const url = new URL(req.url);
+        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role }), { status: 200 });
+        if (url.pathname === '/api/contracts/finance-compensation-v1') return new Response(JSON.stringify(payload), { status: 200 });
+        return new Response('not found', { status: 404 });
+      });
+    }
+    const req = (url) => new Request(url, { headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' } });
+
+    it('admin sees a real, aggregate Council snapshot including a worker flagged hideFromCouncil', async () => {
+      const html = await (await worker.fetch(req('https://finance.test/?section=compensation&page=council'), liveCompensationEnv('admin'))).text();
+      expect(html).toContain('Council review snapshot');
+      expect(html).toContain('Real roster decision context');
+      expect(html).toContain('Live from Connect · review-only · not approved');
+      expect(html).toContain('Workers on roster');
+      expect(html).toContain('>2<');
+      expect(html).toContain('Entered current pay total');
+      expect(html).toContain('$140,000');
+      expect(html).not.toContain('Weighted adjustment');
+      expect(html).not.toContain('Benefits share');
+    });
+
+    it('council sees the same real snapshot with the hideFromCouncil worker excluded from the aggregate', async () => {
+      const html = await (await worker.fetch(req('https://finance.test/?section=compensation&page=council'), liveCompensationEnv('council'))).text();
+      expect(html).toContain('>1<');
+      expect(html).toContain('$50,000');
+      expect(html).not.toContain('$140,000');
+      expect(html).toContain('Excludes any worker not shown to council');
+    });
+
+    it('Benchmarks and Benefits stay fully synthetic even for admin with a live compensation roster available', async () => {
+      const roleEnv = liveCompensationEnv('admin');
+      const benchmarkHtml = await (await worker.fetch(req('https://finance.test/?section=compensation&page=benchmarks'), roleEnv)).text();
+      expect(benchmarkHtml).toContain('Synthetic · not published guidance');
+      expect(benchmarkHtml).not.toContain('Worker A');
+      const benefitsHtml = await (await worker.fetch(req('https://finance.test/?section=compensation&page=benefits'), roleEnv)).text();
+      expect(benefitsHtml).toContain('No personal identities are included');
+      expect(benefitsHtml).not.toContain('Worker A');
+    });
+
+    it("the Plan page still shows every worker verbatim (unchanged, out of this change's scope) -- Council is the only page that filters hideFromCouncil", async () => {
+      const html = await (await worker.fetch(req('https://finance.test/?section=compensation&page=plan'), liveCompensationEnv('council'))).text();
+      expect(html).toContain('Worker A');
+      expect(html).toContain('Worker B (hidden from council)');
+    });
+  });
+
   it('serves only synthetic read-only summary data', async () => {
     statements.length = 0;
     const res = await worker.fetch(new Request('https://finance.test/api/summary'), env);
