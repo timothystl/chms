@@ -44,10 +44,10 @@ describe('wrapEnvForDbAttribution', () => {
   it('wraps only the DB binding; every other binding passes through untouched', () => {
     const realDb = makeFakeDb();
     const kv = { get: async () => null };
-    const env = { DB: realDb, RSVP_STORE: kv, SOME_SECRET: 'x' };
+    const env = { DB: realDb, KV: kv, SOME_SECRET: 'x' };
     const { env: wrapped, counter } = wrapEnvForDbAttribution(env);
 
-    expect(wrapped.RSVP_STORE).toBe(kv);
+    expect(wrapped.KV).toBe(kv);
     expect(wrapped.SOME_SECRET).toBe('x');
     expect(wrapped.DB).not.toBe(realDb);
 

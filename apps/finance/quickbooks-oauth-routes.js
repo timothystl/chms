@@ -34,7 +34,7 @@ import { getAuthorizeUrl, exchangeCodeForTokens, revokeToken, refreshTokens, mak
 import { ensureFreshAccessToken } from './quickbooks-token-service.js';
 import { mergeCurrentYearBudgetAndActual, fetchQboJson } from './quickbooks-budget-merge.js';
 
-const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes — same window the legacy RSVP_STORE KV entry uses
+const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes — same window legacy Connect's KV entry uses
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
@@ -55,7 +55,7 @@ export async function handleConnect(req, url, env, db, ctx) {
   try {
     await db.prepare('INSERT INTO finance_qb_oauth_state (state, expires_at) VALUES (?,?)').bind(state, expiresAt).run();
   } catch {
-    // Fail CLOSED, exactly like legacy's `if (!env.RSVP_STORE)` check — a state that can't be
+    // Fail CLOSED, exactly like legacy Connect's `if (!env.KV)` check — a state that can't be
     // persisted is no CSRF protection at all, so refuse to start the flow rather than proceed
     // without one.
     return jsonResponse({ error: 'QuickBooks connect is temporarily unavailable (state store not writable)' }, 503);

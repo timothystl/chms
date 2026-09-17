@@ -15,7 +15,7 @@ function envFor(role) {
   return {
     ...SECRETS,
     DB: { prepare: () => stmt, batch: async () => [] },
-    RSVP_STORE: { get: async () => null, put: async () => {}, delete: async () => {} },
+    KV: { get: async () => null, put: async () => {}, delete: async () => {} },
   };
 }
 

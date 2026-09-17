@@ -76,16 +76,20 @@ database_name = "timothy-connect-db"
 database_id = "9e65fb21-5b6c-4f7b-bc0a-8f0ecb38cf05"
 migrations_dir = "migrations"
 
-# Renamed from RSVP_STORE (Cloudflare KV namespace, not the binding name) 2026-09-14: the old
-# namespace still exists and is left untouched -- see the data-copy workflow at
+# Namespace renamed from RSVP_STORE (Cloudflare KV namespace, not the binding name) 2026-09-14:
+# the old namespace still exists and is left untouched -- see the data-copy workflow at
 # .github/workflows/migrate-rsvp-store-kv.yml and scripts/migrate-kv-namespace.sh for how its
 # data (password-reset tokens, member-invite tokens, RSVP/rate-limit counters) was copied here.
-# Because the old namespace stayed live and writable throughout the copy, re-run that workflow
-# once more immediately before deploying this change to catch up on anything written since the
-# last copy, then confirm auth/reset/invite/RSVP flows against the new namespace after deploy,
-# before deleting the old RSVP_STORE namespace in a later, separate step.
+#
+# Binding renamed from RSVP_STORE to KV 2026-09-17: "RSVP_STORE" was misleading as a binding
+# name -- this single KV namespace also backs login/password-reset/public-intake/scheduler-signup
+# rate limiting, password-reset tokens, member-invite tokens, and QuickBooks OAuth state, not
+# just RSVP. Pure code-level identifier rename, no live Cloudflare resource touched or data
+# moved -- every env.RSVP_STORE call site across src/*.js, connect-worker.js, and test fixtures
+# was updated to env.KV in the same change, matching this repo's existing generic-binding
+# convention (DB, PHOTOS).
 [[kv_namespaces]]
-binding = "RSVP_STORE"
+binding = "KV"
 id = "f27b2da9a6ed403da45810617a3e7eb2"
 
 # Renamed from tlc-chms-photos (Cloudflare R2 bucket, not the binding name -- PHOTOS was

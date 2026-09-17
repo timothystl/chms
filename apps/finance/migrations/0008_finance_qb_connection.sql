@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS finance_qb_snapshot (
   synced_at  TEXT NOT NULL DEFAULT ''
 );
 
--- Legacy Connect stores OAuth CSRF state in the RSVP_STORE KV namespace (see api-finance.js's
+-- Legacy Connect stores OAuth CSRF state in its KV namespace (see api-finance.js's
 -- finance/qb/connect handler) and fails closed when that binding is missing. apps/finance's own
 -- wrangler config has no KV namespace bound today (see wrangler.finance.staging.jsonc and
 -- test/finance-alpha-shell.test.js's assertion that kv_namespaces must not exist in the alpha

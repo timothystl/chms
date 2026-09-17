@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { handleSchedRsvp, handleSchedRsvpStore, handleSchedRsvpStatus, schedKvPut } from '../src/api-scheduler.js';
 
 // Reported live: Daniel Dicus confirmed his Sep 20 8am Liturgist assignment via the email
-// link. The RSVP write to KV (RSVP_STORE) succeeded, but the Scheduler kept showing him as
+// link. The RSVP write to KV succeeded, but the Scheduler kept showing him as
 // "Pending" everywhere -- desktop, mobile, even after an admin clicked "Sync Confirmations",
 // on multiple devices. Root cause, in two layers:
 //
@@ -87,7 +87,7 @@ describe('handleSchedRsvp() writes confirmation straight into scheduler_confirma
   it('creates a row and sets the slot status when none existed yet', async () => {
     const db = makeDb();
     const kv = makeKv();
-    const env = { DB: db, RSVP_STORE: kv };
+    const env = { DB: db, KV: kv };
     await schedKvPut(env, 'tok-daniel', {
       token: 'tok-daniel', name: 'Daniel Dicus',
       assignments: [{ date: 'Sep 20, 2026', dateISO: '2026-09-20', svc: '8am', role: 'Liturgist', status: 'pending' }],
@@ -107,7 +107,7 @@ describe('handleSchedRsvp() writes confirmation straight into scheduler_confirma
   it('merges without clobbering other slots', async () => {
     const db = makeDb();
     const kv = makeKv();
-    const env = { DB: db, RSVP_STORE: kv };
+    const env = { DB: db, KV: kv };
     await db.prepare(
       "INSERT INTO scheduler_confirmations (date_iso, role, svc, status) VALUES ('2026-09-20','Elder','8am','confirmed')"
     ).run();
@@ -128,7 +128,7 @@ describe('handleSchedRsvp() writes confirmation straight into scheduler_confirma
   it('writes every assignment on the token, and maps "both services" to the "shared" slot key', async () => {
     const db = makeDb();
     const kv = makeKv();
-    const env = { DB: db, RSVP_STORE: kv };
+    const env = { DB: db, KV: kv };
     await schedKvPut(env, 'tok-multi', {
       token: 'tok-multi', name: 'Aaron Farrow',
       assignments: [
@@ -149,7 +149,7 @@ describe('handleSchedRsvp() writes confirmation straight into scheduler_confirma
   it('only writes the targeted assignment when idx is given', async () => {
     const db = makeDb();
     const kv = makeKv();
-    const env = { DB: db, RSVP_STORE: kv };
+    const env = { DB: db, KV: kv };
     await schedKvPut(env, 'tok-idx', {
       token: 'tok-idx', name: 'Stephen Peeler',
       assignments: [
@@ -169,7 +169,7 @@ describe('handleSchedRsvp() writes confirmation straight into scheduler_confirma
 
   it('never breaks the RSVP response when env.DB is unavailable', async () => {
     const kv = makeKv();
-    const env = { RSVP_STORE: kv }; // no DB binding
+    const env = { KV: kv }; // no DB binding
     await schedKvPut(env, 'tok-nodb', {
       token: 'tok-nodb', name: 'No DB',
       assignments: [{ date: 'Sep 20, 2026', dateISO: '2026-09-20', svc: '8am', role: 'Elder', status: 'pending' }],
@@ -188,7 +188,7 @@ describe('handleSchedRsvpStore() keeps scheduler_rsvp_tokens as the real person<
 
   it('records a brand-new person/token pairing', async () => {
     const db = makeDb();
-    const env = { DB: db, RSVP_STORE: makeKv() };
+    const env = { DB: db, KV: makeKv() };
 
     const res = await handleSchedRsvpStore(storeReq({
       token: 'tok-p1275', name: 'Daniel Dicus', personId: 'p1275',
@@ -201,7 +201,7 @@ describe('handleSchedRsvpStore() keeps scheduler_rsvp_tokens as the real person<
 
   it('updates the token on a re-send without losing other people already recorded', async () => {
     const db = makeDb();
-    const env = { DB: db, RSVP_STORE: makeKv() };
+    const env = { DB: db, KV: makeKv() };
     await db.prepare("INSERT INTO scheduler_rsvp_tokens (person_id, token, name) VALUES ('p999','tok-other','Someone Else')").run();
 
     await handleSchedRsvpStore(storeReq({ token: 'tok-p1275-v1', name: 'Daniel Dicus', personId: 'p1275', assignments: [] }), env);
@@ -211,7 +211,7 @@ describe('handleSchedRsvpStore() keeps scheduler_rsvp_tokens as the real person<
   });
 
   it('never breaks the store response when env.DB is unavailable', async () => {
-    const env = { RSVP_STORE: makeKv() };
+    const env = { KV: makeKv() };
     const res = await handleSchedRsvpStore(storeReq({ token: 'tok-x', name: 'X', personId: 'pX', assignments: [] }), env);
     expect(res.status).toBe(200);
   });

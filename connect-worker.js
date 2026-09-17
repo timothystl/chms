@@ -141,7 +141,7 @@ async function sendScheduleReminders(env) {
   const now = new Date();
   if (centralDayOfWeek(now) !== 6) return { skipped: 'not Saturday' };
   if (!env.VAPID_PRIVATE_KEY || !env.VAPID_PUBLIC_KEY) return { skipped: 'no VAPID keys' };
-  if (!env.RSVP_STORE) return { skipped: 'no KV store' };
+  if (!env.KV) return { skipped: 'no KV store' };
 
   // Next Sunday's ISO date in Central time.
   const tomorrowISO = new Intl.DateTimeFormat('en-CA', {
@@ -151,7 +151,7 @@ async function sendScheduleReminders(env) {
   // Fetch schedule from KV
   let schedule = [];
   try {
-    const raw = await env.RSVP_STORE.get('ws_schedule_v2');
+    const raw = await env.KV.get('ws_schedule_v2');
     if (raw) schedule = JSON.parse(raw);
   } catch { return { skipped: 'KV error' }; }
 
@@ -203,7 +203,7 @@ async function sendScheduleReminders(env) {
 // the same `ws_schedule_v2` KV blob as sendScheduleReminders — that blob is
 // the only place "who's assigned to what" lives server-side. **Deliberately
 // does NOT cover "unconfirmed"** (an assignment made but not yet RSVP'd) —
-// RSVP status lives in per-token records in RSVP_STORE with no index/prefix
+// RSVP status lives in per-token records in KV with no index/prefix
 // linking a token back to its schedule row, so there's no reliable way to
 // enumerate "still-pending" responses from the Worker side without adding a
 // whole new indexing scheme. Confirm/decline pushes (see handleSchedRsvp)
@@ -212,10 +212,10 @@ async function sendScheduleReminders(env) {
 // Fires once/day while any slot for the coming week is open — not deduped
 // beyond that, so it repeats daily until filled, same as a real to-do would.
 async function checkUnfilledShifts(env) {
-  if (!env.RSVP_STORE) return { skipped: 'no KV store' };
+  if (!env.KV) return { skipped: 'no KV store' };
   let schedule = [];
   try {
-    const raw = await env.RSVP_STORE.get('ws_schedule_v2');
+    const raw = await env.KV.get('ws_schedule_v2');
     if (raw) schedule = JSON.parse(raw);
   } catch { return { skipped: 'KV error' }; }
   if (!Array.isArray(schedule)) return { skipped: 'no schedule data' };

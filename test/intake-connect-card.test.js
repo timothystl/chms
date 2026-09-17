@@ -38,14 +38,14 @@ function makeDb() {
     INSERT INTO people (id,first_name,last_name,email,phone,member_type,status,active) VALUES
       (1,'Kelly','Schallon','kelly@example.org','','Member','active',1);
   `);
-  // RSVP_STORE backs the intake rate limiter, which fails CLOSED (429) when unbound (P22-E) —
+  // KV backs the intake rate limiter, which fails CLOSED (429) when unbound (P22-E) —
   // a fake KV store here so these tests exercise the real handler, not the missing-binding path.
   const kv = new Map();
-  const rsvpStore = {
+  const kvStore = {
     get: (k) => Promise.resolve(kv.has(k) ? kv.get(k) : null),
     put: (k, v) => { kv.set(k, v); return Promise.resolve(); },
   };
-  return { DB: db, CHMS_INTAKE_API_KEY: 'testkey', RSVP_STORE: rsvpStore };
+  return { DB: db, CHMS_INTAKE_API_KEY: 'testkey', KV: kvStore };
 }
 
 function req(body, headers) {
