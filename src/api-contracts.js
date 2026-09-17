@@ -26,6 +26,7 @@ import {
   applyDesignatedFundsAsEquity, computeBalanceSummary, computeEquityReclassification,
   computeMdoUtilityInsuranceAllocation, computePropertyAnnualSummary,
 } from './api-finance.js';
+import { resolveGeneralFundIds } from './api-utils.js';
 
 function isValidFiscalYearStr(value) {
   return typeof value === 'string' && /^\d{4}$/.test(value) && Number(value) >= 2000 && Number(value) <= 2100;
@@ -67,6 +68,15 @@ export async function buildConnectGivingSummaryV1(db, { startDate, endDate, now 
       ORDER BY f.id ASC`
   ).bind(startDate, endDate).all()).results || [];
 
+  // Same classification the giving-board report and the Health page's giving-pace chart already
+  // use (resolveGeneralFundIds, api-utils.js) -- queried across EVERY fund, not just the ones with
+  // gifts in this period, since the shared-numeric-prefix fallback needs the whole family to
+  // resolve correctly. Reusing it here (rather than a second, narrower name-match copy of the
+  // rule) is what keeps this contract's isGeneralFund flag from ever disagreeing with what those
+  // other screens call General Fund giving.
+  const allFundRows = (await db.prepare(`SELECT id, name, category FROM funds`).all()).results || [];
+  const { ids: generalFundIds } = resolveGeneralFundIds(allFundRows);
+
   const funds = rows.map((row) => ({
     fundRef: String(row.fund_id),
     fundLabel: row.fund_name,
@@ -77,6 +87,7 @@ export async function buildConnectGivingSummaryV1(db, { startDate, endDate, now 
       refundCents: row.refund_cents,
       netCents: row.net_cents,
     },
+    isGeneralFund: generalFundIds.has(row.fund_id),
   }));
 
   const totals = funds.reduce((acc, fund) => ({

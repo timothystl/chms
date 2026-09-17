@@ -58,7 +58,7 @@
     "fund": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["fundRef", "fundLabel", "giftCount", "householdCount", "amounts"],
+      "required": ["fundRef", "fundLabel", "giftCount", "householdCount", "amounts", "isGeneralFund"],
       "properties": {
         "fundRef": { "type": "string", "minLength": 1, "maxLength": 128 },
         "fundLabel": { "type": "string", "minLength": 1, "maxLength": 160 },
@@ -68,7 +68,11 @@
           "description": "Gift records represented for this fund and period."
         },
         "householdCount": { "type": "integer", "minimum": 0 },
-        "amounts": { "$ref": "#/$defs/amounts" }
+        "amounts": { "$ref": "#/$defs/amounts" },
+        "isGeneralFund": {
+          "type": "boolean",
+          "description": "Same classification the giving-board report uses (resolveGeneralFundIds, src/api-utils.js) -- a fund's Settings-assigned category, or the legacy name/numeric-prefix fallback when nothing has been categorized yet."
+        }
       }
     }
   }

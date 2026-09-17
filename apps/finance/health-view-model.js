@@ -107,13 +107,20 @@ export function buildFinancialHealthView(summary, giving, live = {}) {
   return {
     operating: resolveOperating(summary, churchReportLive),
     position: resolvePosition(summary, balanceSheetLive),
-    giving: {
-      grossCents: Number(giving.totals.grossCents || 0),
-      refundCents: Number(giving.totals.refundCents || 0),
-      netCents: Number(giving.totals.netCents || 0),
-      sourceRecordCount: Number(giving.reconciliation.sourceRecordCount || 0),
-      reconciled: giving.reconciliation.totalsMatch === true,
-    },
+    // Scoped to General Fund only (giving.funds[].isGeneralFund, the same classification the
+    // giving-board report and the Health page's own giving-pace chart already use -- see
+    // resolveGeneralFundIds in src/api-utils.js) -- Andrew's own call (2026-09-17): the board's
+    // headline giving figure is what the plate/general offerings actually raised, not every
+    // restricted/designated fund summed together. `giving.totals` remains the ALL-funds figure and
+    // is still used elsewhere (Charts revenue mix, Board packet) where that's the right scope.
+    giving: (() => {
+      const generalFunds = (giving.funds || []).filter((f) => f.isGeneralFund);
+      const grossCents = generalFunds.reduce((total, f) => total + f.amounts.grossCents, 0);
+      const refundCents = generalFunds.reduce((total, f) => total + f.amounts.refundCents, 0);
+      const netCents = generalFunds.reduce((total, f) => total + f.amounts.netCents, 0);
+      const sourceRecordCount = generalFunds.reduce((total, f) => total + f.giftCount, 0);
+      return { grossCents, refundCents, netCents, sourceRecordCount, reconciled: grossCents - refundCents === netCents };
+    })(),
     decisions: FINANCE_HEALTH_DECISIONS,
   };
 }
