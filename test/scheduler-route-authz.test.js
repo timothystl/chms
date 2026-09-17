@@ -90,6 +90,7 @@ const PRIVILEGED = [
   ['POST', '/email/send'],
   ['POST', '/rsvp/store'],
   ['POST', '/rsvp/sync'],
+  ['GET',  '/rsvp/status'],
   ['GET',  '/api/people?limit=1'],
   ['GET',  '/breeze/people'],
 ];

@@ -751,31 +751,46 @@ export async function schedKvPut(env, key, value) {
   await env.RSVP_STORE.put(key, JSON.stringify(value), { expirationTtl: 31536000 });
 }
 
-// Write a volunteer's RSVP response straight into the same D1 scheduler_data
-// 'ws_confirmations' blob the desktop Scheduler and Mobile Admin both read —
-// so a click on the email link shows up everywhere immediately, without
-// waiting on an admin's browser to hold that person's RSVP token locally and
-// click "Sync Confirmations" (the per-browser token cache can and does fall
-// out of sync between admins/devices; this bypasses it for the RSVP path).
+// Write a volunteer's RSVP response straight into the relational scheduler_confirmations
+// table (see migrations/0052_scheduler_rsvp_relational.sql) — one row per date/role/service
+// slot — so a click on the email link shows up everywhere immediately: no browser's local
+// RSVP-token cache is involved, and no admin save can ever overwrite another slot's status,
+// since each write only ever touches the exact rows it names.
 // Best-effort and non-fatal: never let this break the volunteer's response.
 async function writeConfirmationsToD1(env, assignments) {
   if (!env.DB || !assignments || !assignments.length) return;
-  const pairs = [];
+  const rows = [];
   for (const a of assignments) {
     if (!a.dateISO || !a.role) continue;
     const svcKey = a.svc === 'both services' ? 'shared' : a.svc;
-    pairs.push('$.' + JSON.stringify(a.dateISO + '|' + a.role + '|' + svcKey), a.status || 'pending');
+    rows.push([a.dateISO, a.role, svcKey, a.status || 'pending']);
   }
-  if (!pairs.length) return;
+  if (!rows.length) return;
+  try {
+    await Promise.all(rows.map(([dateISO, role, svc, status]) =>
+      env.DB.prepare(
+        `INSERT INTO scheduler_confirmations (date_iso, role, svc, status, updated_at)
+         VALUES (?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(date_iso, role, svc) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at`
+      ).bind(dateISO, role, svc, status).run()
+    ));
+  } catch (e) { /* non-fatal — KV remains the source of truth for the RSVP itself */ }
+}
+
+// Keeps the relational scheduler_rsvp_tokens table (see migrations/0052) in step with the
+// person <-> RSVP-token pairing every time a reminder is (re-)sent — this is the real,
+// always-current, server-side replacement for the browser-local 'ws_rsvp_tokens' cache that
+// let one admin's save silently drop other people's tokens from the shared record.
+// Best-effort and non-fatal, matching writeConfirmationsToD1's convention above.
+export async function writeRsvpTokenToD1(env, personId, token, name) {
+  if (!env.DB || !personId || !token) return;
   try {
     await env.DB.prepare(
-      "INSERT OR IGNORE INTO scheduler_data (key, value) VALUES ('ws_confirmations', '{}')"
-    ).run();
-    const placeholders = pairs.map(() => '?').join(', ');
-    await env.DB.prepare(
-      `UPDATE scheduler_data SET value = json_set(value, ${placeholders}), updated_at = datetime('now') WHERE key = 'ws_confirmations'`
-    ).bind(...pairs).run();
-  } catch (e) { /* non-fatal — KV remains the source of truth for the RSVP itself */ }
+      `INSERT INTO scheduler_rsvp_tokens (person_id, token, name, updated_at)
+       VALUES (?, ?, ?, datetime('now'))
+       ON CONFLICT(person_id) DO UPDATE SET token=excluded.token, name=excluded.name, updated_at=excluded.updated_at`
+    ).bind(String(personId), token, name || '').run();
+  } catch (e) { /* non-fatal — KV remains the source of truth for the RSVP record itself */ }
 }
 
 // ── /email/send ──────────────────────────────────────────────────────────────
@@ -878,7 +893,25 @@ export async function handleSchedRsvpStore(req, env) {
   record.notifyEmail = notifyEmail || record.notifyEmail;
   record.assignments = assignments || record.assignments;
   await schedKvPut(env, token, record);
+  await writeRsvpTokenToD1(env, record.personId, token, record.name);
   return schedJson({ ok: true });
+}
+
+// ── /rsvp/status ─────────────────────────────────────────────────────────────
+// Returns the FULL, authoritative person->token map and date|role|svc->status map straight
+// from the relational tables (see migrations/0052_scheduler_rsvp_relational.sql) — not
+// filtered down to whatever tokens the caller's browser already happens to know about, the
+// way /rsvp/sync is. This is what actually closes the "Sync Confirmations found nothing"
+// bug: the caller no longer needs its own local list of who to even ask about.
+export async function handleSchedRsvpStatus(req, env) {
+  if (!env.DB) return schedJson({ tokens: {}, confirmations: {} });
+  const tokenRows = (await env.DB.prepare('SELECT person_id, token FROM scheduler_rsvp_tokens').all()).results || [];
+  const confRows  = (await env.DB.prepare('SELECT date_iso, role, svc, status FROM scheduler_confirmations').all()).results || [];
+  const tokens = {};
+  for (const r of tokenRows) tokens[r.person_id] = r.token;
+  const confirmations = {};
+  for (const r of confRows) confirmations[r.date_iso + '|' + r.role + '|' + r.svc] = r.status;
+  return schedJson({ tokens, confirmations });
 }
 
 // ── /rsvp/sync ───────────────────────────────────────────────────────────────

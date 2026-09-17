@@ -6071,80 +6071,38 @@ function syncConfirmations(silent) {
     if (!silent) alert('Configure your Worker URL in the Settings tab first.');
     return Promise.resolve();
   }
-  var rsvpTokens = getRsvpTokens();                   // { pid: token }
-  var tokenList  = Object.keys(rsvpTokens).map(function(pid) { return rsvpTokens[pid]; }).filter(Boolean);
-  var statusEl   = document.getElementById('email-send-status');
-  if (!tokenList.length) {
-    if (!silent) statusEl.textContent = 'No RSVP tokens found \\u2014 send reminder emails first.';
-    return Promise.resolve();
-  }
+  var statusEl = document.getElementById('email-send-status');
   if (!silent) statusEl.textContent = 'Syncing confirmations\\u2026';
 
-  return fetch(s.workerUrl + '/rsvp/sync', {
-    method:  'POST',
-    headers: Object.assign({ 'Content-Type': 'application/json' }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
-    body:    JSON.stringify({ tokens: tokenList }),
+  // GET /rsvp/status returns the FULL, authoritative person->token map and
+  // date|role|svc->status map straight from the server's own tables -- not
+  // filtered down to whichever tokens this browser's local cache already
+  // happens to know about, the way the old /rsvp/sync call was. That local
+  // cache (ws_rsvp_tokens) could and did silently lose people between admin
+  // sessions/devices, which is exactly what made a real confirmation
+  // invisible no matter how many times Sync was clicked.
+  return fetch(s.workerUrl + '/rsvp/status', {
+    method:  'GET',
+    headers: Object.assign({}, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
   })
     .then(function(r) { return r.json(); })
-    .then(function(results) {
-      // results: { token: { status, name, updatedAt } }
-      // Build reverse map: token → pid
-      var tokenToPid = {};
-      Object.keys(rsvpTokens).forEach(function(pid) { tokenToPid[rsvpTokens[pid]] = pid; });
+    .then(function(result) {
+      var serverTokens = result.tokens        || {};
+      var serverConfs  = result.confirmations || {};
+
+      // Self-heal this browser's local token cache from the server's
+      // authoritative copy. Confirmation status no longer depends on this
+      // cache at all (see above), but sendReminderEmails still consults it
+      // before generating a fresh token, so healing it here also stops a
+      // browser with a stale/incomplete cache from handing someone a second,
+      // disconnected RSVP link.
+      saveRsvpTokens(Object.assign({}, getRsvpTokens(), serverTokens));
 
       var confs   = getConfirmations();
       var updated = 0;
-
-      Object.keys(results).forEach(function(token) {
-        var pid    = tokenToPid[token];
-        if (!pid) return;
-        var result = results[token];
-
-        // ── Per-assignment sync (preferred) ───────────────────────
-        // The Worker now returns assignments[] each with their own status.
-        // Map each assignment's dateISO+svc+role → confKey and update.
-        if (result.assignments && result.assignments.length) {
-          result.assignments.forEach(function(a) {
-            if (!a.dateISO) return;
-            var localStatus = a.status === 'confirmed'     ? 'confirmed'
-                            : a.status === 'needs_changes' ? 'needs_changes'
-                            : a.status === 'declined'      ? 'declined'
-                            : 'pending';
-            if (localStatus === 'pending') return; // leave pending pills alone
-            // confKey uses 'shared' for both-services slots, not 'both services'
-            var svcKey = a.svc === 'both services' ? 'shared' : a.svc;
-            var key    = a.dateISO + '|' + a.role + '|' + svcKey;
-            if (confs[key] !== localStatus) { confs[key] = localStatus; updated++; }
-          });
-
-        } else {
-          // ── Fallback: use overall status for all slots (older tokens) ──
-          var workerStatus = result.status;
-          var localStatus  = workerStatus === 'confirmed'     ? 'confirmed'
-                           : workerStatus === 'needs_changes' ? 'needs_changes'
-                           : workerStatus === 'declined'      ? 'declined'
-                           : 'pending';
-          if (localStatus === 'pending') return;
-          currentSchedule.forEach(function(row) {
-            var dateISO = row.date.toISOString().slice(0, 10);
-            PER_ROLES.forEach(function(role) {
-              ['8am','10:45am'].forEach(function(svc) {
-                if (row.assignments[role][svc] === pid) {
-                  var key = dateISO + '|' + role + '|' + svc;
-                  if (confs[key] !== localStatus) { confs[key] = localStatus; updated++; }
-                }
-              });
-            });
-            SHARED_ROLES.forEach(function(role) {
-              if (row.assignments[role].shared === pid) {
-                var key = dateISO + '|' + role + '|shared';
-                if (confs[key] !== localStatus) { confs[key] = localStatus; updated++; }
-              }
-            });
-          });
-        }
+      Object.keys(serverConfs).forEach(function(key) {
+        if (confs[key] !== serverConfs[key]) { confs[key] = serverConfs[key]; updated++; }
       });
-
       saveConfirmations(confs);
 
       // Persist to D1 so other admin sessions and Mobile Admin see the
@@ -7070,6 +7028,13 @@ function updateSyncStatus(msg, isError) {
   el.style.color = isError ? '#B85C3A' : (msg ? '#6B8F71' : '#7A6E60');
 }
 
+// ws_confirmations/ws_rsvp_tokens are deliberately NOT part of this snapshot. They used to be
+// -- and a stale browser's full-snapshot save could silently overwrite another admin's (or a
+// volunteer's) confirmation data with no error, which is exactly the class of bug that caused
+// a real confirmed RSVP to disappear. Both are relational now (scheduler_confirmations /
+// scheduler_rsvp_tokens, written directly by the RSVP endpoints -- see
+// migrations/0052_scheduler_rsvp_relational.sql) and read fresh via syncConfirmations() /
+// GET /rsvp/status, never round-tripped through this blob.
 function buildDataSnapshot() {
   return {
     ws_people:             getPeople(),
@@ -7077,8 +7042,6 @@ function buildDataSnapshot() {
     ws_history:            getHistory(),
     ws_last_served:        getLastServed(),
     ws_schedule_overrides: getScheduleOverrides(),
-    ws_confirmations:      getConfirmations(),
-    ws_rsvp_tokens:        getRsvpTokens(),
     ws_sun_labels:         getSundayLabels(),
     ws_breeze_settings:    getBreezeSettings(),
     ws_readings:           getReadingsOverrides()
@@ -7105,13 +7068,19 @@ async function d1Pull() {
     var resp = await fetch('/admin/api/scheduler/data', {credentials: 'include'});
     if (!resp.ok) { updateSyncStatus('Load error: ' + resp.status, true); return; }
     var data = await resp.json();
+    // ws_confirmations/ws_rsvp_tokens deliberately excluded here too -- pulling them from
+    // this blob would just overwrite a fresh local cache with stale (or plain absent) data.
+    // syncConfirmations(true) below pulls the real, current picture straight from the
+    // relational tables instead, on every load -- not only when an admin remembers to click
+    // "Sync Confirmations".
     var keys = ['ws_people','ws_schedule_v2','ws_history','ws_last_served',
-                'ws_schedule_overrides','ws_confirmations','ws_rsvp_tokens','ws_sun_labels',
+                'ws_schedule_overrides','ws_sun_labels',
                 'ws_breeze_settings','ws_readings'];
     keys.forEach(function(k) {
       if (data[k] !== undefined) localStorage.setItem(k, JSON.stringify(data[k]));
     });
     await syncRelationalVolunteers();
+    await syncConfirmations(true);
     updateSyncStatus('Loaded \\u2713 ' + new Date().toLocaleTimeString());
     // Ensure month label is always set after a successful pull (belt-and-suspenders).
     try {
