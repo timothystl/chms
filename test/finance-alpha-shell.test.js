@@ -121,7 +121,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.41');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.44');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -164,7 +164,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.41',
+      version: '1.0.0-alpha.44',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -177,7 +177,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
     expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.41 · alpha');
+    expect(html).toContain('1.0.0-alpha.44 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="sidebar-brand"');
@@ -1431,7 +1431,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.41',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.44',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -1528,7 +1528,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       dataClassification: 'synthetic',
       scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
       duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
-      release: { version: '1.0.0-alpha.41', releaseSha: 'test-sha' },
+      release: { version: '1.0.0-alpha.44', releaseSha: 'test-sha' },
     });
     expect(body.scenario.totals.netCents).toBe(145000);
     expect(body.scenario.reconciliation.totalsMatch).toBe(true);

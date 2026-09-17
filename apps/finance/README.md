@@ -29,7 +29,9 @@ forecast (a straight port of the AHRA-imported `finance_property_budget_monthly`
 table, not a computed run-rate projection despite the page's label) joined main in #1002 and a
 follow-on PR respectively, after the production deployment inspected in this review; do not infer
 they are deployed. Giving writes relay to Connect and payroll operations relay to Website. Neither
-relay transfers ownership of those records to Finance.
+relay transfers ownership of those records to Finance. Four CSV import routes (Church, Balance,
+Daycare, Property Budget — see `csv-import-service.js` and the Alpha.43 entry below) write to
+Finance's own database, but are gated off by default and not reachable in production.
 
 Compensation's four sub-pages split unevenly on whether a real substitute for their synthetic
 role-level fixture exists: Plan and Council snapshot both have an honest live version, gated to
@@ -46,6 +48,42 @@ viewer specifically sees, matching the same rule the real Salary Planner already
 role -- `filterCompensationWorkersForViewer`/`summarizeCompensationWorkers` in
 `compensation-report-service.js` are the shared implementation both pages call, so the two can
 never drift out of sync on who council is allowed to see.
+
+**Compensation Planner editing/saving (September 17, 2026, code-complete but OFF by default).**
+A real EDIT/SAVE write path now exists for the Compensation Planner, writing to Finance's OWN D1
+(`finance_compensation_worker_plan`, migration 0007) instead of the flat, worker-less
+`finance_compensation_plan` synthetic-report table (0002) -- the first route in this app that
+writes to Finance's own database rather than relaying elsewhere (see `route-manifest.js`'s and
+`compensation-plan-write-service.js`'s header comments for why that's the deliberate target
+architecture here, not a regression of the relay-only pattern). It is disabled in every environment
+today: `POST /api/v1/compensation-plan-save` checks `isCompensationPlanWriteEnabled()` (a
+`finance_settings` flag, `compensation_plan_write_enabled`, or the `COMPENSATION_PLAN_WRITE_ENABLED`
+env var) *before* any role check, and answers a plain "not yet enabled" until Andrew turns it on.
+Role gating reuses `COMPENSATION_LIVE_ALLOWED_ROLES`/`filterCompensationWorkersForViewer` from
+`compensation-report-service.js` rather than re-declaring the gate, so the write side can never
+drift from the live read side's admin/council/compensation restriction, and a council editor gets
+the identical generic denial for a worker that doesn't exist and one that is `hideFromCouncil` --
+it can never distinguish the two by probing.
+
+This does **not** reach parity with the legacy in-Connect Salary Planner roster
+(`SALARY_PLANNER_KEY` in `src/api-finance.js`), by design, and the gap is deliberate, not an
+oversight:
+- Covered: a real per-worker row (`fiscal_year`, `worker_key`) with seed facts (name, role label,
+  salary, benefits, notes), a per-worker `hideFromCouncil` flag enforced identically to the read
+  side, and a per-worker raise `comp_method`/`adjustment_pct` that a `council` viewer may edit on a
+  *visible* row only (the per-worker analogue of legacy's `COUNCIL_EDITABLE_FIELDS`).
+- Not covered: legacy's GLOBAL `compCustomPct`/`compScalePct`/`compBaselineRosterOnly` raise-plan
+  assumptions; legacy's hand-typed `compOverrides` dollar overrides; and legacy's private
+  per-council-member overlay fork (`finance_salary_planner_council_<username>`) -- a council save
+  here lands directly on the ONE shared table (restricted to the two fields above, on rows they may
+  see), not an isolated per-user draft, so two council users editing the same fiscal year can now
+  see and overwrite each other's `comp_method`/`adjustment_pct` choice. This mirrors how Finance's
+  existing read side already has no per-council-overlay concept at all, rather than introducing a
+  second, divergent council-state model just for this write path.
+See `compensation-plan-write-service.js`'s header comment for the same list with full rationale,
+and `test/finance-compensation-plan-write-service.test.js` /
+`test/finance-compensation-plan-write-route.test.js` for the tests, including the council-isolation
+precedent matching `test/council-compensation-role.test.js`.
 
 Existing Finance remains operational in Connect. Moving authoritative accounting data and writers,
 cutting users over and retiring the old module remain unfinished. The new schema does not include
@@ -104,6 +142,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `property-forecast-service.js` — one-query 12-month synthetic property plan with monthly and annual reconciliation.
 - `budget-report-service.js` — one-query synthetic future-plan detail and totals; `resolveBudgetReport` tries the real `connect.finance-budget.v1` contract first and falls back to the synthetic fixture on any failure.
 - `finance-budget-client.js` — real transport for the live budget read (same shape as `finance-data-status-client.js`), plus `postConnectFinanceBudgetWrite`, the write relay for Budget Planner's manual edit/save form (see the route-manifest paragraph below).
+- `budget-plan-write-service.js` — validation and upsert for Budget builder's OWN edit/save write into Finance's own `finance_budget_plan` table (`FINANCE_DB`), gated off by default; see the route-manifest paragraph and the Alpha.42 entry below for how this differs from `budget-plan-write-v1`'s Connect relay above.
 - `accounts-report-service.js` — one-query synthetic account inventory and classification summary.
 - `data-status-service.js` — resolves real-or-synthetic import provenance and isolation status; `resolveDataStatus` tries the live `connect.finance-data-status.v1` contract first, falls back to the one-query synthetic reader on any failure.
 - `finance-data-status-consumer.js` — fail-closed parser for the `connect.finance-data-status.v1` contract.
@@ -115,6 +154,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `financial-mix-service.js` — pure reconciled income/expense composition view; `buildLiveFinancialMixView` builds the same `{fiscalYear, income, expenses}` shape directly from a live church-report contract result, used by Charts' revenue/expense mix pages and now Financial Health's Operating mix, each independently, whenever `resolveChurchReport` came back live.
 - `entity-overview-service.js` — pure separately-periodized Church, Daycare, and Property view; still synthetic-only by investigated decision, not merely unwired -- see the Financial Health entry below.
 - `operating-bridge-service.js` — pure reconciled annual Church income-to-result bridge; reads only `fiscalYear`/`totals.{incomeActualCents,expenseActualCents,actualNetCents}`, a shape the live Church Report view (`buildLiveChurchReportView`) already matches exactly, so no live-aware wrapper was needed to make Financial Health's Church operating bridge live-first too.
+- `csv-import-service.js` — CSV parsing, validation, and FINANCE_DB persistence for the Church/Balance/Daycare/Property Budget import write paths, plus the off-by-default `isCsvImportWritesEnabled` gate; see the Alpha.43 entry below.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data, served at `/api/v1/connect-giving-preview`.
@@ -134,10 +174,11 @@ expectation.
 The route manifest is the closed inventory for the alpha Worker. Every published path defaults to
 read-only (`GET`/`HEAD`) and declares whether it uses no data, the dedicated synthetic D1, or a
 committed synthetic static fixture. Routes that read D1 name their query budget; unknown paths fail
-closed with `404`. Two routes are deliberate exceptions: `giving-quick-entry-v1` and
+closed with `404`. Three routes are deliberate exceptions: `giving-quick-entry-v1` and
 `budget-plan-write-v1` each accept `POST` and relay the write to Connect's own contract endpoint —
-neither ever writes to Finance's own database, and their own `methods`/`writer` fields in the
-manifest keep both exceptions visible in one place rather than hidden behind a runtime check.
+neither ever writes to Finance's own database; `budget-plan-save-v1` is the one route that DOES
+write to Finance's own database. Their own `methods`/`writer`/`dataSource` fields in the manifest
+keep all three exceptions visible in one place rather than hidden behind a runtime check.
 `budget-plan-write-v1` relays a hand-typed Budget Plan category/fiscal-year edit from the new
 Budget builder edit form (`planning-pages.js`'s `renderBudgetEditForm`, shown only to a viewer
 Finance's own role check independently verified as admin or council) to Connect's
@@ -145,9 +186,12 @@ Finance's own role check independently verified as admin or council) to Connect'
 `applyBudgetPlanOverrideRows()` helper (`src/api-finance.js`) the legacy in-Connect Budget
 Planner's `finance/planning/church/override-bulk` route already uses — one shared implementation,
 so the two entry points can never drift on validation, on the admin/council-only gate, or on
-council's fork-into-their-own-overlay behavior. This is the first write capability in the new
-Finance app outside Giving/payroll; Budget Planner's generate/generate-all/commit/delete
-operations remain legacy-only (in Connect) for now.
+council's fork-into-their-own-overlay behavior. Budget Planner's generate/generate-all/commit/delete
+operations remain legacy-only (in Connect) for now. `budget-plan-save-v1` (Alpha.42, below) is a
+separately built, independent write path onto Finance's OWN `finance_budget_plan` table via
+`FINANCE_DB` -- part of the longer-term move of authoritative Budget data into Finance's own
+database rather than another consumer of the Connect relay above -- and stays off by default behind
+a `finance_settings` flag until a later, separately approved cutover stage.
 
 Alpha.9 begins interface parity with the existing nine-section Finance information architecture.
 Only Financial Health renders synthetic metrics; the other familiar sections are explicit staging
@@ -348,29 +392,76 @@ Operating result card already use -- not a naive income-minus-expense figure, an
 fiscal year is no longer required to match Operating result's, since each card is now independently
 sourced. No new contract, query budget, migration, or writer.
 
-Stage 1 of the Finance data-migration plan (see architecture/evidence/2026-09-17-finance-data-
-migration-stage0-reconciliation.md in the private digital-architecture repo) adds migration
-tooling under `migration/`: a generic copy-and-verify module (`table-registry.js`, `checksum.js`,
-`copy-and-verify.js`) for the 13 non-`finance_settings` production tables the September 13 schema
-diff found to be an exact or near-exact match, plus a `cli.js` one-time admin script that shells
-out to `wrangler d1 execute` to read a source table, generate idempotent upsert SQL, and verify the
-destination by row count and a per-row checksum after applying it -- deliberately not a new Worker
-HTTP endpoint, since this is a one-time operation that should not add live attack surface. The
-generic copy preserves each `finance_church_entries` row's real `source` value (e.g. `qbo_sync`,
-`manual_adjustment`) exactly as stored; it never re-defaults it to apps/finance's schema-level
-`'import'` default. A separate `settings-translation.js` module handles `finance_settings`, which
-both evidence documents call out as needing a per-key translation pass rather than a table copy:
-it implements the clean, fully honest reshape of `finance_daycare_allocation_config`'s single JSON
-blob into apps/finance's two scalar rows (`daycare_utility_pct`/`daycare_insurance_pct`), and a
-read-only `deriveCompensationSalaryByRole` report for the real `finance_salary_planner`/
-`finance_salary_planner_compensation` roster, grouping workers by role and summing only the
-portion of current pay directly stored as `actualSalaryCents` on the roster JSON itself. It
-deliberately does NOT write anything into `finance_compensation_plan`: most real workers' current
-pay instead resolves through an `accountCode`-linked chart-of-accounts budget lookup this
-settings-only module has no access to, and `benefits_cents`/`adjustment_pct` have no honest
-per-role equivalent at all (see the full derivation in `settings-translation.js`'s header comment
-and `COMPENSATION_TRANSLATION_GAPS`) -- writing either would mean fabricating a number, which this
-migration does not do. The raw compensation JSON blob is never copied or exposed anywhere.
+Alpha.42 adds Budget builder's real edit/save write onto Finance's OWN database -- `finance_budget_plan`
+via `FINANCE_DB` -- the first write anywhere in this app that is not a relay to Connect or Website
+(compare `giving-quick-entry-v1`/`budget-plan-write-v1`/the payroll routes, all of which relay
+out and never touch `FINANCE_DB`). `budget-plan-write-service.js` ports the validation and upsert
+SQL of legacy's `finance/planning/church/override-bulk` admin path (`src/api-finance.js`) --
+category/fiscal-year required, whole-dollar rounding, fiscal-year bounded to a sane 2000-2100
+range, classification restricted to Income/Expenses, and the whole batch rejected together if any
+one row is malformed, matching the legacy route's own all-or-nothing behavior -- as a local
+reimplementation rather than an import from `src/`, keeping Finance's own Worker independent of
+the legacy Connect codebase the way `apps/finance` is meant to be. It is deliberately narrower
+than legacy's override-bulk in one respect: council's private per-user `finance_settings` overlay
+fork is not ported, since Finance's own role contract (`connect-role-client.js`) does not carry a
+verified username yet; only the admin path is ported now, which is still a strict subset of what
+legacy already allows (never a new capability legacy denies). The route
+(`POST /api/v1/budget-plan-save`) is registered in the manifest and fully implemented and tested,
+but reachability is off by default everywhere: `isBudgetPlanWritesEnabled` checks a
+`finance_settings` key (`finance_budget_builder_writes_enabled`, defaulting to disabled, and
+failing closed on any read error) before role verification even runs, so a real request today gets
+a plain `not_yet_enabled` response regardless of role or environment. Turning it on is a later,
+separately approved cutover-stage change, not part of this slice. No query budget, migration, or
+Budget builder UI form changes -- this is the write path only.
+
+Alpha.43 adds CSV import write paths for Church Report (annual Budget-vs-Actuals), Balance Sheet
+(Statement of Financial Position), Daycare (category actuals/budget), and Commercial Property
+(monthly budget) — see `csv-import-service.js`. Each is a narrow, CSV-only port of one of legacy
+Connect's real import routes (`src/api-finance.js`'s `finance/church/import`,
+`finance/church/balances/import`, `finance/daycare/bulk`, and the AHRA
+`finance/property/:key/budget-import`/`monthly-import-csv` routes) — not the ~750-line server-side
+`.xlsx` grid reader those Church/Balance routes also support, which is out of scope here. The CSV
+tokenizer and thousands-comma-aware money parser are ported verbatim from `src/api-utils.js`'s
+`parseCsvRows` and `src/api-finance.js`'s `dollarsToCents` (this app never imports from legacy
+`src/`), but validation is deliberately stricter: an unparsable amount is a hard row-level error
+for the whole import, never a silently-substituted 0, matching this app's existing
+"never fabricate a number" discipline. This is the first capability in the new Finance app that
+writes to Finance's OWN database (`FINANCE_DB`) rather than relaying a write to Connect/Website
+(the Giving/Budget-plan/payroll relays above never touch this app's own tables) — each of the four
+new `/api/v1/import/*` routes (`route-manifest.js`'s new `dataSource: 'd1-write'`) writes real rows
+via wholesale-replace-by-key (Church/Balance/Daycare, tagged `source='import_csv'`) or per-key
+upsert (Property Budget), plus a `finance_import_log` row, matching legacy's logging discipline.
+Every one of the four routes is gated OFF by default — checked first, inside the handler, before
+any parsing or writing — by `isCsvImportWritesEnabled()` (an env var or a `finance_settings` row,
+either defaulting to disabled and failing closed on any read error): shipped code-complete and
+fully tested, but a real request today gets a 403 with a clear "not yet enabled" message, not a
+write. Turning it on is a later, separately-approved production cutover decision, not part of this
+change. No existing route, reader, or synthetic fixture is affected.
+
+Alpha.44 adds Stage 1 of the Finance data-migration plan (see architecture/evidence/2026-09-17-
+finance-data-migration-stage0-reconciliation.md in the private digital-architecture repo):
+migration tooling under `migration/`: a generic copy-and-verify module (`table-registry.js`,
+`checksum.js`, `copy-and-verify.js`) for the 13 non-`finance_settings` production tables the
+September 13 schema diff found to be an exact or near-exact match, plus a `cli.js` one-time admin
+script that shells out to `wrangler d1 execute` to read a source table, generate idempotent upsert
+SQL, and verify the destination by row count and a per-row checksum after applying it --
+deliberately not a new Worker HTTP endpoint, since this is a one-time operation that should not add
+live attack surface. The generic copy preserves each `finance_church_entries` row's real `source`
+value (e.g. `qbo_sync`, `manual_adjustment`) exactly as stored; it never re-defaults it to
+apps/finance's schema-level `'import'` default. A separate `settings-translation.js` module
+handles `finance_settings`, which both evidence documents call out as needing a per-key
+translation pass rather than a table copy: it implements the clean, fully honest reshape of
+`finance_daycare_allocation_config`'s single JSON blob into apps/finance's two scalar rows
+(`daycare_utility_pct`/`daycare_insurance_pct`), and a read-only `deriveCompensationSalaryByRole`
+report for the real `finance_salary_planner`/`finance_salary_planner_compensation` roster,
+grouping workers by role and summing only the portion of current pay directly stored as
+`actualSalaryCents` on the roster JSON itself. It deliberately does NOT write anything into
+`finance_compensation_plan`: most real workers' current pay instead resolves through an
+`accountCode`-linked chart-of-accounts budget lookup this settings-only module has no access to,
+and `benefits_cents`/`adjustment_pct` have no honest per-role equivalent at all (see the full
+derivation in `settings-translation.js`'s header comment and `COMPENSATION_TRANSLATION_GAPS`) --
+writing either would mean fabricating a number, which this migration does not do. The raw
+compensation JSON blob is never copied or exposed anywhere.
 
 This tooling is built and unit-tested (`test/finance-migration-*.test.js`) against fixture/mock
 data standing in for the real databases only. It has not been run, and must not be run, against

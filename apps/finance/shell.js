@@ -25,9 +25,11 @@ import {
 } from './property-report-service.js';
 import { resolveBudgetReport } from './budget-report-service.js';
 import { postConnectFinanceBudgetWrite } from './finance-budget-client.js';
+import { isBudgetPlanWritesEnabled, validateBudgetPlanRows, saveBudgetPlanRows } from './budget-plan-write-service.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
+import { isCompensationPlanWriteEnabled, applyCompensationWorkerPlanWrite } from './compensation-plan-write-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView, buildLiveFinancialMixView } from './financial-mix-service.js';
 import { buildEntityOverview } from './entity-overview-service.js';
@@ -49,6 +51,9 @@ import { renderChartsPage, renderFinancialMixRows } from './charts-pages.js';
 import { renderGiftEntryPage } from './gift-entry-pages.js';
 import { renderQuickbooksPage } from './quickbooks-pages.js';
 import { renderPacketPage } from './packet-pages.js';
+import {
+  runChurchEntriesCsvImport, runChurchBalancesCsvImport, runDaycareEntriesCsvImport, runPropertyBudgetMonthlyCsvImport,
+} from './csv-import-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -671,6 +676,53 @@ export default {
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
 
+    // ── Budget builder edit/save -- Finance's own genuine write to FINANCE_DB's finance_budget_plan
+    // (see budget-plan-write-service.js's top comment for the full port rationale). Gated off by
+    // default: `isBudgetPlanWritesEnabled` is checked FIRST, before role verification even runs, so
+    // a real request against this route today -- from any role, in any environment -- gets a plain
+    // "not yet enabled" response rather than reaching the write path at all. Only a later, separately
+    // approved cutover stage flips the finance_settings flag that turns this on.
+    if (route.id === 'budget-plan-save-v1') {
+      const writesEnabled = await isBudgetPlanWritesEnabled(env.FINANCE_DB);
+      if (!writesEnabled) {
+        return response(JSON.stringify({ error: 'not_yet_enabled', message: 'Budget builder editing is not yet enabled in this environment.' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      // Admin-only, matching every legacy Budget Planner write EXCEPT override-bulk's council
+      // carve-out -- see budget-plan-write-service.js's top comment for why that carve-out isn't
+      // ported yet. Every verification failure (not just an explicitly wrong role) fails closed.
+      if (!roleResult.ok || roleResult.role !== 'admin') {
+        return response(JSON.stringify({ error: 'access_denied', message: 'Access denied: editing budget plans requires admin access' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return response(JSON.stringify({ error: 'invalid_json', message: 'Request body must be JSON' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const validated = validateBudgetPlanRows(payload && payload.rows);
+      if (!validated.ok) {
+        return response(JSON.stringify({ error: 'invalid_rows', message: validated.error }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const saved = await saveBudgetPlanRows(env.FINANCE_DB, validated.rows);
+      return response(JSON.stringify({ ok: true, saved }), {
+        headers: { 'Content-Type': 'application/json; charset=utf-8', 'X-Finance-Contract': 'finance.budget-plan-save.v1' },
+      });
+    }
+
     if (route.id === 'budget-plan-write-v1') {
       const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
       let form;
@@ -825,6 +877,80 @@ export default {
         params.set('message', String(result.message || result.reason || 'unknown error').slice(0, 200));
       }
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // ── CSV import writes (see csv-import-service.js's own header comment) — each handler here
+    // only reads the JSON body and turns the pure result object back into a Response; every gate,
+    // parse, validation, and write decision lives in the service module. Every one of these four
+    // routes is gated OFF by default inside its own `run*CsvImport` call (`isCsvImportWritesEnabled`)
+    // -- a real request today gets a 403 with a clear "not yet enabled" message, not a write.
+    if (route.id === 'import-church-v1' || route.id === 'import-church-balances-v1'
+      || route.id === 'import-daycare-v1' || route.id === 'import-property-budget-v1') {
+      let body;
+      try { body = await request.json(); } catch { body = null; }
+      if (!body || typeof body !== 'object') {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), {
+          status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const runner = {
+        'import-church-v1': runChurchEntriesCsvImport,
+        'import-church-balances-v1': runChurchBalancesCsvImport,
+        'import-daycare-v1': runDaycareEntriesCsvImport,
+        'import-property-budget-v1': runPropertyBudgetMonthlyCsvImport,
+      }[route.id];
+      const result = await runner(env, env.FINANCE_DB, body);
+      const { status, ...payload } = result;
+      return response(JSON.stringify(payload), {
+        status, headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
+    }
+
+    // ── COMPENSATION PLANNER WRITE ── the one route in this file that writes to Finance's own
+    // FINANCE_DB rather than relaying elsewhere (see route-manifest.js's and
+    // compensation-plan-write-service.js's header comments). The enablement flag is checked
+    // FIRST, before any role verification, so a real request against an environment where it is
+    // still off (every environment, until Andrew explicitly turns it on) gets the same clear
+    // "not yet enabled" answer regardless of who is asking.
+    if (route.id === 'compensation-plan-save-v1') {
+      const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
+      const enabled = await isCompensationPlanWriteEnabled(env, env.FINANCE_DB);
+      if (!enabled) {
+        return response(JSON.stringify({
+          error: 'not_yet_enabled',
+          message: 'Compensation Planner editing is not yet enabled in this environment.',
+        }), { status: 503, headers: jsonHeaders });
+      }
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      if (!roleResult.ok || !COMPENSATION_LIVE_ALLOWED_ROLES.includes(roleResult.role)) {
+        return response(JSON.stringify({
+          error: 'Access denied: editing the Compensation Planner requires a verified admin, council, or compensation role',
+        }), { status: 403, headers: jsonHeaders });
+      }
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      const fiscalYear = Number.isInteger(payload.fiscalYear) ? payload.fiscalYear : parseInt(payload.fiscalYear, 10);
+      // Display-only, unverified label for who made this save -- same precedent and same safety
+      // argument as approverEmailFromJwt's own header comment in payroll-section.js: the real
+      // access decision already happened above via fetchVerifiedRole's independently-verified
+      // signature check, so a forged token cannot reach this line with a disallowed role, and
+      // this value is never used for anything but the audit column.
+      const updatedBy = approverEmailFromJwt(accessJwt) || '';
+      const result = await applyCompensationWorkerPlanWrite(env.FINANCE_DB, {
+        fiscalYear, role: roleResult.role, updatedBy, rows: payload.rows,
+      });
+      if (result.error) {
+        return response(JSON.stringify({ error: result.error }), { status: result.status || 400, headers: jsonHeaders });
+      }
+      return response(JSON.stringify({ ok: true, saved: result.saved }), { status: 200, headers: jsonHeaders });
     }
 
     if (route.id === 'summary-legacy') {
