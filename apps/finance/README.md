@@ -49,6 +49,42 @@ role -- `filterCompensationWorkersForViewer`/`summarizeCompensationWorkers` in
 `compensation-report-service.js` are the shared implementation both pages call, so the two can
 never drift out of sync on who council is allowed to see.
 
+**Compensation Planner editing/saving (September 17, 2026, code-complete but OFF by default).**
+A real EDIT/SAVE write path now exists for the Compensation Planner, writing to Finance's OWN D1
+(`finance_compensation_worker_plan`, migration 0007) instead of the flat, worker-less
+`finance_compensation_plan` synthetic-report table (0002) -- the first route in this app that
+writes to Finance's own database rather than relaying elsewhere (see `route-manifest.js`'s and
+`compensation-plan-write-service.js`'s header comments for why that's the deliberate target
+architecture here, not a regression of the relay-only pattern). It is disabled in every environment
+today: `POST /api/v1/compensation-plan-save` checks `isCompensationPlanWriteEnabled()` (a
+`finance_settings` flag, `compensation_plan_write_enabled`, or the `COMPENSATION_PLAN_WRITE_ENABLED`
+env var) *before* any role check, and answers a plain "not yet enabled" until Andrew turns it on.
+Role gating reuses `COMPENSATION_LIVE_ALLOWED_ROLES`/`filterCompensationWorkersForViewer` from
+`compensation-report-service.js` rather than re-declaring the gate, so the write side can never
+drift from the live read side's admin/council/compensation restriction, and a council editor gets
+the identical generic denial for a worker that doesn't exist and one that is `hideFromCouncil` --
+it can never distinguish the two by probing.
+
+This does **not** reach parity with the legacy in-Connect Salary Planner roster
+(`SALARY_PLANNER_KEY` in `src/api-finance.js`), by design, and the gap is deliberate, not an
+oversight:
+- Covered: a real per-worker row (`fiscal_year`, `worker_key`) with seed facts (name, role label,
+  salary, benefits, notes), a per-worker `hideFromCouncil` flag enforced identically to the read
+  side, and a per-worker raise `comp_method`/`adjustment_pct` that a `council` viewer may edit on a
+  *visible* row only (the per-worker analogue of legacy's `COUNCIL_EDITABLE_FIELDS`).
+- Not covered: legacy's GLOBAL `compCustomPct`/`compScalePct`/`compBaselineRosterOnly` raise-plan
+  assumptions; legacy's hand-typed `compOverrides` dollar overrides; and legacy's private
+  per-council-member overlay fork (`finance_salary_planner_council_<username>`) -- a council save
+  here lands directly on the ONE shared table (restricted to the two fields above, on rows they may
+  see), not an isolated per-user draft, so two council users editing the same fiscal year can now
+  see and overwrite each other's `comp_method`/`adjustment_pct` choice. This mirrors how Finance's
+  existing read side already has no per-council-overlay concept at all, rather than introducing a
+  second, divergent council-state model just for this write path.
+See `compensation-plan-write-service.js`'s header comment for the same list with full rationale,
+and `test/finance-compensation-plan-write-service.test.js` /
+`test/finance-compensation-plan-write-route.test.js` for the tests, including the council-isolation
+precedent matching `test/council-compensation-role.test.js`.
+
 Existing Finance remains operational in Connect. Moving authoritative accounting data and writers,
 cutting users over and retiring the old module remain unfinished. The new schema does not include
 the legacy QuickBooks OAuth/cache tables; that is not evidence the existing integration was retired.
