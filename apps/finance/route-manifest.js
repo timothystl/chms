@@ -12,6 +12,16 @@ const ROUTES = [
   // and a `methods` override are both explicit here so the exception is visible in this one file,
   // not buried in a conditional elsewhere -- see test/finance-route-manifest.test.js's invariant.
   { id: 'giving-quick-entry-v1', paths: ['/api/v1/connect-giving-quick-entry'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.giving-quick-entry-relay.v1' },
+  // ── The Budget builder's real edit/save write, ported from legacy's
+  // finance/planning/church/override-bulk (src/api-finance.js) onto Finance's OWN
+  // finance_budget_plan table via FINANCE_DB -- NOT a relay, unlike every other write route in
+  // this manifest. `dataSource: 'finance-d1-write'` names that distinction explicitly so it stays
+  // visible in one place (see test/finance-route-manifest.test.js's invariant) rather than being
+  // mistaken for another live-relay write. Off by default in every environment: see
+  // budget-plan-write-service.js's `isBudgetPlanWritesEnabled` (a finance_settings flag, checked
+  // by shell.js before this route does anything else) -- the route exists and is fully tested, but
+  // does not go live until a later, separately approved cutover stage flips that flag on.
+  { id: 'budget-plan-save-v1', paths: ['/api/v1/budget-plan-save'], methods: WRITE_METHODS, dataSource: 'finance-d1-write', writer: true, contract: 'finance.budget-plan-save.v1' },
   // Same deliberate exception as the Giving relay above, for Budget Planner's manual edit/save:
   // relays a hand-typed planned-amount row to Connect's own finance-budget-write-v1 contract
   // endpoint (never writes to Finance's own database). Gated admin/council only, on Connect's

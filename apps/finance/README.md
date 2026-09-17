@@ -30,7 +30,7 @@ table, not a computed run-rate projection despite the page's label) joined main 
 follow-on PR respectively, after the production deployment inspected in this review; do not infer
 they are deployed. Giving writes relay to Connect and payroll operations relay to Website. Neither
 relay transfers ownership of those records to Finance. Four CSV import routes (Church, Balance,
-Daycare, Property Budget — see `csv-import-service.js` and the Alpha.42 entry below) write to
+Daycare, Property Budget — see `csv-import-service.js` and the Alpha.43 entry below) write to
 Finance's own database, but are gated off by default and not reachable in production.
 
 Compensation's four sub-pages split unevenly on whether a real substitute for their synthetic
@@ -141,6 +141,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `property-forecast-service.js` — one-query 12-month synthetic property plan with monthly and annual reconciliation.
 - `budget-report-service.js` — one-query synthetic future-plan detail and totals; `resolveBudgetReport` tries the real `connect.finance-budget.v1` contract first and falls back to the synthetic fixture on any failure.
 - `finance-budget-client.js` — real transport for the live budget read (same shape as `finance-data-status-client.js`), plus `postConnectFinanceBudgetWrite`, the write relay for Budget Planner's manual edit/save form (see the route-manifest paragraph below).
+- `budget-plan-write-service.js` — validation and upsert for Budget builder's OWN edit/save write into Finance's own `finance_budget_plan` table (`FINANCE_DB`), gated off by default; see the route-manifest paragraph and the Alpha.42 entry below for how this differs from `budget-plan-write-v1`'s Connect relay above.
 - `accounts-report-service.js` — one-query synthetic account inventory and classification summary.
 - `data-status-service.js` — resolves real-or-synthetic import provenance and isolation status; `resolveDataStatus` tries the live `connect.finance-data-status.v1` contract first, falls back to the one-query synthetic reader on any failure.
 - `finance-data-status-consumer.js` — fail-closed parser for the `connect.finance-data-status.v1` contract.
@@ -152,7 +153,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `financial-mix-service.js` — pure reconciled income/expense composition view; `buildLiveFinancialMixView` builds the same `{fiscalYear, income, expenses}` shape directly from a live church-report contract result, used by Charts' revenue/expense mix pages and now Financial Health's Operating mix, each independently, whenever `resolveChurchReport` came back live.
 - `entity-overview-service.js` — pure separately-periodized Church, Daycare, and Property view; still synthetic-only by investigated decision, not merely unwired -- see the Financial Health entry below.
 - `operating-bridge-service.js` — pure reconciled annual Church income-to-result bridge; reads only `fiscalYear`/`totals.{incomeActualCents,expenseActualCents,actualNetCents}`, a shape the live Church Report view (`buildLiveChurchReportView`) already matches exactly, so no live-aware wrapper was needed to make Financial Health's Church operating bridge live-first too.
-- `csv-import-service.js` — CSV parsing, validation, and FINANCE_DB persistence for the Church/Balance/Daycare/Property Budget import write paths, plus the off-by-default `isCsvImportWritesEnabled` gate; see the Alpha.42 entry below.
+- `csv-import-service.js` — CSV parsing, validation, and FINANCE_DB persistence for the Church/Balance/Daycare/Property Budget import write paths, plus the off-by-default `isCsvImportWritesEnabled` gate; see the Alpha.43 entry below.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data, served at `/api/v1/connect-giving-preview`.
@@ -172,10 +173,11 @@ expectation.
 The route manifest is the closed inventory for the alpha Worker. Every published path defaults to
 read-only (`GET`/`HEAD`) and declares whether it uses no data, the dedicated synthetic D1, or a
 committed synthetic static fixture. Routes that read D1 name their query budget; unknown paths fail
-closed with `404`. Two routes are deliberate exceptions: `giving-quick-entry-v1` and
+closed with `404`. Three routes are deliberate exceptions: `giving-quick-entry-v1` and
 `budget-plan-write-v1` each accept `POST` and relay the write to Connect's own contract endpoint —
-neither ever writes to Finance's own database, and their own `methods`/`writer` fields in the
-manifest keep both exceptions visible in one place rather than hidden behind a runtime check.
+neither ever writes to Finance's own database; `budget-plan-save-v1` is the one route that DOES
+write to Finance's own database. Their own `methods`/`writer`/`dataSource` fields in the manifest
+keep all three exceptions visible in one place rather than hidden behind a runtime check.
 `budget-plan-write-v1` relays a hand-typed Budget Plan category/fiscal-year edit from the new
 Budget builder edit form (`planning-pages.js`'s `renderBudgetEditForm`, shown only to a viewer
 Finance's own role check independently verified as admin or council) to Connect's
@@ -183,9 +185,12 @@ Finance's own role check independently verified as admin or council) to Connect'
 `applyBudgetPlanOverrideRows()` helper (`src/api-finance.js`) the legacy in-Connect Budget
 Planner's `finance/planning/church/override-bulk` route already uses — one shared implementation,
 so the two entry points can never drift on validation, on the admin/council-only gate, or on
-council's fork-into-their-own-overlay behavior. This is the first write capability in the new
-Finance app outside Giving/payroll; Budget Planner's generate/generate-all/commit/delete
-operations remain legacy-only (in Connect) for now.
+council's fork-into-their-own-overlay behavior. Budget Planner's generate/generate-all/commit/delete
+operations remain legacy-only (in Connect) for now. `budget-plan-save-v1` (Alpha.42, below) is a
+separately built, independent write path onto Finance's OWN `finance_budget_plan` table via
+`FINANCE_DB` -- part of the longer-term move of authoritative Budget data into Finance's own
+database rather than another consumer of the Connect relay above -- and stays off by default behind
+a `finance_settings` flag until a later, separately approved cutover stage.
 
 Alpha.9 begins interface parity with the existing nine-section Finance information architecture.
 Only Financial Health renders synthetic metrics; the other familiar sections are explicit staging
@@ -386,7 +391,29 @@ Operating result card already use -- not a naive income-minus-expense figure, an
 fiscal year is no longer required to match Operating result's, since each card is now independently
 sourced. No new contract, query budget, migration, or writer.
 
-Alpha.42 adds CSV import write paths for Church Report (annual Budget-vs-Actuals), Balance Sheet
+Alpha.42 adds Budget builder's real edit/save write onto Finance's OWN database -- `finance_budget_plan`
+via `FINANCE_DB` -- the first write anywhere in this app that is not a relay to Connect or Website
+(compare `giving-quick-entry-v1`/`budget-plan-write-v1`/the payroll routes, all of which relay
+out and never touch `FINANCE_DB`). `budget-plan-write-service.js` ports the validation and upsert
+SQL of legacy's `finance/planning/church/override-bulk` admin path (`src/api-finance.js`) --
+category/fiscal-year required, whole-dollar rounding, fiscal-year bounded to a sane 2000-2100
+range, classification restricted to Income/Expenses, and the whole batch rejected together if any
+one row is malformed, matching the legacy route's own all-or-nothing behavior -- as a local
+reimplementation rather than an import from `src/`, keeping Finance's own Worker independent of
+the legacy Connect codebase the way `apps/finance` is meant to be. It is deliberately narrower
+than legacy's override-bulk in one respect: council's private per-user `finance_settings` overlay
+fork is not ported, since Finance's own role contract (`connect-role-client.js`) does not carry a
+verified username yet; only the admin path is ported now, which is still a strict subset of what
+legacy already allows (never a new capability legacy denies). The route
+(`POST /api/v1/budget-plan-save`) is registered in the manifest and fully implemented and tested,
+but reachability is off by default everywhere: `isBudgetPlanWritesEnabled` checks a
+`finance_settings` key (`finance_budget_builder_writes_enabled`, defaulting to disabled, and
+failing closed on any read error) before role verification even runs, so a real request today gets
+a plain `not_yet_enabled` response regardless of role or environment. Turning it on is a later,
+separately approved cutover-stage change, not part of this slice. No query budget, migration, or
+Budget builder UI form changes -- this is the write path only.
+
+Alpha.43 adds CSV import write paths for Church Report (annual Budget-vs-Actuals), Balance Sheet
 (Statement of Financial Position), Daycare (category actuals/budget), and Commercial Property
 (monthly budget) — see `csv-import-service.js`. Each is a narrow, CSV-only port of one of legacy
 Connect's real import routes (`src/api-finance.js`'s `finance/church/import`,
