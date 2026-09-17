@@ -8,13 +8,17 @@ import {
 // A route is "read-only, synthetic" here unless it is one of the declared, named exceptions
 // below: the Giving and payroll write relays relay a write to Website/Connect (never touch
 // Finance's own database); the payroll read relays are live calls out to Website's payroll proxy,
-// not synthetic fixtures. Anything else claiming non-GET/HEAD methods, a `writer` flag, or a live
-// dataSource is a regression.
+// not synthetic fixtures; the Compensation Planner write route is the one deliberate case that
+// DOES touch Finance's own database (see route-manifest.js's own comment on it, and
+// compensation-plan-write-service.js for the off-by-default gate that keeps it inert today).
+// Anything else claiming non-GET/HEAD methods, a `writer` flag, or a live dataSource is a
+// regression.
 const WRITE_ROUTE_IDS = new Set([
   'giving-quick-entry-v1', 'budget-plan-write-v1', 'payroll-hours-save-v1', 'payroll-period-approve-v1',
   'payroll-staff-save-v1', 'payroll-staff-deactivate-v1', 'payroll-email-v1',
 ]);
 const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1']);
+const DB_WRITE_ROUTE_IDS = new Set(['compensation-plan-save-v1']);
 
 describe('Finance staging route manifest', () => {
   it('is a closed, unique inventory with isolated data sources, read-only except the declared live relays', () => {
@@ -26,7 +30,7 @@ describe('Finance staging route manifest', () => {
       '/api/v1/connect-giving-quick-entry', '/api/v1/connect-budget-plan-write', '/api/summary', '/api/v1/payroll-relay-diagnostic',
       '/api/v1/payroll-hours-save', '/api/v1/payroll-period-approve',
       '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
-      '/api/v1/payroll-email',
+      '/api/v1/payroll-email', '/api/v1/compensation-plan-save',
     ]);
     for (const route of FINANCE_ROUTE_MANIFEST) {
       if (WRITE_ROUTE_IDS.has(route.id)) {
@@ -39,6 +43,12 @@ describe('Finance staging route manifest', () => {
         expect(route.methods).toEqual(['GET', 'HEAD']);
         expect(route.dataSource).toBe('live-relay-read');
         expect(route).not.toHaveProperty('writer');
+        continue;
+      }
+      if (DB_WRITE_ROUTE_IDS.has(route.id)) {
+        expect(route.methods).toEqual(['POST']);
+        expect(route.writer).toBe(true);
+        expect(route.dataSource).toBe('finance-db-write');
         continue;
       }
       expect(route.methods).toEqual(['GET', 'HEAD']);
@@ -83,6 +93,9 @@ describe('Finance staging route manifest', () => {
     });
     expect(resolveFinanceRoute('/api/v1/payroll-email')).toMatchObject({
       id: 'payroll-email-v1', contract: 'finance.payroll-email-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/compensation-plan-save')).toMatchObject({
+      id: 'compensation-plan-save-v1', dataSource: 'finance-db-write', writer: true, methods: ['POST'],
     });
     expect(resolveFinanceRoute('/missing')).toBeUndefined();
 
