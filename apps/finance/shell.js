@@ -30,6 +30,10 @@ import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
 import { isCompensationPlanWriteEnabled, applyCompensationWorkerPlanWrite } from './compensation-plan-write-service.js';
+import {
+  isPropertyLedgerWritesEnabled, recordPropertyReserveMonthly, recordPropertyReserveDisbursement,
+  recordPropertyDistribution, recordPropertyCapitalLedgerEntry, PropertyLedgerValidationError,
+} from './property-ledger-write-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView, buildLiveFinancialMixView } from './financial-mix-service.js';
 import { buildEntityOverview } from './entity-overview-service.js';
@@ -592,6 +596,36 @@ function renderShell(ctx) {
 </html>`;
 }
 
+// ── PROPERTY LEDGER WRITES ── a deliberate group that writes to Finance's own FINANCE_DB rather
+// than relaying elsewhere, same pattern as COMPENSATION PLANNER WRITE just above (see
+// route-manifest.js's and property-ledger-write-service.js's header comments). The enablement
+// flag is checked FIRST, before any role verification, so a real request against an environment
+// where it is still off (every environment, until Andrew explicitly turns it on) gets the same
+// clear "not yet enabled" answer regardless of who is asking. Role gating here is admin-only,
+// matching legacy's own isAdmin gate for editing property financials (src/api-finance.js's
+// handlePropertyApi) -- a different, narrower set than Compensation Planner's
+// admin/council/compensation, because that is what legacy itself enforces for this data.
+const PROPERTY_LEDGER_WRITE_ROUTE_IDS = new Set([
+  'property-reserve-entry-v1', 'property-reserve-disbursement-entry-v1',
+  'property-distribution-entry-v1', 'property-capital-ledger-entry-v1',
+]);
+const PROPERTY_LEDGER_WRITE_PROPERTY_KEY = 'ivanhoe'; // Only property that exists today -- see property-report-service.js.
+
+async function runPropertyLedgerWrite(routeId, db, body) {
+  switch (routeId) {
+    case 'property-reserve-entry-v1':
+      return recordPropertyReserveMonthly(db, PROPERTY_LEDGER_WRITE_PROPERTY_KEY, String(body.reserve_key || ''), body);
+    case 'property-reserve-disbursement-entry-v1':
+      return recordPropertyReserveDisbursement(db, PROPERTY_LEDGER_WRITE_PROPERTY_KEY, String(body.reserve_key || ''), body);
+    case 'property-distribution-entry-v1':
+      return recordPropertyDistribution(db, PROPERTY_LEDGER_WRITE_PROPERTY_KEY, body);
+    case 'property-capital-ledger-entry-v1':
+      return recordPropertyCapitalLedgerEntry(db, PROPERTY_LEDGER_WRITE_PROPERTY_KEY, body);
+    default:
+      throw new Error(`Unhandled property ledger write route: ${routeId}`);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -951,6 +985,42 @@ export default {
         return response(JSON.stringify({ error: result.error }), { status: result.status || 400, headers: jsonHeaders });
       }
       return response(JSON.stringify({ ok: true, saved: result.saved }), { status: 200, headers: jsonHeaders });
+    }
+
+    if (PROPERTY_LEDGER_WRITE_ROUTE_IDS.has(route.id)) {
+      const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
+      const enabled = await isPropertyLedgerWritesEnabled(env, env.FINANCE_DB);
+      if (!enabled) {
+        return response(JSON.stringify({
+          error: 'not_yet_enabled',
+          message: 'Property ledger writes are not yet enabled in this environment.',
+        }), { status: 503, headers: jsonHeaders });
+      }
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      if (!roleResult.ok || roleResult.role !== 'admin') {
+        return response(JSON.stringify({
+          error: 'Access denied: editing property financials requires admin access',
+        }), { status: 403, headers: jsonHeaders });
+      }
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      try {
+        const result = await runPropertyLedgerWrite(route.id, env.FINANCE_DB, body);
+        return response(JSON.stringify(result), { status: 200, headers: jsonHeaders });
+      } catch (e) {
+        if (e instanceof PropertyLedgerValidationError) {
+          return response(JSON.stringify({ error: e.message }), { status: 400, headers: jsonHeaders });
+        }
+        return response(JSON.stringify({ error: 'Write failed' }), { status: 500, headers: jsonHeaders });
+      }
     }
 
     if (route.id === 'summary-legacy') {
