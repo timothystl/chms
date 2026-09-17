@@ -25,6 +25,7 @@ import {
 } from './property-report-service.js';
 import { resolveBudgetReport } from './budget-report-service.js';
 import { postConnectFinanceBudgetWrite } from './finance-budget-client.js';
+import { isBudgetPlanWritesEnabled, validateBudgetPlanRows, saveBudgetPlanRows } from './budget-plan-write-service.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
@@ -670,6 +671,53 @@ export default {
       const params = new URLSearchParams({ section: 'giving', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // ── Budget builder edit/save -- Finance's own genuine write to FINANCE_DB's finance_budget_plan
+    // (see budget-plan-write-service.js's top comment for the full port rationale). Gated off by
+    // default: `isBudgetPlanWritesEnabled` is checked FIRST, before role verification even runs, so
+    // a real request against this route today -- from any role, in any environment -- gets a plain
+    // "not yet enabled" response rather than reaching the write path at all. Only a later, separately
+    // approved cutover stage flips the finance_settings flag that turns this on.
+    if (route.id === 'budget-plan-save-v1') {
+      const writesEnabled = await isBudgetPlanWritesEnabled(env.FINANCE_DB);
+      if (!writesEnabled) {
+        return response(JSON.stringify({ error: 'not_yet_enabled', message: 'Budget builder editing is not yet enabled in this environment.' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      // Admin-only, matching every legacy Budget Planner write EXCEPT override-bulk's council
+      // carve-out -- see budget-plan-write-service.js's top comment for why that carve-out isn't
+      // ported yet. Every verification failure (not just an explicitly wrong role) fails closed.
+      if (!roleResult.ok || roleResult.role !== 'admin') {
+        return response(JSON.stringify({ error: 'access_denied', message: 'Access denied: editing budget plans requires admin access' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return response(JSON.stringify({ error: 'invalid_json', message: 'Request body must be JSON' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const validated = validateBudgetPlanRows(payload && payload.rows);
+      if (!validated.ok) {
+        return response(JSON.stringify({ error: 'invalid_rows', message: validated.error }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const saved = await saveBudgetPlanRows(env.FINANCE_DB, validated.rows);
+      return response(JSON.stringify({ ok: true, saved }), {
+        headers: { 'Content-Type': 'application/json; charset=utf-8', 'X-Finance-Contract': 'finance.budget-plan-save.v1' },
+      });
     }
 
     if (route.id === 'budget-plan-write-v1') {
