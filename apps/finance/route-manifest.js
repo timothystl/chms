@@ -41,6 +41,18 @@ const ROUTES = [
   // Supabase RPC -- see payroll-email-client.js) now that it accepts Finance's contract-relay
   // identity (timothystl/website PR #587).
   { id: 'payroll-email-v1', paths: ['/api/v1/payroll-email'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'finance.payroll-email-relay.v1' },
+  // The one deliberate, actually-writes-to-FINANCE'S-OWN-DATABASE route in this manifest --
+  // every writer above relays to Connect/Website and stores nothing here (see their own
+  // comments). This one is different on purpose: compensation planning is target-architecture
+  // Finance-owned data (chms/AGENTS.md's product boundary: "Finance owns ... compensation
+  // planning"), not a relay of someone else's authoritative record, so a real local copy is the
+  // intended end state, not a stopgap. It is OFF by default in every environment --
+  // isCompensationPlanWriteEnabled() in compensation-plan-write-service.js is checked first, before
+  // any role check, so a disabled environment never even evaluates who is asking -- until Andrew
+  // explicitly turns it on. See that file's header comment and apps/finance/README.md's changelog
+  // entry for exactly what per-worker capability this table does and does not yet carry relative
+  // to the legacy Salary Planner roster (src/api-finance.js).
+  { id: 'compensation-plan-save-v1', paths: ['/api/v1/compensation-plan-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
 ];
 
 export const FINANCE_ROUTE_MANIFEST = Object.freeze(ROUTES.map((route) => Object.freeze({

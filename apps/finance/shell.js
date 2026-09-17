@@ -28,6 +28,7 @@ import { postConnectFinanceBudgetWrite } from './finance-budget-client.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
+import { isCompensationPlanWriteEnabled, applyCompensationWorkerPlanWrite } from './compensation-plan-write-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView, buildLiveFinancialMixView } from './financial-mix-service.js';
 import { buildEntityOverview } from './entity-overview-service.js';
@@ -825,6 +826,53 @@ export default {
         params.set('message', String(result.message || result.reason || 'unknown error').slice(0, 200));
       }
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // ── COMPENSATION PLANNER WRITE ── the one route in this file that writes to Finance's own
+    // FINANCE_DB rather than relaying elsewhere (see route-manifest.js's and
+    // compensation-plan-write-service.js's header comments). The enablement flag is checked
+    // FIRST, before any role verification, so a real request against an environment where it is
+    // still off (every environment, until Andrew explicitly turns it on) gets the same clear
+    // "not yet enabled" answer regardless of who is asking.
+    if (route.id === 'compensation-plan-save-v1') {
+      const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
+      const enabled = await isCompensationPlanWriteEnabled(env, env.FINANCE_DB);
+      if (!enabled) {
+        return response(JSON.stringify({
+          error: 'not_yet_enabled',
+          message: 'Compensation Planner editing is not yet enabled in this environment.',
+        }), { status: 503, headers: jsonHeaders });
+      }
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      if (!roleResult.ok || !COMPENSATION_LIVE_ALLOWED_ROLES.includes(roleResult.role)) {
+        return response(JSON.stringify({
+          error: 'Access denied: editing the Compensation Planner requires a verified admin, council, or compensation role',
+        }), { status: 403, headers: jsonHeaders });
+      }
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      const fiscalYear = Number.isInteger(payload.fiscalYear) ? payload.fiscalYear : parseInt(payload.fiscalYear, 10);
+      // Display-only, unverified label for who made this save -- same precedent and same safety
+      // argument as approverEmailFromJwt's own header comment in payroll-section.js: the real
+      // access decision already happened above via fetchVerifiedRole's independently-verified
+      // signature check, so a forged token cannot reach this line with a disallowed role, and
+      // this value is never used for anything but the audit column.
+      const updatedBy = approverEmailFromJwt(accessJwt) || '';
+      const result = await applyCompensationWorkerPlanWrite(env.FINANCE_DB, {
+        fiscalYear, role: roleResult.role, updatedBy, rows: payload.rows,
+      });
+      if (result.error) {
+        return response(JSON.stringify({ error: result.error }), { status: result.status || 400, headers: jsonHeaders });
+      }
+      return response(JSON.stringify({ ok: true, saved: result.saved }), { status: 200, headers: jsonHeaders });
     }
 
     if (route.id === 'summary-legacy') {
