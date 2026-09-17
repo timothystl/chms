@@ -1217,7 +1217,7 @@ if (seg === 'audit/undo' && method === 'POST') {
 
 // ── Connect member invite (Phase 2) ──────────────────────────────────────────
 // Staff-initiated invite → member sets a password → account activates as role='member'.
-// Uses the same RSVP_STORE token pattern as forgot-password/reset above, rather than
+// Uses the same KV token pattern as forgot-password/reset above, rather than
 // the old /portal system's D1-table tokens. The app_users row is only created (or
 // reactivated) when the member actually completes setup — an invite that's never
 // opened never leaves a half-account with an unusable password sitting in the DB.
@@ -1253,7 +1253,7 @@ async function _sendMemberInviteEmail(env, to, displayName, setupUrl) {
 
 // POST /admin/api/people/:id/invite — caller (api-chms.js) already checked canEdit.
 export async function handleSendMemberInvite(env, personId) {
-  if (!env.RSVP_STORE) return json({ error: 'Invite system not configured' }, 503);
+  if (!env.KV) return json({ error: 'Invite system not configured' }, 503);
   const p = await env.DB.prepare(
     `SELECT id, first_name, last_name, email, member_type, status FROM people WHERE id=?`
   ).bind(personId).first();
@@ -1264,7 +1264,7 @@ export async function handleSendMemberInvite(env, personId) {
 
   const token = randHex(32);
   const displayName = [p.first_name, p.last_name].filter(Boolean).join(' ');
-  await env.RSVP_STORE.put(`member_invite:${token}`, JSON.stringify({
+  await env.KV.put(`member_invite:${token}`, JSON.stringify({
     person_id: p.id, email: p.email.toLowerCase().trim(), display_name: displayName, ts: Date.now(),
   }), { expirationTtl: 7 * 24 * 3600 });
 
@@ -1284,8 +1284,8 @@ export async function handleMemberSetup(req, env, url) {
 
   if (req.method === 'GET') {
     const token = url.searchParams.get('token') || '';
-    if (!token || !env.RSVP_STORE) return page('Set up your account', `<div class="msg err">This invite link is invalid.</div>`);
-    const raw = await env.RSVP_STORE.get(`member_invite:${token}`);
+    if (!token || !env.KV) return page('Set up your account', `<div class="msg err">This invite link is invalid.</div>`);
+    const raw = await env.KV.get(`member_invite:${token}`);
     if (!raw) return page('Set up your account', `<div class="msg err">This invite link has expired or was already used. Ask the church office to resend it.</div>`);
     let rec; try { rec = JSON.parse(raw); } catch { return page('Set up your account', `<div class="msg err">Invalid invite link.</div>`); }
     return page('Set up your account', `<p style="color:#3D3530;font-size:.9rem;margin-bottom:1.25rem;">Setting up an account for <strong>${escLite(rec.display_name)}</strong> (${escLite(rec.email)}).</p>
@@ -1306,8 +1306,8 @@ export async function handleMemberSetup(req, env, url) {
     if (!token) return page('Set up your account', `<div class="msg err">Missing token.</div>`);
     if (password.length < 8) return page('Set up your account', `<div class="msg err">Password must be at least 8 characters.</div>`);
     if (password !== password2) return page('Set up your account', `<div class="msg err">Passwords do not match.</div>`);
-    if (!env.RSVP_STORE) return page('Set up your account', `<div class="msg err">Invite system is unavailable.</div>`);
-    const raw = await env.RSVP_STORE.get(`member_invite:${token}`);
+    if (!env.KV) return page('Set up your account', `<div class="msg err">Invite system is unavailable.</div>`);
+    const raw = await env.KV.get(`member_invite:${token}`);
     if (!raw) return page('Set up your account', `<div class="msg err">This invite link has expired or was already used. Ask the church office to resend it.</div>`);
     let rec; try { rec = JSON.parse(raw); } catch { return page('Set up your account', `<div class="msg err">Invalid invite link.</div>`); }
 
@@ -1327,7 +1327,7 @@ export async function handleMemberSetup(req, env, url) {
         `INSERT INTO app_users (username, password_hash, display_name, email, role, people_id, active) VALUES (?,?,?,?,'member',?,1)`
       ).bind(rec.email, hash, rec.display_name || '', rec.email, rec.person_id).run();
     }
-    await env.RSVP_STORE.delete(`member_invite:${token}`).catch(() => {});
+    await env.KV.delete(`member_invite:${token}`).catch(() => {});
     return page('Set up your account', `<div class="msg ok">Account set up! <a href="https://connect.timothystl.org/">Sign in to Connect</a>.</div>`);
   }
 

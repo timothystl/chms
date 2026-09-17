@@ -31,8 +31,8 @@ function makeReq(username, password) {
 
 describe('login rate limiting: sliding window, no fixed-bucket boundary', () => {
   it('uses the same KV key across attempts regardless of which time bucket a fixed-window scheme would land in', async () => {
-    const RSVP_STORE = makeKvStore();
-    const env = { ADMIN_PASSWORD: 'correct-horse-battery-staple', RSVP_STORE, DB: null };
+    const KV = makeKvStore();
+    const env = { ADMIN_PASSWORD: 'correct-horse-battery-staple', KV, DB: null };
 
     // First failed attempt "now"...
     await handleAdminLogin(makeReq('admin', 'wrong-1'), env);
@@ -48,16 +48,16 @@ describe('login rate limiting: sliding window, no fixed-bucket boundary', () => 
       Date.now = realNow;
     }
 
-    const keys = [...RSVP_STORE._store.keys()].filter((k) => k.startsWith('rl_login:'));
+    const keys = [...KV._store.keys()].filter((k) => k.startsWith('rl_login:'));
     // Exactly one key for this IP — not two separate per-bucket keys — and its count reflects
     // both attempts, proving the "straddle the boundary" reset the old scheme allowed can't happen.
     expect(keys.length).toBe(1);
-    expect(RSVP_STORE._store.get(keys[0])).toBe('2');
+    expect(KV._store.get(keys[0])).toBe('2');
   });
 
   it('still blocks after MAX_ATTEMPTS failed attempts from the same IP', async () => {
-    const RSVP_STORE = makeKvStore();
-    const env = { ADMIN_PASSWORD: 'correct-horse-battery-staple', RSVP_STORE, DB: null };
+    const KV = makeKvStore();
+    const env = { ADMIN_PASSWORD: 'correct-horse-battery-staple', KV, DB: null };
     let lastRes;
     for (let i = 0; i < 11; i++) {
       lastRes = await handleAdminLogin(makeReq('admin', 'wrong'), env);

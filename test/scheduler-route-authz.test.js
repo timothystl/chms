@@ -42,7 +42,7 @@ function envForRole(role) {
   return {
     ...SECRETS,
     DB: { prepare: () => stmt, batch: async () => [] },
-    RSVP_STORE: {
+    KV: {
       get: async () => null,
       put: async () => {},
       delete: async () => {},

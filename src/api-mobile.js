@@ -378,7 +378,7 @@ export async function handleMobileApi(req, env, url, method, role) {
   // depend on state that only exists in the browser that opened the desktop Scheduler
   // (rsvpTokens/readings overrides in localStorage). A fresh RSVP token minted per send is
   // simpler than trying to reuse one, and just as valid — the /rsvp link only cares that the
-  // token in RSVP_STORE matches, not that it's the first one ever issued for this person.
+  // token in KV matches, not that it's the first one ever issued for this person.
   if (seg === 'scheduler/remind' && method === 'POST') {
     if (role !== 'admin' && role !== 'staff') return json({ error: 'Access denied' }, 403);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }

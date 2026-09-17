@@ -18,14 +18,14 @@ async function findPersonByEmail(db, email) {
 async function intakeRateLimitOk(env, req, path) {
   // P22-E: fail CLOSED when the KV binding is missing — an unlimited, unauthenticated
   // public-facing intake endpoint with no rate limit at all is worse than a 429.
-  if (!env.RSVP_STORE) return false;
+  if (!env.KV) return false;
   const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'unknown';
   const bucket = path.replace('/api/intake/', '');
   const key = `intake_rl:${bucket}:${ip}`;
-  const raw = await env.RSVP_STORE.get(key);
+  const raw = await env.KV.get(key);
   const count = raw ? parseInt(raw) || 0 : 0;
   if (count >= 10) return false; // 10 submissions per IP per 15 minutes
-  await env.RSVP_STORE.put(key, String(count + 1), { expirationTtl: 900 });
+  await env.KV.put(key, String(count + 1), { expirationTtl: 900 });
   return true;
 }
 

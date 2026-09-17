@@ -42,7 +42,7 @@ function envWithUser(user) {
   return {
     ADMIN_PASSWORD: 'break-glass-pw',
     SESSION_SECRET: 'test-session-secret',
-    RSVP_STORE: makeKvStore(),
+    KV: makeKvStore(),
     DB: {
       prepare: (sql) => stmt(sql),
       batch: async () => [],

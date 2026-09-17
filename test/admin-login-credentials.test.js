@@ -43,9 +43,9 @@ function envWith(users = []) {
     STAFF_PASSWORD: 'staff-pw',
     MEMBER_PASSWORD: 'member-pw',
     ADMIN_EMAIL: 'Timothy Lutheran <noreply@timothystl.org>',
-    // P22-E: login now fails CLOSED with no RSVP_STORE, so a working store is required here
+    // P22-E: login now fails CLOSED with no KV, so a working store is required here
     // just to reach the credential checks these tests are actually about.
-    RSVP_STORE: makeKvStore(),
+    KV: makeKvStore(),
     DB: {
       prepare: (sql) => ({
         bind: (...args) => ({

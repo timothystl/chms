@@ -301,14 +301,14 @@ export async function handleChristmasMarketToggle(req, env) {
 // ── RATE LIMITING ─────────────────────────────────────────────────────
 // Allows max 10 signups per IP per hour using KV as a counter store.
 export async function checkSignupRateLimit(env, req) {
-  if (!env.RSVP_STORE) return true;
+  if (!env.KV) return true;
   try {
     const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'unknown';
     const key = 'rl:signup:' + ip;
-    const current = await env.RSVP_STORE.get(key);
+    const current = await env.KV.get(key);
     const count = current ? parseInt(current, 10) : 0;
     if (count >= 10) return false;
-    await env.RSVP_STORE.put(key, String(count + 1), { expirationTtl: 3600 });
+    await env.KV.put(key, String(count + 1), { expirationTtl: 3600 });
     return true;
   } catch (e) {
     console.error('Rate limit check error (allowing request):', e);
@@ -741,14 +741,14 @@ export function schedHtmlPage(title, bodyContent) {
 }
 
 export async function schedKvGet(env, key) {
-  if (!env.RSVP_STORE) return null;
-  try { const raw = await env.RSVP_STORE.get(key); return raw ? JSON.parse(raw) : null; }
+  if (!env.KV) return null;
+  try { const raw = await env.KV.get(key); return raw ? JSON.parse(raw) : null; }
   catch { return null; }
 }
 
 export async function schedKvPut(env, key, value) {
-  if (!env.RSVP_STORE) return;
-  await env.RSVP_STORE.put(key, JSON.stringify(value), { expirationTtl: 31536000 });
+  if (!env.KV) return;
+  await env.KV.put(key, JSON.stringify(value), { expirationTtl: 31536000 });
 }
 
 // Write a volunteer's RSVP response straight into the relational scheduler_confirmations

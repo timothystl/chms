@@ -529,7 +529,7 @@ describe('handleMobileApi — scheduler/remind', () => {
     const kv = makeKv();
     stubFetch(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: 'em_1' }) }));
 
-    const env = { DB: db, RSVP_STORE: kv, RESEND_API_KEY: 'key', EMAIL_FROM: 'office@timothystl.org' };
+    const env = { DB: db, KV: kv, RESEND_API_KEY: 'key', EMAIL_FROM: 'office@timothystl.org' };
     const r = await handleMobileApi(
       makePostReq({ date_iso: '2026-09-06', role: 'Elder', svc: '8am' }), // Elaine Reyes, person id 12
       env, makeUrl('scheduler/remind'), 'POST', 'admin'

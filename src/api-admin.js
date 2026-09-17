@@ -166,7 +166,7 @@ export async function handleAdminLogin(req, env) {
   // P22-E: fail CLOSED, not open, when the KV binding backing rate limiting is missing —
   // brute-force protection that silently disables itself on a misconfigured environment is
   // worse than a login page that says so and refuses.
-  if (!env.RSVP_STORE) {
+  if (!env.KV) {
     return html(loginRetryHtml('Login is temporarily unavailable. Please try again shortly.'), 503);
   }
 
@@ -179,7 +179,7 @@ export async function handleAdminLogin(req, env) {
   const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'unknown';
   const MAX_ATTEMPTS = 10;
   const rlKey = `rl_login:${ip}`;
-  const attempts = parseInt(await env.RSVP_STORE.get(rlKey) || '0', 10);
+  const attempts = parseInt(await env.KV.get(rlKey) || '0', 10);
   if (attempts >= MAX_ATTEMPTS) {
     return html(loginRetryHtml('Too many login attempts. Please wait 15 minutes and try again.'), 429);
   }
@@ -224,7 +224,7 @@ export async function handleAdminLogin(req, env) {
   }
 
   if (matchedRole) {
-    await env.RSVP_STORE.delete(rlKey).catch(() => {});
+    await env.KV.delete(rlKey).catch(() => {});
     // authCookieHeader (auth.js) signs with a separate secret from adminPassword above
     // (P23-A/SEC15) and throws if that secret isn't configured — caught here rather than
     // read directly, so this function still reads exactly one credential from env, per
@@ -246,8 +246,8 @@ export async function handleAdminLogin(req, env) {
   }
   // Increment failed-attempt counter (expires after 20 minutes to clean up)
   {
-    const cur = parseInt(await env.RSVP_STORE.get(rlKey) || '0', 10);
-    await env.RSVP_STORE.put(rlKey, String(cur + 1), { expirationTtl: 20 * 60 }).catch(() => {});
+    const cur = parseInt(await env.KV.get(rlKey) || '0', 10);
+    await env.KV.put(rlKey, String(cur + 1), { expirationTtl: 20 * 60 }).catch(() => {});
   }
   return html(loginRetryHtml('Incorrect password. Please try again.'));
 }
@@ -936,15 +936,15 @@ async function _sendResetEmail(env, to, displayName, resetUrl) {
 // attackers can't enumerate accounts. Caller (login page) shows a generic
 // "if an account exists, an email was sent" message regardless.
 export async function handleForgotPassword(req, env) {
-  if (!env.RSVP_STORE) return json({ ok: true });
+  if (!env.KV) return json({ ok: true });
   let body = ''; try { body = await req.text(); } catch {}
   const params = new URLSearchParams(body);
   const ident = (params.get('username') || '').trim().toLowerCase();
   const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
   const rlKey = `pw_reset_rl:${ip}`;
-  const cur = parseInt(await env.RSVP_STORE.get(rlKey) || '0', 10);
+  const cur = parseInt(await env.KV.get(rlKey) || '0', 10);
   if (cur >= 5) return json({ ok: true });
-  await env.RSVP_STORE.put(rlKey, String(cur + 1), { expirationTtl: 15 * 60 });
+  await env.KV.put(rlKey, String(cur + 1), { expirationTtl: 15 * 60 });
 
   if (!ident) return json({ ok: true });
   const u = await env.DB.prepare(
@@ -954,7 +954,7 @@ export async function handleForgotPassword(req, env) {
   if (!u || !u.email) return json({ ok: true });
 
   const token = randHex(32);
-  await env.RSVP_STORE.put(`pw_reset:${token}`, JSON.stringify({
+  await env.KV.put(`pw_reset:${token}`, JSON.stringify({
     user_id: u.id, username: u.username, ts: Date.now(),
   }), { expirationTtl: 3600 });
   const url = new URL(req.url);
@@ -974,8 +974,8 @@ export async function handleResetPassword(req, env, url) {
   if (req.method === 'GET') {
     const token = url.searchParams.get('token') || '';
     if (!token) return page('Reset', `<div class="msg err">No reset token provided.</div>`);
-    if (!env.RSVP_STORE) return page('Reset', `<div class="msg err">Reset is unavailable.</div>`);
-    const raw = await env.RSVP_STORE.get(`pw_reset:${token}`);
+    if (!env.KV) return page('Reset', `<div class="msg err">Reset is unavailable.</div>`);
+    const raw = await env.KV.get(`pw_reset:${token}`);
     if (!raw) return page('Reset', `<div class="msg err">This reset link has expired or is invalid.</div>`);
     return page('Reset', `<form method="POST" action="/admin/reset" onsubmit="var b=this.querySelector('.btn');b.disabled=true;b.textContent='Saving…';">
       <input type="hidden" name="token" value="${token}">
@@ -994,14 +994,14 @@ export async function handleResetPassword(req, env, url) {
     if (!token) return page('Reset', `<div class="msg err">Missing token.</div>`);
     if (password.length < 8) return page('Reset', `<div class="msg err">Password must be at least 8 characters.</div>`);
     if (password !== password2) return page('Reset', `<div class="msg err">Passwords do not match.</div>`);
-    if (!env.RSVP_STORE) return page('Reset', `<div class="msg err">Reset is unavailable.</div>`);
-    const raw = await env.RSVP_STORE.get(`pw_reset:${token}`);
+    if (!env.KV) return page('Reset', `<div class="msg err">Reset is unavailable.</div>`);
+    const raw = await env.KV.get(`pw_reset:${token}`);
     if (!raw) return page('Reset', `<div class="msg err">This reset link has expired or is invalid.</div>`);
     let rec; try { rec = JSON.parse(raw); } catch { return page('Reset', `<div class="msg err">Invalid token.</div>`); }
     if (!rec.user_id) return page('Reset', `<div class="msg err">Invalid token.</div>`);
     const hash = await hashPassword(password);
     await env.DB.prepare(`UPDATE app_users SET password_hash=? WHERE id=?`).bind(hash, rec.user_id).run();
-    await env.RSVP_STORE.delete(`pw_reset:${token}`).catch(() => {});
+    await env.KV.delete(`pw_reset:${token}`).catch(() => {});
     return page('Reset', `<div class="msg ok">Password updated. <a href="/chms">Sign in</a> with your new password.</div>`);
   }
 
