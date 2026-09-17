@@ -8,10 +8,12 @@ import {
 // A route is "read-only, synthetic" here unless it is one of the declared, named exceptions
 // below: the Giving and payroll write relays relay a write to Website/Connect (never touch
 // Finance's own database); the payroll read relays are live calls out to Website's payroll proxy,
-// not synthetic fixtures. `budget-plan-save-v1` and `compensation-plan-save-v1` are the two
-// declared exceptions that DO write to Finance's own database (FINANCE_DB's finance_budget_plan
-// and finance_compensation_worker_plan respectively -- see budget-plan-write-service.js and
-// compensation-plan-write-service.js), each gated off by default. Anything else claiming
+// not synthetic fixtures. `budget-plan-save-v1`, `compensation-plan-save-v1`, and the four
+// `property-*-entry-v1` routes are the declared exceptions that DO write to Finance's own
+// database (FINANCE_DB's finance_budget_plan, finance_compensation_worker_plan, and the property
+// reserve/disbursement/distribution/capital-ledger tables respectively -- see
+// budget-plan-write-service.js, compensation-plan-write-service.js, and
+// property-ledger-write-service.js), each gated off by default. Anything else claiming
 // non-GET/HEAD methods, a `writer` flag, or a live dataSource is a regression.
 const WRITE_ROUTE_IDS = new Set([
   'giving-quick-entry-v1', 'budget-plan-write-v1', 'payroll-hours-save-v1', 'payroll-period-approve-v1',
@@ -28,7 +30,10 @@ const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv
 const D1_WRITE_ROUTE_IDS = new Set([
   'import-church-v1', 'import-church-balances-v1', 'import-daycare-v1', 'import-property-budget-v1',
 ]);
-const DB_WRITE_ROUTE_IDS = new Set(['compensation-plan-save-v1']);
+const DB_WRITE_ROUTE_IDS = new Set([
+  'compensation-plan-save-v1', 'property-reserve-entry-v1', 'property-reserve-disbursement-entry-v1',
+  'property-distribution-entry-v1', 'property-capital-ledger-entry-v1',
+]);
 
 describe('Finance staging route manifest', () => {
   it('is a closed, unique inventory with isolated data sources, read-only except the declared live relays', () => {
@@ -42,7 +47,9 @@ describe('Finance staging route manifest', () => {
       '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
       '/api/v1/payroll-email',
       '/api/v1/import/church', '/api/v1/import/church-balances', '/api/v1/import/daycare', '/api/v1/import/property-budget',
-      '/api/v1/compensation-plan-save',
+      '/api/v1/compensation-plan-save', '/api/v1/property-reserve-entry',
+      '/api/v1/property-reserve-disbursement-entry', '/api/v1/property-distribution-entry',
+      '/api/v1/property-capital-ledger-entry',
     ]);
     for (const route of FINANCE_ROUTE_MANIFEST) {
       if (WRITE_ROUTE_IDS.has(route.id)) {
@@ -136,6 +143,18 @@ describe('Finance staging route manifest', () => {
     expect(resolveFinanceRoute('/api/v1/compensation-plan-save')).toMatchObject({
       id: 'compensation-plan-save-v1', dataSource: 'finance-db-write', writer: true, methods: ['POST'],
     });
+    expect(resolveFinanceRoute('/api/v1/property-reserve-entry')).toMatchObject({
+      id: 'property-reserve-entry-v1', dataSource: 'finance-db-write', writer: true, methods: ['POST'],
+    });
+    expect(resolveFinanceRoute('/api/v1/property-reserve-disbursement-entry')).toMatchObject({
+      id: 'property-reserve-disbursement-entry-v1', dataSource: 'finance-db-write', writer: true, methods: ['POST'],
+    });
+    expect(resolveFinanceRoute('/api/v1/property-distribution-entry')).toMatchObject({
+      id: 'property-distribution-entry-v1', dataSource: 'finance-db-write', writer: true, methods: ['POST'],
+    });
+    expect(resolveFinanceRoute('/api/v1/property-capital-ledger-entry')).toMatchObject({
+      id: 'property-capital-ledger-entry-v1', dataSource: 'finance-db-write', writer: true, methods: ['POST'],
+    });
     expect(resolveFinanceRoute('/missing')).toBeUndefined();
 
     const readRoute = resolveFinanceRoute('/api/v1/summary');
@@ -149,5 +168,9 @@ describe('Finance staging route manifest', () => {
     expect(isMethodAllowedForRoute(writeRoute, 'POST')).toBe(true);
     expect(isMethodAllowedForRoute(writeRoute, 'GET')).toBe(false);
     expect(isMethodAllowedForRoute(writeRoute, 'HEAD')).toBe(false);
+
+    const dbWriteRoute = resolveFinanceRoute('/api/v1/property-capital-ledger-entry');
+    expect(isMethodAllowedForRoute(dbWriteRoute, 'POST')).toBe(true);
+    expect(isMethodAllowedForRoute(dbWriteRoute, 'GET')).toBe(false);
   });
 });

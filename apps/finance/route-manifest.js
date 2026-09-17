@@ -68,6 +68,19 @@ const ROUTES = [
   // entry for exactly what per-worker capability this table does and does not yet carry relative
   // to the legacy Salary Planner roster (src/api-finance.js).
   { id: 'compensation-plan-save-v1', paths: ['/api/v1/compensation-plan-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  // A further deliberate finance-db-write group, same "writes to Finance's own database, off by
+  // default" pattern as compensation-plan-save-v1/budget-plan-save-v1/the import-*-v1 routes
+  // above, for the Commercial Property reserve schedule/disbursements/distributions/capital
+  // ledger -- ported from legacy's real write routes in src/api-finance.js's handlePropertyApi
+  // onto Finance's own already-matching schema (see property-ledger-write-service.js's header for
+  // the ported validation and the verified real finding that legacy enforces no reserve-overdraw
+  // check on this path). isPropertyLedgerWritesEnabled() is checked first, before any role check,
+  // exactly like the other finance-db-write gates above -- until Andrew explicitly turns it on.
+  // See apps/finance/README.md's changelog entry.
+  { id: 'property-reserve-entry-v1', paths: ['/api/v1/property-reserve-entry'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  { id: 'property-reserve-disbursement-entry-v1', paths: ['/api/v1/property-reserve-disbursement-entry'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  { id: 'property-distribution-entry-v1', paths: ['/api/v1/property-distribution-entry'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  { id: 'property-capital-ledger-entry-v1', paths: ['/api/v1/property-capital-ledger-entry'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
 ];
 
 export const FINANCE_ROUTE_MANIFEST = Object.freeze(ROUTES.map((route) => Object.freeze({
