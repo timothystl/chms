@@ -3116,6 +3116,58 @@ export function councilPlannerKey(username) {
   return 'finance_salary_planner_council_' + String(username || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
 }
 
+// Shared with the finance-compensation-plan-v1 relay contract (src/api-contracts-service.js) --
+// same never-drifts rationale as applySalaryPlannerWrite above. Returns the plan state exactly as
+// the legacy finance/planning/salary GET route would for this role/username: the right stored key
+// (compensation role's own fork if one exists, admin/finance's shared key otherwise), with
+// council's hideFromCouncil filtering + index-reindexing applied first, then council's own saved
+// overlay fields laid on top -- never the reverse, and never another council member's.
+export async function resolveSalaryPlannerState(db, role, username) {
+  let key = SALARY_PLANNER_KEY;
+  if (role === 'compensation') {
+    const forkExists = await db.prepare("SELECT 1 FROM finance_settings WHERE key=?").bind(SALARY_PLANNER_COMPENSATION_KEY).first();
+    if (forkExists) key = SALARY_PLANNER_COMPENSATION_KEY;
+  }
+  const row = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(key).first();
+  let data = null;
+  if (row) { try { data = JSON.parse(row.value); } catch { data = null; } }
+  if (role === 'council' && data && Array.isArray(data.roster)) {
+    const oldToNewIndex = [];
+    const visibleRoster = [];
+    data.roster.forEach((w, i) => {
+      if (w && w.hideFromCouncil) return;
+      oldToNewIndex[i] = visibleRoster.length;
+      visibleRoster.push(w);
+    });
+    const reindex = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      const out = {};
+      for (const k of Object.keys(obj)) {
+        const newIndex = oldToNewIndex[Number(k)];
+        if (newIndex !== undefined) out[newIndex] = obj[k];
+      }
+      return out;
+    };
+    data = Object.assign({}, data, {
+      roster: visibleRoster,
+      compPerWorkerMethod: reindex(data.compPerWorkerMethod),
+      compOverrides: reindex(data.compOverrides),
+    });
+  }
+  if (role === 'council' && data && username) {
+    const overlayRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(councilPlannerKey(username)).first();
+    if (overlayRow) {
+      let overlay = null;
+      try { overlay = JSON.parse(overlayRow.value); } catch { overlay = null; }
+      if (overlay && typeof overlay === 'object') {
+        data = Object.assign({}, data);
+        for (const f of COUNCIL_EDITABLE_FIELDS) if (overlay[f] !== undefined) data[f] = overlay[f];
+      }
+    }
+  }
+  return data;
+}
+
 export async function applySalaryPlannerWrite(db, role, username, body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'Invalid payload', status: 400 };
   if (body.roster !== undefined && !Array.isArray(body.roster)) return { error: 'roster must be an array', status: 400 };
@@ -4441,61 +4493,11 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // not one shared fork, so one council member's plan can never overwrite another's, and never
   // the real admin/finance plan. See COUNCIL_EDITABLE_FIELDS/councilPlannerKey below.
   if (seg === 'finance/planning/salary' && method === 'GET') {
-    let key = SALARY_PLANNER_KEY;
-    if (role === 'compensation') {
-      const forkExists = await db.prepare("SELECT 1 FROM finance_settings WHERE key=?").bind(SALARY_PLANNER_COMPENSATION_KEY).first();
-      if (forkExists) key = SALARY_PLANNER_COMPENSATION_KEY;
-    }
-    const row = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(key).first();
-    let data = null;
-    if (row) { try { data = JSON.parse(row.value); } catch { data = null; } }
-    // Council never sees a worker an admin has flagged hideFromCouncil — dropped from the
-    // roster entirely (never merely disabled) before anything else runs, and the per-worker
-    // method/override maps (keyed by roster array INDEX) re-indexed to match, the same class of
-    // fix finCompRemoveWorker already makes client-side when an admin deletes a row. Runs before
-    // the per-user plan overlay below so council's own saved per-worker method choices — which
-    // can only ever reference what they were shown — line up against this same filtered roster.
-    if (role === 'council' && data && Array.isArray(data.roster)) {
-      const oldToNewIndex = [];
-      const visibleRoster = [];
-      data.roster.forEach((w, i) => {
-        if (w && w.hideFromCouncil) return;
-        oldToNewIndex[i] = visibleRoster.length;
-        visibleRoster.push(w);
-      });
-      const reindex = (obj) => {
-        if (!obj || typeof obj !== 'object') return obj;
-        const out = {};
-        for (const k of Object.keys(obj)) {
-          const newIndex = oldToNewIndex[Number(k)];
-          if (newIndex !== undefined) out[newIndex] = obj[k];
-        }
-        return out;
-      };
-      data = Object.assign({}, data, {
-        roster: visibleRoster,
-        compPerWorkerMethod: reindex(data.compPerWorkerMethod),
-        compOverrides: reindex(data.compOverrides),
-      });
-    }
-    // Council reads the real shared roster/reference data (so their plan is built off the same
-    // facts admin/finance see) with only their own saved plan fields laid on top — never the
-    // reverse, and never another council member's.
-    if (role === 'council' && data) {
-      let username = '';
+    let username = '';
+    if (role === 'council') {
       try { username = ((await getAuthInfo(req, env)) || {}).username || ''; } catch { username = ''; }
-      if (username) {
-        const overlayRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(councilPlannerKey(username)).first();
-        if (overlayRow) {
-          let overlay = null;
-          try { overlay = JSON.parse(overlayRow.value); } catch { overlay = null; }
-          if (overlay && typeof overlay === 'object') {
-            data = Object.assign({}, data);
-            for (const f of COUNCIL_EDITABLE_FIELDS) if (overlay[f] !== undefined) data[f] = overlay[f];
-          }
-        }
-      }
     }
+    const data = await resolveSalaryPlannerState(db, role, username);
     return json({ data });
   }
   if (seg === 'finance/planning/salary' && method === 'PUT') {

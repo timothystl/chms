@@ -11,7 +11,7 @@ import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, resp
 import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
-import { applyBudgetPlanOverrideRows, applySalaryPlannerWrite } from './api-finance.js';
+import { applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState } from './api-finance.js';
 
 export async function handleContractsServiceApi(req, env, path) {
   const expectedKey = env.FINANCE_CONTRACT_API_KEY || '';
@@ -95,6 +95,10 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-compensation-write-v1' && req.method === 'POST') {
     return handleFinanceCompensationWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-compensation-plan-v1' && req.method === 'GET') {
+    return handleFinanceCompensationPlanContract(req, env);
   }
 
   if (path === '/api/contracts/staff-role-v1' && req.method === 'GET') {
@@ -262,4 +266,40 @@ async function handleFinanceCompensationWriteContract(req, env) {
   ).bind('', '', email).run().catch(() => {});
 
   return json({ ok: true, savedBy: user.username });
+}
+
+// ── Salary/Compensation Planner READ, relayed to Finance's own Compensation Planner editor ──
+// Returns the exact raw, editable plan state the legacy finance/planning/salary GET route would
+// for this identity's role (resolveSalaryPlannerState, src/api-finance.js) -- the complete
+// internal roster/settings shape Finance's own write relay above expects back on save, NOT the
+// normalized connect.finance-compensation.v1 reporting contract's per-person roster (different
+// field shapes; that contract exists to describe compensation data for display, not to round-trip
+// a save). Finance's editor fetches this first, lets the viewer change specific fields, and
+// resubmits the COMPLETE result to finance-compensation-write-v1 -- fetch-edit-resubmit, never a
+// partial body, so nothing else in the real plan is silently wiped (see finance-compensation-
+// client.js's own comment on why postConnectFinanceCompensationWrite requires the whole state).
+//
+// Same real, individually-identifiable compensation data as the write side -- gated to admin,
+// compensation, or council only, matching COMPENSATION_LIVE_ALLOWED_ROLES (apps/finance/
+// compensation-report-service.js) and the legacy Salary Planner's own access.
+async function handleFinanceCompensationPlanContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(
+    `SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`
+  ).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  if (user.role !== 'admin' && user.role !== 'compensation' && user.role !== 'council') {
+    return json({ error: 'Access denied: the salary planner requires admin, compensation, or council access' }, 403);
+  }
+
+  const data = await resolveSalaryPlannerState(db, user.role, user.username);
+  return json({ data });
 }

@@ -2,7 +2,7 @@ const READ_METHODS = Object.freeze(['GET', 'HEAD']);
 const WRITE_METHODS = Object.freeze(['POST']);
 
 const ROUTES = [
-  { id: 'shell', paths: ['/', '/index.html'], dataSource: 'synthetic-d1', queryBudget: 'summary', optionalQueryBudgets: ['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'cashRunway'] },
+  { id: 'shell', paths: ['/', '/index.html'], dataSource: 'synthetic-d1', queryBudget: 'summary', optionalQueryBudgets: ['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'compensationPlanRaw', 'cashRunway'] },
   { id: 'health', paths: ['/health'], dataSource: 'none' },
   { id: 'summary-v1', paths: ['/api/v1/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', contract: 'finance.summary.v1' },
   { id: 'giving-preview-v1', paths: ['/api/v1/connect-giving-preview'], dataSource: 'synthetic-static', contract: 'connect.giving-summary.v1' },
@@ -27,6 +27,13 @@ const ROUTES = [
   // endpoint (never writes to Finance's own database). Gated admin/council only, on Connect's
   // side, matching the legacy in-Connect Budget Planner's own override-bulk route exactly.
   { id: 'budget-plan-write-v1', paths: ['/api/v1/connect-budget-plan-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-write-relay.v1' },
+  // Same deliberate exception as the Giving/Budget relays above, for the Compensation Plan roster
+  // editor: relays a fetch-edit-resubmit add/update/remove to Connect's own
+  // finance-compensation-write-v1 contract endpoint (never writes to Finance's own database).
+  // Gated admin/compensation only, on Connect's side, matching the legacy in-Connect Salary
+  // Planner's own PUT route exactly -- council's real editing surface stays the separate, narrower
+  // raise-plan-field overlay, not this route.
+  { id: 'compensation-plan-write-v1', paths: ['/api/v1/connect-compensation-plan-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-compensation-write-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no
