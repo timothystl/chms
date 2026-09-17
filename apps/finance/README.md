@@ -155,6 +155,10 @@ noted above. Consult their source and the page registry for current per-page beh
 - `entity-overview-service.js` — pure separately-periodized Church, Daycare, and Property view; still synthetic-only by investigated decision, not merely unwired -- see the Financial Health entry below.
 - `operating-bridge-service.js` — pure reconciled annual Church income-to-result bridge; reads only `fiscalYear`/`totals.{incomeActualCents,expenseActualCents,actualNetCents}`, a shape the live Church Report view (`buildLiveChurchReportView`) already matches exactly, so no live-aware wrapper was needed to make Financial Health's Church operating bridge live-first too.
 - `csv-import-service.js` — CSV parsing, validation, and FINANCE_DB persistence for the Church/Balance/Daycare/Property Budget import write paths, plus the off-by-default `isCsvImportWritesEnabled` gate; see the Alpha.43 entry below.
+- `quickbooks-oauth-client.js` — DESIGN + DARK CODE, not wired to any route. Finance-owned port of `src/quickbooks.js`'s OAuth token exchange/refresh and Reports/Query API request shapes, with every network call going through an injectable `fetchImpl` so it is unit-testable against mocked HTTP responses. See its header comment for the open Intuit app-registration question and the dual-writer refresh-token-rotation hazard.
+- `quickbooks-token-service.js` — DESIGN + DARK CODE. Finance-owned port of `src/api-finance.js`'s `ensureFreshAccessToken`, with the HTTP call and the D1 persistence both passed in explicitly so tests exercise it with a mocked refresh function and a fake D1, never a real network call or database.
+- `quickbooks-budget-merge.js` — DESIGN + DARK CODE. Finance-owned port of `mergeLeafCells`/`mergeSection`/`mergeTree`/`mergeProfitAndLossTree`/`mergeCurrentYearBudgetAndActual`/`fetchQboJson` -- the confirmed-working Budget-entity-plus-ProfitAndLoss reconstruction AGENTS.md describes, tested against fixture JSON shaped like Intuit's real Budget/Reports API responses.
+- `quickbooks-oauth-routes.js` — DESIGN + DARK CODE. Shows how connect/callback/disconnect/sync route handlers would be assembled from the three modules above; not registered in `route-manifest.js` or imported by `shell.js`. See the QuickBooks OAuth/sync design changelog entry below for the full status and what actually connecting this would still require.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data, served at `/api/v1/connect-giving-preview`.
@@ -467,6 +471,79 @@ This tooling is built and unit-tested (`test/finance-migration-*.test.js`) again
 data standing in for the real databases only. It has not been run, and must not be run, against
 any real staging or production database without Andrew's separate, explicit approval for that
 specific run, per AGENTS.md.
+
+## QuickBooks OAuth/sync design (dark code, never exercised against the real account)
+
+This adds a Finance-owned design (plus as much working code as is honest to write without live
+QuickBooks credentials or a network call) for the write path AGENTS.md's Settled Operational
+Facts describe: a real OAuth connection, `ensureFreshAccessToken`'s token refresh, and
+`mergeCurrentYearBudgetAndActual`'s Budget-entity-plus-ProfitAndLoss reconstruction -- the
+confirmed-working path, not QuickBooks' own Intuit-unsupported native Budget-vs-Actual report.
+**None of this has ever been exercised against the real QuickBooks account.** It is design and
+code only.
+
+New migration `migrations/0008_finance_qb_connection.sql` adds Finance's OWN
+`finance_qb_connection`/`finance_qb_snapshot` tables (field-for-field the same shape as legacy's
+`migrations/0016_finance.sql` at the repository root) plus a `finance_qb_oauth_state` table for
+OAuth CSRF state -- a D1 table rather than a KV namespace, because apps/finance has no KV
+binding today (see `test/finance-alpha-shell.test.js`'s assertion that `kv_namespaces` must not
+exist in the alpha shell). This table was deliberately left out of every earlier migration --
+see `test/finance-d1-foundation.test.js`'s own negative assertion pinned to migration 0001 --
+precisely because standing up credential storage for a second QuickBooks connection is an
+authentication/configuration decision. Adding it now is that decision's design follow-up, not a
+reversal: the migration exists, but nothing reads or writes it from any deployed route.
+
+`quickbooks-oauth-client.js`, `quickbooks-token-service.js`, and `quickbooks-budget-merge.js`
+port the legacy OAuth client, token-refresh, and budget-reconstruction logic with every network
+call passed in as an explicit, injectable dependency, so each is unit-tested against mocked HTTP
+responses and fixture Budget/ProfitAndLoss JSON shaped like Intuit's real Reports/Query API
+format -- see `test/finance-quickbooks-oauth-client.test.js`,
+`test/finance-quickbooks-token-service.test.js`, and
+`test/finance-quickbooks-budget-merge.test.js`. No test in any of these files makes a real
+request to any `*.intuit.com`/`*.quickbooks.com` host. `quickbooks-oauth-routes.js` shows how
+connect/callback/disconnect/sync handlers would be assembled from those three modules --
+covered by `test/finance-quickbooks-oauth-routes.test.js` against a small purpose-built D1 mock
+and mocked `fetchImpl`, still no real network call or database.
+
+**This is fully gated off, not merely feature-flagged.** `quickbooks-oauth-routes.js` is not
+imported by `shell.js` and is not listed in `route-manifest.js`; neither
+`wrangler.finance.jsonc` nor `wrangler.finance.staging.jsonc` was touched (no new binding, no
+new secret name). `test/finance-quickbooks-unwired.test.js` makes that a standing, mechanically
+checked guarantee rather than a claim resting on comments alone -- it fails if a future change
+imports any of these modules from `shell.js`, adds a `qb` route to the manifest, or adds a
+QuickBooks secret/KV binding to either wrangler config.
+
+**What actually connecting this would still require, none of which this change attempts:**
+1. Andrew's separate, explicit approval for this specific authentication/configuration change,
+   per AGENTS.md's access rules -- this is a design/code submission, not a request to turn it on.
+2. An Intuit app-registration decision only Andrew can make in the Intuit developer dashboard:
+   either add `finance.timothystl.org`'s callback URL as an additional Redirect URI on the
+   SAME Intuit app Connect already uses (`SECRETS.md`'s `QB_CLIENT_ID`), or register a wholly
+   separate Intuit app dedicated to Finance. See `quickbooks-oauth-client.js`'s header comment
+   for the tradeoff. This agent has no QuickBooks/Intuit credentials and has not attempted
+   either.
+3. Resolving a dual-writer hazard worth stating plainly: QuickBooks rotates the OAuth refresh
+   token on every use. If Connect's Worker and a live Finance connection both held an active,
+   independently-refreshing connection to the SAME QuickBooks company at once, whichever
+   refreshes second silently invalidates the other's stored refresh token. Finance's own
+   connection should only go live either after Connect's existing production connection is
+   deliberately disconnected, or with option 2 above's genuinely separate Intuit app
+   credentials.
+4. A separate product decision this change deliberately does not make: whether Finance becomes
+   a second writer of accounting actuals/budget data (the way `budget-plan-write-service.js`
+   and `csv-import-service.js` above already do for Budget/Church/Balance/Daycare/Property
+   data), or stays a reader of Connect's versioned contracts for Church/Budget data
+   specifically, per AGENTS.md's "Giving remains authoritative in Connect... Finance must
+   eventually consume versioned summaries, not become a second writer" principle (written
+   about Giving, but the identical question applies here). This change's own
+   `quickbooks-oauth-routes.js` design therefore only caches synced report JSON into
+   `finance_qb_snapshot` -- it does not design or build a Finance-owned equivalent of legacy's
+   `finance_church_entries`/`persistChurchEntries` writer.
+
+Per AGENTS.md, the legacy QuickBooks connection this design is ported from connected
+successfully exactly once, on 2026-07-28, and its `last_synced_at` has not moved since --
+`ensureFreshAccessToken()` has not run again in production. This port has not changed that fact
+and does not touch the legacy connection or its data in any way.
 
 ## Validate
 
