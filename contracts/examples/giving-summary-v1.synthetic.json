@@ -13,14 +13,16 @@
       "fundLabel": "Synthetic General Fund",
       "giftCount": 4,
       "householdCount": 3,
-      "amounts": { "grossCents": 120000, "refundCents": 5000, "netCents": 115000 }
+      "amounts": { "grossCents": 120000, "refundCents": 5000, "netCents": 115000 },
+      "isGeneralFund": true
     },
     {
       "fundRef": "synthetic-outreach",
       "fundLabel": "Synthetic Outreach",
       "giftCount": 2,
       "householdCount": 2,
-      "amounts": { "grossCents": 30000, "refundCents": 0, "netCents": 30000 }
+      "amounts": { "grossCents": 30000, "refundCents": 0, "netCents": 30000 },
+      "isGeneralFund": false
     }
   ],
   "totals": { "grossCents": 150000, "refundCents": 5000, "netCents": 145000 },

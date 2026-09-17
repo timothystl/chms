@@ -1,7 +1,7 @@
 const CONTRACT = 'connect.giving-summary.v1';
 const ROOT_KEYS = ['contract', 'dataClassification', 'sourceProduct', 'consumerProduct', 'currency', 'period', 'generatedAt', 'sourceThrough', 'funds', 'totals', 'reconciliation'];
 const PERIOD_KEYS = ['startDate', 'endDate'];
-const FUND_KEYS = ['fundRef', 'fundLabel', 'giftCount', 'householdCount', 'amounts'];
+const FUND_KEYS = ['fundRef', 'fundLabel', 'giftCount', 'householdCount', 'amounts', 'isGeneralFund'];
 const AMOUNT_KEYS = ['grossCents', 'refundCents', 'netCents'];
 const RECONCILIATION_KEYS = ['sourceRecordCount', 'fundCount', 'totalsMatch'];
 
@@ -97,6 +97,7 @@ export function validateConnectGivingSummaryV1(value) {
       for (const key of ['giftCount', 'householdCount']) {
         if (!Number.isInteger(fund[key]) || fund[key] < 0) errors.push(`${path}.${key} must be a nonnegative integer`);
       }
+      if (typeof fund.isGeneralFund !== 'boolean') errors.push(`${path}.isGeneralFund must be a boolean`);
       validateAmounts(fund.amounts, `${path}.amounts`, errors);
     });
   }
@@ -156,6 +157,7 @@ export function acceptConnectGivingSummaryV1(value) {
       giftCount: fund.giftCount,
       householdCount: fund.householdCount,
       amounts: { ...fund.amounts },
+      isGeneralFund: fund.isGeneralFund,
     })),
     totals: { ...value.totals },
     reconciliation: { ...value.reconciliation },

@@ -80,6 +80,7 @@ describe('contracts/connect-giving-summary-v1 access gate', () => {
 function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(readFileSync(new URL('../migrations/0001_baseline.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0033_fund_category.sql', import.meta.url), 'utf8'));
   return {
     prepare(sql) {
       // Both call shapes are exercised on the real path: handleChmsApi's own

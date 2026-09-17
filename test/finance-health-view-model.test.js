@@ -10,6 +10,10 @@ const SYNTHETIC_SUMMARY = {
   balanceSheet: { assets_cents: 30000000, liabilities_cents: 10000000, equity_cents: 20000000 },
 };
 const GIVING = {
+  funds: [{
+    fundRef: '1', fundLabel: 'General Fund', giftCount: 6, householdCount: 4,
+    amounts: { grossCents: 150000, refundCents: 5000, netCents: 145000 }, isGeneralFund: true,
+  }],
   totals: { grossCents: 150000, refundCents: 5000, netCents: 145000 },
   reconciliation: { sourceRecordCount: 6, totalsMatch: true },
 };
@@ -56,6 +60,26 @@ describe('isolated Financial Health view model', () => {
     expect(view.decisions.map(({ authority }) => authority)).toEqual([
       'Full control', 'Reported, not managed', 'Timing decision',
     ]);
+  });
+
+  // The board's headline giving figure (Andrew, 2026-09-17): General Fund only, not every
+  // restricted/designated fund summed together -- giving.totals (all funds) stays available for
+  // Charts/Board packet, which still want the whole-church figure.
+  it('sums only funds flagged isGeneralFund, ignoring restricted/designated funds in giving.totals', () => {
+    const multiFund = {
+      funds: [
+        { fundRef: '1', fundLabel: 'General Fund', giftCount: 3, householdCount: 2,
+          amounts: { grossCents: 100000, refundCents: 1000, netCents: 99000 }, isGeneralFund: true },
+        { fundRef: '2', fundLabel: 'Building Fund', giftCount: 2, householdCount: 1,
+          amounts: { grossCents: 50000, refundCents: 0, netCents: 50000 }, isGeneralFund: false },
+      ],
+      totals: { grossCents: 150000, refundCents: 1000, netCents: 149000 },
+      reconciliation: { sourceRecordCount: 5, totalsMatch: true },
+    };
+    const view = buildFinancialHealthView(SYNTHETIC_SUMMARY, multiFund);
+    expect(view.giving).toEqual({
+      grossCents: 100000, refundCents: 1000, netCents: 99000, sourceRecordCount: 3, reconciled: true,
+    });
   });
 
   it('prefers live Church Report/Balance Sheet totals over the synthetic summary when both live results succeed', () => {

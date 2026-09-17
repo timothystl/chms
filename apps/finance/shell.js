@@ -237,7 +237,7 @@ function renderSectionBody(ctx) {
     const isChurchLive = churchReportLive != null && !isSyntheticUnavailable(churchReportLive) && churchReportLive.source === 'live';
     // Reflects only Operating result/Financial position -- the two cards this badge has ever
     // summarized. Giving already carries its own independent, always-shown inline label right next
-    // to it (see the Giving reconciliation card below) and was never represented by this badge
+    // to it (see the General Fund giving card below) and was never represented by this badge
     // even before this change, so folding it in here would not add information, only ambiguity.
     const healthSources = [health.operating?.source, health.position?.source].filter(Boolean);
     const liveHealthSources = healthSources.filter((source) => source === 'live').length;
@@ -312,7 +312,7 @@ function renderSectionBody(ctx) {
       <div class="grid">
         ${health.operating ? `<div class="card"><small>Operating result</small><strong>${formatSignedCents(health.operating.actualNetCents)}</strong><span>Budget ${formatSignedCents(health.operating.budgetNetCents)} · variance ${formatSignedCents(health.operating.varianceCents)} · ${health.operating.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>` : renderUnavailableCard('Operating result')}
         ${health.position ? `<div class="card"><small>Financial position</small><strong>${formatCents(health.position.netAssetsCents)}</strong><span>Assets ${formatCents(health.position.assetsCents)} · liabilities ${formatCents(health.position.liabilitiesCents)} · ${health.position.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>` : renderUnavailableCard('Financial position')}
-        <div class="card"><small>Giving reconciliation</small><strong>${formatCents(health.giving.netCents)}</strong><span>${health.giving.sourceRecordCount} aggregate records · ${health.giving.reconciled ? 'totals match' : 'review required'} · ${givingSource === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>
+        <div class="card"><small>General Fund giving</small><strong>${formatCents(health.giving.netCents)}</strong><span>${health.giving.sourceRecordCount} aggregate records · ${health.giving.reconciled ? 'totals match' : 'review required'} · ${givingSource === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>
       </div>
       <div class="section-heading trend-heading"><div><div class="eyebrow">Liquidity</div><h2>Operating cash runway</h2></div><span class="badge">${runway ? `As of ${escapeHtml(runway.asOfDate)}` : 'Unavailable'}</span></div>
       ${runway

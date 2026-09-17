@@ -6,9 +6,13 @@ import { handleContractsServiceApi } from '../src/api-contracts-service.js';
 function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(readFileSync(new URL('../migrations/0001_baseline.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0033_fund_category.sql', import.meta.url), 'utf8'));
   return {
     prepare(sql) {
       return {
+        async run(...args) { sqlite.prepare(sql).run(...args); },
+        async first(...args) { return sqlite.prepare(sql).get(...args); },
+        async all(...args) { return { results: sqlite.prepare(sql).all(...args) }; },
         bind(...args) {
           return {
             async run() { sqlite.prepare(sql).run(...args); },

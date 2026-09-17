@@ -191,8 +191,8 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     // synthetic fixture and say so per-card now, instead of the old single page-wide badge.
     expect(html).toContain('variance $0 · synthetic fixture');
     expect(html).toContain('Assets $300,000 · liabilities $100,000 · synthetic fixture');
-    expect(html).toContain('$1,450');
-    expect(html).toContain('6 aggregate records · totals match');
+    expect(html).toContain('$1,150');
+    expect(html).toContain('4 aggregate records · totals match');
     expect(html).toContain('Full control');
     expect(html).toContain('Reported, not managed');
     expect(html).toContain('Timing decision');
@@ -1492,7 +1492,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
             period: { startDate: '2026-06-01', endDate: '2026-06-14' },
             generatedAt: '2026-06-15T00:00:00Z', sourceThrough: '2026-06-14T23:59:59Z',
             funds: [{ fundRef: '9', fundLabel: 'Live Test Fund', giftCount: 1, householdCount: 1,
-              amounts: { grossCents: 500000, refundCents: 0, netCents: 500000 } }],
+              amounts: { grossCents: 500000, refundCents: 0, netCents: 500000 }, isGeneralFund: true }],
             totals: { grossCents: 500000, refundCents: 0, netCents: 500000 },
             reconciliation: { sourceRecordCount: 1, fundCount: 1, totalsMatch: true },
           }), { status: 200 });
@@ -1626,7 +1626,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       expect(html).toContain('Operating result');
       expect(html).toContain('Data temporarily unavailable');
       expect(html).toContain('Financial position');
-      expect(html).toContain('Giving reconciliation');
+      expect(html).toContain('General Fund giving');
       expect(html).not.toContain('<strong>$0</strong>');
       // The purely-static decision framing (not data-derived) still renders even though every
       // data-backed card on the same page is unavailable.

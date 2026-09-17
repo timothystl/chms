@@ -8,9 +8,13 @@ import { validateConnectGivingSummaryV1 } from '../apps/finance/connect-giving-c
 function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(readFileSync(new URL('../migrations/0001_baseline.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../migrations/0033_fund_category.sql', import.meta.url), 'utf8'));
   return {
     prepare(sql) {
       return {
+        async run(...args) { sqlite.prepare(sql).run(...args); },
+        async first(...args) { return sqlite.prepare(sql).get(...args); },
+        async all(...args) { return { results: sqlite.prepare(sql).all(...args) }; },
         bind(...args) {
           return {
             async run() { sqlite.prepare(sql).run(...args); },
@@ -77,11 +81,13 @@ describe('buildConnectGivingSummaryV1', () => {
     expect(general.giftCount).toBe(3);
     expect(general.householdCount).toBe(1); // p1 and p2 share a household
     expect(general.amounts).toEqual({ grossCents: 15000, refundCents: 2000, netCents: 13000 });
+    expect(general.isGeneralFund).toBe(true);
 
     const outreach = summary.funds.find((f) => f.fundRef === String(outreachFundId));
     expect(outreach.giftCount).toBe(1);
     expect(outreach.householdCount).toBe(1);
     expect(outreach.amounts).toEqual({ grossCents: 3000, refundCents: 0, netCents: 3000 });
+    expect(outreach.isGeneralFund).toBe(false);
 
     expect(summary.totals).toEqual({ grossCents: 18000, refundCents: 2000, netCents: 16000 });
     expect(summary.reconciliation).toEqual({ sourceRecordCount: 4, fundCount: 2, totalsMatch: true });
@@ -121,5 +127,28 @@ describe('buildConnectGivingSummaryV1', () => {
     expect(summary.funds).toEqual([]);
     expect(summary.totals).toEqual({ grossCents: 0, refundCents: 0, netCents: 0 });
     expect(summary.reconciliation).toEqual({ sourceRecordCount: 0, fundCount: 0, totalsMatch: true });
+  });
+
+  // isGeneralFund reuses resolveGeneralFundIds (src/api-utils.js) -- the same classification the
+  // giving-board report and Health page's giving-pace chart already use -- rather than a second,
+  // narrower name-match copy of the rule. This exercises the case that classification exists
+  // specifically to handle: a fund categorized 'general' in Settings whose name no longer says
+  // "General Fund" at all, once an admin has renamed it.
+  it('flags a fund as general by its Settings category, not just by a literal "General Fund" name', async () => {
+    const db = makeTestDb();
+    const platefundId = insertFund(db, 'Sunday Offering Plate'); // renamed away from "General Fund"
+    db._raw.prepare('UPDATE funds SET category=? WHERE id=?').run('general', platefundId);
+    const missionsFundId = insertFund(db, 'Missions'); // never categorized -- stays non-general
+    const p = insertPerson(db);
+    const batch = insertBatch(db, '2026-01-15');
+    insertEntry(db, { batchId: batch, fundId: platefundId, personId: p, amount: 10000, date: '2026-01-10' });
+    insertEntry(db, { batchId: batch, fundId: missionsFundId, personId: p, amount: 5000, date: '2026-01-10' });
+
+    const summary = await buildConnectGivingSummaryV1(db, {
+      startDate: '2026-01-01', endDate: '2026-01-31', now: new Date('2026-02-01T00:00:00Z'),
+    });
+
+    expect(summary.funds.find((f) => f.fundRef === String(platefundId)).isGeneralFund).toBe(true);
+    expect(summary.funds.find((f) => f.fundRef === String(missionsFundId)).isGeneralFund).toBe(false);
   });
 });
