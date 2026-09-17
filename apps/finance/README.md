@@ -29,7 +29,9 @@ forecast (a straight port of the AHRA-imported `finance_property_budget_monthly`
 table, not a computed run-rate projection despite the page's label) joined main in #1002 and a
 follow-on PR respectively, after the production deployment inspected in this review; do not infer
 they are deployed. Giving writes relay to Connect and payroll operations relay to Website. Neither
-relay transfers ownership of those records to Finance.
+relay transfers ownership of those records to Finance. Four CSV import routes (Church, Balance,
+Daycare, Property Budget — see `csv-import-service.js` and the Alpha.42 entry below) write to
+Finance's own database, but are gated off by default and not reachable in production.
 
 Compensation's four sub-pages split unevenly on whether a real substitute for their synthetic
 role-level fixture exists: Plan and Council snapshot both have an honest live version, gated to
@@ -114,6 +116,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `financial-mix-service.js` — pure reconciled income/expense composition view; `buildLiveFinancialMixView` builds the same `{fiscalYear, income, expenses}` shape directly from a live church-report contract result, used by Charts' revenue/expense mix pages and now Financial Health's Operating mix, each independently, whenever `resolveChurchReport` came back live.
 - `entity-overview-service.js` — pure separately-periodized Church, Daycare, and Property view; still synthetic-only by investigated decision, not merely unwired -- see the Financial Health entry below.
 - `operating-bridge-service.js` — pure reconciled annual Church income-to-result bridge; reads only `fiscalYear`/`totals.{incomeActualCents,expenseActualCents,actualNetCents}`, a shape the live Church Report view (`buildLiveChurchReportView`) already matches exactly, so no live-aware wrapper was needed to make Financial Health's Church operating bridge live-first too.
+- `csv-import-service.js` — CSV parsing, validation, and FINANCE_DB persistence for the Church/Balance/Daycare/Property Budget import write paths, plus the off-by-default `isCsvImportWritesEnabled` gate; see the Alpha.42 entry below.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data, served at `/api/v1/connect-giving-preview`.
@@ -346,6 +349,30 @@ cards already apply. Operating trend's "net" figure is each fiscal year's own re
 Operating result card already use -- not a naive income-minus-expense figure, and the trend card's
 fiscal year is no longer required to match Operating result's, since each card is now independently
 sourced. No new contract, query budget, migration, or writer.
+
+Alpha.42 adds CSV import write paths for Church Report (annual Budget-vs-Actuals), Balance Sheet
+(Statement of Financial Position), Daycare (category actuals/budget), and Commercial Property
+(monthly budget) — see `csv-import-service.js`. Each is a narrow, CSV-only port of one of legacy
+Connect's real import routes (`src/api-finance.js`'s `finance/church/import`,
+`finance/church/balances/import`, `finance/daycare/bulk`, and the AHRA
+`finance/property/:key/budget-import`/`monthly-import-csv` routes) — not the ~750-line server-side
+`.xlsx` grid reader those Church/Balance routes also support, which is out of scope here. The CSV
+tokenizer and thousands-comma-aware money parser are ported verbatim from `src/api-utils.js`'s
+`parseCsvRows` and `src/api-finance.js`'s `dollarsToCents` (this app never imports from legacy
+`src/`), but validation is deliberately stricter: an unparsable amount is a hard row-level error
+for the whole import, never a silently-substituted 0, matching this app's existing
+"never fabricate a number" discipline. This is the first capability in the new Finance app that
+writes to Finance's OWN database (`FINANCE_DB`) rather than relaying a write to Connect/Website
+(the Giving/Budget-plan/payroll relays above never touch this app's own tables) — each of the four
+new `/api/v1/import/*` routes (`route-manifest.js`'s new `dataSource: 'd1-write'`) writes real rows
+via wholesale-replace-by-key (Church/Balance/Daycare, tagged `source='import_csv'`) or per-key
+upsert (Property Budget), plus a `finance_import_log` row, matching legacy's logging discipline.
+Every one of the four routes is gated OFF by default — checked first, inside the handler, before
+any parsing or writing — by `isCsvImportWritesEnabled()` (an env var or a `finance_settings` row,
+either defaulting to disabled and failing closed on any read error): shipped code-complete and
+fully tested, but a real request today gets a 403 with a clear "not yet enabled" message, not a
+write. Turning it on is a later, separately-approved production cutover decision, not part of this
+change. No existing route, reader, or synthetic fixture is affected.
 
 ## Validate
 
