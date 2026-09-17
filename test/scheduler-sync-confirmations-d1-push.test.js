@@ -2,15 +2,23 @@ import { describe, it, expect } from 'vitest';
 import vm from 'node:vm';
 import { SCHEDULER_HTML } from '../src/scheduler-html.js';
 
-// Reported live: a volunteer confirms via the RSVP email link (written
-// straight to KV RSVP_STORE by the Worker), an admin clicks "Sync
-// Confirmations" on the desktop Scheduler and sees the pill update -- but
-// Mobile Admin, and any other admin's browser, never sees it. syncConfirmations()
-// pulled the fresh KV data into this browser's own localStorage cache but
-// never called queueD1Push(), so the update never reached the D1
-// scheduler_data blob that Mobile Admin (and d1Pull() on other browsers)
-// actually reads. This test pins that a sync that changes any confirmation
-// now schedules a D1 push, and that a no-op sync does not.
+// Reported live: a volunteer confirms via the RSVP email link, an admin clicks
+// "Sync Confirmations" on the desktop Scheduler -- but nothing shows up,
+// on any device. Root cause (found in two layers): (1) syncConfirmations()
+// used to only ask the server about tokens already in THIS browser's own
+// local ws_rsvp_tokens cache, and that cache had silently lost the
+// volunteer's token; (2) even a successful sync never called queueD1Push(),
+// so a change that DID sync stayed stuck in this one browser's localStorage
+// instead of reaching the shared D1 record Mobile Admin and other browsers
+// read.
+//
+// Fixed by GET /rsvp/status (see src/api-scheduler.js's handleSchedRsvpStatus),
+// which returns the server's full, authoritative person->token and
+// slot->status maps -- not filtered by any local cache. This test pins that
+// syncConfirmations() (a) self-heals the local token cache from that
+// response, (b) applies every confirmation status the server reports even
+// when the local cache started out empty, and (c) schedules a D1 push only
+// when something actually changed.
 
 const scriptMatch = SCHEDULER_HTML.match(/<script>([\s\S]*?)<\/script>/);
 const SERVED_JS = scriptMatch ? scriptMatch[1] : '';
@@ -100,59 +108,50 @@ function runScheduler(opts = {}) {
   return { ctx, els, el, store };
 }
 
-function makeRow(ctx, iso) {
-  const per = ctx.PER_ROLES;
-  const shared = ctx.SHARED_ROLES;
-  const assignments = {};
-  per.forEach((r) => { assignments[r] = { '8am': null, '10:45am': null }; });
-  shared.forEach((r) => { assignments[r] = { shared: null }; });
-  return { type: 'sunday', date: new Date(iso + 'T12:00:00Z'), ordinal: 1, assignments };
-}
-
-describe('syncConfirmations() pushes newly-synced statuses to D1', () => {
-  it('schedules a D1 push when the Worker returns a fresh confirmed assignment', async () => {
-    const results = {
-      'tok-p1': {
-        assignments: [{ dateISO: '2026-08-02', role: null, svc: '8am', status: 'confirmed' }],
-      },
+describe('syncConfirmations() pulls the server\'s full authoritative status, not just what the local cache already knew about', () => {
+  it('applies a confirmation for a person this browser had NO local token for, and schedules a D1 push', async () => {
+    const status = {
+      tokens: { p1: 'tok-p1' }, // server knows about p1 even though this browser never did
+      confirmations: { '2026-08-02|Elder|8am': 'confirmed' },
     };
-    const fetchImpl = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(results), text: () => Promise.resolve(JSON.stringify(results)) });
+    const fetchImpl = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(status), text: () => Promise.resolve(JSON.stringify(status)) });
     const { ctx } = runScheduler({ fetchImpl });
 
-    const role = ctx.PER_ROLES[0];
-    results['tok-p1'].assignments[0].role = role;
-    const row = makeRow(ctx, '2026-08-02');
-    ctx.currentSchedule = [row];
-    ctx.getPeople = () => [{ id: 'p1', name: 'Larry Hawkins', roles: [role], primaryFor: [], preferredSundays: [], blackoutDates: [] }];
-
     ctx.saveConfirmations({});
-    const tokens = {};
-    tokens.p1 = 'tok-p1';
-    ctx.localStorage.setItem('ws_rsvp_tokens', JSON.stringify(tokens));
+    ctx.localStorage.setItem('ws_rsvp_tokens', JSON.stringify({})); // empty -- this browser never sent p1 a reminder
 
     let pushCalls = 0;
     ctx.queueD1Push = () => { pushCalls++; };
 
     await ctx.syncConfirmations(true);
 
-    const confKey = '2026-08-02|' + role + '|8am';
-    expect(ctx.getConfirmations()[confKey]).toBe('confirmed');
+    expect(ctx.getConfirmations()['2026-08-02|Elder|8am']).toBe('confirmed');
     expect(pushCalls).toBe(1);
+
+    // Self-healed: the local token cache now knows about p1 too, so a future
+    // "send reminders" run won't hand them a second, disconnected token.
+    expect(ctx.getRsvpTokens()).toEqual({ p1: 'tok-p1' });
+  });
+
+  it('merges the server token map into the local cache without dropping tokens the server does not know about', async () => {
+    const status = { tokens: { p2: 'tok-p2' }, confirmations: {} };
+    const fetchImpl = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(status), text: () => Promise.resolve(JSON.stringify(status)) });
+    const { ctx } = runScheduler({ fetchImpl });
+
+    ctx.saveConfirmations({});
+    ctx.localStorage.setItem('ws_rsvp_tokens', JSON.stringify({ p1: 'tok-p1-local' }));
+
+    await ctx.syncConfirmations(true);
+
+    expect(ctx.getRsvpTokens()).toEqual({ p1: 'tok-p1-local', p2: 'tok-p2' });
   });
 
   it('does not schedule a D1 push when the sync changes nothing', async () => {
-    const results = { 'tok-p1': { assignments: [] } };
-    const fetchImpl = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(results), text: () => Promise.resolve(JSON.stringify(results)) });
+    const status = { tokens: {}, confirmations: {} };
+    const fetchImpl = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(status), text: () => Promise.resolve(JSON.stringify(status)) });
     const { ctx } = runScheduler({ fetchImpl });
 
-    const row = makeRow(ctx, '2026-08-02');
-    ctx.currentSchedule = [row];
-    ctx.getPeople = () => [];
-
     ctx.saveConfirmations({});
-    const tokens = {};
-    tokens.p1 = 'tok-p1';
-    ctx.localStorage.setItem('ws_rsvp_tokens', JSON.stringify(tokens));
 
     let pushCalls = 0;
     ctx.queueD1Push = () => { pushCalls++; };

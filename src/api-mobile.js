@@ -9,7 +9,7 @@
 import { json } from './auth.js';
 import { getRolePermissions, permissionsForRole, disambiguateHHName } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
-import { schedKvPut } from './api-scheduler.js';
+import { schedKvPut, writeRsvpTokenToD1 } from './api-scheduler.js';
 import { LCMS_CALENDAR_JSON } from './lectionary.js';
 
 // Who this surface is for. `member` is allowed — the phone experience IS the member's
@@ -130,18 +130,29 @@ function familyRoleLabel(role) {
 // current state" and leave the mobile screen showing something the server no longer agrees with.
 async function loadSchedulerBlobs(db) {
   const blobRows = (await db.prepare(
-    `SELECT key, value, updated_at FROM scheduler_data WHERE key IN ('ws_schedule_v2','ws_people','ws_confirmations','ws_readings')`
+    `SELECT key, value, updated_at FROM scheduler_data WHERE key IN ('ws_schedule_v2','ws_people','ws_readings')`
   ).all()).results || [];
   const blobs = {};
-  let confirmationsAsOf = null;
   for (const r of blobRows) {
     try { blobs[r.key] = JSON.parse(r.value); } catch { blobs[r.key] = null; }
-    if (r.key === 'ws_confirmations') confirmationsAsOf = r.updated_at || null;
+  }
+  // Confirmations are relational (see migrations/0052_scheduler_rsvp_relational.sql), not a
+  // scheduler_data blob — read straight from scheduler_confirmations so this screen reflects a
+  // volunteer's RSVP click immediately, with no dependency on any admin browser's local cache
+  // or a "Sync Confirmations" click.
+  const confRows = (await db.prepare(
+    `SELECT date_iso, role, svc, status, updated_at FROM scheduler_confirmations`
+  ).all()).results || [];
+  const confirmations = {};
+  let confirmationsAsOf = null;
+  for (const r of confRows) {
+    confirmations[`${r.date_iso}|${r.role}|${r.svc}`] = r.status;
+    if (!confirmationsAsOf || r.updated_at > confirmationsAsOf) confirmationsAsOf = r.updated_at;
   }
   return {
     months: (blobs.ws_schedule_v2 && typeof blobs.ws_schedule_v2 === 'object') ? blobs.ws_schedule_v2 : {},
     people: Array.isArray(blobs.ws_people) ? blobs.ws_people : [],
-    confirmations: (blobs.ws_confirmations && typeof blobs.ws_confirmations === 'object') ? blobs.ws_confirmations : {},
+    confirmations,
     confirmationsAsOf,
     readingsOverrides: (blobs.ws_readings && typeof blobs.ws_readings === 'object') ? blobs.ws_readings : {},
   };
@@ -406,9 +417,13 @@ export async function handleMobileApi(req, env, url, method, role) {
 
     await schedKvPut(env, token, {
       token, name: target.person.name, personId: target.person.id, email, notifyEmail: '',
-      assignments: [{ date: dateLabel, dateISO, svc: svcLabel, role: roleName }],
+      // svc here is the raw code ('8am'/'10:45am'/'shared'), NOT svcLabel -- this is what
+      // writeConfirmationsToD1/scheduler_confirmations key on, matching desktop's convention.
+      // svcLabel below is for the human-readable email text only.
+      assignments: [{ date: dateLabel, dateISO, svc, role: roleName }],
       responses: {},
     });
+    await writeRsvpTokenToD1(env, target.person.id, token, target.person.name);
 
     const rsvpBase = url.origin;
     const text = `Hello ${target.person.name},\n\n`
@@ -492,8 +507,8 @@ export async function handleMobileApi(req, env, url, method, role) {
       `INSERT OR REPLACE INTO scheduler_data (key, value, updated_at) VALUES ('ws_schedule_v2', ?, datetime('now'))`
     ).bind(JSON.stringify(state.months)).run();
     await db.prepare(
-      `INSERT OR REPLACE INTO scheduler_data (key, value, updated_at) VALUES ('ws_confirmations', ?, datetime('now'))`
-    ).bind(JSON.stringify(state.confirmations)).run();
+      `DELETE FROM scheduler_confirmations WHERE date_iso=? AND role=? AND svc=?`
+    ).bind(dateISO, roleName, svcKey).run();
     state.confirmationsAsOf = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
     return json(buildSundayPayload(dateISO, state));

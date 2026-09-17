@@ -1,19 +1,30 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { handleSchedRsvp, schedKvPut } from '../src/api-scheduler.js';
+import { handleSchedRsvp, handleSchedRsvpStore, handleSchedRsvpStatus, schedKvPut } from '../src/api-scheduler.js';
 
-// Reported live: Daniel Dicus confirmed his Sep 20 8am Liturgist assignment via the
-// email link. The RSVP write to KV (RSVP_STORE) succeeded, but the Scheduler kept
-// showing him as "Pending" everywhere -- desktop, mobile, even after an admin clicked
-// "Sync Confirmations". Root cause: confirmation status only ever reached the shared
-// D1 scheduler_data.ws_confirmations blob via a *browser's* local RSVP-token cache
-// (ws_rsvp_tokens) being synced and pushed -- and that per-browser cache had silently
-// lost Daniel's token, so no browser could ever pull his status in, no matter how many
-// times Sync was clicked.
+// Reported live: Daniel Dicus confirmed his Sep 20 8am Liturgist assignment via the email
+// link. The RSVP write to KV (RSVP_STORE) succeeded, but the Scheduler kept showing him as
+// "Pending" everywhere -- desktop, mobile, even after an admin clicked "Sync Confirmations",
+// on multiple devices. Root cause, in two layers:
 //
-// Fix: handleSchedRsvp() (the /rsvp email-link handler) now writes the volunteer's
-// response straight into the D1 ws_confirmations blob itself, at RSVP time -- bypassing
-// the per-browser token cache entirely for this path.
+//  1. Confirmation status only ever reached the shared D1 scheduler_data.ws_confirmations
+//     BLOB via a browser's local RSVP-token cache (ws_rsvp_tokens) being synced and pushed --
+//     and that per-browser cache had silently lost Daniel's token, so no browser could ever
+//     pull his status in, no matter how many times Sync was clicked.
+//  2. Worse: that per-browser cache was the ONLY place "person -> RSVP token" was ever
+//     recorded. Two browsers (or the same admin on two devices, or a stale reload) could each
+//     hold a different, incomplete copy, and whichever one saved last silently overwrote the
+//     shared blob with its own incomplete view -- dropping other volunteers' tokens with no
+//     error, no warning.
+//
+// Fix, done properly rather than patched around the blob: scheduler_confirmations and
+// scheduler_rsvp_tokens (migrations/0052_scheduler_rsvp_relational.sql) are real tables, one
+// row per slot / per person. handleSchedRsvp() writes a volunteer's response straight into
+// scheduler_confirmations at RSVP time. handleSchedRsvpStore() (the /rsvp/store call a
+// reminder-send makes) writes the person->token pairing straight into scheduler_rsvp_tokens,
+// so that pairing is a real, always-current, server-side fact -- not a browser's local
+// notepad that can quietly lose entries. GET /rsvp/status returns both tables in full, so a
+// caller never needs its own local list of who to even ask about.
 
 function makeDb() {
   const raw = new DatabaseSync(':memory:');
@@ -30,7 +41,17 @@ function makeDb() {
       return api;
     },
   };
-  raw.exec(`CREATE TABLE scheduler_data(key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL DEFAULT (datetime('now')));`);
+  raw.exec(`
+    CREATE TABLE scheduler_confirmations (
+      date_iso TEXT NOT NULL, role TEXT NOT NULL, svc TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending', updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (date_iso, role, svc)
+    );
+    CREATE TABLE scheduler_rsvp_tokens (
+      person_id TEXT PRIMARY KEY, token TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
   return db;
 }
 
@@ -42,9 +63,18 @@ function makeKv() {
   };
 }
 
-async function confirmationsBlob(db) {
-  const row = await db.prepare("SELECT value FROM scheduler_data WHERE key='ws_confirmations'").first();
-  return row ? JSON.parse(row.value) : null;
+async function confirmationsAsMap(db) {
+  const rows = (await db.prepare('SELECT date_iso, role, svc, status FROM scheduler_confirmations').all()).results;
+  const out = {};
+  for (const r of rows) out[r.date_iso + '|' + r.role + '|' + r.svc] = r.status;
+  return out;
+}
+
+async function tokensAsMap(db) {
+  const rows = (await db.prepare('SELECT person_id, token FROM scheduler_rsvp_tokens').all()).results;
+  const out = {};
+  for (const r of rows) out[r.person_id] = r.token;
+  return out;
 }
 
 function rsvpUrl(params) {
@@ -53,8 +83,8 @@ function rsvpUrl(params) {
   return u;
 }
 
-describe('handleSchedRsvp() writes confirmation straight into D1', () => {
-  it('creates the ws_confirmations row and sets the slot status when none existed yet', async () => {
+describe('handleSchedRsvp() writes confirmation straight into scheduler_confirmations', () => {
+  it('creates a row and sets the slot status when none existed yet', async () => {
     const db = makeDb();
     const kv = makeKv();
     const env = { DB: db, RSVP_STORE: kv };
@@ -71,16 +101,16 @@ describe('handleSchedRsvp() writes confirmation straight into D1', () => {
     expect(kvRecord.overallStatus).toBe('confirmed');
     expect(kvRecord.assignments[0].status).toBe('confirmed');
 
-    const confs = await confirmationsBlob(db);
-    expect(confs).toEqual({ '2026-09-20|Liturgist|8am': 'confirmed' });
+    expect(await confirmationsAsMap(db)).toEqual({ '2026-09-20|Liturgist|8am': 'confirmed' });
   });
 
-  it('merges into an existing ws_confirmations row without clobbering other slots', async () => {
+  it('merges without clobbering other slots', async () => {
     const db = makeDb();
     const kv = makeKv();
     const env = { DB: db, RSVP_STORE: kv };
-    await db.prepare("INSERT INTO scheduler_data (key, value) VALUES ('ws_confirmations', ?)")
-      .bind(JSON.stringify({ '2026-09-20|Elder|8am': 'confirmed' })).run();
+    await db.prepare(
+      "INSERT INTO scheduler_confirmations (date_iso, role, svc, status) VALUES ('2026-09-20','Elder','8am','confirmed')"
+    ).run();
     await schedKvPut(env, 'tok-daniel', {
       token: 'tok-daniel', name: 'Daniel Dicus',
       assignments: [{ date: 'Sep 20, 2026', dateISO: '2026-09-20', svc: '8am', role: 'Liturgist', status: 'pending' }],
@@ -89,8 +119,7 @@ describe('handleSchedRsvp() writes confirmation straight into D1', () => {
 
     await handleSchedRsvp({}, env, rsvpUrl({ token: 'tok-daniel', status: 'declined' }));
 
-    const confs = await confirmationsBlob(db);
-    expect(confs).toEqual({
+    expect(await confirmationsAsMap(db)).toEqual({
       '2026-09-20|Elder|8am': 'confirmed',
       '2026-09-20|Liturgist|8am': 'declined',
     });
@@ -111,14 +140,13 @@ describe('handleSchedRsvp() writes confirmation straight into D1', () => {
 
     await handleSchedRsvp({}, env, rsvpUrl({ token: 'tok-multi', status: 'confirmed' }));
 
-    const confs = await confirmationsBlob(db);
-    expect(confs).toEqual({
+    expect(await confirmationsAsMap(db)).toEqual({
       '2026-09-20|PowerPoint|10:45am': 'confirmed',
       '2026-09-20|Preacher|shared': 'confirmed',
     });
   });
 
-  it('only writes the targeted assignment when idx is given, keeping the D1 blob in step with KV', async () => {
+  it('only writes the targeted assignment when idx is given', async () => {
     const db = makeDb();
     const kv = makeKv();
     const env = { DB: db, RSVP_STORE: kv };
@@ -133,8 +161,7 @@ describe('handleSchedRsvp() writes confirmation straight into D1', () => {
 
     await handleSchedRsvp({}, env, rsvpUrl({ token: 'tok-idx', status: 'confirmed', idx: '0' }));
 
-    const confs = await confirmationsBlob(db);
-    expect(confs).toEqual({
+    expect(await confirmationsAsMap(db)).toEqual({
       '2026-09-20|Lector|8am': 'confirmed',
       '2026-09-27|Lector|8am': 'pending',
     });
@@ -153,5 +180,65 @@ describe('handleSchedRsvp() writes confirmation straight into D1', () => {
     expect(res.status).toBe(200);
     const kvRecord = JSON.parse(await kv.get('tok-nodb'));
     expect(kvRecord.overallStatus).toBe('confirmed');
+  });
+});
+
+describe('handleSchedRsvpStore() keeps scheduler_rsvp_tokens as the real person<->token record', () => {
+  function storeReq(body) { return { json: async () => body }; }
+
+  it('records a brand-new person/token pairing', async () => {
+    const db = makeDb();
+    const env = { DB: db, RSVP_STORE: makeKv() };
+
+    const res = await handleSchedRsvpStore(storeReq({
+      token: 'tok-p1275', name: 'Daniel Dicus', personId: 'p1275',
+      assignments: [{ date: 'Sep 20, 2026', dateISO: '2026-09-20', svc: '8am', role: 'Liturgist' }],
+    }), env);
+    expect(res.status).toBe(200);
+
+    expect(await tokensAsMap(db)).toEqual({ p1275: 'tok-p1275' });
+  });
+
+  it('updates the token on a re-send without losing other people already recorded', async () => {
+    const db = makeDb();
+    const env = { DB: db, RSVP_STORE: makeKv() };
+    await db.prepare("INSERT INTO scheduler_rsvp_tokens (person_id, token, name) VALUES ('p999','tok-other','Someone Else')").run();
+
+    await handleSchedRsvpStore(storeReq({ token: 'tok-p1275-v1', name: 'Daniel Dicus', personId: 'p1275', assignments: [] }), env);
+    await handleSchedRsvpStore(storeReq({ token: 'tok-p1275-v2', name: 'Daniel Dicus', personId: 'p1275', assignments: [] }), env);
+
+    expect(await tokensAsMap(db)).toEqual({ p999: 'tok-other', p1275: 'tok-p1275-v2' });
+  });
+
+  it('never breaks the store response when env.DB is unavailable', async () => {
+    const env = { RSVP_STORE: makeKv() };
+    const res = await handleSchedRsvpStore(storeReq({ token: 'tok-x', name: 'X', personId: 'pX', assignments: [] }), env);
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('GET /rsvp/status returns the full authoritative picture, unfiltered by any local cache', () => {
+  it('returns every token and every confirmation on file', async () => {
+    const db = makeDb();
+    await db.prepare("INSERT INTO scheduler_rsvp_tokens (person_id, token, name) VALUES ('p1275','tok-daniel','Daniel Dicus')").run();
+    await db.prepare("INSERT INTO scheduler_rsvp_tokens (person_id, token, name) VALUES ('p121','tok-eva','Eva Bordeleau')").run();
+    await db.prepare("INSERT INTO scheduler_confirmations (date_iso, role, svc, status) VALUES ('2026-09-20','Liturgist','8am','confirmed')").run();
+    await db.prepare("INSERT INTO scheduler_confirmations (date_iso, role, svc, status) VALUES ('2026-09-27','Lector','10:45am','declined')").run();
+
+    const res = await handleSchedRsvpStatus({}, { DB: db });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.tokens).toEqual({ p1275: 'tok-daniel', p121: 'tok-eva' });
+    expect(body.confirmations).toEqual({
+      '2026-09-20|Liturgist|8am': 'confirmed',
+      '2026-09-27|Lector|10:45am': 'declined',
+    });
+  });
+
+  it('returns empty maps, not an error, when env.DB is unavailable', async () => {
+    const res = await handleSchedRsvpStatus({}, {});
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ tokens: {}, confirmations: {} });
   });
 });

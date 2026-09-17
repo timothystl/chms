@@ -1923,6 +1923,28 @@ async function _doInitDb(db) {
     // migrations/0021_scheduler_volunteers_legacy_id.sql).
     `ALTER TABLE scheduler_volunteers ADD COLUMN migrated_from_legacy_id TEXT NOT NULL DEFAULT ''`,
     `CREATE INDEX IF NOT EXISTS idx_scheduler_volunteers_legacy_id ON scheduler_volunteers(migrated_from_legacy_id)`,
+    // Relationalizes the Scheduler's RSVP-confirmation blobs ('ws_rsvp_tokens' and
+    // 'ws_confirmations' in scheduler_data) into real tables (see
+    // migrations/0052_scheduler_rsvp_relational.sql for the full rationale — the blob model let
+    // one admin browser's save silently overwrite another's, dropping volunteers' RSVP links
+    // from the shared record with no error). person_id is the Scheduler's own client-generated
+    // id (as used throughout ws_schedule_v2/ws_people), not people.id.
+    `CREATE TABLE IF NOT EXISTS scheduler_rsvp_tokens (
+      person_id  TEXT PRIMARY KEY,
+      token      TEXT NOT NULL UNIQUE,
+      name       TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_scheduler_rsvp_tokens_token ON scheduler_rsvp_tokens(token)`,
+    `CREATE TABLE IF NOT EXISTS scheduler_confirmations (
+      date_iso   TEXT NOT NULL,
+      role       TEXT NOT NULL,
+      svc        TEXT NOT NULL,
+      status     TEXT NOT NULL DEFAULT 'pending',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (date_iso, role, svc)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_scheduler_confirmations_date ON scheduler_confirmations(date_iso)`,
     // Finance tab — Commercial Property section (see migrations/0022_finance_property.sql).
     `CREATE TABLE IF NOT EXISTS finance_property_monthly (
       property_key                     TEXT    NOT NULL DEFAULT 'ivanhoe',

@@ -13,7 +13,7 @@ import { LCMS_CALENDAR_JSON } from './src/lectionary.js';
 import {
   handleApiEvents, handleSignup, handleCalendar,
   handleVolunteerPending, handleVolunteerGeneralPending, handleVolunteerEventPending,
-  handleSchedEmailSend, handleSchedRsvpStore, handleSchedRsvpSync, handleEsvPassage,
+  handleSchedEmailSend, handleSchedRsvpStore, handleSchedRsvpSync, handleSchedRsvpStatus, handleEsvPassage,
   handleSchedRsvpPortal, handleSchedRsvp, handleSchedBreezeProxy,
   handleChristmasMarketSummary, handleChristmasMarketToggle,
 } from './src/api-scheduler.js';
@@ -753,6 +753,7 @@ async function _fetchRouted(req, env, url, path, method) {
       || path === '/email/send'
       || path === '/rsvp/store'
       || path === '/rsvp/sync'
+      || path === '/rsvp/status'
       || path.startsWith('/breeze/')
       || (path.startsWith('/api/') && path !== '/api/events');
     if (isPrivilegedSchedPath && !schedPrivileged) {
@@ -766,6 +767,7 @@ async function _fetchRouted(req, env, url, path, method) {
     if (path === '/esv/passage'  && method === 'GET')  return handleEsvPassage(req, env, url);
     if (path === '/rsvp/store'   && method === 'POST') return handleSchedRsvpStore(req, env);
     if (path === '/rsvp/sync'    && method === 'POST') return handleSchedRsvpSync(req, env);
+    if (path === '/rsvp/status'  && method === 'GET')  return handleSchedRsvpStatus(req, env);
     // Breeze API proxy: /api/* (except /api/events handled above) and /breeze/*
     if (path.startsWith('/breeze/') || (path.startsWith('/api/') && path !== '/api/events')) {
       return handleSchedBreezeProxy(req, env, url);

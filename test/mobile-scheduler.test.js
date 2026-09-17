@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { handleMobileApi } from '../src/api-mobile.js';
+import { handleSchedRsvp } from '../src/api-scheduler.js';
 
 // Mobile Admin's read-only Scheduler screen: "who's serving the current/upcoming Sunday,
 // by role, with confirm/decline status" — GET /admin/api/mobile/scheduler/this-sunday.
 // Gated narrower than the rest of Mobile Admin (admin/staff only, matching the desktop
-// Scheduler tab's own gate — see handleSchedulerDataApi in api-admin.js), and reads the
-// schedule out of the generic scheduler_data blob table (ws_schedule_v2/ws_people/
-// ws_confirmations) rather than any relational schema, since none exists for it.
+// Scheduler tab's own gate — see handleSchedulerDataApi in api-admin.js). Schedule/people/
+// readings still read from the generic scheduler_data blob table; confirmations are
+// relational (scheduler_confirmations — see migrations/0052_scheduler_rsvp_relational.sql).
 
 function makeDb() {
   const raw = new DatabaseSync(':memory:');
@@ -27,6 +28,11 @@ function makeDb() {
   raw.exec(`
     CREATE TABLE chms_config(key TEXT PRIMARY KEY, value TEXT);
     CREATE TABLE scheduler_data(key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '{}', updated_at TEXT);
+    CREATE TABLE scheduler_confirmations(date_iso TEXT NOT NULL, role TEXT NOT NULL, svc TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending', updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (date_iso, role, svc));
+    CREATE TABLE scheduler_rsvp_tokens(person_id TEXT PRIMARY KEY, token TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')));
     CREATE TABLE people(id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, member_type TEXT,
       active INTEGER DEFAULT 1, public_directory INTEGER DEFAULT 1);
     CREATE TABLE worship_services(id INTEGER PRIMARY KEY, service_date TEXT, service_time TEXT,
@@ -43,16 +49,24 @@ function seedSchedulerData(db, { schedule, people, confirmations, confirmationsU
   const rows = [
     ['ws_schedule_v2', schedule != null ? schedule : {}, null],
     ['ws_people', people != null ? people : [], null],
-    ['ws_confirmations', confirmations != null ? confirmations : {}, confirmationsUpdatedAt || '2026-08-25 09:00:00'],
     ['ws_readings', readings != null ? readings : {}, null],
   ];
-  return Promise.all(rows.map(([key, value, updatedAt]) =>
+  const blobInserts = rows.map(([key, value, updatedAt]) =>
     db.prepare(
       updatedAt
         ? `INSERT INTO scheduler_data (key,value,updated_at) VALUES (?,?,?)`
         : `INSERT INTO scheduler_data (key,value) VALUES (?,?)`
     ).bind(...(updatedAt ? [key, JSON.stringify(value), updatedAt] : [key, JSON.stringify(value)])).run()
-  ));
+  );
+  const confMap = confirmations != null ? confirmations : {};
+  const confUpdatedAt = confirmationsUpdatedAt || '2026-08-25 09:00:00';
+  const confInserts = Object.keys(confMap).map((slotKey) => {
+    const [dateIso, roleName, svc] = slotKey.split('|');
+    return db.prepare(
+      `INSERT INTO scheduler_confirmations (date_iso, role, svc, status, updated_at) VALUES (?,?,?,?,?)`
+    ).bind(dateIso, roleName, svc, confMap[slotKey], confUpdatedAt).run();
+  });
+  return Promise.all([...blobInserts, ...confInserts]);
 }
 
 function makeReq() { return { json: async () => ({}) }; }
@@ -499,6 +513,41 @@ describe('handleMobileApi — scheduler/remind', () => {
     expect(body.to).toBe('elaine@example.org');
     expect(body.text).toContain('/rsvp?token=');
     expect(body.text).toContain('status=confirmed');
+  });
+
+  function makeKv() {
+    const store = new Map();
+    return {
+      async get(key) { return store.has(key) ? store.get(key) : null; },
+      async put(key, value) { store.set(key, value); },
+    };
+  }
+
+  it('records the token in scheduler_rsvp_tokens, and a subsequent confirm click lands on the RAW svc code, not a human label', async () => {
+    const db = makeDb();
+    await seedSchedulerData(db, { schedule: SCHEDULE, people: PEOPLE, confirmations: {} });
+    const kv = makeKv();
+    stubFetch(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: 'em_1' }) }));
+
+    const env = { DB: db, RSVP_STORE: kv, RESEND_API_KEY: 'key', EMAIL_FROM: 'office@timothystl.org' };
+    const r = await handleMobileApi(
+      makePostReq({ date_iso: '2026-09-06', role: 'Elder', svc: '8am' }), // Elaine Reyes, person id 12
+      env, makeUrl('scheduler/remind'), 'POST', 'admin'
+    );
+    expect(r.status).toBe(200);
+
+    const tokenRow = await db.prepare('SELECT token FROM scheduler_rsvp_tokens WHERE person_id=?').bind('12').first();
+    expect(tokenRow).toBeTruthy();
+    const token = tokenRow.token;
+
+    // The volunteer clicks "Yes, I'll be there" in the email.
+    const rsvpUrl = new URL(`https://connect.timothystl.org/rsvp?token=${encodeURIComponent(token)}&status=confirmed`);
+    await handleSchedRsvp({}, env, rsvpUrl);
+
+    const confRow = await db.prepare(
+      "SELECT status FROM scheduler_confirmations WHERE date_iso='2026-09-06' AND role='Elder' AND svc='8am'"
+    ).first();
+    expect(confRow && confRow.status).toBe('confirmed');
   });
 });
 
