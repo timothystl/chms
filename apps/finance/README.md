@@ -85,6 +85,47 @@ and `test/finance-compensation-plan-write-service.test.js` /
 `test/finance-compensation-plan-write-route.test.js` for the tests, including the council-isolation
 precedent matching `test/council-compensation-role.test.js`.
 
+**Property reserve/distribution/capital-ledger entry (September 17, 2026, code-complete but OFF by
+default).** A further real write path now exists, this time for the Commercial Property reserve
+schedule, reserve disbursements, distributions, and capital-improvements ledger, writing to
+Finance's OWN D1 (`finance_property_reserves`, `finance_property_reserve_disbursements`,
+`finance_property_distributions`, `finance_property_capital_ledger` -- all already present in
+migration 0001, unchanged) instead of the shared Connect D1 legacy still writes to. It is a
+straight port of legacy's real `finance/property/ivanhoe/reserves/:reserveKey/monthly`,
+`.../disbursements`, `finance/property/ivanhoe/distributions`, and
+`finance/property/ivanhoe/capital-ledger` POST routes (`src/api-finance.js`'s `handlePropertyApi`)
+-- same field validation, same `reserve_before_cents` default-from-prior-month rule, same
+`reserve_after_cents = reserve_before_cents + contribution_cents` running balance, same
+capital-ledger `sort_order` auto-increment (see `property-ledger-write-service.js`'s header
+comment). It is disabled in every environment today, the same shape as the write paths just above:
+each of `POST /api/v1/property-reserve-entry`, `/api/v1/property-reserve-disbursement-entry`,
+`/api/v1/property-distribution-entry`, and `/api/v1/property-capital-ledger-entry` checks
+`isPropertyLedgerWritesEnabled()` (a `finance_settings` flag, `property_ledger_writes_enabled`, or
+the `PROPERTY_LEDGER_WRITES_ENABLED` env var) *before* any role check, and answers a plain
+`503 {"error":"not_yet_enabled"}` until Andrew turns it on. Role gating is admin-only, matching
+legacy's own `isAdmin` gate for editing property financials -- a narrower, different set than
+Compensation Planner's admin/council/compensation, because that is what legacy itself enforces for
+this data, not an invented stricter or looser rule.
+
+One real finding from porting this validation, worth stating plainly: **legacy enforces no
+sufficient-funds or reserve-overdraw check anywhere on this path.** A reserve's
+`reserve_after_cents` is a plain running total that a disbursement never reads back to reduce, and
+a disbursement's own amount is never checked against it -- the reserve schedule and the
+disbursement log are independent tables in legacy today. This port matches that reality rather than
+inventing a stricter rule legacy never had; see `property-ledger-write-service.js`'s header comment
+and `test/finance-property-ledger-write-service.test.js`'s dedicated test (a disbursement for one
+hundred times the reserve's own balance still succeeds) for the concrete proof. If a real balance
+check is ever wanted, that is a new product decision requiring its own sign-off, not something a
+straight port should add silently.
+
+This is code-complete and covered by `test/finance-property-ledger-write-service.test.js` (write
+logic and validation, against a real in-memory SQLite database migrated from
+`migrations/0001_finance_foundation.sql`) and `test/finance-property-ledger-write-route.test.js`
+(the flag, the admin-only check, and end-to-end writes through `shell.js`'s actual route dispatch)
+-- but it is deliberately not part of any cutover yet. No production or staging `finance_settings`
+row or environment variable turns it on; see the Timothy Digital overhaul checkpoint in `AGENTS.md`
+for the still-unfinished authoritative data/writer migration this is one piece of.
+
 Existing Finance remains operational in Connect. Moving authoritative accounting data and writers,
 cutting users over and retiring the old module remain unfinished. The new schema does not include
 the legacy QuickBooks OAuth/cache tables; that is not evidence the existing integration was retired.
@@ -139,6 +180,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `daycare-report-service.js` — one-query synthetic actuals and operating-result detail.
 - `property-report-service.js` — one-query synthetic monthly property performance detail.
 - `property-forecast-service.js` — one-query 12-month synthetic property plan with monthly and annual reconciliation.
+- `property-ledger-write-service.js` — real, off-by-default writes into Finance's OWN `FINANCE_DB` for the property reserve schedule, reserve disbursements, distributions, and capital-improvements ledger; a straight port of legacy's real `handlePropertyApi` validation and running-balance rule (see the changelog paragraph above for the verified real finding on reserve-overdraw enforcement).
 - `budget-report-service.js` — one-query synthetic future-plan detail and totals; `resolveBudgetReport` tries the real `connect.finance-budget.v1` contract first and falls back to the synthetic fixture on any failure.
 - `finance-budget-client.js` — real transport for the live budget read (same shape as `finance-data-status-client.js`), plus `postConnectFinanceBudgetWrite`, the write relay for Budget Planner's manual edit/save form (see the route-manifest paragraph below).
 - `budget-plan-write-service.js` — validation and upsert for Budget builder's OWN edit/save write into Finance's own `finance_budget_plan` table (`FINANCE_DB`), gated off by default; see the route-manifest paragraph and the Alpha.42 entry below for how this differs from `budget-plan-write-v1`'s Connect relay above.
@@ -190,7 +232,10 @@ operations remain legacy-only (in Connect) for now. `budget-plan-save-v1` (Alpha
 separately built, independent write path onto Finance's OWN `finance_budget_plan` table via
 `FINANCE_DB` -- part of the longer-term move of authoritative Budget data into Finance's own
 database rather than another consumer of the Connect relay above -- and stays off by default behind
-a `finance_settings` flag until a later, separately approved cutover stage.
+a `finance_settings` flag until a later, separately approved cutover stage. `compensation-plan-save-v1`
+and the four `property-*-entry-v1` routes (see the changelog paragraph above) are further such writes onto Finance's
+own database (`dataSource: 'finance-db-write'`), also off by default; see their own paragraphs
+above and `route-manifest.js`'s comments on them.
 
 Alpha.9 begins interface parity with the existing nine-section Finance information architecture.
 Only Financial Health renders synthetic metrics; the other familiar sections are explicit staging
