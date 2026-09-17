@@ -115,6 +115,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `shell.js` — Cloudflare Worker entry point and safe health endpoint.
 - `version.js` — intentional semantic prerelease version.
 - `migrations/` — Finance-only D1 migration ledger; never targets the shared Connect database.
+- `migration/` — Stage 1 data-migration tooling (copy-and-verify for the schema-matching production tables, plus finance_settings translation); a one-time admin script, never a Worker route, and not yet run against any real database.
 - `fixtures/` — deterministic synthetic staging data, applied explicitly and never as a migration.
 - `contracts/` — versioned JSON Schemas for staging APIs.
 - `../../wrangler.finance.staging.jsonc` — isolated staging Worker configuration.
@@ -440,6 +441,36 @@ either defaulting to disabled and failing closed on any read error): shipped cod
 fully tested, but a real request today gets a 403 with a clear "not yet enabled" message, not a
 write. Turning it on is a later, separately-approved production cutover decision, not part of this
 change. No existing route, reader, or synthetic fixture is affected.
+
+Alpha.44 adds Stage 1 of the Finance data-migration plan (see architecture/evidence/2026-09-17-
+finance-data-migration-stage0-reconciliation.md in the private digital-architecture repo):
+migration tooling under `migration/`: a generic copy-and-verify module (`table-registry.js`,
+`checksum.js`, `copy-and-verify.js`) for the 13 non-`finance_settings` production tables the
+September 13 schema diff found to be an exact or near-exact match, plus a `cli.js` one-time admin
+script that shells out to `wrangler d1 execute` to read a source table, generate idempotent upsert
+SQL, and verify the destination by row count and a per-row checksum after applying it --
+deliberately not a new Worker HTTP endpoint, since this is a one-time operation that should not add
+live attack surface. The generic copy preserves each `finance_church_entries` row's real `source`
+value (e.g. `qbo_sync`, `manual_adjustment`) exactly as stored; it never re-defaults it to
+apps/finance's schema-level `'import'` default. A separate `settings-translation.js` module
+handles `finance_settings`, which both evidence documents call out as needing a per-key
+translation pass rather than a table copy: it implements the clean, fully honest reshape of
+`finance_daycare_allocation_config`'s single JSON blob into apps/finance's two scalar rows
+(`daycare_utility_pct`/`daycare_insurance_pct`), and a read-only `deriveCompensationSalaryByRole`
+report for the real `finance_salary_planner`/`finance_salary_planner_compensation` roster,
+grouping workers by role and summing only the portion of current pay directly stored as
+`actualSalaryCents` on the roster JSON itself. It deliberately does NOT write anything into
+`finance_compensation_plan`: most real workers' current pay instead resolves through an
+`accountCode`-linked chart-of-accounts budget lookup this settings-only module has no access to,
+and `benefits_cents`/`adjustment_pct` have no honest per-role equivalent at all (see the full
+derivation in `settings-translation.js`'s header comment and `COMPENSATION_TRANSLATION_GAPS`) --
+writing either would mean fabricating a number, which this migration does not do. The raw
+compensation JSON blob is never copied or exposed anywhere.
+
+This tooling is built and unit-tested (`test/finance-migration-*.test.js`) against fixture/mock
+data standing in for the real databases only. It has not been run, and must not be run, against
+any real staging or production database without Andrew's separate, explicit approval for that
+specific run, per AGENTS.md.
 
 ## QuickBooks OAuth/sync design (dark code, never exercised against the real account)
 
