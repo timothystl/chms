@@ -19,6 +19,15 @@ const WRITE_ROUTE_IDS = new Set([
 ]);
 const OWN_DB_WRITE_ROUTE_IDS = new Set(['budget-plan-save-v1']);
 const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1']);
+// The routes in this manifest that write to Finance's OWN database (FINANCE_DB) rather than
+// relaying a write to Connect/Website — see csv-import-service.js's and
+// compensation-plan-write-service.js's header comments. Every one is gated off by default inside
+// its own handler; this manifest test only asserts the route SHAPE (method/writer/dataSource),
+// not the runtime gate itself (see test/finance-csv-import.test.js and
+// test/finance-compensation-plan-write-service.test.js).
+const D1_WRITE_ROUTE_IDS = new Set([
+  'import-church-v1', 'import-church-balances-v1', 'import-daycare-v1', 'import-property-budget-v1',
+]);
 const DB_WRITE_ROUTE_IDS = new Set(['compensation-plan-save-v1']);
 
 describe('Finance staging route manifest', () => {
@@ -31,7 +40,9 @@ describe('Finance staging route manifest', () => {
       '/api/v1/connect-giving-quick-entry', '/api/v1/budget-plan-save', '/api/v1/connect-budget-plan-write', '/api/summary', '/api/v1/payroll-relay-diagnostic',
       '/api/v1/payroll-hours-save', '/api/v1/payroll-period-approve',
       '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
-      '/api/v1/payroll-email', '/api/v1/compensation-plan-save',
+      '/api/v1/payroll-email',
+      '/api/v1/import/church', '/api/v1/import/church-balances', '/api/v1/import/daycare', '/api/v1/import/property-budget',
+      '/api/v1/compensation-plan-save',
     ]);
     for (const route of FINANCE_ROUTE_MANIFEST) {
       if (WRITE_ROUTE_IDS.has(route.id)) {
@@ -50,6 +61,12 @@ describe('Finance staging route manifest', () => {
         expect(route.methods).toEqual(['GET', 'HEAD']);
         expect(route.dataSource).toBe('live-relay-read');
         expect(route).not.toHaveProperty('writer');
+        continue;
+      }
+      if (D1_WRITE_ROUTE_IDS.has(route.id)) {
+        expect(route.methods).toEqual(['POST']);
+        expect(route.writer).toBe(true);
+        expect(route.dataSource).toBe('d1-write');
         continue;
       }
       if (DB_WRITE_ROUTE_IDS.has(route.id)) {
@@ -103,6 +120,18 @@ describe('Finance staging route manifest', () => {
     });
     expect(resolveFinanceRoute('/api/v1/payroll-email')).toMatchObject({
       id: 'payroll-email-v1', contract: 'finance.payroll-email-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/import/church')).toMatchObject({
+      id: 'import-church-v1', contract: 'finance.import-church.v1', dataSource: 'd1-write', writer: true,
+    });
+    expect(resolveFinanceRoute('/api/v1/import/church-balances')).toMatchObject({
+      id: 'import-church-balances-v1', contract: 'finance.import-church-balances.v1', dataSource: 'd1-write', writer: true,
+    });
+    expect(resolveFinanceRoute('/api/v1/import/daycare')).toMatchObject({
+      id: 'import-daycare-v1', contract: 'finance.import-daycare.v1', dataSource: 'd1-write', writer: true,
+    });
+    expect(resolveFinanceRoute('/api/v1/import/property-budget')).toMatchObject({
+      id: 'import-property-budget-v1', contract: 'finance.import-property-budget.v1', dataSource: 'd1-write', writer: true,
     });
     expect(resolveFinanceRoute('/api/v1/compensation-plan-save')).toMatchObject({
       id: 'compensation-plan-save-v1', dataSource: 'finance-db-write', writer: true, methods: ['POST'],

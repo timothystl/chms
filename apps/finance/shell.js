@@ -51,6 +51,9 @@ import { renderChartsPage, renderFinancialMixRows } from './charts-pages.js';
 import { renderGiftEntryPage } from './gift-entry-pages.js';
 import { renderQuickbooksPage } from './quickbooks-pages.js';
 import { renderPacketPage } from './packet-pages.js';
+import {
+  runChurchEntriesCsvImport, runChurchBalancesCsvImport, runDaycareEntriesCsvImport, runPropertyBudgetMonthlyCsvImport,
+} from './csv-import-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -874,6 +877,33 @@ export default {
         params.set('message', String(result.message || result.reason || 'unknown error').slice(0, 200));
       }
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // ── CSV import writes (see csv-import-service.js's own header comment) — each handler here
+    // only reads the JSON body and turns the pure result object back into a Response; every gate,
+    // parse, validation, and write decision lives in the service module. Every one of these four
+    // routes is gated OFF by default inside its own `run*CsvImport` call (`isCsvImportWritesEnabled`)
+    // -- a real request today gets a 403 with a clear "not yet enabled" message, not a write.
+    if (route.id === 'import-church-v1' || route.id === 'import-church-balances-v1'
+      || route.id === 'import-daycare-v1' || route.id === 'import-property-budget-v1') {
+      let body;
+      try { body = await request.json(); } catch { body = null; }
+      if (!body || typeof body !== 'object') {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), {
+          status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const runner = {
+        'import-church-v1': runChurchEntriesCsvImport,
+        'import-church-balances-v1': runChurchBalancesCsvImport,
+        'import-daycare-v1': runDaycareEntriesCsvImport,
+        'import-property-budget-v1': runPropertyBudgetMonthlyCsvImport,
+      }[route.id];
+      const result = await runner(env, env.FINANCE_DB, body);
+      const { status, ...payload } = result;
+      return response(JSON.stringify(payload), {
+        status, headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
     }
 
     // ── COMPENSATION PLANNER WRITE ── the one route in this file that writes to Finance's own

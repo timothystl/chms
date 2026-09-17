@@ -51,15 +51,20 @@ const ROUTES = [
   // Supabase RPC -- see payroll-email-client.js) now that it accepts Finance's contract-relay
   // identity (timothystl/website PR #587).
   { id: 'payroll-email-v1', paths: ['/api/v1/payroll-email'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'finance.payroll-email-relay.v1' },
-  // The one deliberate, actually-writes-to-FINANCE'S-OWN-DATABASE route in this manifest --
-  // every writer above relays to Connect/Website and stores nothing here (see their own
-  // comments). This one is different on purpose: compensation planning is target-architecture
-  // Finance-owned data (chms/AGENTS.md's product boundary: "Finance owns ... compensation
-  // planning"), not a relay of someone else's authoritative record, so a real local copy is the
-  // intended end state, not a stopgap. It is OFF by default in every environment --
-  // isCompensationPlanWriteEnabled() in compensation-plan-write-service.js is checked first, before
-  // any role check, so a disabled environment never even evaluates who is asking -- until Andrew
-  // explicitly turns it on. See that file's header comment and apps/finance/README.md's changelog
+  // ── CSV import writes (see csv-import-service.js) and the Compensation Planner save below are
+  // the routes in this app that write to Finance's OWN database (FINANCE_DB) rather than relaying
+  // to Connect/Website or reading a synthetic fixture. Each of these routes is gated OFF by
+  // default inside its own handler (`isCsvImportWritesEnabled` / `isCompensationPlanWriteEnabled`,
+  // checked before any role check) — reachable and fully tested here, but not live in production
+  // until a later, separately-approved cutover stage flips the gate.
+  { id: 'import-church-v1', paths: ['/api/v1/import/church'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-church.v1' },
+  { id: 'import-church-balances-v1', paths: ['/api/v1/import/church-balances'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-church-balances.v1' },
+  { id: 'import-daycare-v1', paths: ['/api/v1/import/daycare'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-daycare.v1' },
+  { id: 'import-property-budget-v1', paths: ['/api/v1/import/property-budget'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-property-budget.v1' },
+  // Compensation planning is target-architecture Finance-owned data (chms/AGENTS.md's product
+  // boundary: "Finance owns ... compensation planning"), not a relay of someone else's
+  // authoritative record, so a real local copy is the intended end state, not a stopgap. See
+  // compensation-plan-write-service.js's header comment and apps/finance/README.md's changelog
   // entry for exactly what per-worker capability this table does and does not yet carry relative
   // to the legacy Salary Planner roster (src/api-finance.js).
   { id: 'compensation-plan-save-v1', paths: ['/api/v1/compensation-plan-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
