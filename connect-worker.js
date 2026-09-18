@@ -21,9 +21,7 @@ import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPass
 import { wrapEnvForDbAttribution, logDbAttribution } from './src/db-attribution.js';
 import { handleIntakeApi } from './src/api-intake.js';
 import {
-  handleStaxGivingMockupPublicApi, handleStaxGivingWebhook,
-  renderStaxGivingMockupFormHtml, renderStaxGivingMockupReviewHtml,
-  applePayDomainPlaceholderResponse,
+  handleStaxGivingMockupPublicApi, handleStaxGivingWebhook, renderStaxGivingMockupReviewHtml,
 } from './src/stax-giving-mockup.js';
 import { handleContractsServiceApi } from './src/api-contracts-service.js';
 import { handleMemberSetup } from './src/api-people.js';
@@ -444,14 +442,14 @@ async function _fetchRouted(req, env, url, path, method) {
     if (path === '/privacy' && method === 'GET') return html(PRIVACY_HTML);
     if (path === '/terms' && method === 'GET') return html(TERMS_HTML);
     // ── Stax Giving MOCKUP (see src/stax-giving-mockup.js) — a prototype, sandbox-only,
-    // parallel path alongside the real give.timothystl.org (Website repo) → Tithe.ly flow,
-    // which none of this touches. No auth: same "public giving form" posture as Tithe.ly's own
-    // hosted page. Kept above the /api/* Breeze-proxy catch-all further down, same as
-    // /api/intake/ below, or it would never match.
-    if (path === '/give/stax-mockup' && method === 'GET') return renderStaxGivingMockupFormHtml();
-    if (path === '/.well-known/apple-developer-merchantid-domain-association' && method === 'GET') {
-      return applePayDomainPlaceholderResponse();
-    }
+    // parallel path alongside the real give.timothystl.org (Website repo) → Tithe.ly flow, which
+    // none of this touches. The public donation form and the Apple Pay domain-verification
+    // placeholder live in the Website repo now (give.timothystl.org/stax-mockup) — Andrew wants
+    // the real url on the main website, not this admin subdomain — and call the two routes below
+    // cross-origin (see corsHeadersFor in src/stax-giving-mockup.js). What stays here is what
+    // this repo owns: the data (funds/checkout/recurring/webhook all write into Connect's own
+    // giving_entries) and the staff review queue. Kept above the /api/* Breeze-proxy catch-all
+    // further down, same as /api/intake/ below, or it would never match.
     if (path === '/api/mockup/stax-giving/webhook') {
       try {
         return await handleStaxGivingWebhook(req, env, url);
