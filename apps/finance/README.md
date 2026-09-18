@@ -134,8 +134,10 @@ Finance's own role check independently verified as admin or council) to Connect'
 `applyBudgetPlanOverrideRows()` helper (`src/api-finance.js`) the legacy in-Connect Budget
 Planner's `finance/planning/church/override-bulk` route already uses — one shared implementation,
 so the two entry points can never drift on validation, on the admin/council-only gate, or on
-council's fork-into-their-own-overlay behavior. Budget Planner's generate/generate-all/commit/delete
-operations remain legacy-only (in Connect) for now. `budget-plan-save-v1` (Alpha.42, below) is a
+council's fork-into-their-own-overlay behavior. Budget Planner's generate/generate-all/commit/remove-
+a-category operations are also relayed live to Connect's own endpoints, the same as the manual edit
+above (`budget-generate-v1`/`budget-generate-all-v1`/`budget-commit-v1`/`budget-plan-remove-v1`).
+`budget-plan-save-v1` (Alpha.42, below) is a
 separately built, independent write path onto Finance's OWN `finance_budget_plan` table via
 `FINANCE_DB` -- part of the longer-term move of authoritative Budget data into Finance's own
 database rather than another consumer of the Connect relay above -- and stays off by default behind
@@ -473,6 +475,44 @@ against legacy Connect that were still open as of Alpha.44:
    `test/finance-compensation-raise-plan-route.test.js` (HTTP route tests for both new routes'
    gate/role states, and an end-to-end two-council-members-get-two-isolated-rows test through the
    actual Worker fetch handler).
+
+Alpha.46 extends the live-relay write pattern (Chart of Accounts/Property monthly/Property repairs,
+above) to the four remaining Commercial Property write routes that pattern hadn't yet reached:
+Distributions, the named-reserve monthly schedule, named-reserve disbursements, and the
+capital-improvements ledger -- each relays to its own new Connect contract endpoint
+(`finance-property-distribution-write-v1`, `finance-property-reserve-monthly-write-v1`,
+`finance-property-reserve-disbursement-write-v1`, `finance-property-capital-ledger-write-v1`),
+admin-only, matching the legacy in-Connect Property pages' own `finance/property/ivanhoe/distributions`,
+`.../reserves/:reserveKey/monthly`, `.../reserves/:reserveKey/disbursements`, and
+`.../capital-ledger` POST routes exactly -- full function, same data, same app, never a second
+writer. `src/api-finance.js` extracts `upsertPropertyDistribution`/`upsertPropertyReserveMonthly`/
+`upsertPropertyReserveDisbursement`/`addPropertyCapitalLedgerEntry` as shared functions (same
+extraction style as `upsertPropertyMonthly`/`addPropertyRepair`), called by both the legacy routes
+and their new relay contract counterparts, including the reserve schedule's running-balance rule
+(`reserve_after_cents = reserve_before_cents + contribution_cents`, carried forward from the prior
+report month) and the documented real finding that legacy enforces no sufficient-funds/no-overdraw
+check on a disbursement against that balance -- this port does not add one either. These four
+functions are named distinctly from the already-merged, still-OFF Finance-owned-D1 port of the same
+four legacy routes (`property-ledger-write-service.js`'s `recordPropertyDistribution`/
+`recordPropertyReserveMonthly`/`recordPropertyReserveDisbursement`/`recordPropertyCapitalLedgerEntry`,
+`property-*-entry-v1` in the route manifest) so the two unrelated architectures -- this relay and
+that still-disabled direct write -- can never be confused for one another by name. New forms:
+Distributions (on the Distributions page), the reserve-monthly and reserve-disbursement forms
+(both on Reserve & distribution, alongside its existing read-only reserve schedule/disbursement
+data), and the capital-improvements entry form (on Capital improvements) -- same
+`canManagePropertyMonthly`/`canManagePropertyRepairs`-style admin-only gate (UI hiding is never
+authorization; the real gate is each contract's own role check on Connect's side). Tests:
+`test/finance-property-distribution-write-contract.test.js`,
+`test/finance-property-reserve-monthly-write-contract.test.js`,
+`test/finance-property-reserve-disbursement-write-contract.test.js`, and
+`test/finance-property-capital-ledger-write-contract.test.js` (the same admin/finance-role/
+deactivated-user/wrong-contract-key/missing-identity/not-configured cases as the earlier property
+relay contracts), plus `test/finance-property-distribution-route.test.js`,
+`test/finance-property-reserve-monthly-route.test.js`,
+`test/finance-property-reserve-disbursement-route.test.js`, and
+`test/finance-property-capital-ledger-route.test.js` (method-not-allowed, role-gated form
+visibility, not_configured/no_access_identity redirects, successful relay + form field forwarding,
+refusal-reason passthrough, and network_error handling).
 
 ## QuickBooks OAuth/sync design (dark code, never exercised against the real account)
 

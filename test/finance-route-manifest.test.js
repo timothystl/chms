@@ -21,7 +21,8 @@ const WRITE_ROUTE_IDS = new Set([
   'payroll-staff-save-v1', 'payroll-staff-deactivate-v1', 'payroll-email-v1',
   'budget-generate-v1', 'budget-generate-all-v1', 'budget-commit-v1', 'budget-plan-remove-v1',
   'church-actual-override-v1', 'daycare-entry-v1', 'board-categories-write-v1', 'property-monthly-write-v1',
-  'property-repair-write-v1',
+  'property-repair-write-v1', 'property-distribution-write-v1', 'property-reserve-monthly-write-v1',
+  'property-reserve-disbursement-write-v1', 'property-capital-ledger-write-v1',
 ]);
 const OWN_DB_WRITE_ROUTE_IDS = new Set(['budget-plan-save-v1']);
 const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1']);
@@ -52,6 +53,8 @@ describe('Finance staging route manifest', () => {
       '/api/v1/connect-budget-generate', '/api/v1/connect-budget-generate-all', '/api/v1/connect-budget-commit', '/api/v1/connect-budget-plan-remove',
       '/api/v1/connect-church-actual-override', '/api/v1/connect-daycare-entry', '/api/v1/connect-board-categories-write',
       '/api/v1/connect-property-monthly-write', '/api/v1/connect-property-repair-write',
+      '/api/v1/connect-property-distribution-write', '/api/v1/connect-property-reserve-monthly-write',
+      '/api/v1/connect-property-reserve-disbursement-write', '/api/v1/connect-property-capital-ledger-write',
       '/api/summary', '/api/v1/payroll-relay-diagnostic',
       '/api/v1/payroll-hours-save', '/api/v1/payroll-period-approve',
       '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
@@ -148,6 +151,18 @@ describe('Finance staging route manifest', () => {
     });
     expect(resolveFinanceRoute('/api/v1/connect-property-repair-write')).toMatchObject({
       id: 'property-repair-write-v1', contract: 'connect.finance-property-repair-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-property-distribution-write')).toMatchObject({
+      id: 'property-distribution-write-v1', contract: 'connect.finance-property-distribution-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-property-reserve-monthly-write')).toMatchObject({
+      id: 'property-reserve-monthly-write-v1', contract: 'connect.finance-property-reserve-monthly-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-property-reserve-disbursement-write')).toMatchObject({
+      id: 'property-reserve-disbursement-write-v1', contract: 'connect.finance-property-reserve-disbursement-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-property-capital-ledger-write')).toMatchObject({
+      id: 'property-capital-ledger-write-v1', contract: 'connect.finance-property-capital-ledger-write-relay.v1', dataSource: 'live-relay',
     });
     expect(resolveFinanceRoute('/api/v1/payroll-relay-diagnostic')).toMatchObject({
       id: 'payroll-relay-diagnostic-v1', contract: 'finance.payroll-relay-diagnostic.v1', dataSource: 'live-relay-read',

@@ -100,11 +100,111 @@ function renderPropertyRepairForm(entryStatus, entryMessage) {
   </section>`;
 }
 
+// Admin-only distribution entry/upsert -- relayed live to Connect's real
+// finance_property_distributions table (see finance-property-distribution-write-v1 in
+// src/api-contracts-service.js), never stored in Finance's own database. One period at a time,
+// same upsert-keyed-on-period convention as the monthly financials form above.
+function renderPropertyDistributionForm(entryStatus, entryMessage) {
+  return `<section aria-label="Record a distribution">
+    ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Record a distribution', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-property-distribution-write">
+      <div class="grid form-grid">
+        <div class="field"><label for="pd-period">Period (YYYY-MM)</label><input id="pd-period" type="text" name="period" pattern="\\d{4}-\\d{2}" placeholder="2027-01" required></div>
+        <div class="field"><label for="pd-amount">Amount distributed ($)</label><input id="pd-amount" type="number" name="amount" step="0.01" required></div>
+      </div>
+      <button type="submit">Save distribution</button>
+    </form>
+    <p><small>This writes directly into Connect's own <code>finance_property_distributions</code> table -- the same table the legacy in-Connect Distributions page edits. Re-submitting the same period upserts that row rather than adding a second one. Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
+// Admin-only named-reserve monthly schedule entry/upsert -- relayed live to Connect's real
+// finance_property_reserves table (see finance-property-reserve-monthly-write-v1 in
+// src/api-contracts-service.js), never stored in Finance's own database. The reserve key (e.g.
+// "property_tax") is a hand-typed field here, unlike the legacy in-Connect route's own URL path
+// segment, since a contract relay carries it in the body instead. reserve_before is optional --
+// leaving it blank lets Connect derive it from the latest prior month's reserve_after for this
+// same bucket, the same running-balance rule the legacy route itself applies.
+function renderPropertyReserveMonthlyForm(entryStatus, entryMessage) {
+  return `<section aria-label="Record a reserve schedule month">
+    ${renderSectionHeading({ eyebrow: 'Property tax reserve', heading: 'Record a reserve schedule month', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-property-reserve-monthly-write">
+      <div class="grid form-grid">
+        <div class="field"><label for="prm-key">Reserve key</label><input id="prm-key" type="text" name="reserve_key" placeholder="property_tax" required></div>
+        <div class="field"><label for="prm-month">Report month (YYYY-MM)</label><input id="prm-month" type="text" name="report_month" pattern="\\d{4}-\\d{2}" placeholder="2027-01" required></div>
+        <div class="field"><label for="prm-tax-year">Tax year</label><input id="prm-tax-year" type="number" name="tax_year" step="1"></div>
+        <div class="field"><label for="prm-target">Target estimate ($)</label><input id="prm-target" type="number" name="target_estimate" step="0.01"></div>
+        <div class="field"><label for="prm-contribution">Contribution ($)</label><input id="prm-contribution" type="number" name="contribution" step="0.01"></div>
+        <div class="field"><label for="prm-before">Reserve before override ($, optional)</label><input id="prm-before" type="number" name="reserve_before" step="0.01"></div>
+      </div>
+      <div class="field"><label for="prm-note">Note</label><input id="prm-note" type="text" name="note"></div>
+      <button type="submit">Save reserve month</button>
+    </form>
+    <p><small>This writes directly into Connect's own <code>finance_property_reserves</code> table -- the same table the legacy in-Connect reserve schedule edits. Leave "Reserve before" blank to carry forward the prior month's ending balance automatically. Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
+// Admin-only named-reserve disbursement entry/upsert -- relayed live to Connect's real
+// finance_property_reserve_disbursements table (see finance-property-reserve-disbursement-write-v1
+// in src/api-contracts-service.js), never stored in Finance's own database. A wholly separate log
+// from the reserve schedule form above, same as legacy -- see property-ledger-write-service.js's
+// header note that legacy never reduces the reserve schedule's running balance by a disbursement.
+function renderPropertyReserveDisbursementForm(entryStatus, entryMessage) {
+  return `<section aria-label="Record a reserve disbursement">
+    ${renderSectionHeading({ eyebrow: 'Property tax reserve', heading: 'Record a reserve disbursement', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-property-reserve-disbursement-write">
+      <div class="grid form-grid">
+        <div class="field"><label for="prd-key">Reserve key</label><input id="prd-key" type="text" name="reserve_key" placeholder="property_tax" required></div>
+        <div class="field"><label for="prd-period">Period key</label><input id="prd-period" type="text" name="period_key" placeholder="2027" required></div>
+        <div class="field"><label for="prd-amount">Amount ($)</label><input id="prd-amount" type="number" name="amount" step="0.01"></div>
+        <div class="field"><label for="prd-paid-via">Paid via report month (YYYY-MM)</label><input id="prd-paid-via" type="text" name="paid_via_report_month" pattern="\\d{4}-\\d{2}" placeholder="2027-11"></div>
+      </div>
+      <div class="field"><label for="prd-note">Note</label><input id="prd-note" type="text" name="note"></div>
+      <button type="submit">Save disbursement</button>
+    </form>
+    <p><small>This writes directly into Connect's own <code>finance_property_reserve_disbursements</code> table -- the same table the legacy in-Connect reserve disbursement log edits. Re-submitting the same reserve key and period key upserts that row rather than adding a second one. Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
+// Admin-only capital-improvements ledger entry -- relayed live to Connect's real
+// finance_property_capital_ledger table (see finance-property-capital-ledger-write-v1 in
+// src/api-contracts-service.js), never stored in Finance's own database.
+function renderPropertyCapitalLedgerForm(entryStatus, entryMessage) {
+  return `<section aria-label="Record a capital improvement entry">
+    ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Record a capital improvement entry', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-property-capital-ledger-write">
+      <div class="grid form-grid">
+        <div class="field"><label for="pcl-date">Date (YYYY, YYYY-MM, or YYYY-MM-DD)</label><input id="pcl-date" type="text" name="entry_date" placeholder="2027-01-15"></div>
+        <div class="field"><label for="pcl-project">Project</label><input id="pcl-project" type="text" name="project"></div>
+        <div class="field"><label for="pcl-payee">Payee</label><input id="pcl-payee" type="text" name="payee"></div>
+        <div class="field"><label for="pcl-amount">Amount ($)</label><input id="pcl-amount" type="number" name="amount" step="0.01" required></div>
+        <div class="field"><label for="pcl-check">Check ref</label><input id="pcl-check" type="text" name="check_ref"></div>
+      </div>
+      <div class="field"><label for="pcl-description">Description</label><input id="pcl-description" type="text" name="description"></div>
+      <button type="submit">Save entry</button>
+    </form>
+    <p><small>This writes directly into Connect's own <code>finance_property_capital_ledger</code> table -- the same table the legacy in-Connect Capital improvements page edits. Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
 export function renderPropertyPage(pageId, {
   propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
   propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions,
   canManagePropertyMonthly, propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
   canManagePropertyRepairs, propertyRepairEntryStatus, propertyRepairEntryMessage,
+  canManagePropertyLedgers,
+  propertyDistributionEntryStatus, propertyDistributionEntryMessage,
+  propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage,
+  propertyReserveDisbursementEntryStatus, propertyReserveDisbursementEntryMessage,
+  propertyCapitalLedgerEntryStatus, propertyCapitalLedgerEntryMessage,
 }) {
   if (pageId === 'operating-results') {
     // Live-first: tries connect.finance-property-operating.v1 (property-report-service.js's
@@ -172,7 +272,7 @@ export function renderPropertyPage(pageId, {
       ])}
       ${renderTable({ head: ['Period', 'Amount distributed'], rows: renderPropertyDistributionRows(distributions.rows) })}
       ${fallbackNote}
-    </section>`;
+    </section>${canManagePropertyLedgers ? renderPropertyReserveMonthlyForm(propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage) + renderPropertyReserveDisbursementForm(propertyReserveDisbursementEntryStatus, propertyReserveDisbursementEntryMessage) : ''}`;
   }
   if (pageId === 'capital') {
     // Live-first: tries connect.finance-property-ledgers.v1 (property-report-service.js's
@@ -185,7 +285,7 @@ export function renderPropertyPage(pageId, {
       ${renderKpiCards([{ label: 'Capital projects', value: formatCents(ledgers.totals.capital_cents) }])}
       ${renderTable({ head: ['Date', 'Project', 'Description', 'Payee', 'Amount'], rows: renderPropertyCapitalRows(ledgers.capital) })}
       ${fallbackNote}
-    </section>`;
+    </section>${canManagePropertyLedgers ? renderPropertyCapitalLedgerForm(propertyCapitalLedgerEntryStatus, propertyCapitalLedgerEntryMessage) : ''}`;
   }
   if (pageId === 'valuation') {
     const isLive = propertyValuation.source === 'live';
@@ -261,7 +361,7 @@ export function renderPropertyPage(pageId, {
       ])}
       ${renderTable({ head: ['Period', 'Amount distributed'], rows: renderPropertyDistributionRows(distributions.rows) })}
       ${fallbackNote}
-    </section>`;
+    </section>${canManagePropertyLedgers ? renderPropertyDistributionForm(propertyDistributionEntryStatus, propertyDistributionEntryMessage) : ''}`;
   }
   const unavailable = {
     receivables: { heading: 'Receivables & deposits', reason: 'There is no tenant-receivable or security-deposit table -- the property model tracks monthly totals and ledgers, not per-tenant balances.' },
