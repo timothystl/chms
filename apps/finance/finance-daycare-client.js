@@ -256,3 +256,172 @@ export async function postConnectDaycareChurchBudgetImportWrite(env, accessJwt, 
   if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
   return { ok: true, result: payload };
 }
+
+// ── Real transport for connect.finance-daycare-entry-edit-relay.v1 (a write) ────────────────
+// Relays a partial-update edit for one existing daycare entry (by id) to Connect's own contract
+// endpoint (src/api-contracts-service.js), which is the only place the row is actually written --
+// Finance never stores a copy. Same accessJwt pass-through and looser blanket-permission check on
+// Connect's side (edit on any of finance/budget/compensation) as postConnectFinanceDaycareEntry
+// above -- the legacy finance/daycare/:id PUT route carries no role check of its own beyond that.
+export async function postConnectDaycareEntryEdit(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-daycare-entry-edit-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
+// ── Real transport for connect.finance-daycare-entry-remove-relay.v1 (a write) ──────────────
+// Relays a removal-by-id for one existing daycare entry to Connect's own contract endpoint
+// (src/api-contracts-service.js), which is the only place the row is actually removed -- Finance
+// never stores a copy. Same accessJwt pass-through and looser blanket-permission check on
+// Connect's side as postConnectDaycareEntryEdit above -- the legacy finance/daycare/:id DELETE
+// route carries no role check of its own beyond that.
+export async function postConnectDaycareEntryRemove(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-daycare-entry-remove-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
+// ── Real transport for connect.finance-daycare-sync-relay.v1 (a write) ──────────────────────
+// Triggers Connect's own pull from the daycare app's finance API (src/api-contracts-service.js),
+// which is the only place the sync actually runs and finance_daycare_entries is actually written
+// -- Finance never stores a copy. Same accessJwt pass-through and looser blanket-permission check
+// on Connect's side as postConnectDaycareEntryEdit above -- the legacy finance/daycare/sync route
+// carries no role check of its own beyond that. If the daycare app itself is not configured on
+// Connect's side (DAYCARE_API_URL/DAYCARE_API_KEY), Connect's own contract handler returns the
+// exact same "not configured" message the legacy route already returns -- that comes back here as
+// an ordinary `http_error` (never `not_configured`, which is reserved for THIS transport's own
+// binding/secret being unset), so the caller can show the real Connect-side reason rather than a
+// generic relay failure.
+export async function postConnectDaycareSync(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-daycare-sync-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body || {}),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
+// ── Real transport for connect.finance-daycare-rooms-sync-relay.v1 (a write) ────────────────
+// Triggers Connect's own pull from the daycare app's room-level finance API
+// (src/api-contracts-service.js), which is the only place the sync actually runs and
+// finance_daycare_rooms is actually written -- Finance never stores a copy. Admin-only on
+// Connect's side, matching the legacy finance/daycare/rooms/sync route's own gate exactly. Same
+// "not configured" pass-through as postConnectDaycareSync above.
+export async function postConnectDaycareRoomsSync(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-daycare-rooms-sync-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body || {}),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}

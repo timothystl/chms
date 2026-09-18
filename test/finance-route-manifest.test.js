@@ -30,6 +30,7 @@ const WRITE_ROUTE_IDS = new Set([
   'revenue-streams-write-v1', 'flow-expense-map-write-v1', 'cash-policy-write-v1',
   'daycare-allocation-config-write-v1', 'daycare-budget-override-write-v1', 'daycare-bulk-write-v1',
   'daycare-church-budget-import-write-v1', 'base-projection-write-v1', 'purpose-tags-write-v1',
+  'daycare-entry-edit-v1', 'daycare-entry-remove-v1', 'daycare-sync-v1', 'daycare-rooms-sync-v1',
 ]);
 const OWN_DB_WRITE_ROUTE_IDS = new Set(['budget-plan-save-v1']);
 const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1']);
@@ -74,6 +75,8 @@ describe('Finance staging route manifest', () => {
       '/api/v1/connect-revenue-streams-write', '/api/v1/connect-flow-expense-map-write', '/api/v1/connect-cash-policy-write',
       '/api/v1/connect-daycare-allocation-config-write', '/api/v1/connect-daycare-budget-override-write',
       '/api/v1/connect-daycare-bulk-write', '/api/v1/connect-daycare-church-budget-import-write',
+      '/api/v1/connect-daycare-entry-edit', '/api/v1/connect-daycare-entry-remove',
+      '/api/v1/connect-daycare-sync', '/api/v1/connect-daycare-rooms-sync',
       '/api/summary', '/api/v1/payroll-relay-diagnostic',
       '/api/v1/payroll-hours-save', '/api/v1/payroll-period-approve',
       '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
@@ -215,6 +218,18 @@ describe('Finance staging route manifest', () => {
     });
     expect(resolveFinanceRoute('/api/v1/connect-daycare-church-budget-import-write')).toMatchObject({
       id: 'daycare-church-budget-import-write-v1', contract: 'connect.finance-daycare-church-budget-import-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-daycare-entry-edit')).toMatchObject({
+      id: 'daycare-entry-edit-v1', contract: 'connect.finance-daycare-entry-edit-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-daycare-entry-remove')).toMatchObject({
+      id: 'daycare-entry-remove-v1', contract: 'connect.finance-daycare-entry-remove-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-daycare-sync')).toMatchObject({
+      id: 'daycare-sync-v1', contract: 'connect.finance-daycare-sync-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-daycare-rooms-sync')).toMatchObject({
+      id: 'daycare-rooms-sync-v1', contract: 'connect.finance-daycare-rooms-sync-relay.v1', dataSource: 'live-relay',
     });
     expect(resolveFinanceRoute('/api/v1/payroll-relay-diagnostic')).toMatchObject({
       id: 'payroll-relay-diagnostic-v1', contract: 'finance.payroll-relay-diagnostic.v1', dataSource: 'live-relay-read',

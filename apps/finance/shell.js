@@ -21,6 +21,7 @@ import { postConnectFinanceChurchActualOverride, postConnectChurchBudgetXlsxImpo
 import {
   postConnectFinanceDaycareEntry, postConnectDaycareAllocationConfigWrite, postConnectDaycareBudgetOverrideWrite,
   postConnectDaycareBulkWrite, postConnectDaycareChurchBudgetImportWrite,
+  postConnectDaycareEntryEdit, postConnectDaycareEntryRemove, postConnectDaycareSync, postConnectDaycareRoomsSync,
 } from './finance-daycare-client.js';
 import {
   postConnectBoardCategoriesWrite, postConnectPurposeTagsWrite, postConnectRevenueStreamsWrite, postConnectFlowExpenseMapWrite,
@@ -565,6 +566,60 @@ function describeDaycareChurchBudgetImportEntryError(reason, message) {
   }
 }
 
+// Same shape as describeDaycareEntryError above, for postConnectDaycareEntryEdit() failures.
+function describeDaycareEntryEditError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Daycare entry editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the edit.';
+    default: return 'The entry was not saved.';
+  }
+}
+
+// Same shape as describeDaycareEntryEditError above, for postConnectDaycareEntryRemove() failures.
+// "Removed" rather than "saved" wording, matching describePropertyMonthlyRemoveError-style wording
+// used for the property remove forms.
+function describeDaycareEntryRemoveError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Daycare entry editing is not connected yet. Nothing was removed.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was removed — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as removed.';
+    case 'http_error': return message ? String(message) : 'Connect refused the removal.';
+    default: return 'The entry was not removed.';
+  }
+}
+
+// Same shape as describeDaycareEntryError above, for postConnectDaycareSync() failures. The
+// 'http_error' case is the one most likely to fire here in practice: if the daycare app itself
+// isn't configured on Connect's side, Connect's own contract handler passes that exact message
+// through as an ordinary HTTP error, so it shows up here verbatim rather than a generic relay
+// failure -- see postConnectDaycareSync's own header comment in finance-daycare-client.js.
+function describeDaycareSyncError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Daycare sync is not connected yet. Nothing was synced.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was synced — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as synced.';
+    case 'http_error': return message ? String(message) : 'Connect refused the sync.';
+    default: return 'The sync did not complete.';
+  }
+}
+
+// Same shape as describeDaycareSyncError above, for postConnectDaycareRoomsSync() failures.
+function describeDaycareRoomsSyncError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Daycare room sync is not connected yet. Nothing was synced.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was synced — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as synced.';
+    case 'http_error': return message ? String(message) : 'Connect refused the sync.';
+    default: return 'The room sync did not complete.';
+  }
+}
+
 // Same shape as describeBudgetEntryError above, for postConnectFinanceCompensationWrite() /
 // fetchConnectSalaryPlannerState() failures.
 function describeCompensationEntryError(reason, message) {
@@ -708,6 +763,7 @@ function renderSectionBody(ctx) {
     daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
     daycareBulkEntryStatus, daycareBulkEntryMessage,
     daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
+    daycareSyncStatus, daycareSyncMessage, daycareRoomsSyncStatus, daycareRoomsSyncMessage,
     boardCategoryEntryStatus, boardCategoryEntryMessage,
     purposeTagsEntryStatus, purposeTagsEntryMessage,
     propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
@@ -898,12 +954,18 @@ function renderSectionBody(ctx) {
     // finance-daycare-*-write-v1 contract's own role check on Connect's side.
     const canManageDaycareAllocation = roleResult.ok && roleResult.role === 'admin';
     const canManageDaycareBudgetOverride = roleResult.ok && roleResult.role === 'admin';
+    // Money sync uses the SAME looser gate as canRecordDaycareEntry above -- the legacy
+    // finance/daycare/sync route also carries no isAdmin check of its own. Room sync stays
+    // admin-only, matching finance/daycare/rooms/sync's own explicit isAdmin check exactly.
+    const canSyncDaycareRooms = roleResult.ok && roleResult.role === 'admin';
     return renderDaycarePage(page.id, {
       daycareReport: daycareReportLive, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage,
       canManageDaycareAllocation, daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
       canManageDaycareBudgetOverride, daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
       daycareBulkEntryStatus, daycareBulkEntryMessage,
       daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
+      canSyncDaycare: canRecordDaycareEntry, daycareSyncStatus, daycareSyncMessage,
+      canSyncDaycareRooms, daycareRoomsSyncStatus, daycareRoomsSyncMessage,
     });
   }
   if (section.id === 'property') {
@@ -2126,6 +2188,101 @@ export default {
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
 
+    // Daycare Report entry edit (partial correction, by id) -- same looser gate as the
+    // single-entry/bulk/church-budget-import forms above, since the legacy finance/daycare/:id
+    // route this relays carries no role check of its own beyond the blanket ACCESS_GATE. Ships
+    // without a page form: the connect.finance-daycare-report.v1 contract this section's own
+    // Actuals detail table reads is aggregated by category and never exposes a row's own id (see
+    // apps/finance/README.md's changelog entry for this batch), the same allowance the Property
+    // capital-ledger/repair-remove routes already used -- still a fully real, directly POST-able
+    // relay for a caller that already has an id. Only fields actually present in the submitted form
+    // are forwarded, so a field the caller leaves out keeps its existing value on Connect's side
+    // (editDaycareEntry's own partial-edit semantics, src/api-finance.js).
+    if (route.id === 'daycare-entry-edit-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&status=error&reason=invalid_json' } });
+      }
+      const body = { id: form.get('id') || '' };
+      if (form.get('period') !== null) body.period = form.get('period') || '';
+      if (form.get('category') !== null) body.category = form.get('category') || '';
+      if (form.get('entry_type') !== null) body.entry_type = form.get('entry_type') || '';
+      if (form.get('amount') !== null) {
+        const dollars = Number(form.get('amount'));
+        body.amount_cents = Number.isFinite(dollars) ? Math.round(dollars * 100) : null;
+      }
+      if (form.get('notes') !== null) body.notes = form.get('notes') || '';
+      const result = await postConnectDaycareEntryEdit(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&page=actuals&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'daycare', page: 'actuals', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Daycare Report entry removal (by id) -- same shape and same "no page form yet" reasoning as
+    // daycare-entry-edit-v1 above.
+    if (route.id === 'daycare-entry-remove-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&status=error&reason=invalid_json' } });
+      }
+      const body = { id: form.get('id') || '' };
+      const result = await postConnectDaycareEntryRemove(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&page=actuals&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'daycare', page: 'actuals', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Daycare Report's "Sync now" trigger -- pulls fresh money figures from the daycare app's own
+    // finance API, same looser gate as the forms above (finance/daycare/sync itself carries no
+    // isAdmin check). Shown on Overview. Takes no fields; a bare POST is enough to trigger it.
+    if (route.id === 'daycare-sync-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      try {
+        await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&status=error&reason=invalid_json' } });
+      }
+      const result = await postConnectDaycareSync(env, accessJwt, {});
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'daycare', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Daycare Report's room-data "Sync now" trigger -- pulls fresh room-level figures from the
+    // daycare app's own room API, admin-only, matching finance/daycare/rooms/sync's own explicit
+    // isAdmin check exactly. Shown on Overview, next to the money sync trigger above. Takes no
+    // fields; a bare POST is enough to trigger it.
+    if (route.id === 'daycare-rooms-sync-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      try {
+        await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&status=error&reason=invalid_json' } });
+      }
+      const result = await postConnectDaycareRoomsSync(env, accessJwt, {});
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&status=ok&op=rooms-sync' } });
+      }
+      const params = new URLSearchParams({ section: 'daycare', status: 'error', op: 'rooms-sync', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
     // Compensation Plan roster editor's own fetch-edit-resubmit save: fetch the CURRENT complete
     // plan from Connect (never trust a stale copy the browser may have rendered from), apply one
     // add/edit/remove, and resubmit the whole merged plan -- see finance-compensation-client.js's
@@ -2844,6 +3001,17 @@ export default {
         const daycareChurchBudgetImportEntryMessage = daycareChurchBudgetImportEntryStatus === 'error'
           ? describeDaycareChurchBudgetImportEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        // Same shared status/reason/message query-param shape as daycareEntryStatus above, for the
+        // two "Sync now" triggers on Overview -- both redirect to the same ?section=daycare, so an
+        // `op=rooms-sync` marker (set only by the room-sync route) tells the two statuses apart.
+        const daycareSyncStatus = section.id === 'daycare' && url.searchParams.get('op') !== 'rooms-sync' ? url.searchParams.get('status') : null;
+        const daycareSyncMessage = daycareSyncStatus === 'error'
+          ? describeDaycareSyncError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const daycareRoomsSyncStatus = section.id === 'daycare' && url.searchParams.get('op') === 'rooms-sync' ? url.searchParams.get('status') : null;
+        const daycareRoomsSyncMessage = daycareRoomsSyncStatus === 'error'
+          ? describeDaycareRoomsSyncError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const boardCategoryEntryStatus = section.id === 'accounts' ? url.searchParams.get('status') : null;
         const boardCategoryEntryMessage = boardCategoryEntryStatus === 'error'
           ? describeBoardCategoryEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
@@ -2945,6 +3113,7 @@ export default {
           daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
           daycareBulkEntryStatus, daycareBulkEntryMessage,
           daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
+          daycareSyncStatus, daycareSyncMessage, daycareRoomsSyncStatus, daycareRoomsSyncMessage,
           boardCategoryEntryStatus, boardCategoryEntryMessage,
           purposeTagsEntryStatus, purposeTagsEntryMessage,
           propertyMonthlyEntryStatus, propertyMonthlyEntryMessage, propertyRepairEntryStatus, propertyRepairEntryMessage,

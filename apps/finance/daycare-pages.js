@@ -113,6 +113,35 @@ function renderDaycareBudgetOverrideForm(period, overrideStatus, overrideMessage
   </section>`;
 }
 
+// Two "Sync now" triggers -- relayed live to Connect, which itself pulls from the daycare app's
+// own finance API (see finance-daycare-sync-v1/finance-daycare-rooms-sync-v1 in
+// src/api-contracts-service.js). Neither takes any fields; a bare POST triggers the pull. Money
+// sync uses the same looser gate as the entry/bulk forms above (the legacy finance/daycare/sync
+// route carries no role check of its own beyond the blanket ACCESS_GATE); room sync is admin-only,
+// matching finance/daycare/rooms/sync's own explicit isAdmin check exactly. If the daycare app
+// itself isn't configured on Connect's side, the error message shown here is Connect's own "not
+// configured" message, passed straight through rather than reworded into a relay-specific failure.
+function renderDaycareSyncForms({
+  canSyncDaycare, syncStatus, syncMessage,
+  canSyncDaycareRooms, roomsSyncStatus, roomsSyncMessage,
+}) {
+  if (!canSyncDaycare && !canSyncDaycareRooms) return '';
+  return `<section aria-label="Sync Daycare Report data from the daycare app">
+    ${renderSectionHeading({ eyebrow: 'Daycare Report', heading: 'Sync from the daycare app', badge: 'Relayed live to Connect' })}
+    ${canSyncDaycare ? `<form method="POST" action="/api/v1/connect-daycare-sync">
+      ${syncStatus === 'ok' ? '<p class="status">Synced in Connect.</p>' : ''}
+      ${syncStatus === 'error' ? `<p class="status status-error">Not synced: ${escapeHtml(syncMessage || 'unknown error')}</p>` : ''}
+      <button type="submit">Sync money data now</button>
+    </form>` : ''}
+    ${canSyncDaycareRooms ? `<form method="POST" action="/api/v1/connect-daycare-rooms-sync">
+      ${roomsSyncStatus === 'ok' ? '<p class="status">Room data synced in Connect.</p>' : ''}
+      ${roomsSyncStatus === 'error' ? `<p class="status status-error">Not synced: ${escapeHtml(roomsSyncMessage || 'unknown error')}</p>` : ''}
+      <button type="submit">Sync room data now</button>
+    </form>` : ''}
+    <p><small>Pulls the latest figures from the daycare app's own finance API and wholesale-replaces the daycare-app-sourced rows for the periods it returns. Hand-entered and Church-Budget-derived rows are never touched by this.</small></p>
+  </section>`;
+}
+
 // `daycareReport` here is resolveDaycareReport()'s result -- { source: 'live', fiscalYear,
 // categories, allocation, totals } or { source: 'synthetic-fallback', fallbackReason, rows,
 // allocation } -- never the raw synthetic row array daycare-pages.js used to receive directly.
@@ -122,6 +151,8 @@ export function renderDaycarePage(pageId, {
   canManageDaycareBudgetOverride, daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
   daycareBulkEntryStatus, daycareBulkEntryMessage,
   daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
+  canSyncDaycare, daycareSyncStatus, daycareSyncMessage,
+  canSyncDaycareRooms, daycareRoomsSyncStatus, daycareRoomsSyncMessage,
 }) {
   const isLive = daycareReport.source === 'live';
   const report = isLive
@@ -181,5 +212,8 @@ export function renderDaycarePage(pageId, {
     ])}
     <p>See Actuals detail, Budget comparison, and Shared costs for the full breakdown behind these totals.</p>
     ${fallbackNote}
-  </section>`;
+  </section>${renderDaycareSyncForms({
+    canSyncDaycare, syncStatus: daycareSyncStatus, syncMessage: daycareSyncMessage,
+    canSyncDaycareRooms, roomsSyncStatus: daycareRoomsSyncStatus, roomsSyncMessage: daycareRoomsSyncMessage,
+  })}`;
 }

@@ -161,6 +161,21 @@ const ROUTES = [
   // own comment in src/api-contracts-service.js).
   { id: 'daycare-bulk-write-v1', paths: ['/api/v1/connect-daycare-bulk-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-bulk-write-relay.v1' },
   { id: 'daycare-church-budget-import-write-v1', paths: ['/api/v1/connect-daycare-church-budget-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-church-budget-import-write-relay.v1' },
+  // Same deliberate exception as the relays above, completing the Daycare Report's write parity:
+  // an existing entry's edit/remove (by id) and the two trigger-a-sync actions -- each relays to
+  // its own Connect contract endpoint (never writes to Finance's own database), matching the
+  // legacy in-Connect Daycare Report's own finance/daycare/:id PUT/DELETE and finance/daycare/sync,
+  // finance/daycare/rooms/sync POST routes exactly. Edit/remove use the same looser blanket-
+  // permission gate (edit on any of finance/budget/compensation, not a simple role-name check) as
+  // daycare-entry-v1/daycare-bulk-write-v1 above, since the legacy PUT/DELETE routes carry no role
+  // check of their own beyond the blanket ACCESS_GATE -- re-verified directly against
+  // src/api-finance.js's source for this batch, not assumed. The money sync uses that SAME looser
+  // gate (finance/daycare/sync also carries no isAdmin check of its own); the room sync is
+  // admin-only, matching finance/daycare/rooms/sync's own explicit isAdmin check exactly.
+  { id: 'daycare-entry-edit-v1', paths: ['/api/v1/connect-daycare-entry-edit'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-entry-edit-relay.v1' },
+  { id: 'daycare-entry-remove-v1', paths: ['/api/v1/connect-daycare-entry-remove'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-entry-remove-relay.v1' },
+  { id: 'daycare-sync-v1', paths: ['/api/v1/connect-daycare-sync'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-sync-relay.v1' },
+  { id: 'daycare-rooms-sync-v1', paths: ['/api/v1/connect-daycare-rooms-sync'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-rooms-sync-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no
