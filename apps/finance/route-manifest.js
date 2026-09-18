@@ -34,6 +34,15 @@ const ROUTES = [
   // Planner's own PUT route exactly -- council's real editing surface stays the separate, narrower
   // raise-plan-field overlay, not this route.
   { id: 'compensation-plan-write-v1', paths: ['/api/v1/connect-compensation-plan-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-compensation-write-relay.v1' },
+  // Same deliberate exception as the relays above, for Budget Planner's admin-only generate/
+  // generate-all/commit/remove-a-category operations: each relays to its own Connect contract
+  // endpoint (never writes to Finance's own database), gated admin-only on Connect's side,
+  // matching the legacy in-Connect Budget Planner's own generate[-all]/commit/DELETE routes
+  // exactly -- see the shared helpers' header comment in src/api-finance.js.
+  { id: 'budget-generate-v1', paths: ['/api/v1/connect-budget-generate'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-generate-relay.v1' },
+  { id: 'budget-generate-all-v1', paths: ['/api/v1/connect-budget-generate-all'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-generate-all-relay.v1' },
+  { id: 'budget-commit-v1', paths: ['/api/v1/connect-budget-commit'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-commit-relay.v1' },
+  { id: 'budget-plan-remove-v1', paths: ['/api/v1/connect-budget-plan-remove'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-remove-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no

@@ -3101,6 +3101,95 @@ export async function applyBudgetPlanOverrideRows(db, role, username, rowsInput)
   return { ok: true, saved: ops.length };
 }
 
+// ── Shared Budget Plan generate / generate-all / commit / delete ────────────────────────────
+// Used by both the admin-only finance/planning/church/generate[-all]/commit/DELETE routes below
+// and their finance-budget-*-v1 relay contract counterparts (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical operation on behalf of an identity it verified
+// via Cloudflare Access. One implementation each means the two entry points can never drift.
+export async function generateBudgetPlanRows(db, { category, classification, baseAmountCents, growthPct, targetYears, notes }) {
+  if (!category) return { error: 'category is required', status: 400 };
+  if (!Number.isFinite(baseAmountCents)) return { error: 'Invalid base_amount', status: 400 };
+  if (!Number.isFinite(growthPct)) return { error: 'Invalid growth_pct', status: 400 };
+  if (!Array.isArray(targetYears) || !targetYears.length) return { error: 'target_years is required', status: 400 };
+  const ops = targetYears.map((year, i) => {
+    const cents = Math.round(baseAmountCents * Math.pow(1 + growthPct, i + 1));
+    return db.prepare(
+      `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,growth_pct,base_amount_cents,notes,updated_at)
+       VALUES (?,?,?,?,'grown',?,?,?,datetime('now'))
+       ON CONFLICT(category,fiscal_year) DO UPDATE SET
+         classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis=excluded.basis,
+         growth_pct=excluded.growth_pct, base_amount_cents=excluded.base_amount_cents, notes=excluded.notes, updated_at=excluded.updated_at`
+    ).bind(category, classification, year, cents, growthPct, baseAmountCents, notes || '');
+  });
+  await db.batch(ops);
+  return { ok: true, years: targetYears };
+}
+
+export async function generateAllBudgetPlan(db, { baseYear, targetYear, growthPct, throughWeekInput }) {
+  if (!Number.isFinite(baseYear) || !Number.isFinite(targetYear)) return { error: 'base_year and target_year are required', status: 400 };
+  if (!Number.isFinite(growthPct)) return { error: 'Invalid growth_pct', status: 400 };
+  // period_month=0 = the annual row (see migrations/0018_finance_church_entries.sql) -- must
+  // filter it explicitly, since monthly rows (period_month 1-12) share the same source and
+  // fiscal_year, and would otherwise let a single month's figure silently clobber the true
+  // annual total for that category via the ON CONFLICT upsert below.
+  const baseRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(baseYear).all()).results || [];
+  if (!baseRows.length) return { error: `No Church Budget data found for ${baseYear} — sync or import that year first.`, status: 400 };
+  const resolved = resolveChurchYearPrecedence(baseRows);
+  // Elapsed time is measured in WEEKS, not calendar months -- see the identical comment on the
+  // legacy finance/planning/church/generate-all route below for why. throughWeekInput is an
+  // optional explicit override (real callers never send it -- only tests, for determinism);
+  // production always falls back to the real elapsed weeks for the real current year.
+  const now = new Date();
+  const explicitThroughWeek = Number(throughWeekInput);
+  const throughWeek = Number.isFinite(explicitThroughWeek) && throughWeekInput !== undefined && throughWeekInput !== null && throughWeekInput !== ''
+    ? explicitThroughWeek
+    : (baseYear === now.getFullYear()) ? weeksElapsedInYear(now) : 52;
+  const prorated = throughWeek < 52;
+  const ops = [];
+  let generated = 0;
+  for (const r of resolved) {
+    const baseAmountCents = (r.own_actual_cents && prorated)
+      ? Math.round(r.own_actual_cents * (52 / throughWeek))
+      : (r.own_actual_cents || r.own_budget_cents || 0);
+    if (!baseAmountCents) continue;
+    const plannedCents = Math.round(baseAmountCents * (1 + growthPct));
+    ops.push(db.prepare(
+      `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,growth_pct,base_amount_cents,notes,updated_at)
+       VALUES (?,?,?,?,'grown',?,?,?,datetime('now'))
+       ON CONFLICT(category,fiscal_year) DO UPDATE SET
+         classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis='grown',
+         growth_pct=excluded.growth_pct, base_amount_cents=excluded.base_amount_cents, notes=excluded.notes, updated_at=excluded.updated_at`
+    ).bind(r.category_path, r.classification, targetYear, plannedCents, growthPct, baseAmountCents, r.account_name));
+    generated++;
+  }
+  if (!ops.length) return { error: `No account had an actual or budget figure in ${baseYear} to grow from.`, status: 400 };
+  await db.batch(ops);
+  return { ok: true, generated, baseYear, targetYear, throughWeek, prorated };
+}
+
+export async function commitBudgetPlan(db, fiscalYear) {
+  if (!Number.isFinite(fiscalYear)) return { error: 'fiscal_year is required', status: 400 };
+  const planRows = (await db.prepare('SELECT * FROM finance_budget_plan WHERE fiscal_year=?').bind(fiscalYear).all()).results || [];
+  if (!planRows.length) return { error: `No plan rows exist for ${fiscalYear}`, status: 400 };
+  const syncedAt = new Date().toISOString();
+  const ops = [db.prepare(`DELETE FROM finance_church_entries WHERE source='plan_committed' AND fiscal_year=?`).bind(fiscalYear)];
+  for (const r of planRows) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_church_entries
+         (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+       VALUES (?,0,?,?,?,0,0,0,?,'plan_committed',?)`
+    ).bind(fiscalYear, r.classification, r.category, r.category, r.planned_amount_cents, syncedAt));
+  }
+  await db.batch(ops);
+  return { ok: true, fiscalYear, committed: planRows.length };
+}
+
+export async function deleteBudgetPlanRow(db, category, fiscalYear) {
+  if (!category || !Number.isFinite(fiscalYear)) return { error: 'category and fiscal_year are required', status: 400 };
+  await db.prepare('DELETE FROM finance_budget_plan WHERE category=? AND fiscal_year=?').bind(category, fiscalYear).run();
+  return { ok: true };
+}
+
 // ── Shared Salary/Compensation Planner writer ────────────────────────────────
 // Used by both the admin/compensation/council finance/planning/salary PUT route below and the
 // finance-compensation-write-v1 relay contract (src/api-contracts-service.js) that lets Finance's
@@ -4407,55 +4496,12 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/planning/church/generate-all' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const baseYear = parseInt(b.base_year, 10);
-    const targetYear = parseInt(b.target_year, 10);
-    const growthPct = Number(b.growth_pct);
-    if (!Number.isFinite(baseYear) || !Number.isFinite(targetYear)) return json({ error: 'base_year and target_year are required' }, 400);
-    if (!Number.isFinite(growthPct)) return json({ error: 'Invalid growth_pct' }, 400);
-    // period_month=0 = the annual row (see migrations/0018_finance_church_entries.sql) — must
-    // filter it explicitly, since monthly rows (period_month 1-12) share the same source and
-    // fiscal_year, and would otherwise let a single month's figure silently clobber the true
-    // annual total for that category via the ON CONFLICT upsert below.
-    const baseRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(baseYear).all()).results || [];
-    if (!baseRows.length) return json({ error: `No Church Budget data found for ${baseYear} — sync or import that year first.` }, 400);
-    const resolved = resolveChurchYearPrecedence(baseRows);
-    // If the base year is still in progress (its own actual is really a year-to-date figure, not
-    // a completed year), annualize it before applying the growth rate — otherwise a mid-year
-    // actual would be projected forward as if it were the whole year's total. A past, complete
-    // base year (or one with no actual at all, only a budget) is used as-is. Elapsed time is
-    // measured in WEEKS, not calendar months — a calendar month is ambiguous the moment you're
-    // partway through it (is the 5th of August "1 month" or "0 months" elapsed? both answers are
-    // defensible and give meaningfully different projections), where "days since Jan 1, divided
-    // by 7" has no such ambiguity and tracks this church's actual giving rhythm (weekly Sunday
-    // offerings) more closely than a monthly bucket does. through_week is an optional explicit
-    // override (real caller never sends it — only tests, for determinism); production always
-    // falls back to the real elapsed weeks for the real current year.
-    const now = new Date();
-    const explicitThroughWeek = Number(b.through_week);
-    const throughWeek = Number.isFinite(explicitThroughWeek) && b.through_week !== undefined && b.through_week !== null && b.through_week !== ''
-      ? explicitThroughWeek
-      : (baseYear === now.getFullYear()) ? weeksElapsedInYear(now) : 52;
-    const prorated = throughWeek < 52;
-    const ops = [];
-    let generated = 0;
-    for (const r of resolved) {
-      const baseAmountCents = (r.own_actual_cents && prorated)
-        ? Math.round(r.own_actual_cents * (52 / throughWeek))
-        : (r.own_actual_cents || r.own_budget_cents || 0);
-      if (!baseAmountCents) continue;
-      const plannedCents = Math.round(baseAmountCents * (1 + growthPct));
-      ops.push(db.prepare(
-        `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,growth_pct,base_amount_cents,notes,updated_at)
-         VALUES (?,?,?,?,'grown',?,?,?,datetime('now'))
-         ON CONFLICT(category,fiscal_year) DO UPDATE SET
-           classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis='grown',
-           growth_pct=excluded.growth_pct, base_amount_cents=excluded.base_amount_cents, notes=excluded.notes, updated_at=excluded.updated_at`
-      ).bind(r.category_path, r.classification, targetYear, plannedCents, growthPct, baseAmountCents, r.account_name));
-      generated++;
-    }
-    if (!ops.length) return json({ error: `No account had an actual or budget figure in ${baseYear} to grow from.` }, 400);
-    await db.batch(ops);
-    return json({ ok: true, generated, baseYear, targetYear, throughWeek, prorated });
+    const result = await generateAllBudgetPlan(db, {
+      baseYear: parseInt(b.base_year, 10), targetYear: parseInt(b.target_year, 10),
+      growthPct: Number(b.growth_pct), throughWeekInput: b.through_week,
+    });
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Bulk manual save — commits a whole edited table of Projected values in one round trip
@@ -4757,27 +4803,14 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/planning/church/generate' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const category = String(b.category || '').trim();
-    if (!category) return json({ error: 'category is required' }, 400);
-    const classification = b.classification || 'Expenses';
-    const baseAmountCents = Math.round(Number(b.base_amount) * 100);
-    if (!Number.isFinite(baseAmountCents)) return json({ error: 'Invalid base_amount' }, 400);
-    const growthPct = Number(b.growth_pct);
-    if (!Number.isFinite(growthPct)) return json({ error: 'Invalid growth_pct' }, 400);
     const targetYears = Array.isArray(b.target_years) ? b.target_years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
-    if (!targetYears.length) return json({ error: 'target_years is required' }, 400);
-    const ops = targetYears.map((year, i) => {
-      const cents = Math.round(baseAmountCents * Math.pow(1 + growthPct, i + 1));
-      return db.prepare(
-        `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,growth_pct,base_amount_cents,notes,updated_at)
-         VALUES (?,?,?,?,'grown',?,?,?,datetime('now'))
-         ON CONFLICT(category,fiscal_year) DO UPDATE SET
-           classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis=excluded.basis,
-           growth_pct=excluded.growth_pct, base_amount_cents=excluded.base_amount_cents, notes=excluded.notes, updated_at=excluded.updated_at`
-      ).bind(category, classification, year, cents, growthPct, baseAmountCents, b.notes || '');
+    const result = await generateBudgetPlanRows(db, {
+      category: String(b.category || '').trim(), classification: b.classification || 'Expenses',
+      baseAmountCents: Math.round(Number(b.base_amount) * 100), growthPct: Number(b.growth_pct),
+      targetYears, notes: b.notes,
     });
-    await db.batch(ops);
-    return json({ ok: true, years: targetYears });
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Manual override for a single category/year — always wins over whatever finance/planning/
@@ -4819,9 +4852,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   const planDeleteMatch = seg.match(/^finance\/planning\/church\/([^/]+)\/(\d{4})$/);
   if (planDeleteMatch && method === 'DELETE') {
     if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
-    await db.prepare('DELETE FROM finance_budget_plan WHERE category=? AND fiscal_year=?')
-      .bind(decodeURIComponent(planDeleteMatch[1]), parseInt(planDeleteMatch[2], 10)).run();
-    return json({ ok: true });
+    const result = await deleteBudgetPlanRow(db, decodeURIComponent(planDeleteMatch[1]), parseInt(planDeleteMatch[2], 10));
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Commits every planned category for one fiscal year into finance_church_entries as a
@@ -4831,21 +4864,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/planning/church/commit' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: committing a budget plan requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const fiscalYear = parseInt(b.fiscal_year, 10);
-    if (!Number.isFinite(fiscalYear)) return json({ error: 'fiscal_year is required' }, 400);
-    const planRows = (await db.prepare('SELECT * FROM finance_budget_plan WHERE fiscal_year=?').bind(fiscalYear).all()).results || [];
-    if (!planRows.length) return json({ error: `No plan rows exist for ${fiscalYear}` }, 400);
-    const syncedAt = new Date().toISOString();
-    const ops = [db.prepare(`DELETE FROM finance_church_entries WHERE source='plan_committed' AND fiscal_year=?`).bind(fiscalYear)];
-    for (const r of planRows) {
-      ops.push(db.prepare(
-        `INSERT INTO finance_church_entries
-           (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
-         VALUES (?,0,?,?,?,0,0,0,?,'plan_committed',?)`
-      ).bind(fiscalYear, r.classification, r.category, r.category, r.planned_amount_cents, syncedAt));
-    }
-    await db.batch(ops);
-    return json({ ok: true, fiscalYear, committed: planRows.length });
+    const result = await commitBudgetPlan(db, parseInt(b.fiscal_year, 10));
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // ── Board Packet export — a single clean JSON snapshot of the numbers a board would need for

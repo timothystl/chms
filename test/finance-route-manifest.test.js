@@ -6,18 +6,20 @@ import {
 } from '../apps/finance/route-manifest.js';
 
 // A route is "read-only, synthetic" here unless it is one of the declared, named exceptions
-// below: the Giving and payroll write relays relay a write to Website/Connect (never touch
-// Finance's own database); the payroll read relays are live calls out to Website's payroll proxy,
-// not synthetic fixtures. `budget-plan-save-v1`, `compensation-plan-save-v1`, and the four
-// `property-*-entry-v1` routes are the declared exceptions that DO write to Finance's own
-// database (FINANCE_DB's finance_budget_plan, finance_compensation_worker_plan, and the property
-// reserve/disbursement/distribution/capital-ledger tables respectively -- see
-// budget-plan-write-service.js, compensation-plan-write-service.js, and
-// property-ledger-write-service.js), each gated off by default. Anything else claiming
-// non-GET/HEAD methods, a `writer` flag, or a live dataSource is a regression.
+// below: the Giving, Budget (write/generate/generate-all/commit/remove), Compensation, and
+// payroll write relays relay a write to Website/Connect (never touch Finance's own database);
+// the payroll read relays are live calls out to Website's payroll proxy, not synthetic fixtures.
+// `budget-plan-save-v1`, `compensation-plan-save-v1`, and the four `property-*-entry-v1` routes
+// are the declared exceptions that DO write to Finance's own database (FINANCE_DB's
+// finance_budget_plan, finance_compensation_worker_plan, and the property reserve/disbursement/
+// distribution/capital-ledger tables respectively -- see budget-plan-write-service.js,
+// compensation-plan-write-service.js, and property-ledger-write-service.js), each gated off by
+// default. Anything else claiming non-GET/HEAD methods, a `writer` flag, or a live dataSource is
+// a regression.
 const WRITE_ROUTE_IDS = new Set([
   'giving-quick-entry-v1', 'budget-plan-write-v1', 'compensation-plan-write-v1', 'payroll-hours-save-v1', 'payroll-period-approve-v1',
   'payroll-staff-save-v1', 'payroll-staff-deactivate-v1', 'payroll-email-v1',
+  'budget-generate-v1', 'budget-generate-all-v1', 'budget-commit-v1', 'budget-plan-remove-v1',
 ]);
 const OWN_DB_WRITE_ROUTE_IDS = new Set(['budget-plan-save-v1']);
 const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1']);
@@ -42,7 +44,9 @@ describe('Finance staging route manifest', () => {
     expect(paths).toEqual([
       '/', '/index.html', '/health', '/api/v1/summary',
       '/api/v1/connect-giving-preview', '/api/v1/connect-giving-transport-evidence',
-      '/api/v1/connect-giving-quick-entry', '/api/v1/budget-plan-save', '/api/v1/connect-budget-plan-write', '/api/v1/connect-compensation-plan-write', '/api/summary', '/api/v1/payroll-relay-diagnostic',
+      '/api/v1/connect-giving-quick-entry', '/api/v1/budget-plan-save', '/api/v1/connect-budget-plan-write', '/api/v1/connect-compensation-plan-write',
+      '/api/v1/connect-budget-generate', '/api/v1/connect-budget-generate-all', '/api/v1/connect-budget-commit', '/api/v1/connect-budget-plan-remove',
+      '/api/summary', '/api/v1/payroll-relay-diagnostic',
       '/api/v1/payroll-hours-save', '/api/v1/payroll-period-approve',
       '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
       '/api/v1/payroll-email',
@@ -109,6 +113,18 @@ describe('Finance staging route manifest', () => {
     });
     expect(resolveFinanceRoute('/api/v1/connect-compensation-plan-write')).toMatchObject({
       id: 'compensation-plan-write-v1', contract: 'connect.finance-compensation-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-budget-generate')).toMatchObject({
+      id: 'budget-generate-v1', contract: 'connect.finance-budget-generate-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-budget-generate-all')).toMatchObject({
+      id: 'budget-generate-all-v1', contract: 'connect.finance-budget-generate-all-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-budget-commit')).toMatchObject({
+      id: 'budget-commit-v1', contract: 'connect.finance-budget-commit-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-budget-plan-remove')).toMatchObject({
+      id: 'budget-plan-remove-v1', contract: 'connect.finance-budget-remove-relay.v1', dataSource: 'live-relay',
     });
     expect(resolveFinanceRoute('/api/v1/payroll-relay-diagnostic')).toMatchObject({
       id: 'payroll-relay-diagnostic-v1', contract: 'finance.payroll-relay-diagnostic.v1', dataSource: 'live-relay-read',

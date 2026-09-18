@@ -24,7 +24,10 @@ import {
   resolvePropertyValuation, resolvePropertyReport, resolvePropertyReserves, resolvePropertyLedgers,
 } from './property-report-service.js';
 import { resolveBudgetReport } from './budget-report-service.js';
-import { postConnectFinanceBudgetWrite } from './finance-budget-client.js';
+import {
+  postConnectFinanceBudgetWrite, postConnectFinanceBudgetGenerate, postConnectFinanceBudgetGenerateAll,
+  postConnectFinanceBudgetCommit, postConnectFinanceBudgetRemove,
+} from './finance-budget-client.js';
 import { isBudgetPlanWritesEnabled, validateBudgetPlanRows, saveBudgetPlanRows } from './budget-plan-write-service.js';
 import { fetchConnectSalaryPlannerState, postConnectFinanceCompensationWrite } from './finance-compensation-client.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
@@ -146,6 +149,22 @@ function describeBudgetEntryError(reason, message) {
     default: return 'The Budget Plan edit was not saved.';
   }
 }
+
+// Same shape as describeBudgetEntryError above, for the admin-only generate/generate-all/commit/
+// remove-a-category plan operations (postConnectFinanceBudgetGenerate[All]/Commit/Remove) --
+// `verb` names the failed operation in the default/not_configured messages so the banner reads
+// naturally for whichever of the four just ran.
+function describeBudgetPlanOpError(reason, message, verb) {
+  switch (reason) {
+    case 'not_configured': return `Budget Plan ${verb} is not connected yet. Nothing changed.`;
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing changed — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed.';
+    case 'http_error': return message ? String(message) : 'Connect refused the request.';
+    default: return `The ${verb} did not complete.`;
+  }
+}
+const BUDGET_PLAN_OP_VERBS = { generate: 'generation', 'generate-all': 'generation', commit: 'commit', remove: 'removal' };
 
 // Same shape as describeBudgetEntryError above, for postConnectFinanceCompensationWrite() /
 // fetchConnectSalaryPlannerState() failures.
@@ -280,6 +299,7 @@ function renderSectionBody(ctx) {
     compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage,
     budgetEntryStatus, budgetEntryMessage, payrollBundle,
     compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
+    canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
     roleResult,
   } = ctx;
   if (section.id === 'health') {
@@ -438,7 +458,15 @@ function renderSectionBody(ctx) {
     // only) -- UI hiding is never authorization, the real gate is finance-budget-write-v1's own
     // role check on Connect's side, but there's no reason to show a form that will only 403.
     const canEditBudget = roleResult.ok && (roleResult.role === 'admin' || roleResult.role === 'council');
-    return renderPlanningPage(page.id, { budgetReport, canEditBudget, budgetEntryStatus, budgetEntryMessage });
+    // generate/generate-all/commit/remove-a-category stay admin-only, matching their legacy
+    // routes' own gate exactly (see the shared helpers' header comment in src/api-finance.js) --
+    // council may only hand-correct a planned amount via canEditBudget's form above, never
+    // regenerate or finalize the shared plan wholesale.
+    const canManageBudgetPlan = roleResult.ok && roleResult.role === 'admin';
+    return renderPlanningPage(page.id, {
+      budgetReport, canEditBudget, budgetEntryStatus, budgetEntryMessage,
+      canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
+    });
   }
   if (section.id === 'accounts') {
     return renderAccountsPage(page.id, { accountsReport });
@@ -840,6 +868,45 @@ export default {
         return response(null, { status: 303, headers: { Location: '/?section=planning&status=ok' } });
       }
       const params = new URLSearchParams({ section: 'planning', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Admin-only generate/generate-all/commit/remove-a-category plan operations, each relaying to
+    // its own Connect contract endpoint (src/api-contracts-service.js) -- same 303-redirect-after-
+    // POST shape as budget-plan-write-v1 above, distinguished on redirect by the 'op' query param
+    // (planOpKind in shell.js's GET handler) so the right form/table shows the right status.
+    if (route.id === 'budget-generate-v1' || route.id === 'budget-generate-all-v1'
+      || route.id === 'budget-commit-v1' || route.id === 'budget-plan-remove-v1') {
+      const opKind = { 'budget-generate-v1': 'generate', 'budget-generate-all-v1': 'generate-all', 'budget-commit-v1': 'commit', 'budget-plan-remove-v1': 'remove' }[route.id];
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: `/?section=planning&op=${opKind}&status=error&reason=invalid_json` } });
+      }
+      let result;
+      if (opKind === 'generate') {
+        const targetYears = String(form.get('target_years') || '').split(',').map((s) => s.trim()).filter(Boolean);
+        result = await postConnectFinanceBudgetGenerate(env, accessJwt, {
+          category: form.get('category') || '', classification: form.get('classification') || 'Expenses',
+          base_amount: form.get('base_amount') || '', growth_pct: form.get('growth_pct') || '', target_years: targetYears,
+          notes: form.get('notes') || '',
+        });
+      } else if (opKind === 'generate-all') {
+        result = await postConnectFinanceBudgetGenerateAll(env, accessJwt, {
+          base_year: form.get('base_year') || '', target_year: form.get('target_year') || '', growth_pct: form.get('growth_pct') || '',
+        });
+      } else if (opKind === 'commit') {
+        result = await postConnectFinanceBudgetCommit(env, accessJwt, { fiscal_year: form.get('fiscal_year') || '' });
+      } else {
+        result = await postConnectFinanceBudgetRemove(env, accessJwt, { category: form.get('category') || '', fiscal_year: form.get('fiscal_year') || '' });
+      }
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: `/?section=planning&op=${opKind}&status=ok` } });
+      }
+      const params = new URLSearchParams({ section: 'planning', op: opKind, status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -1391,9 +1458,18 @@ export default {
         const givingEntryMessage = givingEntryStatus === 'error'
           ? describeGivingEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
-        const budgetEntryStatus = section.id === 'planning' ? url.searchParams.get('status') : null;
+        // 'op' distinguishes a generate/generate-all/commit/remove redirect (planOp* below) from a
+        // plain manual-edit redirect (budgetEntryStatus, unchanged) -- both land back on
+        // ?section=planning with the same status/reason/message shape, so the presence of 'op' is
+        // what tells the two apart.
+        const planOpKind = section.id === 'planning' ? url.searchParams.get('op') : null;
+        const budgetEntryStatus = section.id === 'planning' && !planOpKind ? url.searchParams.get('status') : null;
         const budgetEntryMessage = budgetEntryStatus === 'error'
           ? describeBudgetEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const planOpStatus = planOpKind ? url.searchParams.get('status') : null;
+        const planOpMessage = planOpStatus === 'error'
+          ? describeBudgetPlanOpError(url.searchParams.get('reason'), url.searchParams.get('message'), BUDGET_PLAN_OP_VERBS[planOpKind] || 'operation')
           : null;
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
@@ -1405,6 +1481,7 @@ export default {
           dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
+          planOpKind, planOpStatus, planOpMessage,
         }), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });

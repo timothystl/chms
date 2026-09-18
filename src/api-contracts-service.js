@@ -11,7 +11,10 @@ import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, resp
 import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
-import { applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState } from './api-finance.js';
+import {
+  applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
+  generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
+} from './api-finance.js';
 
 export async function handleContractsServiceApi(req, env, path) {
   const expectedKey = env.FINANCE_CONTRACT_API_KEY || '';
@@ -91,6 +94,22 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-budget-write-v1' && req.method === 'POST') {
     return handleFinanceBudgetWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-budget-generate-v1' && req.method === 'POST') {
+    return handleFinanceBudgetGenerateContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-budget-generate-all-v1' && req.method === 'POST') {
+    return handleFinanceBudgetGenerateAllContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-budget-commit-v1' && req.method === 'POST') {
+    return handleFinanceBudgetCommitContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-budget-remove-v1' && req.method === 'POST') {
+    return handleFinanceBudgetRemoveContract(req, env);
   }
 
   if (path === '/api/contracts/finance-compensation-write-v1' && req.method === 'POST') {
@@ -221,6 +240,103 @@ async function handleFinanceBudgetWriteContract(req, env) {
   ).bind('', '', email).run().catch(() => {});
 
   return json({ ok: true, saved: result.saved, savedBy: user.username });
+}
+
+// ── Budget Plan generate / generate-all / commit / delete, relayed from Finance's own Budget
+// Planner UI ──────────────────────────────────────────────────────────────────────────────
+// Same shape as handleFinanceBudgetWriteContract above: the X-Contract-Key check only proves the
+// call came from Finance's Worker, this proves WHO Finance says is acting, and the verified
+// identity's real Connect role decides whether the operation is allowed -- admin only for all
+// four, matching finance/planning/church/generate[-all]/commit/DELETE's own gate exactly, since
+// each of these calls the identical helper (src/api-finance.js) that route uses. One shared
+// implementation per operation means the legacy in-Connect Budget Planner and these relays can
+// never drift on validation.
+async function handleFinanceBudgetGenerateContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const targetYears = Array.isArray(body.target_years) ? body.target_years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
+  const result = await generateBudgetPlanRows(db, {
+    category: String(body.category || '').trim(), classification: body.classification || 'Expenses',
+    baseAmountCents: Math.round(Number(body.base_amount) * 100), growthPct: Number(body.growth_pct),
+    targetYears, notes: body.notes,
+  });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+async function handleFinanceBudgetGenerateAllContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await generateAllBudgetPlan(db, {
+    baseYear: parseInt(body.base_year, 10), targetYear: parseInt(body.target_year, 10),
+    growthPct: Number(body.growth_pct), throughWeekInput: body.through_week,
+  });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+async function handleFinanceBudgetCommitContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: committing a budget plan requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await commitBudgetPlan(db, parseInt(body.fiscal_year, 10));
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+async function handleFinanceBudgetRemoveContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await deleteBudgetPlanRow(db, String(body.category || '').trim(), parseInt(body.fiscal_year, 10));
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
 }
 
 // ── Salary/Compensation Planner write, relayed from Finance's own Compensation Planner UI ───
