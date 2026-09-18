@@ -292,6 +292,40 @@ describe('Stax Giving mockup — public checkout API (demo mode)', () => {
   });
 });
 
+describe('Stax Giving mockup — CORS (browser calls from the Website domain)', () => {
+  it('echoes Access-Control-Allow-Origin for the allowlisted give.timothystl.org origin', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/funds', {
+      headers: { Origin: 'https://give.timothystl.org' },
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'GET', 'funds');
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://give.timothystl.org');
+  });
+
+  it('does not echo Access-Control-Allow-Origin for an origin not on the allowlist', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/funds', {
+      headers: { Origin: 'https://evil.example.com' },
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'GET', 'funds');
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+
+  it('answers an OPTIONS preflight with the allowlisted origin and no route logic', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
+      method: 'OPTIONS', headers: { Origin: 'https://give.timothystl.org' },
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'OPTIONS', 'checkout');
+    expect(res.status).toBe(204);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://give.timothystl.org');
+    expect(res.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+  });
+});
+
 describe('Stax Giving mockup — staff review queue (src/api-giving.js)', () => {
   function givingReq(method, body) {
     return new Request('https://connect.timothystl.org/admin/api/giving/stax-mockup/queue', {

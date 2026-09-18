@@ -9,47 +9,70 @@ A second, optional giving path alongside the existing Tithe.ly → give.timothys
 repo) flow, which nothing here touches. It demonstrates, end to end, in Stax **sandbox** mode
 only:
 
-1. A public giving form (`/give/stax-mockup`) using Stax.js tokenized fields for card/ACH, with a
-   fund picker, one-time or recurring giving.
-2. A verified webhook (`/api/mockup/stax-giving/webhook`) that records a completed Stax gift into
-   Connect's **existing** `giving_entries` ledger — not a parallel table.
+1. A public giving form, **served from the Website repo** at `give.timothystl.org/stax-mockup`
+   (not from this repo — see "Where the public form actually lives" below), using Stax.js
+   tokenized fields for card/ACH, with a fund picker, one-time or recurring giving.
+2. A verified webhook (`/api/mockup/stax-giving/webhook`, this repo) that records a completed
+   Stax gift into Connect's **existing** `giving_entries` ledger — not a parallel table.
 3. Donor matching (email, then phone) against existing active `people` rows.
-4. A staff review queue (`/admin/giving/stax-mockup`) for gifts that didn't match anyone, with a
-   link-to-person action.
-5. A note on where Apple Pay's domain-verification file goes, without activating it.
+4. A staff review queue (`/admin/giving/stax-mockup`, this repo) for gifts that didn't match
+   anyone, with a link-to-person action.
+5. A note on where Apple Pay's domain-verification file goes (Website repo now — that's the
+   domain a real Stax registration would use), without activating it.
 
 Every response is labeled MOCKUP. No production Stax merchant account, and no change to
 Tithe.ly's own sync into `giving_entries`.
 
+## Where the public form actually lives
+
+Andrew's call: the real giving portal needs to be on the main website domain, not
+`connect.timothystl.org` (which also sits behind Cloudflare Access at the edge — dashboard
+config outside any repo, and the reason a first pass of this mockup 401'd for him there). The
+public form and its Apple Pay placeholder now live in the **Website repo**, at
+`give.timothystl.org/stax-mockup` — see that repo's `docs/STAX_GIVING_MOCKUP.md` (or the
+equivalent doc there) for its half of this walkthrough. This repo (`chms`/Connect) still owns
+everything data-related, exactly per the original scope memo's reasoning ("the gift data,
+matching, and statements still belong to chms"):
+
+- `GET /api/mockup/stax-giving/funds` and `webpayments-token`
+- `POST /api/mockup/stax-giving/checkout` and `recurring`
+- `POST /api/mockup/stax-giving/webhook` (the verified Stax webhook)
+- the staff review queue at `/admin/giving/stax-mockup`
+
+The website's form calls the first three **cross-origin** (browser JS, not a server-side proxy)
+— see `corsHeadersFor()`/`CORS_ALLOWED_ORIGINS` in `src/stax-giving-mockup.js`, which allowlists
+`https://give.timothystl.org` and `https://timothystl.org` specifically (not `*`: `checkout` can
+move money and both routes write donor-identifying data).
+
 ## Try it right now, with no setup
 
-This environment almost certainly has no live Stax sandbox key configured. That's fine — visit
-`/give/stax-mockup` and submit a gift; the checkout endpoint detects the missing
-`STAX_SANDBOX_API_KEY`/`STAX_SANDBOX_WEB_PAYMENTS_TOKEN` and runs in **demo mode**: it skips the
-real Stax.js card fields and records the gift through the *exact same* `recordStaxGift()` path a
-verified webhook would use. So the matching, ledger, and staff review queue are all fully
-clickable today. Then visit `/admin/giving/stax-mockup` (signed in as admin/finance) to see any
-gift that didn't match a person, and link it.
+This environment almost certainly has no live Stax sandbox key configured. That's fine — the
+Website repo's `give.timothystl.org/stax-mockup` form still works: the checkout endpoint here
+detects the missing `STAX_SANDBOX_API_KEY`/`STAX_SANDBOX_WEB_PAYMENTS_TOKEN` and runs in **demo
+mode**, skipping real Stax.js card fields and recording the gift through the *exact same*
+`recordStaxGift()` path a verified webhook would use. So the matching, ledger, and staff review
+queue are all fully clickable today. Then visit `/admin/giving/stax-mockup` on this repo's own
+domain (signed in as admin/finance) to see any gift that didn't match a person, and link it.
 
 ## Wiring up a real Stax sandbox
 
-Set these (Worker secrets, not committed):
+Set these on **this repo's** Worker (secrets, not committed):
 
 - `STAX_SANDBOX_API_KEY` — a Stax **sandbox** API key (server-only; never sent to the browser).
 - `STAX_SANDBOX_WEB_PAYMENTS_TOKEN` — Stax's merchant-level web-payments token. Not a secret in
   the same sense as the API key (childcare-portal's `STAX_WEB_PAYMENTS_TOKEN` plays the identical
-  role) — it's handed to the browser so Stax.js can mount hosted card fields — but it's still
-  environment configuration, not something to hardcode.
+  role) — it's handed to the browser (now cross-origin, from the Website form) so Stax.js can
+  mount hosted card fields — but it's still environment configuration, not something to hardcode.
 - `STAX_GIVING_WEBHOOK_SECRET` — a random string you choose. Register the webhook in the Stax
   sandbox dashboard as:
   `https://connect.timothystl.org/api/mockup/stax-giving/webhook?secret=<STAX_GIVING_WEBHOOK_SECRET>`
   for `charge`, `refund`, and `void` events.
 
-With those set, `/give/stax-mockup` loads real Stax.js hosted card fields and `checkout`/
-`recurring` call Stax's real sandbox `/customer` and `/charge` endpoints (same request/response
-shape as childcare-portal's `create-stax-charge`/`charge-stax-payment`, which verified them live
-against production on 2026-08-26 — see that repo's `supabase/functions/charge-stax-payment/
-index.ts`).
+With those set, the Website form loads real Stax.js hosted card fields and its `checkout`/
+`recurring` calls hit Stax's real sandbox `/customer` and `/charge` endpoints on this repo's
+Worker (same request/response shape as childcare-portal's `create-stax-charge`/
+`charge-stax-payment`, which verified them live against production on 2026-08-26 — see that
+repo's `supabase/functions/charge-stax-payment/index.ts`).
 
 ## Where gifts land — and why there's almost no new schema
 
@@ -90,21 +113,25 @@ Migration 0053 (`migrations/0053_stax_giving_mockup.sql`) adds only what genuine
   billing (MDO schedules its own monthly charges). It's wrapped in try/catch so a wrong shape
   doesn't break the mockup; on failure the schedule is still recorded locally with status
   `pending_manual_setup`. Recheck against a live sandbox before relying on it.
-- **Stax.js origins in the page's CSP** (`STAX_GIVING_MOCKUP_CSP` in `src/stax-giving-mockup.js`):
-  `*.staxpayments.com` / `*.fattlabs.com` is a reasonable guess, not something verified against a
-  live page load. Recheck with browser devtools' CSP violation reports once real sandbox keys are
-  wired in, and narrow it back down.
+- **Stax.js origins for the page's CSP** are the Website repo's problem now, not this repo's —
+  see its own doc for that flag. This repo's CSP is unchanged (its only page here, the staff
+  review queue, needs nothing beyond `self`).
 - **No receipt email.** childcare-portal's webhook sends a branded receipt on every recovered
   charge. This mockup doesn't — worth adding before any real use.
-- **Apple Pay is not active.** `/.well-known/apple-developer-merchantid-domain-association`
-  serves an explanatory placeholder, not real verification content (only Stax/Apple can issue
-  that, per registered domain). The wallet mount points exist in the form's markup
-  (`#applePayMount`/`#googlePayMount`, same pattern as childcare-portal's parent-billing.js) but
-  Stax.js will never populate them until a real domain is registered.
+- **Apple Pay is not active.** The Website repo's `/.well-known/apple-developer-merchantid-domain-
+  association` serves an explanatory placeholder, not real verification content (only Stax/Apple
+  can issue that, per registered domain). Its form's wallet mount points
+  (`#applePayMount`/`#googlePayMount`, same pattern as childcare-portal's parent-billing.js) exist
+  but Stax.js will never populate them until a real domain is registered.
+- **CORS allowlist is hand-maintained.** `CORS_ALLOWED_ORIGINS` in `src/stax-giving-mockup.js`
+  lists `give.timothystl.org`/`timothystl.org` by hand — if the real giving portal ends up on a
+  different subdomain, this list (and the Stax-side allowlist, if any) needs updating too.
 
-## Open decisions (unchanged from the original scope memo — still Andrew's to make)
+## Open decisions (updated from the original scope memo — still Andrew's to make)
 
-- What domain hosts the real giving portal (decides where the Apple Pay verification file goes).
+- ~~What domain hosts the real giving portal~~ — **resolved**: the main website
+  (`give.timothystl.org`), not `connect.timothystl.org`. Still decides where the Apple Pay
+  verification file goes (Website repo).
 - Whether the Stax merchant account/sub-account here should be distinct from myMDO's, for
   tuition/giving accounting separation.
 - What funds should exist at launch, and who owns adding/retiring one.
@@ -112,11 +139,15 @@ Migration 0053 (`migrations/0053_stax_giving_mockup.sql`) adds only what genuine
   Tithe.ly sync habit).
 - Whether this eventually lives in Finance instead of Connect, once Finance is fully live.
 
-## Files touched
+## Files touched (this repo)
 
 - `migrations/0053_stax_giving_mockup.sql`, `src/db.js` (matching runtime migration)
-- `src/stax-giving-mockup.js` (new — matching, ledger insert, webhook, public API, both HTML pages)
+- `src/stax-giving-mockup.js` (matching, ledger insert, webhook, public data API, staff review
+  page, CORS allowlist for the Website form's cross-origin calls)
 - `src/api-giving.js` (staff review-queue endpoints, same `isFinance` gate as the rest of Giving)
 - `src/api-households.js` (optional `gl_code` write on the existing funds PUT route)
 - `connect-worker.js` (routing)
 - `test/stax-giving-mockup.test.js`
+
+The public form and Apple Pay placeholder that used to live here moved to the Website repo — see
+that repo's own doc/PR for its files touched.
