@@ -1,5 +1,5 @@
 // ── Giving Entries, Batches, Quick Entry API handlers ──────────────────────
-import { json } from './auth.js';
+import { json, getAuthInfo } from './auth.js';
 import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeDepositTotals, batchDepositStatus, batchDepositStatusFromCounts } from './api-utils.js';
 import { ensureGivingYearRollups } from './giving-rollups.js';
 
@@ -858,6 +858,61 @@ if (seg === 'giving/unassigned-gifts' && method === 'GET') {
   sql += ` ORDER BY gift_date DESC, ge.id DESC LIMIT 500`;
   const gifts = (await db.prepare(sql).bind(...binds).all()).results || [];
   return json({ gifts });
+}
+
+// ── Stax Giving MOCKUP: staff review queue ──────────────────────────────────
+// See src/stax-giving-mockup.js for the webhook that populates giving_stax_unmatched and the
+// public form that starts a gift. This is the staff side: link an unmatched Stax gift to a
+// person (or leave it unmatched). Same isFinance gate the rest of this file's POST routes use
+// (enforced once, at the top of handleGivingApi); GET is open to anyone this dispatch let in.
+if (seg === 'giving/stax-mockup/queue' && method === 'GET') {
+  const rows = (await db.prepare(
+    `SELECT u.id AS queue_id, u.payer_name, u.payer_email, u.payer_phone, u.card_brand, u.card_last4,
+            ge.id AS entry_id, ge.amount, ge.contribution_date, f.name AS fund_name
+       FROM giving_stax_unmatched u
+       JOIN giving_entries ge ON ge.id = u.giving_entry_id
+       JOIN funds f ON f.id = ge.fund_id
+      WHERE u.status='open'
+      ORDER BY ge.contribution_date DESC, u.id DESC
+      LIMIT 200`
+  ).all()).results || [];
+  return json({ queue: rows });
+}
+const staxQueueLinkMatch = seg.match(/^giving\/stax-mockup\/queue\/(\d+)\/link$/);
+if (staxQueueLinkMatch && method === 'POST') {
+  if (!isFinance) return json({ error: 'Access denied' }, 403);
+  const queueId = parseInt(staxQueueLinkMatch[1]);
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const personId = parseInt(b.person_id);
+  if (!Number.isInteger(personId)) return json({ error: 'person_id required' }, 400);
+  const row = await db.prepare(
+    `SELECT id, giving_entry_id, status FROM giving_stax_unmatched WHERE id=?`
+  ).bind(queueId).first();
+  if (!row) return json({ error: 'Not found' }, 404);
+  if (row.status !== 'open') return json({ error: 'This gift has already been reviewed.' }, 409);
+  const person = await db.prepare(`SELECT id FROM people WHERE id=? AND status='active'`).bind(personId).first();
+  if (!person) return json({ error: 'That person could not be found.' }, 404);
+  const auth = await getAuthInfo(req, env).catch(() => null);
+  await db.batch([
+    db.prepare(`UPDATE giving_entries SET person_id=? WHERE id=?`).bind(personId, row.giving_entry_id),
+    db.prepare(
+      `UPDATE giving_stax_unmatched SET status='linked', linked_person_id=?, linked_by=?, linked_at=datetime('now') WHERE id=?`
+    ).bind(personId, auth?.username || '', queueId),
+  ]);
+  return json({ ok: true });
+}
+const staxQueueIgnoreMatch = seg.match(/^giving\/stax-mockup\/queue\/(\d+)\/ignore$/);
+if (staxQueueIgnoreMatch && method === 'POST') {
+  if (!isFinance) return json({ error: 'Access denied' }, 403);
+  const queueId = parseInt(staxQueueIgnoreMatch[1]);
+  const row = await db.prepare(`SELECT id, status FROM giving_stax_unmatched WHERE id=?`).bind(queueId).first();
+  if (!row) return json({ error: 'Not found' }, 404);
+  if (row.status !== 'open') return json({ error: 'This gift has already been reviewed.' }, 409);
+  const auth = await getAuthInfo(req, env).catch(() => null);
+  await db.prepare(
+    `UPDATE giving_stax_unmatched SET status='ignored', linked_by=?, linked_at=datetime('now') WHERE id=?`
+  ).bind(auth?.username || '', queueId).run();
+  return json({ ok: true });
 }
 
   return null; // not handled

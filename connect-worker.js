@@ -20,6 +20,11 @@ import {
 import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
 import { wrapEnvForDbAttribution, logDbAttribution } from './src/db-attribution.js';
 import { handleIntakeApi } from './src/api-intake.js';
+import {
+  handleStaxGivingMockupPublicApi, handleStaxGivingWebhook,
+  renderStaxGivingMockupFormHtml, renderStaxGivingMockupReviewHtml,
+  applePayDomainPlaceholderResponse,
+} from './src/stax-giving-mockup.js';
 import { handleContractsServiceApi } from './src/api-contracts-service.js';
 import { handleMemberSetup } from './src/api-people.js';
 import { LOGIN_HTML, PUBLIC_HTML, PUBLIC_APP_CSS, PUBLIC_APP_JS } from './src/html-templates.js';
@@ -266,6 +271,9 @@ function isSchedCorsPath(path) {
     if (path === '/api/signups/christmasmarket/summary') return false;
     if (path === '/api/signups/christmasmarket/toggle') return false;
     if (path.startsWith('/api/intake/')) return false;
+    // Stax Giving MOCKUP (src/stax-giving-mockup.js) — same shape as /api/intake/ above: matched
+    // above the breeze-proxy catch-all, same-origin only, never emits SCHED_CORS.
+    if (path.startsWith('/api/mockup/stax-giving/')) return false;
     return true;
   }
   return false;
@@ -435,6 +443,39 @@ async function _fetchRouted(req, env, url, path, method) {
     // integration setup (e.g. QuickBooks Online's app registration form requires these URLs).
     if (path === '/privacy' && method === 'GET') return html(PRIVACY_HTML);
     if (path === '/terms' && method === 'GET') return html(TERMS_HTML);
+    // ── Stax Giving MOCKUP (see src/stax-giving-mockup.js) — a prototype, sandbox-only,
+    // parallel path alongside the real give.timothystl.org (Website repo) → Tithe.ly flow,
+    // which none of this touches. No auth: same "public giving form" posture as Tithe.ly's own
+    // hosted page. Kept above the /api/* Breeze-proxy catch-all further down, same as
+    // /api/intake/ below, or it would never match.
+    if (path === '/give/stax-mockup' && method === 'GET') return renderStaxGivingMockupFormHtml();
+    if (path === '/.well-known/apple-developer-merchantid-domain-association' && method === 'GET') {
+      return applePayDomainPlaceholderResponse();
+    }
+    if (path === '/api/mockup/stax-giving/webhook') {
+      try {
+        return await handleStaxGivingWebhook(req, env, url);
+      } catch (e) {
+        console.error('Stax giving mockup webhook error:', e?.message, e?.stack);
+        return json({ error: 'Internal server error' }, 500);
+      }
+    }
+    if (path.startsWith('/api/mockup/stax-giving/')) {
+      try {
+        return await handleStaxGivingMockupPublicApi(req, env, url, method, path.replace('/api/mockup/stax-giving/', ''));
+      } catch (e) {
+        console.error('Stax giving mockup API error [' + method + ' ' + path + ']:', e?.message, e?.stack);
+        return json({ error: 'Internal server error' }, 500);
+      }
+    }
+    // Staff review queue for unmatched Stax mockup gifts — same session auth as the rest of
+    // Connect; role check for Giving access happens the same way it does on every other Giving
+    // screen (isFinance, computed inside handleChmsApi) for the /admin/api/giving/stax-mockup/*
+    // data routes this page calls. The page shell itself only needs "is signed in".
+    if (path === '/admin/giving/stax-mockup' && method === 'GET') {
+      if (!await isAuthed(req, env)) return html(LOGIN_HTML);
+      return renderStaxGivingMockupReviewHtml();
+    }
     // Old chms.timothystl.org hostname → 301 to connect.timothystl.org (page views only,
     // same treatment volunteer.timothystl.org→serve.timothystl.org would have gotten had
     // that rename needed a hostname redirect — this one does, since staff have

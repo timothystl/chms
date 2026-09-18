@@ -480,6 +480,12 @@ export async function handleHouseholdsApi(req, env, url, method, seg, db, isAdmi
         await db.prepare(`UPDATE funds SET category=? WHERE id=?`)
           .bind(normalizeFundCategory(b.category), parseInt(fundmatch[1])).run();
       }
+      // gl_code (migration 0053, added for the Stax Giving mockup's Finance ask) — same
+      // optional treatment: only written when the caller actually sends it.
+      if (b.gl_code != null) {
+        await db.prepare(`UPDATE funds SET gl_code=? WHERE id=?`)
+          .bind(String(b.gl_code).slice(0, 40), parseInt(fundmatch[1])).run();
+      }
       return json({ ok: true });
     }
   }
