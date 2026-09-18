@@ -100,19 +100,73 @@ Migration 0053 (`migrations/0053_stax_giving_mockup.sql`) adds only what genuine
 - `giving_stax_unmatched` — the staff review queue's raw payer detail (name/email/phone/card),
   one row per unmatched `giving_entries` row.
 
+## v2: multi-fund gifts, richer contact fields, curated public funds
+
+Built in response to Andrew's live click-through of v1 (a screenshot of Tithe.ly's own checkout
+as the reference bar) plus explicit research asks. What changed:
+
+- **Multiple gifts, one charge, one card swipe.** The form now sends `gifts: [{fund_id, amount},
+  ...]`, not a single fund/amount pair. `recordStaxGift()` turns that into one `giving_entries`
+  row per fund, sharing a batch/person/payer, and sharing one Stax transaction: a single-fund
+  gift keeps its external_txn_id exactly as Stax gave it, but each row of a multi-fund gift gets
+  `<txnId>-f<fundId>` appended — same shape childcare-portal's `billing_payments` already uses
+  for a split payment (`<transId>-inv<n>`), not a new pattern. The webhook's idempotency check
+  (`existing.*.LIKE '<txnId>-f%'`) treats the whole group as one unit, so a redelivery can't
+  double-record half of a multi-fund gift. **Partial refunds of a multi-fund gift are refused**
+  (409, "needs manual handling") rather than guessed at — which fund absorbs a partial refund has
+  no single right answer; a full refund/void reverses every split.
+- **First name / last name, not one guessed-apart name field.** `payer_first_name`/
+  `payer_last_name` travel through the whole path (form → checkout/recurring → Stax `/customer`
+  call → webhook meta → `giving_stax_unmatched`) instead of one `payer_name` string the old code
+  split on whitespace to build a Stax customer record. `payer_name` is still populated (as
+  `first + ' ' + last`) for anything still reading it.
+- **Address fields** (`payer_address_line1`/`city`/`state`/`zip`) are collected and shown in the
+  staff review queue, but **not** used for matching — matching is still email-then-phone only
+  (see `matchPersonForPayer`). Fuzzy address-based matching is a real feature, not a quick
+  addition; flagged here rather than built half-right.
+- **Cover the fees.** `cover_fees: true` adds an ESTIMATED fee (2.9% + $0.30 — see
+  `ESTIMATED_FEE_RATE`/`ESTIMATED_FEE_FIXED_CENTS` in `src/stax-giving-mockup.js`) to the total
+  and rides on the first gift line. **This rate is a guess, not Timothy Lutheran's actual
+  negotiated Stax rate** — replace it before this is anything but a mockup. The rate that
+  actually gets stored on a real charge (`fee_cents`) always comes from Stax's own response
+  (`total_fees`), never this estimate.
+- **Memo** (`memo`, up to 500 chars) is stored on the ledger row's `notes` and, on a real charge,
+  sent to Stax as the transaction memo.
+- **Wider recurring frequencies.** `weekly`/`biweekly`/`twice_monthly` (Tithe.ly's own "1st &
+  15th")/`monthly` — was `weekly`/`monthly` only. A multi-fund recurring signup creates one
+  `giving_stax_recurring_schedules` row per fund, tagged with a shared `schedule_group` (blank
+  for every single-fund schedule, before and after this change).
+- **`public_giving` fund flag** (migration 0054) — separate from `active` on purpose. Before
+  this, the public `funds` endpoint returned every `active` fund, which in production is every
+  budget line, not just the handful meant for donors ("the funds list took quite a while to
+  load... it loaded every single budget line" — Andrew's own report clicking through v1). Staff
+  now curate the public list at `/admin/giving/stax-mockup/funds`
+  (`GET`/`POST /admin/api/giving/stax-mockup/funds`, `isFinance`-gated for the write). Defaults
+  to **off** for every fund — nothing shows on the public form until staff opts funds in there.
+- **Required-fields decision, made explicitly rather than by default:** first name, last name,
+  and email are required; phone and address are optional. Donation-form research says every
+  required field measurably costs completions (a cited figure: cutting fields boosted conversion
+  39% in one study) against the case for collecting more to match donors better — this is where
+  that tradeoff was drawn, not a compromise nobody chose.
+
 ## Simplifications vs. a production build
 
 - **Refund/void handling** is a straight-line negative `giving_entries` insert
   (`recordStaxReversal` in `src/stax-giving-mockup.js`). childcare-portal does the equivalent as
   one atomic Postgres RPC (`stax_record_reversal`) against a richer ledger. A production version
   of this feature should give that the same care — a single transaction, explicit partial-refund
-  handling.
+  handling (today refused outright for a multi-fund original, see the v2 section above).
 - **Recurring schedules**: the `/customer` and `/charge` calls mirror childcare-portal's *verified
-  live* shapes. The `/schedule` call (`handleStaxGivingMockupPublicApi`'s `recurring` route) does
-  **not** have that verification — childcare-portal's Stax integration never needed recurring
-  billing (MDO schedules its own monthly charges). It's wrapped in try/catch so a wrong shape
+  live* shapes. The recurring-schedule call (`handleStaxGivingMockupPublicApi`'s `recurring`
+  route) does **not** have that verification — childcare-portal's Stax integration never needed
+  recurring billing (MDO schedules its own monthly charges), and Stax's own docs disagree with
+  themselves on the endpoint path: docs.staxpayments.com currently names `POST
+  /scheduled-invoices` (tried first, as the more likely current one); an older reference names
+  `POST /invoice/schedule/`. Neither request/response schema could be confirmed via automated
+  fetch — the interactive docs site is JS-rendered. It's wrapped in try/catch so a wrong guess
   doesn't break the mockup; on failure the schedule is still recorded locally with status
-  `pending_manual_setup`. Recheck against a live sandbox before relying on it.
+  `pending_manual_setup`. Verify directly against a live sandbox (or ask the Stax account rep for
+  the current spec) before relying on it.
 - **Stax.js origins for the page's CSP** are the Website repo's problem now, not this repo's —
   see its own doc for that flag. This repo's CSP is unchanged (its only page here, the staff
   review queue, needs nothing beyond `self`).
@@ -138,14 +192,23 @@ Migration 0053 (`migrations/0053_stax_giving_mockup.sql`) adds only what genuine
 - Review cadence for the unmatched-gift queue (same-day vs. a weekly batch like the current
   Tithe.ly sync habit).
 - Whether this eventually lives in Finance instead of Connect, once Finance is fully live.
+- **Donor login** (see giving history, manage/cancel a recurring gift) — a real, explicitly
+  requested feature, but a different scope than this form redesign: it needs actual
+  authentication for donors (who are not staff `app_users`), which is a standing decision, not a
+  quick addition. Not started.
 
 ## Files touched (this repo)
 
-- `migrations/0053_stax_giving_mockup.sql`, `src/db.js` (matching runtime migration)
-- `src/stax-giving-mockup.js` (matching, ledger insert, webhook, public data API, staff review
-  page, CORS allowlist for the Website form's cross-origin calls)
-- `src/api-giving.js` (staff review-queue endpoints, same `isFinance` gate as the rest of Giving)
-- `src/api-households.js` (optional `gl_code` write on the existing funds PUT route)
+- `migrations/0053_stax_giving_mockup.sql`, `migrations/0054_stax_giving_v2.sql`, `src/db.js`
+  (matching runtime migrations)
+- `src/stax-giving-mockup.js` (matching, multi-fund ledger insert/reversal, webhook, public data
+  API, staff review page, funds-visibility admin page, CORS allowlist for the Website form's
+  cross-origin calls)
+- `src/api-giving.js` (staff review-queue endpoints + funds-visibility endpoints, same
+  `isFinance` gate as the rest of Giving)
+- `src/api-households.js` (optional `gl_code` write on the existing funds PUT route — unrelated
+  to `public_giving`, which has its own dedicated endpoint above since it needs a fast bulk save
+  across many funds, not a one-at-a-time edit)
 - `connect-worker.js` (routing)
 - `test/stax-giving-mockup.test.js`
 
