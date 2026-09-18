@@ -87,6 +87,36 @@ const ROUTES = [
   { id: 'property-reserve-monthly-write-v1', paths: ['/api/v1/connect-property-reserve-monthly-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-reserve-monthly-write-relay.v1' },
   { id: 'property-reserve-disbursement-write-v1', paths: ['/api/v1/connect-property-reserve-disbursement-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-reserve-disbursement-write-relay.v1' },
   { id: 'property-capital-ledger-write-v1', paths: ['/api/v1/connect-property-capital-ledger-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-capital-ledger-write-relay.v1' },
+  // Same deliberate exception as the relays above, for Financial Health/Charts' three settings-
+  // blob edits (revenue-stream classification, flow-diagram expense-category mapping, and the
+  // cash-runway policy settings): each relays to its own Connect contract endpoint (never writes
+  // to Finance's own database), matching the legacy in-Connect finance/revenue-streams,
+  // finance/flow-expense-map, and finance/cash-policy PUT routes exactly (admin-only). No existing
+  // live page in this app surfaces the underlying read data yet, so these three routes have no
+  // calling form today -- see apps/finance/README.md's changelog entry for why, and
+  // finance-chart-of-accounts-client.js for the transports.
+  { id: 'revenue-streams-write-v1', paths: ['/api/v1/connect-revenue-streams-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-revenue-streams-write-relay.v1' },
+  { id: 'flow-expense-map-write-v1', paths: ['/api/v1/connect-flow-expense-map-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-flow-expense-map-write-relay.v1' },
+  { id: 'cash-policy-write-v1', paths: ['/api/v1/connect-cash-policy-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-cash-policy-write-relay.v1' },
+  // Same deliberate exception as the relays above, for the Daycare Report's Utilities/Insurance
+  // cost-share config: relays to Connect's own finance-daycare-allocation-config-write-v1 contract
+  // endpoint (never writes to Finance's own database), matching the legacy in-Connect Daycare
+  // Report's own finance/daycare/allocation-config PUT route exactly (admin-only).
+  { id: 'daycare-allocation-config-write-v1', paths: ['/api/v1/connect-daycare-allocation-config-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-allocation-config-write-relay.v1' },
+  // Same deliberate exception as the relays above, for the Daycare Report's per-(year,category)
+  // Budget-cell override: relays to Connect's own finance-daycare-budget-override-write-v1
+  // contract endpoint (never writes to Finance's own database), matching the legacy in-Connect
+  // Daycare Report's own finance/daycare/budget-override POST route exactly (admin-only).
+  { id: 'daycare-budget-override-write-v1', paths: ['/api/v1/connect-daycare-budget-override-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-budget-override-write-relay.v1' },
+  // Same deliberate exception as the relays above, for the Daycare Report's bulk paste-in entry
+  // and Church-Budget re-derivation: each relays to its own Connect contract endpoint (never
+  // writes to Finance's own database), matching the legacy in-Connect Daycare Report's own
+  // finance/daycare/bulk and finance/daycare/church-budget-import POST routes exactly -- gated on
+  // Connect's side by real edit permission on any of finance/budget/compensation, not a simple
+  // role-name check, the same looser gate as daycare-entry-v1 above (see each contract handler's
+  // own comment in src/api-contracts-service.js).
+  { id: 'daycare-bulk-write-v1', paths: ['/api/v1/connect-daycare-bulk-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-bulk-write-relay.v1' },
+  { id: 'daycare-church-budget-import-write-v1', paths: ['/api/v1/connect-daycare-church-budget-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-church-budget-import-write-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no

@@ -2959,6 +2959,99 @@ async function readFlowExpenseOverrides(db) {
   const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_flow_expense_map'").first();
   try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
 }
+
+// ── Shared Revenue-stream classification writer ──────────────────────────────────────────────
+// Used by both the admin-only finance/revenue-streams PUT route above and its
+// finance-revenue-streams-write-v1 relay contract counterpart (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical edit on behalf of an identity it verified via
+// Cloudflare Access. One implementation means the two entry points can never drift on validation.
+export async function saveRevenueStreamMap(db, mapInput) {
+  const map = {};
+  for (const [label, stream] of Object.entries(mapInput || {})) {
+    if (!REVENUE_STREAMS.includes(stream)) return { error: `Invalid stream "${stream}" for "${label}"`, status: 400 };
+    map[String(label)] = stream;
+  }
+  await db.prepare(
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_revenue_streams',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(JSON.stringify({ map })).run();
+  return { ok: true, map };
+}
+
+// ── Shared Flow-diagram expense-category mapping writer ─────────────────────────────────────
+// Same shape as saveRevenueStreamMap above, used by both the admin-only finance/flow-expense-map
+// PUT route and its finance-flow-expense-map-write-v1 relay contract counterpart.
+export async function saveFlowExpenseMap(db, mapInput) {
+  const map = {};
+  for (const [label, key] of Object.entries(mapInput || {})) {
+    if (!FLOW_EXPENSE_KEYS.includes(key)) return { error: `Invalid category "${key}" for "${label}"`, status: 400 };
+    map[String(label)] = key;
+  }
+  await db.prepare(
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_flow_expense_map',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(JSON.stringify({ map })).run();
+  return { ok: true, map };
+}
+
+// ── Shared Cash-policy (runway card) writer ──────────────────────────────────────────────────
+// Same shape as saveRevenueStreamMap above, used by both the admin-only finance/cash-policy PUT
+// route and its finance-cash-policy-write-v1 relay contract counterpart.
+export async function saveCashPolicy(db, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const months = Number(b.policy_floor_months);
+  if (!Number.isFinite(months) || months < 0 || months > 60) return { error: 'policy_floor_months must be between 0 and 60', status: 400 };
+  let cents = null;
+  if (b.cash_on_hand_cents != null && b.cash_on_hand_cents !== '') {
+    cents = Math.round(Number(b.cash_on_hand_cents));
+    if (!Number.isFinite(cents)) return { error: 'Invalid cash_on_hand_cents', status: 400 };
+  }
+  const accountCode = String(b.cash_account_code || '').trim();
+  if (accountCode && !/^[\w.-]{1,32}$/.test(accountCode)) return { error: 'cash_account_code should be an account code like 11027', status: 400 };
+  const budgetCode = String(b.general_fund_budget_code || '').trim();
+  if (budgetCode && !/^[\w.-]{1,32}$/.test(budgetCode)) return { error: 'general_fund_budget_code should be an account code like 40085', status: 400 };
+  const value = { policy_floor_months: months, cash_on_hand_cents: cents, cash_account_code: accountCode, general_fund_budget_code: budgetCode };
+  await db.prepare(
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_cash_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(JSON.stringify(value)).run();
+  return { ok: true, ...value };
+}
+
+// ── Shared Daycare Utilities/Insurance cost-share config writer ────────────────────────────
+// Same shape as saveCashPolicy above, used by both the admin-only finance/daycare/allocation-config
+// PUT route and its finance-daycare-allocation-config-write-v1 relay contract counterpart.
+export async function saveDaycareAllocationConfig(db, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const utilityPct = Number(b.utilityPct);
+  const insurancePct = Number(b.insurancePct);
+  if (!Number.isFinite(utilityPct) || !Number.isFinite(insurancePct)) return { error: 'utilityPct and insurancePct must be numbers (e.g. 0.5 for 50%)', status: 400 };
+  await db.prepare(
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_daycare_allocation_config',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(JSON.stringify({ utilityPct, insurancePct })).run();
+  return { ok: true };
+}
+
+// ── Shared Daycare per-cell Budget override writer ──────────────────────────────────────────
+// Used by both the admin-only finance/daycare/budget-override POST route and its
+// finance-daycare-budget-override-write-v1 relay contract counterpart. Deletes any existing
+// override first, then optionally re-inserts, so re-saving (or clearing by omitting `budget`) is
+// idempotent rather than additive -- see the legacy route's own header comment above for why
+// Actual is never hand-typed here.
+export async function applyDaycareBudgetOverride(db, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const year = parseInt(b.year, 10);
+  if (!Number.isFinite(year)) return { error: 'year is required', status: 400 };
+  if (!b.category || !String(b.category).trim()) return { error: 'category is required', status: 400 };
+  const period = String(year);
+  const category = String(b.category).trim();
+  const ops = [db.prepare(`DELETE FROM finance_daycare_entries WHERE period=? AND category=? AND entry_type='budget' AND source='manual_budget_override'`).bind(period, category)];
+  let cents = null;
+  if (b.budget !== '' && b.budget != null) {
+    cents = Math.round(Number(b.budget) * 100);
+    if (!Number.isFinite(cents)) return { error: 'Invalid budget amount', status: 400 };
+    ops.push(db.prepare(`INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,source) VALUES (?,?,'budget',?,'manual_budget_override')`).bind(period, category, cents));
+  }
+  await db.batch(ops);
+  return { ok: true, year, category, budgetCents: cents };
+}
 // ── Chart of Accounts: per-account board-category assignment + renameable category headings,
 // read by both that page and Planning's "Board view" toggle. A NEW, independent config
 // (finance_planning_board_categories) — deliberately NOT layered onto finance_revenue_streams/
@@ -3405,6 +3498,54 @@ export async function recordDaycareEntry(db, body) {
     `INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,notes) VALUES (?,?,?,?,?)`
   ).bind(period, category, entryType, amountCents, body?.notes || '').run();
   return { ok: true, id: r.meta?.last_row_id };
+}
+
+// ── Shared Daycare bulk paste-in writer ──────────────────────────────────────────────────────
+// Used by both the finance/daycare/bulk POST route below and its finance-daycare-bulk-write-v1
+// relay contract counterpart (src/api-contracts-service.js), so Finance's own Worker can forward
+// the identical bulk import on behalf of an identity it verified via Cloudflare Access. One
+// implementation means the two entry points can never drift. No role check here -- like
+// recordDaycareEntry above, the legacy route itself has none beyond the blanket isFinance gate
+// wrapping the whole handler (financeSegItems in src/api-chms.js), which the relay contract
+// re-derives independently via getRolePermissions/permissionsForRole. All-or-nothing: any invalid
+// row rejects the whole batch before anything is written.
+export async function bulkRecordDaycareEntries(db, rowsInput) {
+  const rows = Array.isArray(rowsInput) ? rowsInput : [];
+  if (!rows.length) return { error: 'No rows to import', status: 400 };
+  const ops = [];
+  for (const r of rows) {
+    if (!r.period || !/^\d{4}(-\d{2})?$/.test(r.period)) return { error: `Invalid period: ${r.period}`, status: 400 };
+    if (!r.category || !String(r.category).trim()) return { error: 'Category is required for every row', status: 400 };
+    const amountCents = Math.round(Number(r.amount_cents));
+    if (!Number.isFinite(amountCents)) return { error: `Invalid amount for ${r.period} / ${r.category}`, status: 400 };
+    const entryType = r.entry_type === 'budget' ? 'budget' : 'actual';
+    ops.push(db.prepare(
+      `INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,notes) VALUES (?,?,?,?,?)`
+    ).bind(r.period, String(r.category).trim(), entryType, amountCents, r.notes || ''));
+  }
+  await db.batch(ops);
+  await recordImport(db, 'daycare_bulk', `${ops.length} row(s)`);
+  return { ok: true, imported: ops.length };
+}
+
+// ── Shared Daycare-from-Church-Budget importer ───────────────────────────────────────────────
+// Used by both the finance/daycare/church-budget-import POST route below and its
+// finance-daycare-church-budget-import-write-v1 relay contract counterpart
+// (src/api-contracts-service.js), so Finance's own Worker can forward the identical re-derivation
+// on behalf of an identity it verified via Cloudflare Access. One implementation means the two
+// entry points can never drift. No role check here -- same blanket isFinance gate as
+// bulkRecordDaycareEntries above. Reuses resolveChurchYearPrecedence/extractMdoDaycareEntries/
+// persistDaycareEntriesFromChurchBudget exactly as the legacy route already does.
+export async function importDaycareFromChurchBudget(db, year) {
+  if (!Number.isFinite(year)) return { error: 'year is required', status: 400 };
+  const rows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
+  if (!rows.length) return { error: `No imported Church Budget found for ${year}.`, status: 400 };
+  const resolved = resolveChurchYearPrecedence(rows);
+  const entries = extractMdoDaycareEntries(resolved, year);
+  if (!entries.length) return { error: `No MDO-tagged accounts found in the imported budget for ${year}.`, status: 400 };
+  await persistDaycareEntriesFromChurchBudget(db, entries, year);
+  await recordImport(db, 'daycare_church_budget', `FY${year}`);
+  return { ok: true, year, imported: entries.length };
 }
 
 // ── Shared Salary/Compensation Planner writer ────────────────────────────────
@@ -3901,15 +4042,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/daycare/church-budget-import' && method === 'POST') {
     const b = await req.json().catch(() => ({}));
     const year = parseInt(b.year, 10);
-    if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
-    const rows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
-    if (!rows.length) return json({ error: `No imported Church Budget found for ${year}.` }, 400);
-    const resolved = resolveChurchYearPrecedence(rows);
-    const entries = extractMdoDaycareEntries(resolved, year);
-    if (!entries.length) return json({ error: `No MDO-tagged accounts found in the imported budget for ${year}.` }, 400);
-    await persistDaycareEntriesFromChurchBudget(db, entries, year);
-    await recordImport(db, 'daycare_church_budget', `FY${year}`);
-    return json({ ok: true, year, imported: entries.length });
+    const result = await importDaycareFromChurchBudget(db, year);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   if (seg === 'finance/daycare' && method === 'POST') {
@@ -3923,22 +4058,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // the daycare app has no historical API (see FIN3) and past years must be hand-entered.
   if (seg === 'finance/daycare/bulk' && method === 'POST') {
     const b = await req.json().catch(() => ({}));
-    const rows = Array.isArray(b.rows) ? b.rows : [];
-    if (!rows.length) return json({ error: 'No rows to import' }, 400);
-    const ops = [];
-    for (const r of rows) {
-      if (!r.period || !/^\d{4}(-\d{2})?$/.test(r.period)) return json({ error: `Invalid period: ${r.period}` }, 400);
-      if (!r.category || !String(r.category).trim()) return json({ error: 'Category is required for every row' }, 400);
-      const amountCents = Math.round(Number(r.amount_cents));
-      if (!Number.isFinite(amountCents)) return json({ error: `Invalid amount for ${r.period} / ${r.category}` }, 400);
-      const entryType = r.entry_type === 'budget' ? 'budget' : 'actual';
-      ops.push(db.prepare(
-        `INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,notes) VALUES (?,?,?,?,?)`
-      ).bind(r.period, String(r.category).trim(), entryType, amountCents, r.notes || ''));
-    }
-    await db.batch(ops);
-    await recordImport(db, 'daycare_bulk', `${ops.length} row(s)`);
-    return json({ ok: true, imported: ops.length });
+    const result = await bulkRecordDaycareEntries(db, b.rows);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // ── Daycare: room-level monthly aggregates (Daycare Report, Screen 3) ────────────────────
@@ -4023,15 +4145,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/revenue-streams' && method === 'PUT') {
     if (!isAdmin) return json({ error: 'Access denied: editing revenue-stream classification requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const map = {};
-    for (const [label, stream] of Object.entries(b.map || {})) {
-      if (!REVENUE_STREAMS.includes(stream)) return json({ error: `Invalid stream "${stream}" for "${label}"` }, 400);
-      map[String(label)] = stream;
-    }
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES ('finance_revenue_streams',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(JSON.stringify({ map })).run();
-    return json({ ok: true, map });
+    const result = await saveRevenueStreamMap(db, b.map);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // ── Flow diagram ("How the money moves") ─────────────────────────────────────────────────
@@ -4072,15 +4188,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/flow-expense-map' && method === 'PUT') {
     if (!isAdmin) return json({ error: 'Access denied: editing the expense-category mapping requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const map = {};
-    for (const [label, key] of Object.entries(b.map || {})) {
-      if (!FLOW_EXPENSE_KEYS.includes(key)) return json({ error: `Invalid category "${key}" for "${label}"` }, 400);
-      map[String(label)] = key;
-    }
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES ('finance_flow_expense_map',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(JSON.stringify({ map })).run();
-    return json({ ok: true, map });
+    const result = await saveFlowExpenseMap(db, b.map);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // ── Cash policy (runway card) ────────────────────────────────────────────────────────────
@@ -4088,22 +4198,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/cash-policy' && method === 'PUT') {
     if (!isAdmin) return json({ error: 'Access denied: editing the cash policy requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const months = Number(b.policy_floor_months);
-    if (!Number.isFinite(months) || months < 0 || months > 60) return json({ error: 'policy_floor_months must be between 0 and 60' }, 400);
-    let cents = null;
-    if (b.cash_on_hand_cents != null && b.cash_on_hand_cents !== '') {
-      cents = Math.round(Number(b.cash_on_hand_cents));
-      if (!Number.isFinite(cents)) return json({ error: 'Invalid cash_on_hand_cents' }, 400);
-    }
-    const accountCode = String(b.cash_account_code || '').trim();
-    if (accountCode && !/^[\w.-]{1,32}$/.test(accountCode)) return json({ error: 'cash_account_code should be an account code like 11027' }, 400);
-    const budgetCode = String(b.general_fund_budget_code || '').trim();
-    if (budgetCode && !/^[\w.-]{1,32}$/.test(budgetCode)) return json({ error: 'general_fund_budget_code should be an account code like 40085' }, 400);
-    const value = { policy_floor_months: months, cash_on_hand_cents: cents, cash_account_code: accountCode, general_fund_budget_code: budgetCode };
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES ('finance_cash_policy',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(JSON.stringify(value)).run();
-    return json({ ok: true, ...value });
+    const result = await saveCashPolicy(db, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // ── Import staleness (Data & Imports tab) ────────────────────────────────────────────────
@@ -4129,20 +4226,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/daycare/budget-override' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing daycare budget data requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const year = parseInt(b.year, 10);
-    if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
-    if (!b.category || !String(b.category).trim()) return json({ error: 'category is required' }, 400);
-    const period = String(year);
-    const category = String(b.category).trim();
-    const ops = [db.prepare(`DELETE FROM finance_daycare_entries WHERE period=? AND category=? AND entry_type='budget' AND source='manual_budget_override'`).bind(period, category)];
-    let cents = null;
-    if (b.budget !== '' && b.budget != null) {
-      cents = Math.round(Number(b.budget) * 100);
-      if (!Number.isFinite(cents)) return json({ error: 'Invalid budget amount' }, 400);
-      ops.push(db.prepare(`INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,source) VALUES (?,?,'budget',?,'manual_budget_override')`).bind(period, category, cents));
-    }
-    await db.batch(ops);
-    return json({ ok: true, year, category, budgetCents: cents });
+    const result = await applyDaycareBudgetOverride(db, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // ── Daycare: Utilities/Insurance cost-share config + live computation ────────────────────
@@ -4155,13 +4241,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/daycare/allocation-config' && method === 'PUT') {
     if (!isAdmin) return json({ error: 'Access denied: editing the daycare cost-share requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const utilityPct = Number(b.utilityPct);
-    const insurancePct = Number(b.insurancePct);
-    if (!Number.isFinite(utilityPct) || !Number.isFinite(insurancePct)) return json({ error: 'utilityPct and insurancePct must be numbers (e.g. 0.5 for 50%)' }, 400);
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES ('finance_daycare_allocation_config',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(JSON.stringify({ utilityPct, insurancePct })).run();
-    return json({ ok: true });
+    const result = await saveDaycareAllocationConfig(db, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
   if (seg === 'finance/daycare/allocation' && method === 'GET') {
     const yearsParam = url.searchParams.get('years') || '';

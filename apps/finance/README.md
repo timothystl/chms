@@ -514,6 +514,69 @@ relay contracts), plus `test/finance-property-distribution-route.test.js`,
 visibility, not_configured/no_access_identity redirects, successful relay + form field forwarding,
 refusal-reason passthrough, and network_error handling).
 
+Alpha.47 extends the live-relay write pattern to seven more legacy Connect write routes:
+Financial Health/Charts' three settings-blob edits (revenue-stream classification, the
+flow-diagram expense-category mapping, and the cash-runway policy settings) and four Daycare
+Report writes (Utilities/Insurance cost-share config, a per-(year,category) Budget-cell override,
+bulk paste-in entry, and re-derivation from an already-imported Church Budget) -- each relays to
+its own new Connect contract endpoint, matching the legacy in-Connect `finance/revenue-streams`,
+`finance/flow-expense-map`, `finance/cash-policy`, `finance/daycare/allocation-config`,
+`finance/daycare/budget-override`, `finance/daycare/bulk`, and
+`finance/daycare/church-budget-import` PUT/POST routes exactly -- full function, same data, same
+app, never a second writer. `src/api-finance.js` extracts `saveRevenueStreamMap`/
+`saveFlowExpenseMap`/`saveCashPolicy`/`saveDaycareAllocationConfig`/`applyDaycareBudgetOverride`/
+`bulkRecordDaycareEntries`/`importDaycareFromChurchBudget` as shared functions (same extraction
+style as `upsertPropertyMonthly`/`addPropertyRepair` above), called by both the legacy route
+handlers (unchanged validation and behavior) and their new relay contract counterparts in
+`src/api-contracts-service.js` (`finance-revenue-streams-write-v1`,
+`finance-flow-expense-map-write-v1`, `finance-cash-policy-write-v1`,
+`finance-daycare-allocation-config-write-v1`, `finance-daycare-budget-override-write-v1`,
+`finance-daycare-bulk-write-v1`, `finance-daycare-church-budget-import-write-v1`). The first five
+are admin-only, matching each legacy route's own `isAdmin` check exactly. The last two --
+`finance-daycare-bulk-write-v1` and `finance-daycare-church-budget-import-write-v1` -- use the
+same looser blanket-permission re-derivation as the already-ported `daycare-entry-v1`
+(`getRolePermissions`/`permissionsForRole`, edit on any of finance/budget/compensation), since the
+legacy `finance/daycare/bulk` and `finance/daycare/church-budget-import` routes carry no `isAdmin`
+check of their own, only the blanket `financeSegItems` ACCESS_GATE wrapping the whole handler --
+re-verified directly against `src/api-finance.js`'s source for this batch, not assumed.
+
+Four of the seven have new forms in `apps/finance/daycare-pages.js`: the cost-share config editor
+(on Shared costs), the Budget-cell override editor (on Budget comparison), and the bulk-paste and
+Church-Budget-import forms (both on Actuals detail, alongside the existing single-entry form) --
+the cost-share and Budget-override forms use the same admin-only gate as the Commercial Property
+forms above (`canManageDaycareAllocation`/`canManageDaycareBudgetOverride`); the bulk and
+Church-Budget-import forms reuse the existing looser `canRecordDaycareEntry` gate (any verified
+role that can reach the Daycare section), matching their relay contracts' own permission check.
+
+The three settings-blob routes (revenue-streams, flow-expense-map, cash-policy) are deliberately
+shipped WITHOUT a UI form: no existing live page in this app surfaces their read data at all today
+(Financial Health/Charts do not yet render revenue-stream classification, the flow-diagram
+expense-category mapping, or the cash-runway policy settings anywhere, read-only or otherwise), so
+there is no sensible page to attach an edit form to. Each is still a fully real, directly
+POST-able write path end to end -- shared function, contract handler, `route-manifest.js` entry
+(`revenue-streams-write-v1`/`flow-expense-map-write-v1`/`cash-policy-write-v1`), and a `shell.js`
+POST route (`postConnectRevenueStreamsWrite`/`postConnectFlowExpenseMapWrite`/
+`postConnectCashPolicyWrite` in `finance-chart-of-accounts-client.js`) -- just not yet linked from
+a form; adding one is a later, separate UI change once these settings get a read-only home to
+attach it to.
+
+Tests: `test/finance-revenue-streams-write-contract.test.js`,
+`test/finance-flow-expense-map-write-contract.test.js`,
+`test/finance-cash-policy-write-contract.test.js`,
+`test/finance-daycare-allocation-config-write-contract.test.js`, and
+`test/finance-daycare-budget-override-write-contract.test.js` (the same admin/finance-role/
+deactivated-user/wrong-contract-key/missing-identity/not-configured cases as the earlier admin-only
+relay contracts); `test/finance-daycare-bulk-write-contract.test.js` and
+`test/finance-daycare-church-budget-import-write-contract.test.js` mirror
+`test/finance-daycare-entry-contract.test.js`'s permission-matrix shape instead (finance/council/
+admin allowed, staff denied) plus their own all-or-nothing/no-Church-Budget-imported-yet cases.
+`test/finance-daycare-allocation-config-route.test.js`, `test/finance-daycare-budget-override-
+route.test.js`, `test/finance-daycare-bulk-route.test.js`, and `test/finance-daycare-church-
+budget-import-route.test.js` cover the four new forms (method-not-allowed, role-gated form
+visibility, not_configured/no_access_identity redirects, successful relay + form field forwarding,
+refusal-reason passthrough, and network_error handling) -- the same shape as the Property relay
+route tests above. `test/finance-route-manifest.test.js` is extended with all seven new route ids.
+
 ## QuickBooks OAuth/sync design (dark code, never exercised against the real account)
 
 This adds a Finance-owned design (plus as much working code as is honest to write without live
