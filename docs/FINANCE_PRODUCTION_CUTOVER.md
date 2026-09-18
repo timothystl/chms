@@ -1,26 +1,31 @@
 # Finance production cutover runbook
 
-Status as of 2026-09-15: **complete through Step 6; Step 7 drafted, not yet executed.** All of Steps 1-6 below are done: a real,
-isolated, Access-gated production Finance Worker and database exist. `finance.timothystl.org`
-resolves and Cloudflare Access confirmed blocking unauthenticated requests (verified both by curl
-against the live edge and, separately, by Andrew's own browser once a local DNS cache from his
-earlier pre-route test cleared). Step 5 records the actual DNS/Access sequence. The Access application had been saved before
-DNS resolved and began enforcing when the route deployed; failed DNS resolution was not evidence
-that an Access application could not be created. Real data migration, user cutover and retirement
-of the in-Connect module remain open; see the closing section.
+## Current checkpoint — September 18, 2026
 
-## Scope and acceptance limits
+Infrastructure setup Steps 1–6 below completed September 15. They are a historical record;
+do not recreate the database or repeat the initial route/Access setup for each release.
+Production release `582c72a8f` succeeded
+[September 18](https://github.com/timothystl/chms/actions/runs/35351838490).
+Routine deployments use `deploy-finance.yml` with the tested main SHA/reason under current
+[AGENTS.md](../AGENTS.md), without a new approval question.
 
-Steps 1–6 establish production infrastructure. They do not establish report parity, user cutover,
-data migration or retirement of legacy Finance. New Finance includes real contract reads and
-Giving/payroll relays as well as synthetic readers; the older “staging-only” description is obsolete.
+Separate Worker/D1/domain and real contract/relay code are deployed. Data/user cutover and
+legacy retirement remain unfinished. New Finance-owned writers are off by default. Safe
+fixture reads and runtime role-failure denial have improved since September 15; remaining
+permission/identity, fixture, import, and migration gaps are in
+[Finance scope](../apps/finance/README.md).
 
-September 15 source review found that eager synthetic-row reads can fail against the empty
-production database even on sections with live report resolvers. The shell also continues when
-its role lookup fails, and its permission model is incomplete. Compensation has an additional
-verified-role gate. These are source findings, not live incidents reproduced in this review.
-See [Finance scope](../apps/finance/README.md); authenticated per-page and per-role verification
-remains required before general user cutover.
+The September 17 destination observation recorded migrations 0001–0006 and empty sampled
+business tables; verify newer 0007–0009 schema and flags before dependent writes. Its source
+inventory used retained `tlc-volunteer-db`, not current production `timothy-connect-db`.
+Reconcile the current source before migrating. Step 7's Access parity checklist remains
+unverified; blank boxes are not evidence of either current configuration or completion.
+
+## Historical infrastructure setup and pending Access checklist
+
+The procedures below preserve the original setup record. Current AGENTS.md supersedes their
+per-step permission language. Use applicable technical checks when changing infrastructure,
+not the completed setup sequence as a new release gate.
 
 ## Step 1 — Create the real production D1 database
 

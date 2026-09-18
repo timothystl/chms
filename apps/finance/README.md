@@ -1,192 +1,51 @@
-# Timothy Finance Alpha
+# Timothy Finance
 
-This directory is the separately deployable Finance application boundary being built inside the
-existing CHMS repository. It begins at `1.0.0-alpha.1`; legacy Connect/Finance version history is
-preserved separately.
+## Current scope — September 18, 2026
 
-## Current scope — September 15, 2026
+Production and staging each have their own Worker and D1. The
+[September 18 production release](https://github.com/timothystl/chms/actions/runs/35351838490)
+deployed `582c72a8f`, including Excel imports and compensation raise/private-draft code.
+Legacy Finance remains in Connect; authoritative accounting data/user cutover is unfinished.
 
-Finance has independent staging and production Workers/D1 databases. Production infrastructure
-was deployed September 15; see [the runbook](../../docs/FINANCE_PRODUCTION_CUTOVER.md).
-`finance.timothystl.org` and `finance-staging.timothystl.org` are separate surfaces; workers.dev
-and preview URLs are disabled in production configuration. The runbook records Access protection
-and an empty production database, not acceptance of every authenticated report.
+Real Connect report contracts now cover Giving, source status, accounts, budget, church/trend,
+balance/trend, daycare, property/ledgers/forecast, and compensation. Financial Health, Charts,
+and Board packet use more of those live results. Giving writes relay to Connect; payroll relays
+to Website. Additional legacy edit workflows relay to Connect (#1032). Relays do not move ownership.
 
-The application has real Connect contract paths for Giving, data status, accounts, budget,
-church reports (including the multi-year trend), balance sheet (including the multi-year
-position), daycare, property valuation and compensation. All four Church Report sub-pages
-(Overview, Income & expense detail, Multi-year trend, Budget vs actual) are now live-first with
-synthetic fallback -- the trend page was the last one left on the synthetic reader; see
-`church-report-service.js`'s `resolveChurchTrend` and `connect.finance-church-report-trend.v1`.
-All three Balance Sheet sub-pages (Position, Account detail, Multi-year position) are likewise
-now live-first with synthetic fallback -- the multi-year page was the last one left on the
-synthetic reader; see `balance-sheet-service.js`'s `resolveBalanceSheetTrend` and
-`connect.finance-balance-sheet-trend.v1`. Its `netAssetsCents` is total equity after the same
-Designated-Funds-as-Equity reclassification the single-year contract already applies, matching
-what the single-year 'position' page already labels "Net assets" for the same fiscal year, not a
-separately recomputed assets-minus-liabilities figure. Property operating, reserves, ledgers, and
-forecast (a straight port of the AHRA-imported `finance_property_budget_monthly` budget/plan
-table, not a computed run-rate projection despite the page's label) joined main in #1002 and a
-follow-on PR respectively, after the production deployment inspected in this review; do not infer
-they are deployed. Giving writes relay to Connect and payroll operations relay to Website. Neither
-relay transfers ownership of those records to Finance. Four CSV import routes (Church, Balance,
-Daycare, Property Budget — see `csv-import-service.js` and the Alpha.43 entry below) write to
-Finance's own database, but are gated off by default and not reachable in production.
+Finance-owned budget, CSV/Excel imports, compensation/shared raise/private draft, and property
+ledger writes exist but are off by default. Reviewed production environment vars do not enable
+them; live database flags were not inspected in this review. Current source is not proof of
+enabled production writing. New QuickBooks OAuth/sync code and migration 0008 are unwired and
+have not been exercised against the real account.
 
-Compensation's four sub-pages split unevenly on whether a real substitute for their synthetic
-role-level fixture exists: Plan and Council snapshot both have an honest live version, gated to
-admin/council/compensation exactly like the underlying `connect.finance-compensation.v1` roster
-fetch; Benchmarks and Benefits & taxes stay synthetic for every role, permanently, because no real
-data anywhere in Connect can honestly back them (see `compensation-pages.js`'s comment above its
-`'benchmarks'`/`'benefits'` branches for exactly what was checked and why a real per-role
-benchmark salary or benefits-component dollar breakdown does not exist). Council's own real rollup
-carries only real, already-stored aggregate facts (worker count, entered/unentered current-pay
-counts and totals) -- it never reconstructs the synthetic view's `benefitsSharePct` or
-`weightedAdjustmentPct`, which have no real per-worker equivalent. Both Plan's per-person worker
-table/KPIs and Council's rollup drop any worker flagged `hideFromCouncil` from what a `council`-role
-viewer specifically sees, matching the same rule the real Salary Planner already enforces for that
-role -- `filterCompensationWorkersForViewer`/`summarizeCompensationWorkers` in
-`compensation-report-service.js` are the shared implementation both pages call, so the two can
-never drift out of sync on who council is allowed to see.
+### Remaining work and corrected findings
 
-**Compensation Planner editing/saving (September 17, 2026, code-complete but OFF by default).**
-A real EDIT/SAVE write path now exists for the Compensation Planner, writing to Finance's OWN D1
-(`finance_compensation_worker_plan`, migration 0007) instead of the flat, worker-less
-`finance_compensation_plan` synthetic-report table (0002) -- the first route in this app that
-writes to Finance's own database rather than relaying elsewhere (see `route-manifest.js`'s and
-`compensation-plan-write-service.js`'s header comments for why that's the deliberate target
-architecture here, not a regression of the relay-only pattern). It is disabled in every environment
-today: `POST /api/v1/compensation-plan-save` checks `isCompensationPlanWriteEnabled()` (a
-`finance_settings` flag, `compensation_plan_write_enabled`, or the `COMPENSATION_PLAN_WRITE_ENABLED`
-env var) *before* any role check, and answers a plain "not yet enabled" until Andrew turns it on.
-Role gating reuses `COMPENSATION_LIVE_ALLOWED_ROLES`/`filterCompensationWorkersForViewer` from
-`compensation-report-service.js` rather than re-declaring the gate, so the write side can never
-drift from the live read side's admin/council/compensation restriction, and a council editor gets
-the identical generic denial for a worker that doesn't exist and one that is `hideFromCouncil` --
-it can never distinguish the two by probing.
+- Safe synthetic-read guards now avoid the old whole-page missing-fixture 503 in the page shell.
+  Fixture fallback and unavailable sections still exist; the synthetic summary APIs remain.
+  Compensation benchmark/benefit detail has no real backing source. Do not seed fake production data.
+- Runtime role-verification failures now deny section access. The `not_configured` mode still
+  permits the shell, and the coarse section matrix is not full legacy authorization parity.
+- The off-by-default council-draft path keys storage with an unverified JWT email claim.
+  Return/use a verified per-user identity before enabling sensitive private drafts.
+- Excel Church/Balance import is single-request parse-and-write, not legacy's preview/select/
+  commit flow. Other Excel report families and compensation dollar overrides remain incomplete.
+- Migration tooling copies/verifies 13 non-settings tables and translates some settings.
+  Compensation translation is incomplete. The September 17 inventory queried the retained
+  old Connect database after the September 16 cutover; recount current `timothy-connect-db`.
+  No completed authoritative data copy or reader/writer cutover is established.
+- Destination migrations 0001–0006 and empty sampled tables were recorded September 17.
+  Verify live schema/flags/data before applying newer migrations or enabling writers.
+- Production Access exists; branding/provider/session parity and authenticated workflow
+  acceptance are not established by deployment success.
 
-This does **not** reach parity with the legacy in-Connect Salary Planner roster
-(`SALARY_PLANNER_KEY` in `src/api-finance.js`), by design, and the gap is deliberate, not an
-oversight:
-- Covered: a real per-worker row (`fiscal_year`, `worker_key`) with seed facts (name, role label,
-  salary, benefits, notes), a per-worker `hideFromCouncil` flag enforced identically to the read
-  side, and a per-worker raise `comp_method`/`adjustment_pct` that a `council` viewer may edit on a
-  *visible* row only (the per-worker analogue of legacy's `COUNCIL_EDITABLE_FIELDS`).
-- A council save here still lands directly on the ONE shared table (restricted to the two fields
-  above, on rows they may see), not an isolated per-user draft, so two council users editing the
-  same fiscal year can still see and overwrite each other's `comp_method`/`adjustment_pct` choice
-  on that SHARED table -- unchanged by the additive tables below, which give council a SEPARATE,
-  private option rather than changing this one.
-- **September 18, 2026, additive, also OFF by default:** legacy's GLOBAL
-  `compCustomPct`/`compScalePct`/`compBaselineRosterOnly` raise-plan assumptions and legacy's
-  private per-council-member overlay fork (`finance_salary_planner_council_<username>`) are now
-  both ported, as two further Finance-owned tables (migration `0009`) that are additive to, and
-  never a replacement for, the shared `finance_compensation_worker_plan` write path just described:
-  - `compensation-raise-plan-service.js`'s `finance_compensation_raise_plan_options` is a single
-    per-fiscal-year row for the plan-wide `customPct`/`scalePct`/`baselineRosterOnly` assumptions,
-    writable by admin/compensation only (`RAISE_PLAN_WRITE_ROLES`, a strict subset of
-    `COMPENSATION_LIVE_ALLOWED_ROLES` -- council is deliberately excluded here, matching legacy's
-    own split between the shared key and council's separate overlay fork). Route:
-    `POST /api/v1/compensation-raise-plan-save`.
-  - `compensation-council-draft-service.js`'s `finance_compensation_council_draft` is a PRIVATE,
-    per-council-member draft: its own copy of the three plan-wide settings plus a `worker_overrides`
-    JSON map of private `comp_method`/`adjustment_pct` overrides. Unlike legacy's
-    `compPerWorkerMethod`/`compOverrides` maps (keyed by fragile roster array INDEX, requiring
-    `resolveSalaryPlannerState`'s own `oldToNewIndex` reindexing whenever a hidden worker changes
-    which indices are visible), this app's map is keyed by the SAME stable `worker_key` migration
-    `0007` already uses -- a deliberate, documented improvement on the legacy addressing scheme,
-    not a behavior gap. `buildCouncilDraftView` merges a viewer's own draft onto the
-    already-council-filtered shared roster (falling back to the global row above for any setting
-    the draft doesn't override), and a draft entry naming a worker who is no longer visible
-    (removed, or since flagged `hideFromCouncil`) is silently never applied -- it can never leak
-    that worker back into view. Route: `POST /api/v1/compensation-council-draft-save`.
-  - **Identity limitation, stated plainly:** legacy keys its overlay by a username Connect's own
-    session already verifies. Finance's own role contract (`connect-role-client.js`) still does not
-    carry a verified username (the same gap `compensation-plan-write-service.js` and
-    `budget-plan-write-service.js` already noted for their own scopes), so the council draft is
-    keyed by the SAME unverified JWT email claim `payroll-section.js`'s `approverEmailFromJwt`
-    already reads for an audit-trail label -- here, additionally as a storage key. This is a real,
-    bounded trust difference from that existing precedent (there is no downstream re-verification
-    step here the way Website's payroll proxy re-verifies its own token), accepted as a
-    narrowly-scoped limitation rather than a new authentication mechanism -- see
-    `compensation-council-draft-service.js`'s header comment for the full reasoning and exactly
-    what it would take to close this properly (a verified username on `connect.staff-role-v1`).
-  - Legacy's hand-typed `compOverrides` dollar-figure map is still NOT ported, for the same reason
-    `compensation-plan-write-service.js` already gives for its own scope: there is no seed-vs-
-    computed-then-overridden distinction in this app's schema to hang an override on.
-  - Both routes reuse the SAME `isCompensationPlanWriteEnabled` flag as the shared write path above
-    (one Compensation Planner rollout decision, not a second flag) and are OFF by default in every
-    environment today.
-See `compensation-plan-write-service.js`'s, `compensation-raise-plan-service.js`'s, and
-`compensation-council-draft-service.js`'s header comments for the same lists with full rationale,
-and `test/finance-compensation-plan-write-service.test.js` /
-`test/finance-compensation-plan-write-route.test.js` /
-`test/finance-compensation-raise-plan-service.test.js` /
-`test/finance-compensation-raise-plan-route.test.js` for the tests, including the council-isolation
-precedent matching `test/council-compensation-role.test.js`.
+See [the current overhaul plan](https://github.com/timothystl/digital-architecture/blob/main/architecture/11-overhaul-readiness-and-execution-plan.md)
+and [production runbook](../../docs/FINANCE_PRODUCTION_CUTOVER.md).
+[AGENTS.md](../../AGENTS.md) governs delivery: complete requested work in coherent batches
+through routine release without repeated permission questions.
 
-**Property reserve/distribution/capital-ledger entry (September 17, 2026, code-complete but OFF by
-default).** A further real write path now exists, this time for the Commercial Property reserve
-schedule, reserve disbursements, distributions, and capital-improvements ledger, writing to
-Finance's OWN D1 (`finance_property_reserves`, `finance_property_reserve_disbursements`,
-`finance_property_distributions`, `finance_property_capital_ledger` -- all already present in
-migration 0001, unchanged) instead of the shared Connect D1 legacy still writes to. It is a
-straight port of legacy's real `finance/property/ivanhoe/reserves/:reserveKey/monthly`,
-`.../disbursements`, `finance/property/ivanhoe/distributions`, and
-`finance/property/ivanhoe/capital-ledger` POST routes (`src/api-finance.js`'s `handlePropertyApi`)
--- same field validation, same `reserve_before_cents` default-from-prior-month rule, same
-`reserve_after_cents = reserve_before_cents + contribution_cents` running balance, same
-capital-ledger `sort_order` auto-increment (see `property-ledger-write-service.js`'s header
-comment). It is disabled in every environment today, the same shape as the write paths just above:
-each of `POST /api/v1/property-reserve-entry`, `/api/v1/property-reserve-disbursement-entry`,
-`/api/v1/property-distribution-entry`, and `/api/v1/property-capital-ledger-entry` checks
-`isPropertyLedgerWritesEnabled()` (a `finance_settings` flag, `property_ledger_writes_enabled`, or
-the `PROPERTY_LEDGER_WRITES_ENABLED` env var) *before* any role check, and answers a plain
-`503 {"error":"not_yet_enabled"}` until Andrew turns it on. Role gating is admin-only, matching
-legacy's own `isAdmin` gate for editing property financials -- a narrower, different set than
-Compensation Planner's admin/council/compensation, because that is what legacy itself enforces for
-this data, not an invented stricter or looser rule.
-
-One real finding from porting this validation, worth stating plainly: **legacy enforces no
-sufficient-funds or reserve-overdraw check anywhere on this path.** A reserve's
-`reserve_after_cents` is a plain running total that a disbursement never reads back to reduce, and
-a disbursement's own amount is never checked against it -- the reserve schedule and the
-disbursement log are independent tables in legacy today. This port matches that reality rather than
-inventing a stricter rule legacy never had; see `property-ledger-write-service.js`'s header comment
-and `test/finance-property-ledger-write-service.test.js`'s dedicated test (a disbursement for one
-hundred times the reserve's own balance still succeeds) for the concrete proof. If a real balance
-check is ever wanted, that is a new product decision requiring its own sign-off, not something a
-straight port should add silently.
-
-This is code-complete and covered by `test/finance-property-ledger-write-service.test.js` (write
-logic and validation, against a real in-memory SQLite database migrated from
-`migrations/0001_finance_foundation.sql`) and `test/finance-property-ledger-write-route.test.js`
-(the flag, the admin-only check, and end-to-end writes through `shell.js`'s actual route dispatch)
--- but it is deliberately not part of any cutover yet. No production or staging `finance_settings`
-row or environment variable turns it on; see the Timothy Digital overhaul checkpoint in `AGENTS.md`
-for the still-unfinished authoritative data/writer migration this is one piece of.
-
-Existing Finance remains operational in Connect. Moving authoritative accounting data and writers,
-cutting users over and retiring the old module remain unfinished. The new schema does not include
-the legacy QuickBooks OAuth/cache tables; that is not evidence the existing integration was retired.
-
-### Known readiness limitations
-
-- The shell eagerly loads synthetic rows for Financial Health and companion data in Church,
-  Balance, Property and Compensation. Empty/non-fixture production data can make these readers
-  throw, yielding 503 “Synthetic staging data unavailable,” even when a real contract exists.
-  This is a source finding, not an authenticated live reproduction. Remove fixture dependencies
-  and verify real/empty/error states; do not populate production with sample financial data.
-- Section denial is conditional on successful role lookup. An unverified role currently continues,
-  and the coarse section mapping does not reproduce all legacy permissions. Compensation's live
-  fetch separately requires an allowed verified role. Access sign-in is not product authorization.
-- `status: 'live'` in `parity-manifest.js` means a renderer exists, not that its data is production
-  data or its workflow has passed acceptance. Several pages remain explicitly unavailable.
-- Older alpha notes and blanket “synthetic/read-only/no writers” copy describe historical stages;
-  they must not be used to characterize current Giving/payroll relays or real report contracts.
-
-Finance's database migrations start empty. Fixtures are explicit staging inputs, never a migration.
-A schema migration does not copy Connect history or authorize a new writer.
+The implementation notes below retain useful technical detail and alpha history. Dated
+“first writer,” “not deployed,” and per-step approval statements describe those historical
+increments, not current policy or the whole application's present state.
 
 ## File orientation
 
@@ -721,8 +580,7 @@ Use intentional versions only:
 
 `1.0.0-alpha.x` → `1.0.0-beta.x` → `1.0.0-rc.x` → `1.0.0`
 
-Deployments record the approved release SHA. Production infrastructure now exists; further
-production releases still require approval. A prerelease version, successful deployment or
+Deployments record the exact tested release SHA. Routine requested releases follow AGENTS.md. A prerelease version, successful deployment or
 reachable login page does not establish authoritative data or workflow parity.
 
 `/api/summary` remains a deprecated compatibility alias during alpha and points clients to

@@ -2,7 +2,7 @@
 
 ## Runtime boundaries
 
-The production Worker `tlc-chms` starts at `connect-worker.js` and serves:
+The production Worker `timothy-connect` starts at `connect-worker.js` and serves:
 
 - Connect at `connect.timothystl.org`;
 - public Serve routes at `serve.timothystl.org/*`;
@@ -22,36 +22,22 @@ only D1 binding `FINANCE_DB`. Its sole configured hostname is
 `finance-staging.timothystl.org`; Workers.dev and preview URLs are disabled, and Cloudflare Access
 protects the whole Worker. It has no production route or production datastore binding.
 
-## Two Finance codebases — read this before touching anything Finance-related
+## Two Finance implementations — September 18, 2026
 
-This is the single most important orientation fact in this repository, and it is easy to miss:
-**two completely separate Finance implementations exist today, sharing no code.**
+Legacy Finance remains inside Connect (`src/api-finance.js`, `src/frontend/js-finance.js`),
+with real accounting tables and `finance_settings` in `timothy-connect-db`.
+The old `tlc-volunteer-db` is a retained pre-cutover resource, not the current source.
 
-1. **Production, live, real data.** `tlc-chms` serves `/admin/app-finance.js`
-   (`src/frontend/js-finance.js` — a large, hand-rolled admin UI) backed by `/admin/api/finance/*`
-   (`src/api-finance.js`, ~4,900 lines), reading and writing real data in `tlc-volunteer-db`: 15
-   `finance_*` tables (QuickBooks connection/snapshot, daycare entries/rooms, church entries/
-   balances, property monthly/distributions/reserves/capital-ledger/repairs, budget plan, property
-   budget monthly, import log) plus roughly ten Finance-owned JSON keys inside the shared
-   `chms_config` table. **This is what staff actually use today.**
-2. **Staging, the new rewrite, mostly synthetic.** `apps/finance/*` — deployed as its own separate
-   Worker (`timothy-finance-app-staging`) with its own D1 (`timothy-finance-db-staging`) — is the
-   target-architecture rewrite: a route manifest, a query-budget-bounded read model, and a
-   deliberately narrow parity plan (see `apps/finance/README.md` for its alpha-by-alpha history).
-   As of this writing it is real for **Giving** (via the `connect.giving-summary.v1` contract) and
-   **Payroll** (relayed live to the `website` repo's payroll system) — every other section (Church
-   Report, Balance Sheet, Daycare, Property, Budget, Chart of Accounts, Compensation) still reads
-   exclusively from committed synthetic fixtures, and **Data & Imports connection status** is real
-   as of the `connect.finance-data-status.v1` contract. The new schema in
-   `apps/finance/migrations/` mostly reuses production's real table names/shapes (confirmed for
-   `finance_church_entries`, `finance_budget_plan`, the `finance_property_*` and
-   `finance_daycare_*` tables) but is a fresh design overall, and deliberately excludes the two
-   QuickBooks tables (`finance_qb_connection`, `finance_qb_snapshot`) — see the "Finance
-   separation" open issues in the architecture repo's overhaul plan for why.
+New Finance under `apps/finance/` has separate production and staging Workers/D1.
+Production is `timothy-finance-app` with `timothy-finance-db` at `finance.timothystl.org`.
+Its production config binds Connect and Website payroll services. Real report contracts and
+legacy-workflow relays coexist with fixture fallback/unavailable sections and off-by-default
+Finance-owned writers. Migration tooling exists; authoritative data and reader/writer cutover
+remain unfinished. QuickBooks schema/design code now exists but is unwired.
 
-Do not assume a Finance section is "done" because the new rewrite renders something for it — check
-whether its `read*` function name says `readSynthetic*` (fixture data only) or actually calls a
-live contract/transport module before treating it as real.
+Check [Finance's current scope](../apps/finance/README.md), route manifest, handlers, and
+feature flags before calling a workflow complete. A renderer or deployed commit does not
+establish real data, enabled writes, role parity, or user acceptance.
 
 ## Source layout
 
