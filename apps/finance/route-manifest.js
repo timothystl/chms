@@ -61,6 +61,14 @@ const ROUTES = [
   { id: 'import-church-balances-v1', paths: ['/api/v1/import/church-balances'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-church-balances.v1' },
   { id: 'import-daycare-v1', paths: ['/api/v1/import/daycare'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-daycare.v1' },
   { id: 'import-property-budget-v1', paths: ['/api/v1/import/property-budget'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-property-budget.v1' },
+  // Excel (.xlsx) counterparts to the two CSV import routes above, ported from legacy's real
+  // ~750-line server-side grid reader (see xlsx-import-service.js's header comment for exactly
+  // what was and wasn't ported). Gated OFF by default behind their OWN flag
+  // (`isXlsxImportWritesEnabled`, deliberately separate from `isCsvImportWritesEnabled` so turning
+  // one on never silently turns the other on), checked before any role check, same as every other
+  // d1-write route in this manifest.
+  { id: 'import-church-xlsx-v1', paths: ['/api/v1/import/church-xlsx'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true },
+  { id: 'import-church-balances-xlsx-v1', paths: ['/api/v1/import/church-balances-xlsx'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true },
   // Compensation planning is target-architecture Finance-owned data (chms/AGENTS.md's product
   // boundary: "Finance owns ... compensation planning"), not a relay of someone else's
   // authoritative record, so a real local copy is the intended end state, not a stopgap. See
@@ -68,6 +76,14 @@ const ROUTES = [
   // entry for exactly what per-worker capability this table does and does not yet carry relative
   // to the legacy Salary Planner roster (src/api-finance.js).
   { id: 'compensation-plan-save-v1', paths: ['/api/v1/compensation-plan-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  // Two narrower siblings of compensation-plan-save-v1 above, same off-by-default flag
+  // (isCompensationPlanWriteEnabled) and same verified-role check, closing the two named parity
+  // gaps in compensation-plan-write-service.js's own header comment: the shared GLOBAL raise-plan
+  // calculation options (admin/compensation only) and the private per-council-member draft
+  // (council only) -- see that file's applyCompensationPlanOptionsWrite/
+  // applyCompensationCouncilDraftWrite and apps/finance/README.md's changelog entry.
+  { id: 'compensation-plan-options-save-v1', paths: ['/api/v1/compensation-plan-options-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  { id: 'compensation-council-draft-save-v1', paths: ['/api/v1/compensation-council-draft-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
   // A further deliberate finance-db-write group, same "writes to Finance's own database, off by
   // default" pattern as compensation-plan-save-v1/budget-plan-save-v1/the import-*-v1 routes
   // above, for the Commercial Property reserve schedule/disbursements/distributions/capital

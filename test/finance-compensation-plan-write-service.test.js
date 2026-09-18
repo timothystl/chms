@@ -12,6 +12,7 @@ function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec("CREATE TABLE finance_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')))");
   sqlite.exec(readFileSync(new URL('../apps/finance/migrations/0007_finance_compensation_worker_plan.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../apps/finance/migrations/0009_finance_compensation_plan_options.sql', import.meta.url), 'utf8'));
   return {
     prepare(sql) {
       return {

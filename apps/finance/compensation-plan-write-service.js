@@ -36,25 +36,48 @@
 //     notes) is left exactly as it is -- council's UPDATE statement only ever SETs comp_method and
 //     adjustment_pct, so there is no code path where a council save can alter a seed fact.
 //
-// What is NOT covered (a real, deliberate gap, not an oversight):
-//   - Legacy's GLOBAL compCustomPct/compScalePct/compBaselineRosterOnly planning assumptions (one
-//     shared "how should the whole roster's raise be computed" toggle) have no equivalent here.
-//     Only the PER-WORKER comp_method/adjustment_pct exist in this table.
-//   - Legacy's hand-typed compOverrides (a dollar figure that overrides whatever comp_method would
-//     otherwise compute) has no equivalent column here. salary_cents/benefits_cents on this table
-//     are themselves the seed figures, not a derived-then-overridden result.
-//   - Legacy's private per-council-member overlay fork does not exist here. A council save in this
-//     path writes directly into the ONE shared finance_compensation_worker_plan table (restricted
-//     to comp_method/adjustment_pct on rows they may see) rather than into an isolated per-user
-//     draft two different council members could disagree in. This is a real behavior change, not
-//     merely a storage detail: two council users editing the same fiscal year now see and can
-//     overwrite each other's comp_method/adjustment_pct choice on a shared row. This mirrors how
-//     Finance's read side already treats council (a filtered view of ONE shared roster, with no
-//     per-user overlay concept in apps/finance at all -- see compensation-report-service.js), so it
-//     keeps this write path consistent with what already exists rather than introducing a
-//     second, divergent council-state model. If a private per-council-member draft is later judged
-//     necessary here too, it needs its own follow-up (a new keyed-by-username table, matching
-//     legacy's councilPlannerKey pattern), not a retrofit of this one.
+// What is STILL NOT covered here (a real, deliberate gap, not an oversight):
+//   - This table's own admin/compensation write path (applyCompensationWorkerPlanWrite) is
+//     UNCHANGED by the two additions below: a council save through it still writes directly into
+//     the ONE shared finance_compensation_worker_plan table (restricted to comp_method/
+//     adjustment_pct on rows they may see) exactly as before -- two council users editing the same
+//     fiscal year through THAT function can still see and overwrite each other's choice on the
+//     shared row. That function is already shipped and already tested
+//     (test/finance-compensation-plan-write-service.test.js's "council isolation" suite), so this
+//     pass deliberately did not retrofit it -- see the prior version of this comment, which invited
+//     exactly this: "a new keyed-by-username table ... not a retrofit of this one."
+//
+// ── September 18, 2026: two of the three named gaps above are now closed, ADDITIVELY ───────────
+// (migration 0009_finance_compensation_plan_options.sql):
+//   - `override_cents` on finance_compensation_worker_plan is legacy's hand-typed compOverrides --
+//     an admin/compensation-only per-worker dollar override, validated and persisted by
+//     applyCompensationWorkerPlanWrite's existing full-seed-fact branch (never council-editable,
+//     matching legacy's COUNCIL_EDITABLE_FIELDS exactly -- council's UPDATE statement still only
+//     ever SETs comp_method/adjustment_pct).
+//   - `finance_compensation_plan_options` is legacy's GLOBAL compCustomPct/compScalePct/
+//     compBaselineRosterOnly raise-plan calculation assumptions, admin/compensation only, ONE
+//     shared row per fiscal year -- same "no separate compensation-role fork" simplification this
+//     file already applies to the worker-plan table itself.
+//   - `finance_compensation_council_draft` is legacy's private per-council-member overlay fork
+//     (finance_salary_planner_council_<username>), added as a genuinely NEW, separate, additive
+//     table/capability -- applyCompensationCouncilDraftWrite/readCompensationCouncilDraft/
+//     mergeCouncilDraftIntoRoster below -- exactly the follow-up the prior version of this comment
+//     invited, NOT a change to applyCompensationWorkerPlanWrite's own council branch (see above).
+//     It lets one council member save their own roster-wide raise-plan settings and per-worker
+//     raise method/percentage as a private draft that never lands on the shared plan and can never
+//     collide with another council member's draft -- keyed by councilDraftKey(updatedBy), the same
+//     sanitize-and-lowercase shape as legacy's councilPlannerKey(username), using the same
+//     display-only/unverified identity string (see shell.js's approverEmailFromJwt precedent,
+//     already used for this exact write path's `updatedBy` audit column) as the per-user key.
+//     Whole-draft REPLACE semantics on every save (not a field-by-field merge with the PREVIOUS
+//     draft) -- a field omitted from a save is simply not overridden this time, matching legacy's
+//     own real behavior exactly (see api-finance.js's PUT handler: `const overlay = {}; for (const
+//     f of COUNCIL_EDITABLE_FIELDS) if (b[f] !== undefined) overlay[f] = b[f];` builds a fresh
+//     object from THIS request only, then replaces the whole stored blob -- it does not read the
+//     previous overlay first). A read-side HTTP route to fetch a council member's own draft back is
+//     not yet wired (same precedent as readCompensationWorkerPlan's own "not currently wired to its
+//     own HTTP route" disclosure above) -- mergeCouncilDraftIntoRoster exists and is tested for the
+//     day a route wants it.
 // See apps/finance/README.md's changelog entry for this same list in prose form.
 import { COMPENSATION_LIVE_ALLOWED_ROLES, filterCompensationWorkersForViewer } from './compensation-report-service.js';
 
@@ -90,6 +113,10 @@ function mapWorkerPlanRow(row) {
     benefitsCents: row.benefits_cents,
     compMethod: row.comp_method,
     adjustmentPct: row.adjustment_pct,
+    // Legacy's compOverrides -- a hand-typed dollar figure that overrides whatever comp_method
+    // would otherwise compute for this worker. null means "no override," matching legacy's own
+    // semantics (see migrations/0009_finance_compensation_plan_options.sql's header comment).
+    overrideCents: row.override_cents == null ? null : row.override_cents,
     hideFromCouncil: !!row.hide_from_council,
     notes: row.notes,
     updatedAt: row.updated_at,
@@ -122,6 +149,11 @@ function validateFullWorkerRow(row) {
   if (typeof row.adjustmentPct !== 'number' || !Number.isFinite(row.adjustmentPct)) return 'adjustmentPct must be a finite number';
   if (row.hideFromCouncil !== undefined && typeof row.hideFromCouncil !== 'boolean') return 'hideFromCouncil must be a boolean';
   if (row.notes !== undefined && typeof row.notes !== 'string') return 'notes must be a string';
+  // Legacy's compOverrides (a hand-typed dollar figure) -- admin/compensation only, same as every
+  // other field validated here; council never reaches this validator (see validateCouncilPatch).
+  if (row.overrideCents !== undefined && row.overrideCents !== null && !Number.isInteger(row.overrideCents)) {
+    return 'overrideCents must be an integer number of cents, or null to clear it';
+  }
   return null;
 }
 
@@ -198,21 +230,199 @@ export async function applyCompensationWorkerPlanWrite(db, { fiscalYear, role, u
     if (validationError) return err(validationError);
     ops.push(db.prepare(
       `INSERT INTO finance_compensation_worker_plan
-         (fiscal_year, worker_key, name, role_label, salary_cents, benefits_cents, comp_method, adjustment_pct, hide_from_council, notes, updated_at, updated_by, updated_by_role)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)
+         (fiscal_year, worker_key, name, role_label, salary_cents, benefits_cents, comp_method, adjustment_pct, override_cents, hide_from_council, notes, updated_at, updated_by, updated_by_role)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)
        ON CONFLICT(fiscal_year, worker_key) DO UPDATE SET
          name = excluded.name, role_label = excluded.role_label, salary_cents = excluded.salary_cents,
          benefits_cents = excluded.benefits_cents, comp_method = excluded.comp_method,
-         adjustment_pct = excluded.adjustment_pct, hide_from_council = excluded.hide_from_council,
+         adjustment_pct = excluded.adjustment_pct, override_cents = excluded.override_cents,
+         hide_from_council = excluded.hide_from_council,
          notes = excluded.notes, updated_at = datetime('now'), updated_by = excluded.updated_by,
          updated_by_role = excluded.updated_by_role`
     ).bind(
       fiscalYear, row.workerKey, row.name, row.roleLabel || '', row.salaryCents, row.benefitsCents,
-      row.compMethod, row.adjustmentPct, row.hideFromCouncil ? 1 : 0, row.notes || '',
+      row.compMethod, row.adjustmentPct, row.overrideCents === undefined ? null : row.overrideCents,
+      row.hideFromCouncil ? 1 : 0, row.notes || '',
       updatedBy || '', role,
     ));
   }
 
   await db.batch(ops);
   return { ok: true, saved: ops.length };
+}
+
+// ── Global raise-plan calculation options (legacy's compCustomPct/compScalePct/
+// compBaselineRosterOnly) — admin/compensation only, ONE shared row per fiscal year. Council never
+// reaches this function; see applyCompensationCouncilDraftWrite below for council's own private
+// equivalent of these same three fields.
+function validateGlobalPlanOptions(options) {
+  if (!options || typeof options !== 'object' || Array.isArray(options)) return 'options must be an object';
+  if (options.compCustomPct !== undefined && options.compCustomPct !== null && (typeof options.compCustomPct !== 'number' || !Number.isFinite(options.compCustomPct))) {
+    return 'compCustomPct must be a finite number or null';
+  }
+  if (options.compScalePct !== undefined && options.compScalePct !== null && (typeof options.compScalePct !== 'number' || !Number.isFinite(options.compScalePct))) {
+    return 'compScalePct must be a finite number or null';
+  }
+  if (options.compBaselineRosterOnly !== undefined && typeof options.compBaselineRosterOnly !== 'boolean') {
+    return 'compBaselineRosterOnly must be a boolean';
+  }
+  return null;
+}
+
+function mapPlanOptionsRow(row) {
+  if (!row) return null;
+  return {
+    fiscalYear: row.fiscal_year,
+    compCustomPct: row.comp_custom_pct,
+    compScalePct: row.comp_scale_pct,
+    compBaselineRosterOnly: !!row.comp_baseline_roster_only,
+    updatedAt: row.updated_at,
+    updatedBy: row.updated_by,
+    updatedByRole: row.updated_by_role,
+  };
+}
+
+// Whole-row replace on every save (legacy's own SALARY_PLANNER_KEY blob is likewise replaced
+// wholesale, not merged field-by-field, on every PUT) -- a field left out of `options` is stored as
+// null/false, not "keep the previous value." Council is deliberately refused here (403, not a
+// silent no-op) and pointed at its own private draft mechanism instead, matching legacy's real
+// fork: council never touches the shared SALARY_PLANNER_KEY blob these fields live in.
+export async function applyCompensationPlanOptionsWrite(db, { fiscalYear, role, updatedBy, options }) {
+  if (!COMPENSATION_LIVE_ALLOWED_ROLES.includes(role)) {
+    return err('Access denied: editing the Compensation Planner requires admin, council, or compensation access', 403);
+  }
+  if (role === 'council') {
+    return err('Council may not edit the shared raise-plan options -- save a personal draft instead', 403);
+  }
+  if (!Number.isInteger(fiscalYear)) return err('fiscalYear must be an integer');
+  const validationError = validateGlobalPlanOptions(options);
+  if (validationError) return err(validationError);
+  await db.prepare(
+    `INSERT INTO finance_compensation_plan_options
+       (fiscal_year, comp_custom_pct, comp_scale_pct, comp_baseline_roster_only, updated_at, updated_by, updated_by_role)
+     VALUES (?, ?, ?, ?, datetime('now'), ?, ?)
+     ON CONFLICT(fiscal_year) DO UPDATE SET
+       comp_custom_pct = excluded.comp_custom_pct, comp_scale_pct = excluded.comp_scale_pct,
+       comp_baseline_roster_only = excluded.comp_baseline_roster_only, updated_at = datetime('now'),
+       updated_by = excluded.updated_by, updated_by_role = excluded.updated_by_role`
+  ).bind(
+    fiscalYear, options.compCustomPct ?? null, options.compScalePct ?? null,
+    options.compBaselineRosterOnly ? 1 : 0, updatedBy || '', role,
+  ).run();
+  return { ok: true };
+}
+
+export async function readCompensationPlanOptions(db, fiscalYear) {
+  if (!Number.isInteger(fiscalYear)) throw new Error('fiscalYear must be an integer');
+  const row = await db.prepare('SELECT * FROM finance_compensation_plan_options WHERE fiscal_year=?').bind(fiscalYear).first();
+  return mapPlanOptionsRow(row);
+}
+
+// ── Private per-council-member draft (legacy's finance_salary_planner_council_<username> overlay)
+// — genuinely new, additive capability; see this module's header comment for why it does not
+// change applyCompensationWorkerPlanWrite's own (already shipped, already tested) council branch.
+export function councilDraftKey(identity) {
+  return String(identity || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+}
+
+function validateWorkerOverridesMap(map) {
+  if (map === undefined) return null;
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return 'workerOverrides must be an object keyed by workerKey';
+  for (const [workerKey, patch] of Object.entries(map)) {
+    if (!WORKER_KEY_PATTERN.test(workerKey)) return `invalid workerKey in workerOverrides: ${workerKey}`;
+    const patchError = validateCouncilPatch({ workerKey, ...patch });
+    if (patchError) return `workerOverrides.${workerKey}: ${patchError}`;
+  }
+  return null;
+}
+
+// Same admin/council/compensation gate as every other write in this file, but only `council`
+// actually has a private draft in legacy -- admin/compensation write the real plan directly via
+// applyCompensationPlanOptionsWrite/applyCompensationWorkerPlanWrite above, so this function refuses
+// them the same deliberate way applyCompensationPlanOptionsWrite refuses council.
+export async function applyCompensationCouncilDraftWrite(db, { fiscalYear, role, updatedBy, options, workerOverrides }) {
+  if (!COMPENSATION_LIVE_ALLOWED_ROLES.includes(role)) {
+    return err('Access denied: editing the Compensation Planner requires admin, council, or compensation access', 403);
+  }
+  if (role !== 'council') {
+    return err('Only council has a private raise-plan draft -- admin/compensation edit the shared plan directly', 403);
+  }
+  if (!updatedBy) return err('Access denied: this account has no identity to save a draft under', 403);
+  if (!Number.isInteger(fiscalYear)) return err('fiscalYear must be an integer');
+  const opts = options || {};
+  const optionsError = validateGlobalPlanOptions(opts);
+  if (optionsError) return err(optionsError);
+  const overridesError = validateWorkerOverridesMap(workerOverrides);
+  if (overridesError) return err(overridesError);
+
+  const key = councilDraftKey(updatedBy);
+  if (!key) return err('Access denied: this account has no identity to save a draft under', 403);
+  await db.prepare(
+    `INSERT INTO finance_compensation_council_draft
+       (fiscal_year, council_key, comp_custom_pct, comp_scale_pct, comp_baseline_roster_only, worker_overrides, updated_at, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)
+     ON CONFLICT(fiscal_year, council_key) DO UPDATE SET
+       comp_custom_pct = excluded.comp_custom_pct, comp_scale_pct = excluded.comp_scale_pct,
+       comp_baseline_roster_only = excluded.comp_baseline_roster_only,
+       worker_overrides = excluded.worker_overrides, updated_at = datetime('now'), updated_by = excluded.updated_by`
+  ).bind(
+    fiscalYear, key, opts.compCustomPct ?? null, opts.compScalePct ?? null,
+    opts.compBaselineRosterOnly === undefined ? null : (opts.compBaselineRosterOnly ? 1 : 0),
+    JSON.stringify(workerOverrides || {}), updatedBy,
+  ).run();
+  return { ok: true };
+}
+
+function mapCouncilDraftRow(row) {
+  if (!row) return null;
+  let workerOverrides = {};
+  try { workerOverrides = JSON.parse(row.worker_overrides) || {}; } catch { workerOverrides = {}; }
+  return {
+    fiscalYear: row.fiscal_year,
+    compCustomPct: row.comp_custom_pct,
+    compScalePct: row.comp_scale_pct,
+    compBaselineRosterOnly: row.comp_baseline_roster_only == null ? null : !!row.comp_baseline_roster_only,
+    workerOverrides,
+    updatedAt: row.updated_at,
+    updatedBy: row.updated_by,
+  };
+}
+
+// Not currently wired to its own HTTP route -- same disclosed status as readCompensationWorkerPlan
+// above. `identity` is the same unverified display-only string applyCompensationCouncilDraftWrite
+// was called with (or an already-derived councilDraftKey -- this hashes idempotently either way).
+export async function readCompensationCouncilDraft(db, fiscalYear, identity) {
+  if (!Number.isInteger(fiscalYear)) throw new Error('fiscalYear must be an integer');
+  const key = councilDraftKey(identity);
+  if (!key) return null;
+  const row = await db.prepare(
+    'SELECT * FROM finance_compensation_council_draft WHERE fiscal_year=? AND council_key=?'
+  ).bind(fiscalYear, key).first();
+  return mapCouncilDraftRow(row);
+}
+
+// Pure merge: overlays a council member's own saved draft (global options + per-worker
+// compMethod/adjustmentPct) onto an already-filtered roster (e.g. from readCompensationWorkerPlan)
+// -- mirrors legacy's GET-side merge exactly (only the fields the draft actually carries are
+// applied; a worker not mentioned in the draft, or a draft field left unset, keeps the base
+// value). Never touches hideFromCouncil, seed facts, or any worker not already present in `rows` --
+// a draft can only steer what the viewer could already see, never add a phantom worker.
+export function mergeCouncilDraftIntoRoster(rows, draft) {
+  if (!draft) return { rows, planOptions: null };
+  const overrides = draft.workerOverrides || {};
+  const mergedRows = rows.map((w) => {
+    const patch = overrides[w.workerKey];
+    if (!patch) return w;
+    return {
+      ...w,
+      compMethod: patch.compMethod !== undefined ? patch.compMethod : w.compMethod,
+      adjustmentPct: patch.adjustmentPct !== undefined ? patch.adjustmentPct : w.adjustmentPct,
+    };
+  });
+  const planOptions = {
+    compCustomPct: draft.compCustomPct,
+    compScalePct: draft.compScalePct,
+    compBaselineRosterOnly: draft.compBaselineRosterOnly,
+  };
+  return { rows: mergedRows, planOptions };
 }

@@ -65,25 +65,32 @@ drift from the live read side's admin/council/compensation restriction, and a co
 the identical generic denial for a worker that doesn't exist and one that is `hideFromCouncil` --
 it can never distinguish the two by probing.
 
-This does **not** reach parity with the legacy in-Connect Salary Planner roster
-(`SALARY_PLANNER_KEY` in `src/api-finance.js`), by design, and the gap is deliberate, not an
-oversight:
+This does **not fully** reach parity with the legacy in-Connect Salary Planner roster
+(`SALARY_PLANNER_KEY` in `src/api-finance.js`) — most of the original gap is now closed (see the
+Alpha.45 changelog entry below), and what remains is deliberate, not an oversight:
 - Covered: a real per-worker row (`fiscal_year`, `worker_key`) with seed facts (name, role label,
   salary, benefits, notes), a per-worker `hideFromCouncil` flag enforced identically to the read
-  side, and a per-worker raise `comp_method`/`adjustment_pct` that a `council` viewer may edit on a
-  *visible* row only (the per-worker analogue of legacy's `COUNCIL_EDITABLE_FIELDS`).
-- Not covered: legacy's GLOBAL `compCustomPct`/`compScalePct`/`compBaselineRosterOnly` raise-plan
-  assumptions; legacy's hand-typed `compOverrides` dollar overrides; and legacy's private
-  per-council-member overlay fork (`finance_salary_planner_council_<username>`) -- a council save
-  here lands directly on the ONE shared table (restricted to the two fields above, on rows they may
-  see), not an isolated per-user draft, so two council users editing the same fiscal year can now
-  see and overwrite each other's `comp_method`/`adjustment_pct` choice. This mirrors how Finance's
-  existing read side already has no per-council-overlay concept at all, rather than introducing a
-  second, divergent council-state model just for this write path.
+  side, a per-worker raise `comp_method`/`adjustment_pct` that a `council` viewer may edit on a
+  *visible* row only (the per-worker analogue of legacy's `COUNCIL_EDITABLE_FIELDS`), a per-worker
+  hand-typed dollar `override_cents` (legacy's `compOverrides`, admin/compensation only), the GLOBAL
+  `compCustomPct`/`compScalePct`/`compBaselineRosterOnly` raise-plan assumptions (admin/compensation
+  only, one shared row per fiscal year), and a private per-council-member draft of those same three
+  fields plus per-worker raise choices (legacy's `finance_salary_planner_council_<username>` overlay
+  fork) that never lands on the shared plan.
+- Not covered: `applyCompensationWorkerPlanWrite`'s own existing council branch still writes
+  directly onto the ONE shared table (restricted to `comp_method`/`adjustment_pct` on rows they may
+  see) exactly as before -- it was NOT retrofitted to redirect into the new private draft table, by
+  design (see `compensation-plan-write-service.js`'s header comment) -- so two council users editing
+  the same fiscal year through THAT specific path can still see and overwrite each other's choice on
+  the shared row; the new, separate private-draft mechanism exists alongside it as an additive
+  capability, not a replacement. A read-side HTTP route that merges a council member's own saved
+  draft back onto the live roster for display is also not yet wired (the write/merge logic exists
+  and is tested).
 See `compensation-plan-write-service.js`'s header comment for the same list with full rationale,
-and `test/finance-compensation-plan-write-service.test.js` /
-`test/finance-compensation-plan-write-route.test.js` for the tests, including the council-isolation
-precedent matching `test/council-compensation-role.test.js`.
+`test/finance-compensation-plan-write-service.test.js` / `test/finance-compensation-plan-write-route.test.js`
+for the original per-worker write tests (including the council-isolation precedent matching
+`test/council-compensation-role.test.js`), and `test/finance-compensation-council-draft.test.js` /
+`test/finance-compensation-plan-options-route.test.js` for the new pieces.
 
 **Property reserve/distribution/capital-ledger entry (September 17, 2026, code-complete but OFF by
 default).** A further real write path now exists, this time for the Commercial Property reserve
@@ -165,6 +172,20 @@ the legacy QuickBooks OAuth/cache tables; that is not evidence the existing inte
   data or its workflow has passed acceptance. Several pages remain explicitly unavailable.
 - Older alpha notes and blanket “synthetic/read-only/no writers” copy describe historical stages;
   they must not be used to characterize current Giving/payroll relays or real report contracts.
+- **Partially closed (September 18, 2026).** Legacy's `.xlsx` import is now ported for Church
+  Report (annual Budget-vs-Actuals) and Balance Sheet (Statement of Financial Position) only — see
+  `xlsx-import-service.js` and the Alpha.45 changelog entry below. Legacy's Monthly P&L, multi-year
+  "Statement of Activity"/"Budget by Year", and AHRA Property Budget Detail `.xlsx` importers remain
+  unported; only their CSV-shaped equivalents exist today (Daycare and Property Budget already had
+  CSV-only coverage from Alpha.43, unchanged by this pass).
+- **Partially closed (September 18, 2026).** The Compensation Planner's GLOBAL raise-plan options
+  (`compCustomPct`/`compScalePct`/`compBaselineRosterOnly`), the per-worker hand-typed
+  `compOverrides` dollar figure, and the private per-council-member draft overlay are now ported —
+  see `compensation-plan-write-service.js` and the Alpha.45 changelog entry below. What remains
+  unchanged: `applyCompensationWorkerPlanWrite`'s own existing council branch still writes directly
+  onto the ONE shared `finance_compensation_worker_plan` table (not redirected into the new private
+  draft table, by design), and no HTTP route yet merges a council member's saved draft back onto the
+  live roster for display.
 
 Finance's database migrations start empty. Fixtures are explicit staging inputs, never a migration.
 A schema migration does not copy Connect history or authorize a new writer.
@@ -217,6 +238,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `entity-overview-service.js` — pure separately-periodized Church, Daycare, and Property view; still synthetic-only by investigated decision, not merely unwired -- see the Financial Health entry below.
 - `operating-bridge-service.js` — pure reconciled annual Church income-to-result bridge; reads only `fiscalYear`/`totals.{incomeActualCents,expenseActualCents,actualNetCents}`, a shape the live Church Report view (`buildLiveChurchReportView`) already matches exactly, so no live-aware wrapper was needed to make Financial Health's Church operating bridge live-first too.
 - `csv-import-service.js` — CSV parsing, validation, and FINANCE_DB persistence for the Church/Balance/Daycare/Property Budget import write paths, plus the off-by-default `isCsvImportWritesEnabled` gate; see the Alpha.43 entry below.
+- `xlsx-import-service.js` — ported `.xlsx` ZIP/XML reader and the Church Budget-vs-Actuals/Balance Sheet grid parsers, plus their own off-by-default `isXlsxImportWritesEnabled` gate (separate from the CSV gate); see the Alpha.45 entry below.
 - `synthetic-read-guard.js` — wraps a single per-request synthetic-fixture read (or a live-first resolver's own synthetic fallback read) so a genuine missing-row throw degrades to the `SYNTHETIC_UNAVAILABLE` sentinel instead of taking down the whole request; see the "Known readiness limitations" fix above.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
@@ -486,7 +508,9 @@ Alpha.43 adds CSV import write paths for Church Report (annual Budget-vs-Actuals
 Connect's real import routes (`src/api-finance.js`'s `finance/church/import`,
 `finance/church/balances/import`, `finance/daycare/bulk`, and the AHRA
 `finance/property/:key/budget-import`/`monthly-import-csv` routes) — not the ~750-line server-side
-`.xlsx` grid reader those Church/Balance routes also support, which is out of scope here. The CSV
+`.xlsx` grid reader those Church/Balance routes also support, which was out of scope here (see
+`xlsx-import-service.js` and the Alpha.45 changelog entry below for the Church/Balance `.xlsx` port
+added later; the Daycare/Property Budget `.xlsx` shapes remain unported). The CSV
 tokenizer and thousands-comma-aware money parser are ported verbatim from `src/api-utils.js`'s
 `parseCsvRows` and `src/api-finance.js`'s `dollarsToCents` (this app never imports from legacy
 `src/`), but validation is deliberately stricter: an unparsable amount is a hard row-level error
@@ -516,6 +540,76 @@ existing banner, because staging/local genuinely have no `CONNECT_SERVICE` bindi
 Neither change alters what data is real, adds a query budget or migration, or touches any write
 path. See `test/finance-alpha-shell.test.js`'s production-vs-staging `not_configured` tests for the
 regression coverage.
+
+Alpha.45 (September 18, 2026) closes the two remaining named parity gaps from the prior session's
+own final report — see `xlsx-import-service.js` and `compensation-plan-write-service.js`'s header
+comments for the full detail. In short:
+
+1. **Excel (.xlsx) import is now ported for Church/Balance — `xlsx-import-service.js`.** Two new,
+   OFF-by-default routes, `POST /api/v1/import/church-xlsx` and `POST /api/v1/import/church-balances-xlsx`,
+   port legacy's server-side ZIP/XML `.xlsx` reader (`parseXlsxAllSheets` and its DEFLATE-via-
+   `DecompressionStream` ZIP engine) and the two most central grid parsers — the annual "Budget vs.
+   Actuals" tree walk (`parseBudgetVsActualsGrid`) and the "Statement of Financial Position" Balance
+   Sheet tree walk (`parseBalanceSheetGrid`), including their real confirmed quirks (leading-space
+   vs. cell-style-indent depth detection, the Revenue/Expenditures→Income/Expenses wording
+   normalization, the mid-file Assets/Liabilities/Equity classification reset, the Cash/Accrual
+   basis footer). **Not ported**: legacy's Monthly P&L, multi-year "Statement of Activity"/"Budget
+   by Year", and AHRA Property Budget Detail `.xlsx` importers — those remain a further, smaller,
+   explicitly disclosed gap (see "Known readiness limitations" above). Legacy's own UI is a
+   two-step preview-then-commit upload; this port is instead a single JSON-body request (the whole
+   workbook, base64-encoded, matching every other write route already in this app), parsed and
+   committed in one call — a deliberate, disclosed simplification with no per-row review step,
+   appropriate specifically because, like every other `FINANCE_DB` writer here, it is off by
+   default and unreachable in production. Money parsing is stricter than legacy's own lenient
+   `dollarsToCents` the same way `csv-import-service.js` already is: a genuinely blank cell reads as
+   0 (matching what blank means in these specific reports — a real multi-year Actual-only export
+   always leaves Budget blank), but a non-blank, unparsable cell is a hard failure for the whole
+   import, never a silently-substituted zero. Persists with its own `import_xlsx` source tag
+   (distinct from CSV's `import_csv`, legacy's own `import`, and the live sync sources), gated by
+   its own new flag (`isXlsxImportWritesEnabled` / `finance_xlsx_import_writes_enabled` /
+   `FINANCE_XLSX_IMPORT_WRITES_ENABLED`) — deliberately separate from `isCsvImportWritesEnabled` so
+   turning CSV import on can never silently turn Excel import on too. See
+   `test/finance-xlsx-import-service.test.js` and `test/finance-xlsx-import-route.test.js`.
+
+2. **Compensation Planner: the two named raise-plan gaps are now closed, additively —
+   `compensation-plan-write-service.js` (migration `0009_finance_compensation_plan_options.sql`).**
+   Three genuinely new, still off-by-default (reusing `isCompensationPlanWriteEnabled`) pieces, all
+   gated to the same admin/council/compensation roles `COMPENSATION_LIVE_ALLOWED_ROLES` already
+   restricts to — no role or access-model expansion:
+   - `override_cents` on `finance_compensation_worker_plan` is legacy's hand-typed `compOverrides`
+     dollar figure — admin/compensation only, validated and persisted by the EXISTING
+     `applyCompensationWorkerPlanWrite` full-seed-fact branch, never reachable from a council patch
+     (its `UPDATE` still only ever `SET`s `comp_method`/`adjustment_pct`, unchanged).
+   - `finance_compensation_plan_options` (`applyCompensationPlanOptionsWrite` /
+     `readCompensationPlanOptions`, routed at `POST /api/v1/compensation-plan-options-save`) is
+     legacy's GLOBAL `compCustomPct`/`compScalePct`/`compBaselineRosterOnly` raise-plan assumptions
+     — admin/compensation only, one shared row per fiscal year (the same "no separate
+     compensation-role fork" simplification the worker-plan table already applies), whole-row
+     REPLACE on every save (matching legacy's own real behavior: a field left out this time is not
+     carried over from a prior save). Council is refused here (403) and pointed at its own draft.
+   - `finance_compensation_council_draft` (`applyCompensationCouncilDraftWrite` /
+     `readCompensationCouncilDraft` / `mergeCouncilDraftIntoRoster`, routed at
+     `POST /api/v1/compensation-council-draft-save`) is legacy's private per-council-member overlay
+     fork (`finance_salary_planner_council_<username>`) — council only, keyed by
+     `councilDraftKey(updatedBy)` (the same sanitize-and-lowercase shape as legacy's
+     `councilPlannerKey`, using the same unverified/display-only identity string
+     `approverEmailFromJwt` already supplies for this write path's audit column). It is a genuinely
+     NEW, separate, ADDITIVE table — **it deliberately does NOT change
+     `applyCompensationWorkerPlanWrite`'s own existing (already shipped, already tested) council
+     branch**, which still writes directly onto the ONE shared `finance_compensation_worker_plan`
+     table exactly as before (two council users editing that path still see and can overwrite each
+     other's choice there — this is unchanged). The new draft table is a private planning
+     scratchpad matching legacy's real semantics (council's overlay never lands on the shared roster
+     either): per-worker overrides are keyed by the stable `worker_key` this app already uses
+     everywhere (never legacy's fragile roster-array index), and a draft can never name a worker the
+     viewer couldn't already see (`mergeCouncilDraftIntoRoster` only overlays onto rows already
+     present in an already-filtered base roster). A read-side HTTP route to fetch a council member's
+     own draft back (merged onto the live roster) is **not yet wired** — same disclosed status as
+     `readCompensationWorkerPlan`'s own pre-existing "not currently wired to its own HTTP route"
+     note; `mergeCouncilDraftIntoRoster` exists and is tested for the day a route wants it.
+
+   See `test/finance-compensation-council-draft.test.js` and
+   `test/finance-compensation-plan-options-route.test.js` for the tests.
 
 ## Validate
 

@@ -29,7 +29,10 @@ import { isBudgetPlanWritesEnabled, validateBudgetPlanRows, saveBudgetPlanRows }
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
-import { isCompensationPlanWriteEnabled, applyCompensationWorkerPlanWrite } from './compensation-plan-write-service.js';
+import {
+  isCompensationPlanWriteEnabled, applyCompensationWorkerPlanWrite,
+  applyCompensationPlanOptionsWrite, applyCompensationCouncilDraftWrite,
+} from './compensation-plan-write-service.js';
 import {
   isPropertyLedgerWritesEnabled, recordPropertyReserveMonthly, recordPropertyReserveDisbursement,
   recordPropertyDistribution, recordPropertyCapitalLedgerEntry, PropertyLedgerValidationError,
@@ -58,6 +61,7 @@ import { renderPacketPage } from './packet-pages.js';
 import {
   runChurchEntriesCsvImport, runChurchBalancesCsvImport, runDaycareEntriesCsvImport, runPropertyBudgetMonthlyCsvImport,
 } from './csv-import-service.js';
+import { runChurchXlsxImport, runChurchBalancesXlsxImport } from './xlsx-import-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -919,7 +923,8 @@ export default {
     // routes is gated OFF by default inside its own `run*CsvImport` call (`isCsvImportWritesEnabled`)
     // -- a real request today gets a 403 with a clear "not yet enabled" message, not a write.
     if (route.id === 'import-church-v1' || route.id === 'import-church-balances-v1'
-      || route.id === 'import-daycare-v1' || route.id === 'import-property-budget-v1') {
+      || route.id === 'import-daycare-v1' || route.id === 'import-property-budget-v1'
+      || route.id === 'import-church-xlsx-v1' || route.id === 'import-church-balances-xlsx-v1') {
       let body;
       try { body = await request.json(); } catch { body = null; }
       if (!body || typeof body !== 'object') {
@@ -932,6 +937,8 @@ export default {
         'import-church-balances-v1': runChurchBalancesCsvImport,
         'import-daycare-v1': runDaycareEntriesCsvImport,
         'import-property-budget-v1': runPropertyBudgetMonthlyCsvImport,
+        'import-church-xlsx-v1': runChurchXlsxImport,
+        'import-church-balances-xlsx-v1': runChurchBalancesXlsxImport,
       }[route.id];
       const result = await runner(env, env.FINANCE_DB, body);
       const { status, ...payload } = result;
@@ -985,6 +992,48 @@ export default {
         return response(JSON.stringify({ error: result.error }), { status: result.status || 400, headers: jsonHeaders });
       }
       return response(JSON.stringify({ ok: true, saved: result.saved }), { status: 200, headers: jsonHeaders });
+    }
+
+    // ── Global raise-plan calculation options (compCustomPct/compScalePct/compBaselineRosterOnly,
+    // legacy's compensation-plan-write-service.js header comment) and the private per-council-member
+    // draft -- same off-by-default flag and same verified-role check as compensation-plan-save-v1
+    // above (this is the same overall capability, gated together), just two narrower write shapes.
+    if (route.id === 'compensation-plan-options-save-v1' || route.id === 'compensation-council-draft-save-v1') {
+      const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
+      const enabled = await isCompensationPlanWriteEnabled(env, env.FINANCE_DB);
+      if (!enabled) {
+        return response(JSON.stringify({
+          error: 'not_yet_enabled',
+          message: 'Compensation Planner editing is not yet enabled in this environment.',
+        }), { status: 503, headers: jsonHeaders });
+      }
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      if (!roleResult.ok || !COMPENSATION_LIVE_ALLOWED_ROLES.includes(roleResult.role)) {
+        return response(JSON.stringify({
+          error: 'Access denied: editing the Compensation Planner requires a verified admin, council, or compensation role',
+        }), { status: 403, headers: jsonHeaders });
+      }
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      const fiscalYear = Number.isInteger(payload.fiscalYear) ? payload.fiscalYear : parseInt(payload.fiscalYear, 10);
+      const updatedBy = approverEmailFromJwt(accessJwt) || '';
+      const result = route.id === 'compensation-plan-options-save-v1'
+        ? await applyCompensationPlanOptionsWrite(env.FINANCE_DB, { fiscalYear, role: roleResult.role, updatedBy, options: payload.options })
+        : await applyCompensationCouncilDraftWrite(env.FINANCE_DB, {
+          fiscalYear, role: roleResult.role, updatedBy, options: payload.options, workerOverrides: payload.workerOverrides,
+        });
+      if (result.error) {
+        return response(JSON.stringify({ error: result.error }), { status: result.status || 400, headers: jsonHeaders });
+      }
+      return response(JSON.stringify({ ok: true }), { status: 200, headers: jsonHeaders });
     }
 
     if (PROPERTY_LEDGER_WRITE_ROUTE_IDS.has(route.id)) {
