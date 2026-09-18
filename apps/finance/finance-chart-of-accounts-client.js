@@ -84,6 +84,49 @@ export async function postConnectBoardCategoriesWrite(env, accessJwt, body) {
   return { ok: true, result: payload };
 }
 
+// ── Real transport for connect.finance-purpose-tags-write-relay.v1 (a write) ───────────────
+// Relays a purpose-tag list edit and/or a category assignment to Connect's own contract endpoint
+// (src/api-contracts-service.js), which is the only place it is actually written -- Finance never
+// stores a copy. Same accessJwt pass-through, admin-only role check on Connect's side, and
+// never-throws {ok,reason}-labeled shape as postConnectBoardCategoriesWrite above. `body.tags`
+// (when present) is a FULL REPLACE of the whole tag list -- a tag omitted from it is deleted --
+// while `body.categories` (when present) MERGES into whatever is already saved, same as
+// applyBoardCategoryMerge's own maps.
+export async function postConnectPurposeTagsWrite(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-purpose-tags-write-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
 // ── Real transport for connect.finance-revenue-streams-write-relay.v1 (a write) ────────────
 // Relays a hand-edited { label: stream } revenue-stream classification map to Connect's own
 // contract endpoint (src/api-contracts-service.js), which is the only place it is actually

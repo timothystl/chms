@@ -23,7 +23,7 @@ import {
   postConnectDaycareBulkWrite, postConnectDaycareChurchBudgetImportWrite,
 } from './finance-daycare-client.js';
 import {
-  postConnectBoardCategoriesWrite, postConnectRevenueStreamsWrite, postConnectFlowExpenseMapWrite,
+  postConnectBoardCategoriesWrite, postConnectPurposeTagsWrite, postConnectRevenueStreamsWrite, postConnectFlowExpenseMapWrite,
   postConnectCashPolicyWrite,
 } from './finance-chart-of-accounts-client.js';
 import { postConnectPropertyMonthlyWrite } from './finance-property-operating-client.js';
@@ -41,7 +41,7 @@ import {
 import { resolveBudgetReport } from './budget-report-service.js';
 import {
   postConnectFinanceBudgetWrite, postConnectFinanceBudgetGenerate, postConnectFinanceBudgetGenerateAll,
-  postConnectFinanceBudgetCommit, postConnectFinanceBudgetRemove,
+  postConnectFinanceBudgetCommit, postConnectFinanceBudgetRemove, postConnectBaseProjectionWrite,
 } from './finance-budget-client.js';
 import { isBudgetPlanWritesEnabled, validateBudgetPlanRows, saveBudgetPlanRows } from './budget-plan-write-service.js';
 import { fetchConnectSalaryPlannerState, postConnectFinanceCompensationWrite } from './finance-compensation-client.js';
@@ -217,6 +217,18 @@ function describeDaycareEntryError(reason, message) {
   }
 }
 
+// Same shape as describeBudgetPlanOpError above, for postConnectBaseProjectionWrite() failures.
+function describeBaseProjectionEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Projected-column editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the correction.';
+    default: return 'The correction was not saved.';
+  }
+}
+
 // Same shape as describeDaycareEntryError above, for postConnectBoardCategoriesWrite() failures.
 function describeBoardCategoryEntryError(reason, message) {
   switch (reason) {
@@ -250,6 +262,18 @@ function describePropertyRepairEntryError(reason, message) {
     case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
     case 'http_error': return message ? String(message) : 'Connect refused the entry.';
     default: return 'The entry was not saved.';
+  }
+}
+
+// Same shape as describeBoardCategoryEntryError above, for postConnectPurposeTagsWrite() failures.
+function describePurposeTagsEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Purpose-tag editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the edit.';
+    default: return 'The purpose tags were not saved.';
   }
 }
 
@@ -521,6 +545,7 @@ function renderSectionBody(ctx) {
     budgetEntryStatus, budgetEntryMessage, payrollBundle,
     compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
     canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
+    baseProjectionEntryStatus, baseProjectionEntryMessage,
     churchOverrideStatus, churchOverrideMessage,
     daycareEntryStatus, daycareEntryMessage,
     daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
@@ -528,6 +553,7 @@ function renderSectionBody(ctx) {
     daycareBulkEntryStatus, daycareBulkEntryMessage,
     daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
     boardCategoryEntryStatus, boardCategoryEntryMessage,
+    purposeTagsEntryStatus, purposeTagsEntryMessage,
     propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
     propertyRepairEntryStatus, propertyRepairEntryMessage,
     propertyDistributionEntryStatus, propertyDistributionEntryMessage,
@@ -739,7 +765,12 @@ function renderSectionBody(ctx) {
     const canManageBudgetPlan = roleResult.ok && roleResult.role === 'admin';
     return renderPlanningPage(page.id, {
       budgetReport, canEditBudget, budgetEntryStatus, budgetEntryMessage,
+      // Same admin-only gate as generate/generate-all/commit/remove-a-category above, matching the
+      // legacy in-Connect Planning table's own base-projection PUT route exactly -- reused here
+      // rather than a second identical role check, since both share the same "editing the budget
+      // plan requires admin access" message on Connect's side.
       canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
+      baseProjectionEntryStatus, baseProjectionEntryMessage,
     });
   }
   if (section.id === 'accounts') {
@@ -747,8 +778,13 @@ function renderSectionBody(ctx) {
     // route -- UI hiding is never authorization, the real gate is
     // finance-board-categories-write-v1's own role check on Connect's side.
     const canManageBoardCategories = roleResult.ok && roleResult.role === 'admin';
+    // Same admin-only gate as above, for the legacy in-Connect Chart of Accounts' own purpose-tags
+    // PUT route -- UI hiding is never authorization, the real gate is
+    // finance-purpose-tags-write-v1's own role check on Connect's side.
+    const canManagePurposeTags = roleResult.ok && roleResult.role === 'admin';
     return renderAccountsPage(page.id, {
       accountsReport, canManageBoardCategories, boardCategoryEntryStatus, boardCategoryEntryMessage,
+      canManagePurposeTags, purposeTagsEntryStatus, purposeTagsEntryMessage,
     });
   }
   if (section.id === 'compensation') {
@@ -1191,6 +1227,35 @@ export default {
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
 
+    // Budget builder's admin-only "FY{base} Projected" column correction -- shown near the
+    // existing budget edit form. One category per submit (the legacy body also accepts several
+    // rows at once, but this form matches the single-row shape every other Planning-adjacent form
+    // here uses); leaving the amount blank clears any existing override for that category and year.
+    if (route.id === 'base-projection-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=planning&status=error&reason=invalid_json' } });
+      }
+      const row = {
+        category: form.get('category') || '',
+        amount: form.get('amount') || '',
+      };
+      const result = await postConnectBaseProjectionWrite(env, accessJwt, { year: form.get('year') || '', rows: [row] });
+      // `op=base-projection` distinguishes this form's own status from the Budget edit form
+      // (budgetEntryStatus) and the generate/generate-all/commit/remove operations (planOpStatus)
+      // that all share the same 'planning' section and 'status' query param -- see the GET
+      // handler's own status computation below.
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=planning&op=base-projection&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'planning', op: 'base-projection', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
     // Church Report's admin-only actual-figure correction, same 303-redirect-after-POST shape as
     // the routes above.
     if (route.id === 'church-actual-override-v1') {
@@ -1260,6 +1325,47 @@ export default {
           // a path that was never in a given map is a harmless no-op there.
           : { revenue: { [path]: '' }, expense: { [path]: '' } };
       const result = await postConnectBoardCategoriesWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=accounts&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'accounts', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Chart of Accounts' purpose-tag list and per-account assignment -- two separate <form>s
+    // posting to this same route (accounts-pages.js), told apart here by which fields are present.
+    // The tag-list textarea always carries every tag this page currently knows about, one
+    // "id,label" pair per line (a blank id mints a fresh one on Connect's side) -- a line taken out
+    // is a tag taken out, so that form's own body always includes `tags`. The assignment form only
+    // ever sends `category_path`/`purpose_tag_id`, never `tags`, so it merges into whatever tag
+    // list Connect already has instead of swapping the whole thing in.
+    if (route.id === 'purpose-tags-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=accounts&status=error&reason=invalid_json' } });
+      }
+      const body = {};
+      if (form.has('tags')) {
+        body.tags = String(form.get('tags') || '')
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => {
+            const commaIndex = line.indexOf(',');
+            const id = commaIndex === -1 ? '' : line.slice(0, commaIndex).trim();
+            const label = (commaIndex === -1 ? line : line.slice(commaIndex + 1)).trim();
+            return id ? { id, label } : { label };
+          });
+      }
+      const path = form.get('category_path');
+      if (path) {
+        body.categories = { [path]: form.get('purpose_tag_id') || '' };
+      }
+      const result = await postConnectPurposeTagsWrite(env, accessJwt, body);
       if (result.ok) {
         return response(null, { status: 303, headers: { Location: '/?section=accounts&status=ok' } });
       }
@@ -2252,9 +2358,17 @@ export default {
         const budgetEntryMessage = budgetEntryStatus === 'error'
           ? describeBudgetEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
-        const planOpStatus = planOpKind ? url.searchParams.get('status') : null;
+        const planOpStatus = planOpKind && planOpKind !== 'base-projection' ? url.searchParams.get('status') : null;
         const planOpMessage = planOpStatus === 'error'
           ? describeBudgetPlanOpError(url.searchParams.get('reason'), url.searchParams.get('message'), BUDGET_PLAN_OP_VERBS[planOpKind] || 'operation')
+          : null;
+        // Base-projection is its own form on the same 'builder' page as the Budget edit form and
+        // the generate/generate-all/commit/remove operations above -- `op=base-projection` (set by
+        // the POST handler) keeps its status/message from bleeding onto those other forms, the same
+        // way planOpKind itself already separates the operations from budgetEntryStatus.
+        const baseProjectionEntryStatus = planOpKind === 'base-projection' ? url.searchParams.get('status') : null;
+        const baseProjectionEntryMessage = baseProjectionEntryStatus === 'error'
+          ? describeBaseProjectionEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
         const churchOverrideStatus = section.id === 'church' ? url.searchParams.get('status') : null;
         const churchOverrideMessage = churchOverrideStatus === 'error'
@@ -2286,6 +2400,13 @@ export default {
         const boardCategoryEntryStatus = section.id === 'accounts' ? url.searchParams.get('status') : null;
         const boardCategoryEntryMessage = boardCategoryEntryStatus === 'error'
           ? describeBoardCategoryEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        // Same shared status/reason/message query-param shape as boardCategoryEntryStatus above --
+        // both the tag-list form and the assignment form (accounts-pages.js) redirect back to this
+        // same ?section=accounts, so this one status covers whichever of the two was just submitted.
+        const purposeTagsEntryStatus = section.id === 'accounts' ? url.searchParams.get('status') : null;
+        const purposeTagsEntryMessage = purposeTagsEntryStatus === 'error'
+          ? describePurposeTagsEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
         // Both property forms (Operating results' monthly entry and Work orders' repair entry)
         // redirect back to ?section=property with the same status/reason/message shape,
@@ -2328,13 +2449,15 @@ export default {
           dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
-          planOpKind, planOpStatus, planOpMessage, churchOverrideStatus, churchOverrideMessage,
+          planOpKind, planOpStatus, planOpMessage, baseProjectionEntryStatus, baseProjectionEntryMessage,
+          churchOverrideStatus, churchOverrideMessage,
           daycareEntryStatus, daycareEntryMessage,
           daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
           daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
           daycareBulkEntryStatus, daycareBulkEntryMessage,
           daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
           boardCategoryEntryStatus, boardCategoryEntryMessage,
+          purposeTagsEntryStatus, purposeTagsEntryMessage,
           propertyMonthlyEntryStatus, propertyMonthlyEntryMessage, propertyRepairEntryStatus, propertyRepairEntryMessage,
           propertyDistributionEntryStatus, propertyDistributionEntryMessage,
           propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage,

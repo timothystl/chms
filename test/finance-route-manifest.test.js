@@ -25,7 +25,7 @@ const WRITE_ROUTE_IDS = new Set([
   'property-reserve-disbursement-write-v1', 'property-capital-ledger-write-v1',
   'revenue-streams-write-v1', 'flow-expense-map-write-v1', 'cash-policy-write-v1',
   'daycare-allocation-config-write-v1', 'daycare-budget-override-write-v1', 'daycare-bulk-write-v1',
-  'daycare-church-budget-import-write-v1',
+  'daycare-church-budget-import-write-v1', 'base-projection-write-v1', 'purpose-tags-write-v1',
 ]);
 const OWN_DB_WRITE_ROUTE_IDS = new Set(['budget-plan-save-v1']);
 const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1']);
@@ -54,7 +54,9 @@ describe('Finance staging route manifest', () => {
       '/api/v1/connect-giving-preview', '/api/v1/connect-giving-transport-evidence',
       '/api/v1/connect-giving-quick-entry', '/api/v1/budget-plan-save', '/api/v1/connect-budget-plan-write', '/api/v1/connect-compensation-plan-write',
       '/api/v1/connect-budget-generate', '/api/v1/connect-budget-generate-all', '/api/v1/connect-budget-commit', '/api/v1/connect-budget-plan-remove',
+      '/api/v1/connect-base-projection-write',
       '/api/v1/connect-church-actual-override', '/api/v1/connect-daycare-entry', '/api/v1/connect-board-categories-write',
+      '/api/v1/connect-purpose-tags-write',
       '/api/v1/connect-property-monthly-write', '/api/v1/connect-property-repair-write',
       '/api/v1/connect-property-distribution-write', '/api/v1/connect-property-reserve-monthly-write',
       '/api/v1/connect-property-reserve-disbursement-write', '/api/v1/connect-property-capital-ledger-write',
@@ -143,6 +145,9 @@ describe('Finance staging route manifest', () => {
     expect(resolveFinanceRoute('/api/v1/connect-budget-plan-remove')).toMatchObject({
       id: 'budget-plan-remove-v1', contract: 'connect.finance-budget-remove-relay.v1', dataSource: 'live-relay',
     });
+    expect(resolveFinanceRoute('/api/v1/connect-base-projection-write')).toMatchObject({
+      id: 'base-projection-write-v1', contract: 'connect.finance-base-projection-write-relay.v1', dataSource: 'live-relay',
+    });
     expect(resolveFinanceRoute('/api/v1/connect-church-actual-override')).toMatchObject({
       id: 'church-actual-override-v1', contract: 'connect.finance-church-actual-override-relay.v1', dataSource: 'live-relay',
     });
@@ -151,6 +156,9 @@ describe('Finance staging route manifest', () => {
     });
     expect(resolveFinanceRoute('/api/v1/connect-board-categories-write')).toMatchObject({
       id: 'board-categories-write-v1', contract: 'connect.finance-board-categories-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-purpose-tags-write')).toMatchObject({
+      id: 'purpose-tags-write-v1', contract: 'connect.finance-purpose-tags-write-relay.v1', dataSource: 'live-relay',
     });
     expect(resolveFinanceRoute('/api/v1/connect-property-monthly-write')).toMatchObject({
       id: 'property-monthly-write-v1', contract: 'connect.finance-property-monthly-write-relay.v1', dataSource: 'live-relay',

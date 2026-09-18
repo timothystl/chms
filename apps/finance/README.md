@@ -577,6 +577,47 @@ visibility, not_configured/no_access_identity redirects, successful relay + form
 refusal-reason passthrough, and network_error handling) -- the same shape as the Property relay
 route tests above. `test/finance-route-manifest.test.js` is extended with all seven new route ids.
 
+Alpha.48 extends the live-relay write pattern to the two remaining legacy Planning write routes:
+the Budget builder's whole-dollar "FY{base} Projected" column correction and Chart of Accounts'
+purpose-tag list/assignment -- each relays to its own new Connect contract endpoint
+(`finance-base-projection-write-v1`, `finance-purpose-tags-write-v1`), matching the legacy
+in-Connect `finance/planning/base-projection` and `finance/planning/purpose-tags` PUT routes
+exactly -- full function, same data, same app, never a second writer. (The single-row
+`finance/planning/church/override` route was deliberately left unported -- it calls the same
+`applyBudgetPlanOverrideRows` shared function the already-relayed `budget-plan-write-v1` does with
+a one-row array, so that capability already exists via relay under a different route id.)
+`src/api-finance.js` extracts `saveBaseProjectionOverrides` and `savePurposeTags` as shared
+functions (same extraction style as the Alpha.47 settings-blob writers), called by both the legacy
+route handlers (unchanged validation and behavior) and their new relay contract counterparts in
+`src/api-contracts-service.js`, both admin-only, matching each legacy route's own `isAdmin` check
+exactly. `finSlugifyPurposeTag` (minting a fresh tag id from a label) moves from a closure inside
+the legacy route to module scope alongside `savePurposeTags`, the same reuse reasoning as
+`applyBoardCategoryMerge`/`readPurposeTags` above -- the tag-minting logic itself is unchanged.
+
+New forms: a Projected-correction form on the Budget builder page (`planning-pages.js`, next to
+the existing category edit form; admin-only, reusing `canManageBudgetPlan` since both share the
+same "editing the budget plan requires admin access" gate on Connect's side), and, on Chart of
+Accounts (`accounts-pages.js`), two purpose-tags forms -- the page already surfaces purpose-tag
+read data (a "Purpose" column per account and a "Purpose tags" count card, from the existing
+`connect.finance-chart-of-accounts.v1` contract), so unlike Alpha.47's settings-blob routes this
+one gets a real form. The tag-list form is a FULL REPLACE (one `id,label` line per tag, prefilled
+from the tags this page currently derives out of the account rows it already has -- there is no
+separate read endpoint for the raw tag list itself, so a tag with no account currently wearing it
+won't show up there until it is put on one); the assignment form only ever sends
+`category_path`/`purpose_tag_id` and MERGES, the same reasoning as the board-category form. Both
+forms post to the one `purpose-tags-write-v1` route and are told apart in `shell.js` by which
+fields are present, not by a second route id. Tests: `test/finance-base-projection-write-contract.
+test.js` and `test/finance-purpose-tags-write-contract.test.js` (the same admin/council/
+deactivated-user/wrong-contract-key/missing-identity/not-configured cases as the earlier admin-only
+relay contracts, plus tag add/rename/drop-on-omission and category-merge-without-touching-tags
+cases for purpose-tags), plus `test/finance-base-projection-route.test.js` and
+`test/finance-purpose-tags-route.test.js` (method-not-allowed, role-gated form visibility,
+not_configured/no_access_identity redirects, successful relay + form field forwarding,
+refusal-reason passthrough, and network_error handling -- the same shape as the Alpha.46/Alpha.47
+route tests, plus a check that the Projected-correction form's own status does not bleed onto the
+unrelated Budget edit form). `test/finance-route-manifest.test.js` is extended with both new route
+ids.
+
 ## QuickBooks OAuth/sync design (dark code, never exercised against the real account)
 
 This adds a Finance-owned design (plus as much working code as is honest to write without live

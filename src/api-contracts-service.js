@@ -19,6 +19,7 @@ import {
   upsertPropertyReserveDisbursement, addPropertyCapitalLedgerEntry,
   saveRevenueStreamMap, saveFlowExpenseMap, saveCashPolicy, saveDaycareAllocationConfig,
   applyDaycareBudgetOverride, bulkRecordDaycareEntries, importDaycareFromChurchBudget,
+  saveBaseProjectionOverrides, savePurposeTags,
 } from './api-finance.js';
 
 export async function handleContractsServiceApi(req, env, path) {
@@ -179,6 +180,14 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-daycare-church-budget-import-write-v1' && req.method === 'POST') {
     return handleFinanceDaycareChurchBudgetImportWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-base-projection-write-v1' && req.method === 'POST') {
+    return handleFinanceBaseProjectionWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-purpose-tags-write-v1' && req.method === 'POST') {
+    return handleFinancePurposeTagsWriteContract(req, env);
   }
 
   if (path === '/api/contracts/finance-compensation-write-v1' && req.method === 'POST') {
@@ -736,6 +745,54 @@ async function handleFinanceCashPolicyWriteContract(req, env) {
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
   const result = await saveCashPolicy(db, body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Base-year "FY{base} Projected" override write, relayed from Finance's own Budget builder UI ──
+// Same shape as handleFinanceCashPolicyWriteContract above: admin only, matching
+// finance/planning/base-projection's own gate exactly, since this calls the identical
+// saveBaseProjectionOverrides() helper that route uses (src/api-finance.js).
+async function handleFinanceBaseProjectionWriteContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing the budget plan requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await saveBaseProjectionOverrides(db, body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Purpose-tags write, relayed from Finance's own Chart of Accounts UI ─────────────────────
+// Same shape as handleFinanceBoardCategoriesWriteContract above: admin only, matching
+// finance/planning/purpose-tags's own gate exactly, since this calls the identical
+// savePurposeTags() helper that route uses (src/api-finance.js).
+async function handleFinancePurposeTagsWriteContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing purpose tags requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await savePurposeTags(db, body);
   if (result.error) return json({ error: result.error }, result.status || 400);
   return json({ ...result, savedBy: user.username });
 }
