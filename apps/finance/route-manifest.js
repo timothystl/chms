@@ -12,6 +12,21 @@ const ROUTES = [
   // and a `methods` override are both explicit here so the exception is visible in this one file,
   // not buried in a conditional elsewhere -- see test/finance-route-manifest.test.js's invariant.
   { id: 'giving-quick-entry-v1', paths: ['/api/v1/connect-giving-quick-entry'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.giving-quick-entry-relay.v1' },
+  // ── The Budget builder's real edit/save write, ported from legacy's
+  // finance/planning/church/override-bulk (src/api-finance.js) onto Finance's OWN
+  // finance_budget_plan table via FINANCE_DB -- NOT a relay, unlike every other write route in
+  // this manifest. `dataSource: 'finance-d1-write'` names that distinction explicitly so it stays
+  // visible in one place (see test/finance-route-manifest.test.js's invariant) rather than being
+  // mistaken for another live-relay write. Off by default in every environment: see
+  // budget-plan-write-service.js's `isBudgetPlanWritesEnabled` (a finance_settings flag, checked
+  // by shell.js before this route does anything else) -- the route exists and is fully tested, but
+  // does not go live until a later, separately approved cutover stage flips that flag on.
+  { id: 'budget-plan-save-v1', paths: ['/api/v1/budget-plan-save'], methods: WRITE_METHODS, dataSource: 'finance-d1-write', writer: true, contract: 'finance.budget-plan-save.v1' },
+  // Same deliberate exception as the Giving relay above, for Budget Planner's manual edit/save:
+  // relays a hand-typed planned-amount row to Connect's own finance-budget-write-v1 contract
+  // endpoint (never writes to Finance's own database). Gated admin/council only, on Connect's
+  // side, matching the legacy in-Connect Budget Planner's own override-bulk route exactly.
+  { id: 'budget-plan-write-v1', paths: ['/api/v1/connect-budget-plan-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-write-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no
@@ -36,6 +51,36 @@ const ROUTES = [
   // Supabase RPC -- see payroll-email-client.js) now that it accepts Finance's contract-relay
   // identity (timothystl/website PR #587).
   { id: 'payroll-email-v1', paths: ['/api/v1/payroll-email'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'finance.payroll-email-relay.v1' },
+  // ── CSV import writes (see csv-import-service.js) and the Compensation Planner save below are
+  // the routes in this app that write to Finance's OWN database (FINANCE_DB) rather than relaying
+  // to Connect/Website or reading a synthetic fixture. Each of these routes is gated OFF by
+  // default inside its own handler (`isCsvImportWritesEnabled` / `isCompensationPlanWriteEnabled`,
+  // checked before any role check) — reachable and fully tested here, but not live in production
+  // until a later, separately-approved cutover stage flips the gate.
+  { id: 'import-church-v1', paths: ['/api/v1/import/church'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-church.v1' },
+  { id: 'import-church-balances-v1', paths: ['/api/v1/import/church-balances'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-church-balances.v1' },
+  { id: 'import-daycare-v1', paths: ['/api/v1/import/daycare'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-daycare.v1' },
+  { id: 'import-property-budget-v1', paths: ['/api/v1/import/property-budget'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-property-budget.v1' },
+  // Compensation planning is target-architecture Finance-owned data (chms/AGENTS.md's product
+  // boundary: "Finance owns ... compensation planning"), not a relay of someone else's
+  // authoritative record, so a real local copy is the intended end state, not a stopgap. See
+  // compensation-plan-write-service.js's header comment and apps/finance/README.md's changelog
+  // entry for exactly what per-worker capability this table does and does not yet carry relative
+  // to the legacy Salary Planner roster (src/api-finance.js).
+  { id: 'compensation-plan-save-v1', paths: ['/api/v1/compensation-plan-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  // A further deliberate finance-db-write group, same "writes to Finance's own database, off by
+  // default" pattern as compensation-plan-save-v1/budget-plan-save-v1/the import-*-v1 routes
+  // above, for the Commercial Property reserve schedule/disbursements/distributions/capital
+  // ledger -- ported from legacy's real write routes in src/api-finance.js's handlePropertyApi
+  // onto Finance's own already-matching schema (see property-ledger-write-service.js's header for
+  // the ported validation and the verified real finding that legacy enforces no reserve-overdraw
+  // check on this path). isPropertyLedgerWritesEnabled() is checked first, before any role check,
+  // exactly like the other finance-db-write gates above -- until Andrew explicitly turns it on.
+  // See apps/finance/README.md's changelog entry.
+  { id: 'property-reserve-entry-v1', paths: ['/api/v1/property-reserve-entry'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  { id: 'property-reserve-disbursement-entry-v1', paths: ['/api/v1/property-reserve-disbursement-entry'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  { id: 'property-distribution-entry-v1', paths: ['/api/v1/property-distribution-entry'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  { id: 'property-capital-ledger-entry-v1', paths: ['/api/v1/property-capital-ledger-entry'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
 ];
 
 export const FINANCE_ROUTE_MANIFEST = Object.freeze(ROUTES.map((route) => Object.freeze({

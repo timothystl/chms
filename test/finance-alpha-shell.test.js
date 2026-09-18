@@ -121,7 +121,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.41');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.44');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -164,7 +164,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.41',
+      version: '1.0.0-alpha.44',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -177,7 +177,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
     expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.41 · alpha');
+    expect(html).toContain('1.0.0-alpha.44 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="sidebar-brand"');
@@ -191,8 +191,8 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     // synthetic fixture and say so per-card now, instead of the old single page-wide badge.
     expect(html).toContain('variance $0 · synthetic fixture');
     expect(html).toContain('Assets $300,000 · liabilities $100,000 · synthetic fixture');
-    expect(html).toContain('$1,450');
-    expect(html).toContain('6 aggregate records · totals match');
+    expect(html).toContain('$1,150');
+    expect(html).toContain('4 aggregate records · totals match');
     expect(html).toContain('Full control');
     expect(html).toContain('Reported, not managed');
     expect(html).toContain('Timing decision');
@@ -381,13 +381,34 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       }
     });
 
-    it('still leaves not_configured (no CONNECT_SERVICE binding/key at all) failing open, unchanged', async () => {
+    it('still leaves not_configured (no CONNECT_SERVICE binding/key at all) failing open OUTSIDE production, unchanged', async () => {
       // Same request shape as the 'discloses that role verification is unconfigured/unreachable'
       // test above, confirmed again here so the two behaviors are visibly contrasted in one place.
+      // This test env's ENVIRONMENT is 'staging' (see the top of this file).
       const res = await worker.fetch(new Request('https://finance.test/?section=health'), env);
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain('Role verification unavailable in this environment (reason: not_configured)');
+    });
+
+    // Bug fix, second half: a live financial system in PRODUCTION missing its own role-check
+    // wiring entirely (no CONNECT_SERVICE binding/key -- e.g. a forgotten secret) is exactly the
+    // fail-open condition AGENTS.md calls out, not a disclosed, acceptable staging state. Only
+    // env.ENVIRONMENT === 'production' (set by wrangler.finance.jsonc's own `vars`, never by
+    // wrangler.finance.staging.jsonc) makes not_configured fail closed too.
+    it('not_configured fails CLOSED (403) when env.ENVIRONMENT is production, unlike staging', async () => {
+      const prodEnv = { ...env, ENVIRONMENT: 'production' };
+      const res = await worker.fetch(new Request('https://finance.test/?section=health'), prodEnv);
+      expect(res.status).toBe(403);
+      const html = await res.text();
+      expect(html).toContain('Access denied');
+      expect(html).toContain('Role verification failed and access cannot be safely confirmed');
+    });
+
+    it('not_configured still fails open in a non-production, non-staging environment (e.g. local dev with no ENVIRONMENT var)', async () => {
+      const localEnv = { ...env, ENVIRONMENT: undefined };
+      const res = await worker.fetch(new Request('https://finance.test/?section=health'), localEnv);
+      expect(res.status).toBe(200);
     });
   });
 
@@ -1431,7 +1452,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.41',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.44',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -1528,7 +1549,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       dataClassification: 'synthetic',
       scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
       duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
-      release: { version: '1.0.0-alpha.41', releaseSha: 'test-sha' },
+      release: { version: '1.0.0-alpha.44', releaseSha: 'test-sha' },
     });
     expect(body.scenario.totals.netCents).toBe(145000);
     expect(body.scenario.reconciliation.totalsMatch).toBe(true);
@@ -1626,7 +1647,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       expect(html).toContain('Operating result');
       expect(html).toContain('Data temporarily unavailable');
       expect(html).toContain('Financial position');
-      expect(html).toContain('Giving reconciliation');
+      expect(html).toContain('General Fund giving');
       expect(html).not.toContain('<strong>$0</strong>');
       // The purely-static decision framing (not data-derived) still renders even though every
       // data-backed card on the same page is unavailable.

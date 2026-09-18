@@ -24,9 +24,16 @@ import {
   resolvePropertyValuation, resolvePropertyReport, resolvePropertyReserves, resolvePropertyLedgers,
 } from './property-report-service.js';
 import { resolveBudgetReport } from './budget-report-service.js';
+import { postConnectFinanceBudgetWrite } from './finance-budget-client.js';
+import { isBudgetPlanWritesEnabled, validateBudgetPlanRows, saveBudgetPlanRows } from './budget-plan-write-service.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
+import { isCompensationPlanWriteEnabled, applyCompensationWorkerPlanWrite } from './compensation-plan-write-service.js';
+import {
+  isPropertyLedgerWritesEnabled, recordPropertyReserveMonthly, recordPropertyReserveDisbursement,
+  recordPropertyDistribution, recordPropertyCapitalLedgerEntry, PropertyLedgerValidationError,
+} from './property-ledger-write-service.js';
 import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView, buildLiveFinancialMixView } from './financial-mix-service.js';
 import { buildEntityOverview } from './entity-overview-service.js';
@@ -48,6 +55,9 @@ import { renderChartsPage, renderFinancialMixRows } from './charts-pages.js';
 import { renderGiftEntryPage } from './gift-entry-pages.js';
 import { renderQuickbooksPage } from './quickbooks-pages.js';
 import { renderPacketPage } from './packet-pages.js';
+import {
+  runChurchEntriesCsvImport, runChurchBalancesCsvImport, runDaycareEntriesCsvImport, runPropertyBudgetMonthlyCsvImport,
+} from './csv-import-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -124,6 +134,18 @@ function describeGivingEntryError(reason, message) {
   }
 }
 
+// Same shape as describeGivingEntryError above, for postConnectFinanceBudgetWrite() failures.
+function describeBudgetEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Budget Plan editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the edit.';
+    default: return 'The Budget Plan edit was not saved.';
+  }
+}
+
 // Confirms the payroll relay actually reached Website's proxy and got real data back, without
 // ever putting a staff name, ID, or wage figure in the response -- a count and the real result's
 // field names are enough to prove the round trip is genuine, and this is deliberately reachable
@@ -195,7 +217,8 @@ function renderSectionBody(ctx) {
     daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
     propertyLedgers, propertyLedgersLive, propertyValuation,
     propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
-    compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage, payrollBundle,
+    compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage,
+    budgetEntryStatus, budgetEntryMessage, payrollBundle,
     roleResult,
   } = ctx;
   if (section.id === 'health') {
@@ -223,7 +246,7 @@ function renderSectionBody(ctx) {
     const isChurchLive = churchReportLive != null && !isSyntheticUnavailable(churchReportLive) && churchReportLive.source === 'live';
     // Reflects only Operating result/Financial position -- the two cards this badge has ever
     // summarized. Giving already carries its own independent, always-shown inline label right next
-    // to it (see the Giving reconciliation card below) and was never represented by this badge
+    // to it (see the General Fund giving card below) and was never represented by this badge
     // even before this change, so folding it in here would not add information, only ambiguity.
     const healthSources = [health.operating?.source, health.position?.source].filter(Boolean);
     const liveHealthSources = healthSources.filter((source) => source === 'live').length;
@@ -298,7 +321,7 @@ function renderSectionBody(ctx) {
       <div class="grid">
         ${health.operating ? `<div class="card"><small>Operating result</small><strong>${formatSignedCents(health.operating.actualNetCents)}</strong><span>Budget ${formatSignedCents(health.operating.budgetNetCents)} · variance ${formatSignedCents(health.operating.varianceCents)} · ${health.operating.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>` : renderUnavailableCard('Operating result')}
         ${health.position ? `<div class="card"><small>Financial position</small><strong>${formatCents(health.position.netAssetsCents)}</strong><span>Assets ${formatCents(health.position.assetsCents)} · liabilities ${formatCents(health.position.liabilitiesCents)} · ${health.position.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>` : renderUnavailableCard('Financial position')}
-        <div class="card"><small>Giving reconciliation</small><strong>${formatCents(health.giving.netCents)}</strong><span>${health.giving.sourceRecordCount} aggregate records · ${health.giving.reconciled ? 'totals match' : 'review required'} · ${givingSource === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>
+        <div class="card"><small>General Fund giving${health.giving.scoped ? '' : ' (fund not identified — all funds shown)'}</small><strong>${formatCents(health.giving.netCents)}</strong><span>${health.giving.sourceRecordCount} aggregate records · ${health.giving.reconciled ? 'totals match' : 'review required'} · ${givingSource === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>
       </div>
       <div class="section-heading trend-heading"><div><div class="eyebrow">Liquidity</div><h2>Operating cash runway</h2></div><span class="badge">${runway ? `As of ${escapeHtml(runway.asOfDate)}` : 'Unavailable'}</span></div>
       ${runway
@@ -350,7 +373,11 @@ function renderSectionBody(ctx) {
     });
   }
   if (section.id === 'planning') {
-    return renderPlanningPage(page.id, { budgetReport });
+    // Same gate as the legacy in-Connect Budget Planner's override-bulk route (admin or council
+    // only) -- UI hiding is never authorization, the real gate is finance-budget-write-v1's own
+    // role check on Connect's side, but there's no reason to show a form that will only 403.
+    const canEditBudget = roleResult.ok && (roleResult.role === 'admin' || roleResult.role === 'council');
+    return renderPlanningPage(page.id, { budgetReport, canEditBudget, budgetEntryStatus, budgetEntryMessage });
   }
   if (section.id === 'accounts') {
     return renderAccountsPage(page.id, { accountsReport });
@@ -569,6 +596,36 @@ function renderShell(ctx) {
 </html>`;
 }
 
+// ── PROPERTY LEDGER WRITES ── a deliberate group that writes to Finance's own FINANCE_DB rather
+// than relaying elsewhere, same pattern as COMPENSATION PLANNER WRITE just above (see
+// route-manifest.js's and property-ledger-write-service.js's header comments). The enablement
+// flag is checked FIRST, before any role verification, so a real request against an environment
+// where it is still off (every environment, until Andrew explicitly turns it on) gets the same
+// clear "not yet enabled" answer regardless of who is asking. Role gating here is admin-only,
+// matching legacy's own isAdmin gate for editing property financials (src/api-finance.js's
+// handlePropertyApi) -- a different, narrower set than Compensation Planner's
+// admin/council/compensation, because that is what legacy itself enforces for this data.
+const PROPERTY_LEDGER_WRITE_ROUTE_IDS = new Set([
+  'property-reserve-entry-v1', 'property-reserve-disbursement-entry-v1',
+  'property-distribution-entry-v1', 'property-capital-ledger-entry-v1',
+]);
+const PROPERTY_LEDGER_WRITE_PROPERTY_KEY = 'ivanhoe'; // Only property that exists today -- see property-report-service.js.
+
+async function runPropertyLedgerWrite(routeId, db, body) {
+  switch (routeId) {
+    case 'property-reserve-entry-v1':
+      return recordPropertyReserveMonthly(db, PROPERTY_LEDGER_WRITE_PROPERTY_KEY, String(body.reserve_key || ''), body);
+    case 'property-reserve-disbursement-entry-v1':
+      return recordPropertyReserveDisbursement(db, PROPERTY_LEDGER_WRITE_PROPERTY_KEY, String(body.reserve_key || ''), body);
+    case 'property-distribution-entry-v1':
+      return recordPropertyDistribution(db, PROPERTY_LEDGER_WRITE_PROPERTY_KEY, body);
+    case 'property-capital-ledger-entry-v1':
+      return recordPropertyCapitalLedgerEntry(db, PROPERTY_LEDGER_WRITE_PROPERTY_KEY, body);
+    default:
+      throw new Error(`Unhandled property ledger write route: ${routeId}`);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -649,6 +706,77 @@ export default {
         return response(null, { status: 303, headers: { Location: '/?section=giving&status=ok' } });
       }
       const params = new URLSearchParams({ section: 'giving', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // ── Budget builder edit/save -- Finance's own genuine write to FINANCE_DB's finance_budget_plan
+    // (see budget-plan-write-service.js's top comment for the full port rationale). Gated off by
+    // default: `isBudgetPlanWritesEnabled` is checked FIRST, before role verification even runs, so
+    // a real request against this route today -- from any role, in any environment -- gets a plain
+    // "not yet enabled" response rather than reaching the write path at all. Only a later, separately
+    // approved cutover stage flips the finance_settings flag that turns this on.
+    if (route.id === 'budget-plan-save-v1') {
+      const writesEnabled = await isBudgetPlanWritesEnabled(env.FINANCE_DB);
+      if (!writesEnabled) {
+        return response(JSON.stringify({ error: 'not_yet_enabled', message: 'Budget builder editing is not yet enabled in this environment.' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      // Admin-only, matching every legacy Budget Planner write EXCEPT override-bulk's council
+      // carve-out -- see budget-plan-write-service.js's top comment for why that carve-out isn't
+      // ported yet. Every verification failure (not just an explicitly wrong role) fails closed.
+      if (!roleResult.ok || roleResult.role !== 'admin') {
+        return response(JSON.stringify({ error: 'access_denied', message: 'Access denied: editing budget plans requires admin access' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return response(JSON.stringify({ error: 'invalid_json', message: 'Request body must be JSON' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const validated = validateBudgetPlanRows(payload && payload.rows);
+      if (!validated.ok) {
+        return response(JSON.stringify({ error: 'invalid_rows', message: validated.error }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const saved = await saveBudgetPlanRows(env.FINANCE_DB, validated.rows);
+      return response(JSON.stringify({ ok: true, saved }), {
+        headers: { 'Content-Type': 'application/json; charset=utf-8', 'X-Finance-Contract': 'finance.budget-plan-save.v1' },
+      });
+    }
+
+    if (route.id === 'budget-plan-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=planning&status=error&reason=invalid_json' } });
+      }
+      const row = {
+        category: form.get('category') || '',
+        fiscal_year: form.get('fiscal_year') || '',
+        classification: form.get('classification') || 'Expenses',
+        planned_amount: form.get('planned_amount') || '',
+        notes: form.get('notes') || '',
+      };
+      const result = await postConnectFinanceBudgetWrite(env, accessJwt, [row]);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=planning&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'planning', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -785,6 +913,116 @@ export default {
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
 
+    // ── CSV import writes (see csv-import-service.js's own header comment) — each handler here
+    // only reads the JSON body and turns the pure result object back into a Response; every gate,
+    // parse, validation, and write decision lives in the service module. Every one of these four
+    // routes is gated OFF by default inside its own `run*CsvImport` call (`isCsvImportWritesEnabled`)
+    // -- a real request today gets a 403 with a clear "not yet enabled" message, not a write.
+    if (route.id === 'import-church-v1' || route.id === 'import-church-balances-v1'
+      || route.id === 'import-daycare-v1' || route.id === 'import-property-budget-v1') {
+      let body;
+      try { body = await request.json(); } catch { body = null; }
+      if (!body || typeof body !== 'object') {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), {
+          status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const runner = {
+        'import-church-v1': runChurchEntriesCsvImport,
+        'import-church-balances-v1': runChurchBalancesCsvImport,
+        'import-daycare-v1': runDaycareEntriesCsvImport,
+        'import-property-budget-v1': runPropertyBudgetMonthlyCsvImport,
+      }[route.id];
+      const result = await runner(env, env.FINANCE_DB, body);
+      const { status, ...payload } = result;
+      return response(JSON.stringify(payload), {
+        status, headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
+    }
+
+    // ── COMPENSATION PLANNER WRITE ── the one route in this file that writes to Finance's own
+    // FINANCE_DB rather than relaying elsewhere (see route-manifest.js's and
+    // compensation-plan-write-service.js's header comments). The enablement flag is checked
+    // FIRST, before any role verification, so a real request against an environment where it is
+    // still off (every environment, until Andrew explicitly turns it on) gets the same clear
+    // "not yet enabled" answer regardless of who is asking.
+    if (route.id === 'compensation-plan-save-v1') {
+      const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
+      const enabled = await isCompensationPlanWriteEnabled(env, env.FINANCE_DB);
+      if (!enabled) {
+        return response(JSON.stringify({
+          error: 'not_yet_enabled',
+          message: 'Compensation Planner editing is not yet enabled in this environment.',
+        }), { status: 503, headers: jsonHeaders });
+      }
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      if (!roleResult.ok || !COMPENSATION_LIVE_ALLOWED_ROLES.includes(roleResult.role)) {
+        return response(JSON.stringify({
+          error: 'Access denied: editing the Compensation Planner requires a verified admin, council, or compensation role',
+        }), { status: 403, headers: jsonHeaders });
+      }
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      const fiscalYear = Number.isInteger(payload.fiscalYear) ? payload.fiscalYear : parseInt(payload.fiscalYear, 10);
+      // Display-only, unverified label for who made this save -- same precedent and same safety
+      // argument as approverEmailFromJwt's own header comment in payroll-section.js: the real
+      // access decision already happened above via fetchVerifiedRole's independently-verified
+      // signature check, so a forged token cannot reach this line with a disallowed role, and
+      // this value is never used for anything but the audit column.
+      const updatedBy = approverEmailFromJwt(accessJwt) || '';
+      const result = await applyCompensationWorkerPlanWrite(env.FINANCE_DB, {
+        fiscalYear, role: roleResult.role, updatedBy, rows: payload.rows,
+      });
+      if (result.error) {
+        return response(JSON.stringify({ error: result.error }), { status: result.status || 400, headers: jsonHeaders });
+      }
+      return response(JSON.stringify({ ok: true, saved: result.saved }), { status: 200, headers: jsonHeaders });
+    }
+
+    if (PROPERTY_LEDGER_WRITE_ROUTE_IDS.has(route.id)) {
+      const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
+      const enabled = await isPropertyLedgerWritesEnabled(env, env.FINANCE_DB);
+      if (!enabled) {
+        return response(JSON.stringify({
+          error: 'not_yet_enabled',
+          message: 'Property ledger writes are not yet enabled in this environment.',
+        }), { status: 503, headers: jsonHeaders });
+      }
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      if (!roleResult.ok || roleResult.role !== 'admin') {
+        return response(JSON.stringify({
+          error: 'Access denied: editing property financials requires admin access',
+        }), { status: 403, headers: jsonHeaders });
+      }
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      try {
+        const result = await runPropertyLedgerWrite(route.id, env.FINANCE_DB, body);
+        return response(JSON.stringify(result), { status: 200, headers: jsonHeaders });
+      } catch (e) {
+        if (e instanceof PropertyLedgerValidationError) {
+          return response(JSON.stringify({ error: e.message }), { status: 400, headers: jsonHeaders });
+        }
+        return response(JSON.stringify({ error: 'Write failed' }), { status: 500, headers: jsonHeaders });
+      }
+    }
+
     if (route.id === 'summary-legacy') {
       try {
         const summary = await readSyntheticSummary(env.FINANCE_DB);
@@ -814,19 +1052,27 @@ export default {
         // nothing, compensation gets only the compensation-tagged section -- and only when a
         // role was actually verified. See connect-role-client.js's own comment for why this
         // deliberately stops short of replicating the full legacy permission matrix, and the
-        // council-banner markup below for how the sole remaining fail-open case (verification
-        // genuinely not configured -- staging's permanent, intentional state) is disclosed rather
-        // than silently treated as fully open.
+        // council-banner markup below for how the one remaining fail-open case (verification
+        // genuinely not configured, OUTSIDE production) is disclosed rather than silently treated
+        // as fully open.
         //
         // Every OTHER verification failure -- no Access identity reached this deep, a network
         // error, a non-200 from Connect, malformed JSON, or a malformed role payload -- must fail
         // CLOSED, not open: those are exactly the conditions under which a real production
         // member/volunteer/compensation-only identity could otherwise see every section simply
-        // because the verification call happened to fail at that moment. 'not_configured' is
-        // structurally different: it is staging's normal, permanent, disclosed state (no
-        // CONNECT_SERVICE binding/key exists there at all), not a runtime failure of a real check,
-        // so it alone keeps failing open exactly as before.
-        const roleVerificationBrokenUnsafely = !roleResult.ok && roleResult.reason !== 'not_configured';
+        // because the verification call happened to fail at that moment.
+        //
+        // 'not_configured' (no CONNECT_SERVICE binding/key at all) is treated the same way IN
+        // PRODUCTION (env.ENVIRONMENT === 'production', set by wrangler.finance.jsonc's own
+        // `vars`) -- a live financial system missing its own verification wiring is exactly the
+        // fail-open bug AGENTS.md calls out ("only denies section access when role lookup
+        // succeeds"), and must never silently grant blanket access just because a secret was
+        // never set. Outside production (staging/local/tests, where wrangler.finance.staging.jsonc
+        // sets ENVIRONMENT to 'staging' and the binding is not yet provisioned at all -- see
+        // apps/finance/README.md) this alone still fails open, disclosed via the banner below,
+        // so staging/local remain usable before that binding is wired up.
+        const roleVerificationBrokenUnsafely = !roleResult.ok
+          && (roleResult.reason !== 'not_configured' || env.ENVIRONMENT === 'production');
         if (roleVerificationBrokenUnsafely || (roleResult.ok && !roleCanAccessSection(roleResult.role, section))) {
           // Not just "/" -- the default section (Financial Health) is itself off-limits to a
           // role this narrow, so that would only bounce straight back into another denial. There
@@ -1016,6 +1262,10 @@ export default {
         const givingEntryMessage = givingEntryStatus === 'error'
           ? describeGivingEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        const budgetEntryStatus = section.id === 'planning' ? url.searchParams.get('status') : null;
+        const budgetEntryMessage = budgetEntryStatus === 'error'
+          ? describeBudgetEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
@@ -1024,7 +1274,7 @@ export default {
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
-          givingEntryStatus, givingEntryMessage, payrollBundle,
+          givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
         }), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });

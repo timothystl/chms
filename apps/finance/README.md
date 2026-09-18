@@ -29,7 +29,9 @@ forecast (a straight port of the AHRA-imported `finance_property_budget_monthly`
 table, not a computed run-rate projection despite the page's label) joined main in #1002 and a
 follow-on PR respectively, after the production deployment inspected in this review; do not infer
 they are deployed. Giving writes relay to Connect and payroll operations relay to Website. Neither
-relay transfers ownership of those records to Finance.
+relay transfers ownership of those records to Finance. Four CSV import routes (Church, Balance,
+Daycare, Property Budget — see `csv-import-service.js` and the Alpha.43 entry below) write to
+Finance's own database, but are gated off by default and not reachable in production.
 
 Compensation's four sub-pages split unevenly on whether a real substitute for their synthetic
 role-level fixture exists: Plan and Council snapshot both have an honest live version, gated to
@@ -47,20 +49,118 @@ role -- `filterCompensationWorkersForViewer`/`summarizeCompensationWorkers` in
 `compensation-report-service.js` are the shared implementation both pages call, so the two can
 never drift out of sync on who council is allowed to see.
 
+**Compensation Planner editing/saving (September 17, 2026, code-complete but OFF by default).**
+A real EDIT/SAVE write path now exists for the Compensation Planner, writing to Finance's OWN D1
+(`finance_compensation_worker_plan`, migration 0007) instead of the flat, worker-less
+`finance_compensation_plan` synthetic-report table (0002) -- the first route in this app that
+writes to Finance's own database rather than relaying elsewhere (see `route-manifest.js`'s and
+`compensation-plan-write-service.js`'s header comments for why that's the deliberate target
+architecture here, not a regression of the relay-only pattern). It is disabled in every environment
+today: `POST /api/v1/compensation-plan-save` checks `isCompensationPlanWriteEnabled()` (a
+`finance_settings` flag, `compensation_plan_write_enabled`, or the `COMPENSATION_PLAN_WRITE_ENABLED`
+env var) *before* any role check, and answers a plain "not yet enabled" until Andrew turns it on.
+Role gating reuses `COMPENSATION_LIVE_ALLOWED_ROLES`/`filterCompensationWorkersForViewer` from
+`compensation-report-service.js` rather than re-declaring the gate, so the write side can never
+drift from the live read side's admin/council/compensation restriction, and a council editor gets
+the identical generic denial for a worker that doesn't exist and one that is `hideFromCouncil` --
+it can never distinguish the two by probing.
+
+This does **not** reach parity with the legacy in-Connect Salary Planner roster
+(`SALARY_PLANNER_KEY` in `src/api-finance.js`), by design, and the gap is deliberate, not an
+oversight:
+- Covered: a real per-worker row (`fiscal_year`, `worker_key`) with seed facts (name, role label,
+  salary, benefits, notes), a per-worker `hideFromCouncil` flag enforced identically to the read
+  side, and a per-worker raise `comp_method`/`adjustment_pct` that a `council` viewer may edit on a
+  *visible* row only (the per-worker analogue of legacy's `COUNCIL_EDITABLE_FIELDS`).
+- Not covered: legacy's GLOBAL `compCustomPct`/`compScalePct`/`compBaselineRosterOnly` raise-plan
+  assumptions; legacy's hand-typed `compOverrides` dollar overrides; and legacy's private
+  per-council-member overlay fork (`finance_salary_planner_council_<username>`) -- a council save
+  here lands directly on the ONE shared table (restricted to the two fields above, on rows they may
+  see), not an isolated per-user draft, so two council users editing the same fiscal year can now
+  see and overwrite each other's `comp_method`/`adjustment_pct` choice. This mirrors how Finance's
+  existing read side already has no per-council-overlay concept at all, rather than introducing a
+  second, divergent council-state model just for this write path.
+See `compensation-plan-write-service.js`'s header comment for the same list with full rationale,
+and `test/finance-compensation-plan-write-service.test.js` /
+`test/finance-compensation-plan-write-route.test.js` for the tests, including the council-isolation
+precedent matching `test/council-compensation-role.test.js`.
+
+**Property reserve/distribution/capital-ledger entry (September 17, 2026, code-complete but OFF by
+default).** A further real write path now exists, this time for the Commercial Property reserve
+schedule, reserve disbursements, distributions, and capital-improvements ledger, writing to
+Finance's OWN D1 (`finance_property_reserves`, `finance_property_reserve_disbursements`,
+`finance_property_distributions`, `finance_property_capital_ledger` -- all already present in
+migration 0001, unchanged) instead of the shared Connect D1 legacy still writes to. It is a
+straight port of legacy's real `finance/property/ivanhoe/reserves/:reserveKey/monthly`,
+`.../disbursements`, `finance/property/ivanhoe/distributions`, and
+`finance/property/ivanhoe/capital-ledger` POST routes (`src/api-finance.js`'s `handlePropertyApi`)
+-- same field validation, same `reserve_before_cents` default-from-prior-month rule, same
+`reserve_after_cents = reserve_before_cents + contribution_cents` running balance, same
+capital-ledger `sort_order` auto-increment (see `property-ledger-write-service.js`'s header
+comment). It is disabled in every environment today, the same shape as the write paths just above:
+each of `POST /api/v1/property-reserve-entry`, `/api/v1/property-reserve-disbursement-entry`,
+`/api/v1/property-distribution-entry`, and `/api/v1/property-capital-ledger-entry` checks
+`isPropertyLedgerWritesEnabled()` (a `finance_settings` flag, `property_ledger_writes_enabled`, or
+the `PROPERTY_LEDGER_WRITES_ENABLED` env var) *before* any role check, and answers a plain
+`503 {"error":"not_yet_enabled"}` until Andrew turns it on. Role gating is admin-only, matching
+legacy's own `isAdmin` gate for editing property financials -- a narrower, different set than
+Compensation Planner's admin/council/compensation, because that is what legacy itself enforces for
+this data, not an invented stricter or looser rule.
+
+One real finding from porting this validation, worth stating plainly: **legacy enforces no
+sufficient-funds or reserve-overdraw check anywhere on this path.** A reserve's
+`reserve_after_cents` is a plain running total that a disbursement never reads back to reduce, and
+a disbursement's own amount is never checked against it -- the reserve schedule and the
+disbursement log are independent tables in legacy today. This port matches that reality rather than
+inventing a stricter rule legacy never had; see `property-ledger-write-service.js`'s header comment
+and `test/finance-property-ledger-write-service.test.js`'s dedicated test (a disbursement for one
+hundred times the reserve's own balance still succeeds) for the concrete proof. If a real balance
+check is ever wanted, that is a new product decision requiring its own sign-off, not something a
+straight port should add silently.
+
+This is code-complete and covered by `test/finance-property-ledger-write-service.test.js` (write
+logic and validation, against a real in-memory SQLite database migrated from
+`migrations/0001_finance_foundation.sql`) and `test/finance-property-ledger-write-route.test.js`
+(the flag, the admin-only check, and end-to-end writes through `shell.js`'s actual route dispatch)
+-- but it is deliberately not part of any cutover yet. No production or staging `finance_settings`
+row or environment variable turns it on; see the Timothy Digital overhaul checkpoint in `AGENTS.md`
+for the still-unfinished authoritative data/writer migration this is one piece of.
+
 Existing Finance remains operational in Connect. Moving authoritative accounting data and writers,
 cutting users over and retiring the old module remain unfinished. The new schema does not include
 the legacy QuickBooks OAuth/cache tables; that is not evidence the existing integration was retired.
 
 ### Known readiness limitations
 
-- The shell eagerly loads synthetic rows for Financial Health and companion data in Church,
-  Balance, Property and Compensation. Empty/non-fixture production data can make these readers
-  throw, yielding 503 “Synthetic staging data unavailable,” even when a real contract exists.
-  This is a source finding, not an authenticated live reproduction. Remove fixture dependencies
-  and verify real/empty/error states; do not populate production with sample financial data.
-- Section denial is conditional on successful role lookup. An unverified role currently continues,
-  and the coarse section mapping does not reproduce all legacy permissions. Compensation's live
-  fetch separately requires an allowed verified role. Access sign-in is not product authorization.
+- **Fixed (September 18, 2026).** The shell used to eagerly load synthetic rows for Financial
+  Health and companion data in Church, Balance, Property and Compensation, and a throw from any
+  one of those reads took down the entire request with a 503 "Synthetic staging data unavailable,"
+  even when every other section's own data was fine. Every one of those per-request reads in
+  `shell.js`'s `'shell'` route is now wrapped in `synthetic-read-guard.js`'s `safeSyntheticRead()`:
+  a read that throws degrades to the distinct `SYNTHETIC_UNAVAILABLE` sentinel (never confused with
+  `null`'s existing "not applicable to this section" meaning, and never a fabricated zero/blank),
+  and each section/page renderer shows an honest "data unavailable" placeholder for just that one
+  piece. Empty or non-fixture production data — production's real Finance D1 genuinely has zero
+  `source='synthetic_fixture'` rows today — degrades gracefully instead of crashing the page. This
+  does not change what data is real; it only stops one missing dependency from masking every other
+  section's real or synthetic data behind an unrelated 503.
+- **Fixed (September 18, 2026).** Section denial used to be conditional on successful role lookup:
+  every verification failure other than a genuinely wrong role fell through to full access. `shell.js`'s
+  `'shell'` route now fails closed on every verification failure — no Access identity, a network
+  error, a non-200 from Connect, malformed JSON, or a malformed role payload all deny access with a
+  403 — with one remaining, deliberate, disclosed exception: `not_configured` (no `CONNECT_SERVICE`
+  binding/key at all) still fails open OUTSIDE production, because staging/local do not have that
+  binding provisioned yet (see the Giving-relay paragraph above) and denying everything there would
+  make the app unusable for review before cutover. In **production** (`env.ENVIRONMENT ===
+  'production'`, set by `wrangler.finance.jsonc`'s own `vars`, distinct from staging's `'staging'`),
+  `not_configured` now ALSO fails closed — a live financial system silently missing its own
+  role-check wiring (e.g. a forgotten secret) is exactly the fail-open condition this was meant to
+  close, not an acceptable state to disclose-and-continue. See
+  `test/finance-alpha-shell.test.js`'s `'fails closed (403) on every role-verification failure...'`
+  block for the full matrix, including the production-vs-staging contrast. The coarse section
+  mapping (`roleCanAccessSection` in `connect-role-client.js`) still does not reproduce every legacy
+  admin/finance/staff/council permission, by design — see that file's own header comment. Access
+  sign-in is not product authorization.
 - `status: 'live'` in `parity-manifest.js` means a renderer exists, not that its data is production
   data or its workflow has passed acceptance. Several pages remain explicitly unavailable.
 - Older alpha notes and blanket “synthetic/read-only/no writers” copy describe historical stages;
@@ -101,7 +201,10 @@ noted above. Consult their source and the page registry for current per-page beh
 - `daycare-report-service.js` — one-query synthetic actuals and operating-result detail.
 - `property-report-service.js` — one-query synthetic monthly property performance detail.
 - `property-forecast-service.js` — one-query 12-month synthetic property plan with monthly and annual reconciliation.
-- `budget-report-service.js` — one-query synthetic future-plan detail and totals.
+- `property-ledger-write-service.js` — real, off-by-default writes into Finance's OWN `FINANCE_DB` for the property reserve schedule, reserve disbursements, distributions, and capital-improvements ledger; a straight port of legacy's real `handlePropertyApi` validation and running-balance rule (see the changelog paragraph above for the verified real finding on reserve-overdraw enforcement).
+- `budget-report-service.js` — one-query synthetic future-plan detail and totals; `resolveBudgetReport` tries the real `connect.finance-budget.v1` contract first and falls back to the synthetic fixture on any failure.
+- `finance-budget-client.js` — real transport for the live budget read (same shape as `finance-data-status-client.js`), plus `postConnectFinanceBudgetWrite`, the write relay for Budget Planner's manual edit/save form (see the route-manifest paragraph below).
+- `budget-plan-write-service.js` — validation and upsert for Budget builder's OWN edit/save write into Finance's own `finance_budget_plan` table (`FINANCE_DB`), gated off by default; see the route-manifest paragraph and the Alpha.42 entry below for how this differs from `budget-plan-write-v1`'s Connect relay above.
 - `accounts-report-service.js` — one-query synthetic account inventory and classification summary.
 - `data-status-service.js` — resolves real-or-synthetic import provenance and isolation status; `resolveDataStatus` tries the live `connect.finance-data-status.v1` contract first, falls back to the one-query synthetic reader on any failure.
 - `finance-data-status-consumer.js` — fail-closed parser for the `connect.finance-data-status.v1` contract.
@@ -113,6 +216,8 @@ noted above. Consult their source and the page registry for current per-page beh
 - `financial-mix-service.js` — pure reconciled income/expense composition view; `buildLiveFinancialMixView` builds the same `{fiscalYear, income, expenses}` shape directly from a live church-report contract result, used by Charts' revenue/expense mix pages and now Financial Health's Operating mix, each independently, whenever `resolveChurchReport` came back live.
 - `entity-overview-service.js` — pure separately-periodized Church, Daycare, and Property view; still synthetic-only by investigated decision, not merely unwired -- see the Financial Health entry below.
 - `operating-bridge-service.js` — pure reconciled annual Church income-to-result bridge; reads only `fiscalYear`/`totals.{incomeActualCents,expenseActualCents,actualNetCents}`, a shape the live Church Report view (`buildLiveChurchReportView`) already matches exactly, so no live-aware wrapper was needed to make Financial Health's Church operating bridge live-first too.
+- `csv-import-service.js` — CSV parsing, validation, and FINANCE_DB persistence for the Church/Balance/Daycare/Property Budget import write paths, plus the off-by-default `isCsvImportWritesEnabled` gate; see the Alpha.43 entry below.
+- `synthetic-read-guard.js` — wraps a single per-request synthetic-fixture read (or a live-first resolver's own synthetic fallback read) so a genuine missing-row throw degrades to the `SYNTHETIC_UNAVAILABLE` sentinel instead of taking down the whole request; see the "Known readiness limitations" fix above.
 
 The Giving consumer validates the closed `connect.giving-summary.v1` shape and its financial
 reconciliation before returning detached aggregate data, served at `/api/v1/connect-giving-preview`.
@@ -132,10 +237,27 @@ expectation.
 The route manifest is the closed inventory for the alpha Worker. Every published path defaults to
 read-only (`GET`/`HEAD`) and declares whether it uses no data, the dedicated synthetic D1, or a
 committed synthetic static fixture. Routes that read D1 name their query budget; unknown paths fail
-closed with `404`. One route is a deliberate exception: `giving-quick-entry-v1` accepts `POST` and
-relays the entry to Connect's own contract endpoint — it never writes to Finance's own database,
-and its own `methods`/`writer` fields in the manifest keep that exception visible in one place
-rather than hidden behind a runtime check.
+closed with `404`. Three routes are deliberate exceptions: `giving-quick-entry-v1` and
+`budget-plan-write-v1` each accept `POST` and relay the write to Connect's own contract endpoint —
+neither ever writes to Finance's own database; `budget-plan-save-v1` is the one route that DOES
+write to Finance's own database. Their own `methods`/`writer`/`dataSource` fields in the manifest
+keep all three exceptions visible in one place rather than hidden behind a runtime check.
+`budget-plan-write-v1` relays a hand-typed Budget Plan category/fiscal-year edit from the new
+Budget builder edit form (`planning-pages.js`'s `renderBudgetEditForm`, shown only to a viewer
+Finance's own role check independently verified as admin or council) to Connect's
+`finance-budget-write-v1` contract endpoint, which itself calls the exact same
+`applyBudgetPlanOverrideRows()` helper (`src/api-finance.js`) the legacy in-Connect Budget
+Planner's `finance/planning/church/override-bulk` route already uses — one shared implementation,
+so the two entry points can never drift on validation, on the admin/council-only gate, or on
+council's fork-into-their-own-overlay behavior. Budget Planner's generate/generate-all/commit/delete
+operations remain legacy-only (in Connect) for now. `budget-plan-save-v1` (Alpha.42, below) is a
+separately built, independent write path onto Finance's OWN `finance_budget_plan` table via
+`FINANCE_DB` -- part of the longer-term move of authoritative Budget data into Finance's own
+database rather than another consumer of the Connect relay above -- and stays off by default behind
+a `finance_settings` flag until a later, separately approved cutover stage. `compensation-plan-save-v1`
+and the four `property-*-entry-v1` routes (see the changelog paragraph above) are further such writes onto Finance's
+own database (`dataSource: 'finance-db-write'`), also off by default; see their own paragraphs
+above and `route-manifest.js`'s comments on them.
 
 Alpha.9 begins interface parity with the existing nine-section Finance information architecture.
 Only Financial Health renders synthetic metrics; the other familiar sections are explicit staging
@@ -335,6 +457,65 @@ cards already apply. Operating trend's "net" figure is each fiscal year's own re
 Operating result card already use -- not a naive income-minus-expense figure, and the trend card's
 fiscal year is no longer required to match Operating result's, since each card is now independently
 sourced. No new contract, query budget, migration, or writer.
+
+Alpha.42 adds Budget builder's real edit/save write onto Finance's OWN database -- `finance_budget_plan`
+via `FINANCE_DB` -- the first write anywhere in this app that is not a relay to Connect or Website
+(compare `giving-quick-entry-v1`/`budget-plan-write-v1`/the payroll routes, all of which relay
+out and never touch `FINANCE_DB`). `budget-plan-write-service.js` ports the validation and upsert
+SQL of legacy's `finance/planning/church/override-bulk` admin path (`src/api-finance.js`) --
+category/fiscal-year required, whole-dollar rounding, fiscal-year bounded to a sane 2000-2100
+range, classification restricted to Income/Expenses, and the whole batch rejected together if any
+one row is malformed, matching the legacy route's own all-or-nothing behavior -- as a local
+reimplementation rather than an import from `src/`, keeping Finance's own Worker independent of
+the legacy Connect codebase the way `apps/finance` is meant to be. It is deliberately narrower
+than legacy's override-bulk in one respect: council's private per-user `finance_settings` overlay
+fork is not ported, since Finance's own role contract (`connect-role-client.js`) does not carry a
+verified username yet; only the admin path is ported now, which is still a strict subset of what
+legacy already allows (never a new capability legacy denies). The route
+(`POST /api/v1/budget-plan-save`) is registered in the manifest and fully implemented and tested,
+but reachability is off by default everywhere: `isBudgetPlanWritesEnabled` checks a
+`finance_settings` key (`finance_budget_builder_writes_enabled`, defaulting to disabled, and
+failing closed on any read error) before role verification even runs, so a real request today gets
+a plain `not_yet_enabled` response regardless of role or environment. Turning it on is a later,
+separately approved cutover-stage change, not part of this slice. No query budget, migration, or
+Budget builder UI form changes -- this is the write path only.
+
+Alpha.43 adds CSV import write paths for Church Report (annual Budget-vs-Actuals), Balance Sheet
+(Statement of Financial Position), Daycare (category actuals/budget), and Commercial Property
+(monthly budget) — see `csv-import-service.js`. Each is a narrow, CSV-only port of one of legacy
+Connect's real import routes (`src/api-finance.js`'s `finance/church/import`,
+`finance/church/balances/import`, `finance/daycare/bulk`, and the AHRA
+`finance/property/:key/budget-import`/`monthly-import-csv` routes) — not the ~750-line server-side
+`.xlsx` grid reader those Church/Balance routes also support, which is out of scope here. The CSV
+tokenizer and thousands-comma-aware money parser are ported verbatim from `src/api-utils.js`'s
+`parseCsvRows` and `src/api-finance.js`'s `dollarsToCents` (this app never imports from legacy
+`src/`), but validation is deliberately stricter: an unparsable amount is a hard row-level error
+for the whole import, never a silently-substituted 0, matching this app's existing
+"never fabricate a number" discipline. This is the first capability in the new Finance app that
+writes to Finance's OWN database (`FINANCE_DB`) rather than relaying a write to Connect/Website
+(the Giving/Budget-plan/payroll relays above never touch this app's own tables) — each of the four
+new `/api/v1/import/*` routes (`route-manifest.js`'s new `dataSource: 'd1-write'`) writes real rows
+via wholesale-replace-by-key (Church/Balance/Daycare, tagged `source='import_csv'`) or per-key
+upsert (Property Budget), plus a `finance_import_log` row, matching legacy's logging discipline.
+Every one of the four routes is gated OFF by default — checked first, inside the handler, before
+any parsing or writing — by `isCsvImportWritesEnabled()` (an env var or a `finance_settings` row,
+either defaulting to disabled and failing closed on any read error): shipped code-complete and
+fully tested, but a real request today gets a 403 with a clear "not yet enabled" message, not a
+write. Turning it on is a later, separately-approved production cutover decision, not part of this
+change. No existing route, reader, or synthetic fixture is affected.
+
+Alpha.44 (September 18, 2026) closes the two readiness gaps `AGENTS.md` and this file's own "Known
+readiness limitations" called out by name — see that section above for the full detail. In short:
+(1) every per-request synthetic/live-fallback read in the `'shell'` route is now wrapped in the new
+`synthetic-read-guard.js`'s `safeSyntheticRead()`, so one missing fixture row degrades to an honest
+per-section "unavailable" placeholder instead of a blanket 503 for the whole page; and (2) the
+`'shell'` route's role-verification gate now fails closed on every verification failure in
+production, including `not_configured` (previously the one case that always fell through to full
+access everywhere) — outside production, `not_configured` still fails open, disclosed via the
+existing banner, because staging/local genuinely have no `CONNECT_SERVICE` binding provisioned yet.
+Neither change alters what data is real, adds a query budget or migration, or touches any write
+path. See `test/finance-alpha-shell.test.js`'s production-vs-staging `not_configured` tests for the
+regression coverage.
 
 ## Validate
 
