@@ -20,6 +20,7 @@ import {
   saveRevenueStreamMap, saveFlowExpenseMap, saveCashPolicy, saveDaycareAllocationConfig,
   applyDaycareBudgetOverride, bulkRecordDaycareEntries, importDaycareFromChurchBudget,
   saveBaseProjectionOverrides, savePurposeTags,
+  importChurchBudgetXlsx, importChurchBalancesXlsx,
 } from './api-finance.js';
 
 export async function handleContractsServiceApi(req, env, path) {
@@ -188,6 +189,14 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-purpose-tags-write-v1' && req.method === 'POST') {
     return handleFinancePurposeTagsWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-church-budget-xlsx-import-v1' && req.method === 'POST') {
+    return handleFinanceChurchBudgetXlsxImportContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-church-balances-xlsx-import-v1' && req.method === 'POST') {
+    return handleFinanceChurchBalancesXlsxImportContract(req, env);
   }
 
   if (path === '/api/contracts/finance-compensation-write-v1' && req.method === 'POST') {
@@ -793,6 +802,87 @@ async function handleFinancePurposeTagsWriteContract(req, env) {
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
   const result = await savePurposeTags(db, body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// Base64-decodes an uploaded .xlsx file carried as JSON (Finance's shell.js reads the browser's
+// multipart upload, then re-encodes the bytes this way before relaying) -- same `atob` +
+// byte-by-byte Uint8Array convention already used elsewhere in this codebase for a base64 payload
+// (access-jwt.js's base64UrlToUint8Array, push-sender.js's b64uDecode, apps/finance's own
+// xlsx-import-service.js's decodeBase64Xlsx), just plain base64 here rather than base64url since
+// there's no URL to embed it in. Capped at 15 MB, matching every legacy Excel-upload route's own
+// `file.size > 15 * 1024 * 1024` limit (see finance/church/import-preview and
+// finance/church/balances/import-preview above) -- decoded length is the real byte count, so the
+// cap is enforced against that, not the (slightly larger) base64 string length.
+const MAX_XLSX_UPLOAD_BYTES = 15 * 1024 * 1024;
+function decodeBase64XlsxUpload(fileBase64) {
+  if (typeof fileBase64 !== 'string' || !fileBase64.trim()) return { error: 'No file uploaded', status: 400 };
+  let binary;
+  try {
+    binary = atob(fileBase64);
+  } catch {
+    return { error: 'Uploaded file is not valid base64', status: 400 };
+  }
+  if (binary.length > MAX_XLSX_UPLOAD_BYTES) return { error: 'File too large (max 15 MB)', status: 413 };
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return { bytes };
+}
+
+// ── Church Budget-vs-Actuals .xlsx import, relayed from Finance's own Church Report (Budget vs
+// actual) UI ─────────────────────────────────────────────────────────────────────────────────
+// Same shape as handleFinancePurposeTagsWriteContract above: admin only, matching
+// finance/church/import(-preview)'s own gate exactly (importing/correcting church financial data
+// is exactly the kind of action finance-church-actual-override-v1 already gates admin-only), since
+// this calls the identical importChurchBudgetXlsx() helper (src/api-finance.js), which itself
+// reuses the SAME parseXlsxAllSheets/findBudgetVsActualsSheet/parseBudgetVsActualsGrid/
+// persistChurchEntriesImport primitives those legacy routes use -- just combined into one
+// parse-and-persist call instead of legacy's separate preview-then-commit steps (see
+// importChurchBudgetXlsx's own header comment for why that reduction is deliberate here).
+async function handleFinanceChurchBudgetXlsxImportContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: importing church financial data requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const decoded = decodeBase64XlsxUpload(body && body.file_base64);
+  if (decoded.error) return json({ error: decoded.error }, decoded.status || 400);
+  const result = await importChurchBudgetXlsx(db, { fiscalYearHint: body && body.fiscal_year_hint, fileBytes: decoded.bytes });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Balance Sheet .xlsx import, relayed from Finance's own Balance Sheet (Position) UI ─────────
+// Same shape as handleFinanceChurchBudgetXlsxImportContract above: admin only, same reasoning,
+// calling the identical importChurchBalancesXlsx() helper (src/api-finance.js).
+async function handleFinanceChurchBalancesXlsxImportContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: importing church financial data requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const decoded = decodeBase64XlsxUpload(body && body.file_base64);
+  if (decoded.error) return json({ error: decoded.error }, decoded.status || 400);
+  const result = await importChurchBalancesXlsx(db, { fileBytes: decoded.bytes });
   if (result.error) return json({ error: result.error }, result.status || 400);
   return json({ ...result, savedBy: user.username });
 }

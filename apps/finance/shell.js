@@ -17,7 +17,7 @@ import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.j
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
 import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
-import { postConnectFinanceChurchActualOverride } from './finance-church-report-client.js';
+import { postConnectFinanceChurchActualOverride, postConnectChurchBudgetXlsxImport } from './finance-church-report-client.js';
 import {
   postConnectFinanceDaycareEntry, postConnectDaycareAllocationConfigWrite, postConnectDaycareBudgetOverrideWrite,
   postConnectDaycareBulkWrite, postConnectDaycareChurchBudgetImportWrite,
@@ -33,6 +33,7 @@ import {
   postConnectPropertyReserveDisbursementWrite,
 } from './finance-property-reserves-client.js';
 import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
+import { postConnectChurchBalancesXlsxImport } from './finance-balance-sheet-client.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
   buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers,
@@ -202,6 +203,39 @@ function describeChurchOverrideError(reason, message) {
     case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
     case 'http_error': return message ? String(message) : 'Connect refused the correction.';
     default: return 'The correction was not saved.';
+  }
+}
+
+// 15 MB matches legacy's own `file.size > 15 * 1024 * 1024` guard on finance/church/import-preview
+// and finance/church/balances/import-preview (src/api-finance.js) -- checked client-side here (the
+// browser's own File.size, before any bytes are read) so an oversized upload never reaches the
+// relay call at all, same as legacy rejecting it before ever calling parseXlsxAllSheets.
+const MAX_XLSX_UPLOAD_BYTES = 15 * 1024 * 1024;
+
+// Encodes the uploaded file's bytes for the base64-in-JSON-body relay convention apps/finance's own
+// xlsx-import-service.js already established (see decodeBase64Xlsx there) -- the reverse of that
+// same byte-by-byte convention this codebase already uses elsewhere for base64 (access-jwt.js's
+// base64UrlToUint8Array, push-sender.js's b64uDecode).
+function bytesToBase64(bytes) {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+// Same shape as describeChurchOverrideError above, for postConnectChurchBudgetXlsxImport() /
+// postConnectChurchBalancesXlsxImport() failures. `no_file`/`too_large` are shell.js's own
+// client-side checks (before the relay call is even attempted, matching legacy's own
+// `file.size > 15 * 1024 * 1024` guard), not a reason the relay call itself ever returns.
+function describeChurchXlsxImportError(reason, message) {
+  switch (reason) {
+    case 'no_file': return 'No file was uploaded.';
+    case 'too_large': return 'File too large (max 15 MB).';
+    case 'not_configured': return 'Excel import is not connected yet. Nothing was imported.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was imported — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as imported.';
+    case 'http_error': return message ? String(message) : 'Connect refused the import.';
+    default: return 'The import did not complete.';
   }
 }
 
@@ -547,6 +581,8 @@ function renderSectionBody(ctx) {
     canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
     baseProjectionEntryStatus, baseProjectionEntryMessage,
     churchOverrideStatus, churchOverrideMessage,
+    churchBudgetXlsxImportStatus, churchBudgetXlsxImportMessage,
+    balanceXlsxImportStatus, balanceXlsxImportMessage,
     daycareEntryStatus, daycareEntryMessage,
     daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
     daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
@@ -705,10 +741,21 @@ function renderSectionBody(ctx) {
     const canManageChurchReport = roleResult.ok && roleResult.role === 'admin';
     return renderChurchPage(page.id, {
       churchReport: churchReportLive, churchTrendLive, canManageChurchReport, churchOverrideStatus, churchOverrideMessage,
+      // Same admin-only gate as canManageChurchReport above -- the Budget vs. Actuals .xlsx import
+      // form is a separate write (finance-church-budget-xlsx-import-v1), but matches legacy's own
+      // finance/church/import(-preview) admin-only gate exactly, so there's no reason for a
+      // different check here.
+      churchBudgetXlsxImportStatus, churchBudgetXlsxImportMessage,
     });
   }
   if (section.id === 'balance') {
-    return renderBalancePage(page.id, { balanceSheet, balanceTrends });
+    // Same admin-only gate as the legacy in-Connect Balance Sheet's own
+    // finance/church/balances/import(-preview) routes -- UI hiding is never authorization, the
+    // real gate is finance-church-balances-xlsx-import-v1's own role check on Connect's side.
+    const canManageBalanceImport = roleResult.ok && roleResult.role === 'admin';
+    return renderBalancePage(page.id, {
+      balanceSheet, balanceTrends, canManageBalanceImport, balanceXlsxImportStatus, balanceXlsxImportMessage,
+    });
   }
   if (section.id === 'daycare') {
     // Any verified role that can reach this section at all may attempt an entry -- the legacy
@@ -1277,6 +1324,46 @@ export default {
         return response(null, { status: 303, headers: { Location: '/?section=church&page=income-expense&status=ok' } });
       }
       const params = new URLSearchParams({ section: 'church', page: 'income-expense', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Church Budget-vs-Actuals / Balance Sheet .xlsx import, relayed live to Connect. Unlike every
+    // other write route in this file, the browser posts a real multipart/form-data file upload
+    // (church-pages.js's/balance-pages.js's `<form enctype="multipart/form-data">`), not plain
+    // fields -- request.formData() already parses that correctly either way, and `form.get('file')`
+    // returns a File (a Blob with .size/.arrayBuffer()) here instead of a string. The relay call to
+    // Connect's contract endpoint still carries JSON, per the same base64-in-JSON-body convention
+    // apps/finance's own xlsx-import-service.js already established for its off-by-default routes
+    // (see this codebase's other base64 users: access-jwt.js's base64UrlToUint8Array, push-sender.js's
+    // b64uDecode) -- so the uploaded bytes are base64-encoded here, in the Worker, before relaying.
+    // Capped at 15 MB client-side, matching legacy's own `file.size > 15 * 1024 * 1024` guard, so an
+    // oversized upload never even reaches the relay call.
+    if (route.id === 'church-budget-xlsx-import-write-v1' || route.id === 'church-balances-xlsx-import-write-v1') {
+      const isBalances = route.id === 'church-balances-xlsx-import-write-v1';
+      const redirectBase = isBalances ? { section: 'balance', page: 'position' } : { section: 'church', page: 'budget-actual' };
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ ...redirectBase, status: 'error', reason: 'invalid_json' }).toString()}` } });
+      }
+      const file = form.get('file');
+      if (!file || typeof file.arrayBuffer !== 'function') {
+        return response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ ...redirectBase, status: 'error', reason: 'no_file' }).toString()}` } });
+      }
+      if (file.size > MAX_XLSX_UPLOAD_BYTES) {
+        return response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ ...redirectBase, status: 'error', reason: 'too_large' }).toString()}` } });
+      }
+      const fileBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+      const result = isBalances
+        ? await postConnectChurchBalancesXlsxImport(env, accessJwt, { file_base64: fileBase64 })
+        : await postConnectChurchBudgetXlsxImport(env, accessJwt, { fiscal_year_hint: form.get('fiscal_year_hint') || '', file_base64: fileBase64 });
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ ...redirectBase, status: 'ok' }).toString()}` } });
+      }
+      const params = new URLSearchParams({ ...redirectBase, status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -2374,6 +2461,21 @@ export default {
         const churchOverrideMessage = churchOverrideStatus === 'error'
           ? describeChurchOverrideError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        // The Budget vs. Actuals .xlsx import form lives on its own 'budget-actual' page (never
+        // the same page as the actual-override form above), so reusing the same
+        // section-id-scoped status/reason/message query-param shape as churchOverrideStatus above
+        // cannot bleed between the two forms -- only one of the two pages is ever rendered per
+        // request.
+        const churchBudgetXlsxImportStatus = section.id === 'church' ? url.searchParams.get('status') : null;
+        const churchBudgetXlsxImportMessage = churchBudgetXlsxImportStatus === 'error'
+          ? describeChurchXlsxImportError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        // Same shared status/reason/message query-param shape, for the Balance Sheet .xlsx import
+        // form on the 'position' page.
+        const balanceXlsxImportStatus = section.id === 'balance' ? url.searchParams.get('status') : null;
+        const balanceXlsxImportMessage = balanceXlsxImportStatus === 'error'
+          ? describeChurchXlsxImportError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const daycareEntryStatus = section.id === 'daycare' ? url.searchParams.get('status') : null;
         const daycareEntryMessage = daycareEntryStatus === 'error'
           ? describeDaycareEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
@@ -2451,6 +2553,8 @@ export default {
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
           planOpKind, planOpStatus, planOpMessage, baseProjectionEntryStatus, baseProjectionEntryMessage,
           churchOverrideStatus, churchOverrideMessage,
+          churchBudgetXlsxImportStatus, churchBudgetXlsxImportMessage,
+          balanceXlsxImportStatus, balanceXlsxImportMessage,
           daycareEntryStatus, daycareEntryMessage,
           daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
           daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,

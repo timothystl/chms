@@ -1655,6 +1655,71 @@ export async function persistChurchEntriesImport(db, rows, fiscalYear, importedA
   await db.batch(ops);
 }
 
+// ── Shared Church Budget-vs-Actuals .xlsx import: parse + persist in ONE call ───────────────
+// Used only by finance-church-budget-xlsx-import-v1 (src/api-contracts-service.js) — NOT by the
+// legacy two-step finance/church/import-preview -> finance/church/import routes above, which stay
+// exactly as they are and are otherwise untouched by this batch. Unlike every other shared-
+// function extraction in this file (which factors one existing route body out so a relay can call
+// it verbatim), legacy's own preview/checkbox-review flow has no single function to extract — this
+// is a new, additive COMBINATION of the same existing primitives those legacy routes already use
+// (parseXlsxAllSheets/findBudgetVsActualsSheet/parseBudgetVsActualsGrid/persistChurchEntriesImport/
+// recordImport), collapsing legacy's preview-then-checkbox-commit UX into one parse-and-persist
+// step for a caller with no session to hold a pending preview in — the same deliberate reduction
+// apps/finance's own xlsx-import-service.js already ships for this exact report type (see its
+// Alpha.45 changelog entry in apps/finance/README.md, "a real, deliberate reduction from legacy's
+// own UX for this specific file format"). `fiscalYearHint` is accepted for symmetry with the
+// caller's request shape but is never trusted over the workbook's own fiscal year — exactly like
+// legacy, which only ever imports whatever the sheet itself declares (see
+// parseBudgetVsActualsGrid's own date-range-line scan above); there is no server-side row-review
+// step left to let a caller override it.
+export async function importChurchBudgetXlsx(db, { fiscalYearHint, fileBytes } = {}) {
+  void fiscalYearHint; // never trusted — see this function's own header comment
+  if (!fileBytes || !fileBytes.byteLength) return { error: 'No file uploaded', status: 400 };
+  let sheets;
+  try { sheets = await parseXlsxAllSheets(fileBytes.buffer); }
+  catch (e) { return { error: 'Could not read this file as an Excel workbook: ' + e.message, status: 400 }; }
+  const sheet = findBudgetVsActualsSheet(sheets);
+  if (!sheet) return { error: 'Could not find a "Budget vs. Actuals" sheet (a sheet with Actual/Budget columns) in this file.', status: 400 };
+  let parsed;
+  try { parsed = parseBudgetVsActualsGrid(sheet.grid); }
+  catch (e) { return { error: e.message, status: 400 }; }
+  if (!parsed.fiscalYear) return { error: 'Could not determine the fiscal year from this sheet — expected a date-range line like "January - December 2026" above the header row.', status: 400 };
+  if (!parsed.rows.length) return { error: 'No importable account rows found in this sheet.', status: 400 };
+  try {
+    await persistChurchEntriesImport(db, parsed.rows, parsed.fiscalYear, new Date().toISOString());
+  } catch (e) {
+    return { error: 'Could not save ' + parsed.rows.length + ' row(s) for FY' + parsed.fiscalYear + ': ' + (e && e.message ? e.message : String(e)), status: 500 };
+  }
+  await recordImport(db, 'church_budget', `FY${parsed.fiscalYear}`);
+  return { ok: true, fiscalYear: parsed.fiscalYear, imported: parsed.rows.length, skipped: parsed.skipped };
+}
+
+// ── Shared Balance Sheet .xlsx import: parse + persist in ONE call ──────────────────────────
+// Same reasoning and same "additive combination, not an extraction" shape as
+// importChurchBudgetXlsx above, for the Balance Sheet / Statement of Financial Position import —
+// used only by finance-church-balances-xlsx-import-v1; the legacy finance/church/balances/
+// import-preview and finance/church/balances/import routes stay exactly as they are.
+export async function importChurchBalancesXlsx(db, { fileBytes } = {}) {
+  if (!fileBytes || !fileBytes.byteLength) return { error: 'No file uploaded', status: 400 };
+  let sheets;
+  try { sheets = await parseXlsxAllSheets(fileBytes.buffer); }
+  catch (e) { return { error: 'Could not read this file as an Excel workbook: ' + e.message, status: 400 }; }
+  const sheet = findBalanceSheetSheet(sheets);
+  if (!sheet) return { error: 'Could not find a Balance Sheet / Statement of Financial Position sheet in this file.', status: 400 };
+  let parsed;
+  try { parsed = parseBalanceSheetGrid(sheet.grid, sheet.colAIndent); }
+  catch (e) { return { error: e.message, status: 400 }; }
+  if (!parsed.fiscalYear) return { error: 'Could not determine the fiscal year from this sheet — expected an "As of ..." date line above the header row.', status: 400 };
+  if (!parsed.rows.length) return { error: 'No importable account rows found in this sheet.', status: 400 };
+  try {
+    await persistChurchBalancesImport(db, parsed.rows, parsed.fiscalYear, parsed.asOfDate, new Date().toISOString());
+  } catch (e) {
+    return { error: 'Could not save ' + parsed.rows.length + ' balance row(s) for FY' + parsed.fiscalYear + ': ' + (e && e.message ? e.message : String(e)), status: 500 };
+  }
+  await recordImport(db, 'church_balance', `FY${parsed.fiscalYear}`);
+  return { ok: true, fiscalYear: parsed.fiscalYear, asOfDate: parsed.asOfDate, basis: parsed.basis, imported: parsed.rows.length, skipped: parsed.skipped };
+}
+
 // Fetches the Budget entity + a single current-year ProfitAndLoss report and merges them into
 // one tree, via the same collision-safe mergeProfitAndLossTree() used everywhere else in this
 // file. This is the one trusted place that produces a current-year Budget+Actual merged tree —

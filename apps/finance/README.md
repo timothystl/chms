@@ -618,6 +618,68 @@ route tests, plus a check that the Projected-correction form's own status does n
 unrelated Budget edit form). `test/finance-route-manifest.test.js` is extended with both new route
 ids.
 
+Alpha.49 extends the live-relay write pattern to the two remaining, and most operationally
+important, legacy Finance write routes without any relay: the Church Budget-vs-Actuals and Balance
+Sheet Excel (`.xlsx`) imports -- relayed to two new Connect contract endpoints
+(`finance-church-budget-xlsx-import-v1`, `finance-church-balances-xlsx-import-v1`), admin-only,
+matching legacy's own `finance/church/import(-preview)` and `finance/church/balances/
+import(-preview)` routes' parsing, validation, and persistence exactly -- full function, same data,
+same app, never a second writer. `src/api-finance.js` adds `importChurchBudgetXlsx`/
+`importChurchBalancesXlsx` as two new shared functions that reuse the EXISTING
+`parseXlsxAllSheets`/`findBudgetVsActualsSheet`/`parseBudgetVsActualsGrid`/
+`findBalanceSheetSheet`/`parseBalanceSheetGrid`/`persistChurchEntriesImport`/
+`persistChurchBalancesImport`/`recordImport` primitives verbatim -- unlike every prior batch's
+shared-function extraction, there is nothing to extract here (legacy's own preview-then-checkbox-
+commit flow has no single function to pull out), so these are a new, additive COMBINATION of the
+same underlying primitives, called only by the new relay contract handlers in
+`src/api-contracts-service.js`. The legacy `finance/church/import-preview`/`finance/church/import`/
+`finance/church/balances/import-preview`/`finance/church/balances/import` routes are completely
+untouched by this batch.
+
+**Deliberate simplification, matching the already-accepted Alpha.45 precedent for this exact same
+report-type pair:** `xlsx-import-service.js`'s own header comment (see its Alpha.45 changelog entry
+above) explicitly documents dropping legacy's two-step preview/checkbox-review UX in favor of a
+single request that parses AND persists in one call, for these SAME two report types, calling that
+"a real, deliberate reduction from legacy's own UX for this specific file format." This relay
+follows the identical precedent: one request, no preview step, no per-row selection. There is no
+session for this stateless relay architecture to hold a pending preview in.
+
+The uploaded file travels as a base64 string inside the JSON relay body -- the same convention
+`xlsx-import-service.js`'s own off-by-default routes already established (`decodeBase64Xlsx`) --
+decoded server-side in `src/api-contracts-service.js` with the same `atob` + byte-by-byte
+`Uint8Array` convention this codebase already uses elsewhere for base64 (`access-jwt.js`'s
+`base64UrlToUint8Array`, `push-sender.js`'s `b64uDecode`), capped at 15 MB to match the legacy
+routes' own `file.size > 15 * 1024 * 1024` limit. `apps/finance/shell.js` is the one piece of this
+pattern that looks different from every prior batch: its two new POST routes
+(`connect-church-budget-xlsx-import-write`, `connect-church-balances-xlsx-import-write`) read a
+real `<form enctype="multipart/form-data">` browser upload via `request.formData()` (a `File`, not
+a plain field) instead of the plain-field forms every earlier relay batch handled, base64-encoding
+the uploaded bytes itself before relaying -- capped at 15 MB client-side first (`no_file`/
+`too_large` redirect reasons), so an oversized upload never even reaches the relay call, matching
+legacy's own guard order.
+
+New transports: `postConnectChurchBudgetXlsxImport` in `finance-church-report-client.js` and
+`postConnectChurchBalancesXlsxImport` in `finance-balance-sheet-client.js` (the Balance Sheet
+report's first write transport of any kind). New forms: a file-upload form on Church Report's
+Budget vs actual page (`church-pages.js`, reusing the existing `canManageChurchReport` admin-only
+gate the actual-figure correction form on Income & expense detail already uses -- both are the same
+"editing church financial data requires admin access" gate on Connect's side) and on Balance
+Sheet's Position page (`balance-pages.js`, its first write form of any kind, gated by a new
+`canManageBalanceImport`). Both routes and both forms are registered in `route-manifest.js`
+(`church-budget-xlsx-import-write-v1`, `church-balances-xlsx-import-write-v1`, both
+`dataSource: 'live-relay', writer: true`). Tests: `test/finance-church-budget-xlsx-import-write-
+contract.test.js` and `test/finance-church-balances-xlsx-import-write-contract.test.js` (valid
+import saves real rows with the right source/fiscal year, oversized file rejected, invalid/
+non-xlsx bytes rejected, wrong role rejected, wrong contract key rejected, missing/invalid identity
+rejected, deactivated user rejected, not-configured -- each building a small real, hand-constructed
+uncompressed `.xlsx`-shaped ZIP fixture, adapting `test/finance-xlsx-import.test.js`'s own fixture-
+building helper, which is test infrastructure only, not a copy of any write path), plus
+`test/finance-church-budget-xlsx-import-route.test.js` and `test/finance-church-balances-xlsx-
+import-route.test.js` (method-not-allowed, role-gated form visibility, no_file/too_large client-
+side rejection before the relay is ever called, successful relay + redirect with the base64 bytes
+verified byte-for-byte, refusal-reason passthrough, and network_error handling).
+`test/finance-route-manifest.test.js` is extended with both new route ids.
+
 ## QuickBooks OAuth/sync design (dark code, never exercised against the real account)
 
 This adds a Finance-owned design (plus as much working code as is honest to write without live

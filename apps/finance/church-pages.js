@@ -27,6 +27,29 @@ function renderChurchActualOverrideForm(fiscalYear, entryStatus, entryMessage) {
   </section>`;
 }
 
+// Admin-only Budget vs. Actuals .xlsx import -- relayed live to Connect's real
+// finance_church_entries table (see finance-church-budget-xlsx-import-v1 in
+// src/api-contracts-service.js), never stored in Finance's own database. Shown only on Budget vs
+// actual, the page that already renders the actual-vs-budget comparison a fresh import would
+// replace. A real `<input type="file">` upload (multipart/form-data), unlike every other write
+// form in this app -- shell.js reads the uploaded bytes, base64-encodes them, and relays a single
+// request that parses AND persists the sheet (legacy's own separate preview/checkbox-review step
+// is deliberately not ported here -- see importChurchBudgetXlsx's header comment in
+// src/api-finance.js). The fiscal year is read from the workbook itself, exactly as legacy
+// determines it, so there is no fiscal-year field to fill in.
+function renderChurchBudgetXlsxImportForm(entryStatus, entryMessage) {
+  return `<section aria-label="Import Budget vs. Actuals from Excel">
+    ${renderSectionHeading({ eyebrow: 'Church Report', heading: 'Import Budget vs. Actuals (.xlsx)', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Imported into Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-church-budget-xlsx-import-write" enctype="multipart/form-data">
+      <div class="field"><label for="cbx-file">QuickBooks "Budget vs. Actuals" export (.xlsx, max 15 MB)</label><input id="cbx-file" type="file" name="file" accept=".xlsx" required></div>
+      <button type="submit">Import file</button>
+    </form>
+    <p><small>Parses the uploaded workbook and writes every account row directly into Connect's own <code>finance_church_entries</code> table, tagged <code>source='import'</code> -- the same table and source the legacy in-Connect Excel import writes, replacing any prior import for that same fiscal year (a later QuickBooks sync or manual correction still takes precedence at read time, same as before). The fiscal year comes from the workbook's own date-range line, not a form field. Only Connect's own admin role may import; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
 export function renderChurchRows(rows) {
   return rows.map((row) => {
     const variance = row.classification === 'Income'
@@ -72,7 +95,10 @@ export function renderLiveChurchTrendRows(years) {
 // fallbackReason, rows } -- for the 'trend' (multi-year) page specifically. Health/Charts/Packet's
 // own still-synthetic churchReport/churchTrends usage in shell.js is untouched, out of scope for
 // this contract.
-export function renderChurchPage(pageId, { churchReport, churchTrendLive, canManageChurchReport, churchOverrideStatus, churchOverrideMessage }) {
+export function renderChurchPage(pageId, {
+  churchReport, churchTrendLive, canManageChurchReport, churchOverrideStatus, churchOverrideMessage,
+  churchBudgetXlsxImportStatus, churchBudgetXlsxImportMessage,
+}) {
   if (pageId === 'trend') {
     const isTrendLive = churchTrendLive.source === 'live';
     const badge = isTrendLive ? 'Live from Connect' : 'Synthetic staging';
@@ -111,7 +137,7 @@ export function renderChurchPage(pageId, { churchReport, churchTrendLive, canMan
       ])}
       ${renderTable({ head: ['Classification', 'Account', 'Actual', 'Budget', 'Favorable variance'], rows })}
       ${fallbackNote}
-    </section>`;
+    </section>${canManageChurchReport ? renderChurchBudgetXlsxImportForm(churchBudgetXlsxImportStatus, churchBudgetXlsxImportMessage) : ''}`;
   }
   // 'overview' (default)
   return `<section class="report" aria-label="Church Report overview">

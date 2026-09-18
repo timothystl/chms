@@ -20,7 +20,8 @@ const WRITE_ROUTE_IDS = new Set([
   'giving-quick-entry-v1', 'budget-plan-write-v1', 'compensation-plan-write-v1', 'payroll-hours-save-v1', 'payroll-period-approve-v1',
   'payroll-staff-save-v1', 'payroll-staff-deactivate-v1', 'payroll-email-v1',
   'budget-generate-v1', 'budget-generate-all-v1', 'budget-commit-v1', 'budget-plan-remove-v1',
-  'church-actual-override-v1', 'daycare-entry-v1', 'board-categories-write-v1', 'property-monthly-write-v1',
+  'church-actual-override-v1', 'church-budget-xlsx-import-write-v1', 'church-balances-xlsx-import-write-v1',
+  'daycare-entry-v1', 'board-categories-write-v1', 'property-monthly-write-v1',
   'property-repair-write-v1', 'property-distribution-write-v1', 'property-reserve-monthly-write-v1',
   'property-reserve-disbursement-write-v1', 'property-capital-ledger-write-v1',
   'revenue-streams-write-v1', 'flow-expense-map-write-v1', 'cash-policy-write-v1',
@@ -55,7 +56,9 @@ describe('Finance staging route manifest', () => {
       '/api/v1/connect-giving-quick-entry', '/api/v1/budget-plan-save', '/api/v1/connect-budget-plan-write', '/api/v1/connect-compensation-plan-write',
       '/api/v1/connect-budget-generate', '/api/v1/connect-budget-generate-all', '/api/v1/connect-budget-commit', '/api/v1/connect-budget-plan-remove',
       '/api/v1/connect-base-projection-write',
-      '/api/v1/connect-church-actual-override', '/api/v1/connect-daycare-entry', '/api/v1/connect-board-categories-write',
+      '/api/v1/connect-church-actual-override',
+      '/api/v1/connect-church-budget-xlsx-import-write', '/api/v1/connect-church-balances-xlsx-import-write',
+      '/api/v1/connect-daycare-entry', '/api/v1/connect-board-categories-write',
       '/api/v1/connect-purpose-tags-write',
       '/api/v1/connect-property-monthly-write', '/api/v1/connect-property-repair-write',
       '/api/v1/connect-property-distribution-write', '/api/v1/connect-property-reserve-monthly-write',
@@ -150,6 +153,12 @@ describe('Finance staging route manifest', () => {
     });
     expect(resolveFinanceRoute('/api/v1/connect-church-actual-override')).toMatchObject({
       id: 'church-actual-override-v1', contract: 'connect.finance-church-actual-override-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-church-budget-xlsx-import-write')).toMatchObject({
+      id: 'church-budget-xlsx-import-write-v1', contract: 'connect.finance-church-budget-xlsx-import-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-church-balances-xlsx-import-write')).toMatchObject({
+      id: 'church-balances-xlsx-import-write-v1', contract: 'connect.finance-church-balances-xlsx-import-write-relay.v1', dataSource: 'live-relay',
     });
     expect(resolveFinanceRoute('/api/v1/connect-daycare-entry')).toMatchObject({
       id: 'daycare-entry-v1', contract: 'connect.finance-daycare-entry-relay.v1', dataSource: 'live-relay',
