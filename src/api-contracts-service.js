@@ -11,7 +11,12 @@ import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, resp
 import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
-import { applyBudgetPlanOverrideRows, applySalaryPlannerWrite } from './api-finance.js';
+import {
+  applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
+  generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
+  applyChurchActualOverride, recordDaycareEntry, applyBoardCategoryMerge, upsertPropertyMonthly,
+  addPropertyRepair,
+} from './api-finance.js';
 
 export async function handleContractsServiceApi(req, env, path) {
   const expectedKey = env.FINANCE_CONTRACT_API_KEY || '';
@@ -93,8 +98,48 @@ export async function handleContractsServiceApi(req, env, path) {
     return handleFinanceBudgetWriteContract(req, env);
   }
 
+  if (path === '/api/contracts/finance-budget-generate-v1' && req.method === 'POST') {
+    return handleFinanceBudgetGenerateContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-budget-generate-all-v1' && req.method === 'POST') {
+    return handleFinanceBudgetGenerateAllContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-budget-commit-v1' && req.method === 'POST') {
+    return handleFinanceBudgetCommitContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-budget-remove-v1' && req.method === 'POST') {
+    return handleFinanceBudgetRemoveContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-church-actual-override-v1' && req.method === 'POST') {
+    return handleFinanceChurchActualOverrideContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-daycare-entry-v1' && req.method === 'POST') {
+    return handleFinanceDaycareEntryContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-board-categories-write-v1' && req.method === 'POST') {
+    return handleFinanceBoardCategoriesWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-property-monthly-write-v1' && req.method === 'POST') {
+    return handleFinancePropertyMonthlyWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-property-repair-write-v1' && req.method === 'POST') {
+    return handleFinancePropertyRepairWriteContract(req, env);
+  }
+
   if (path === '/api/contracts/finance-compensation-write-v1' && req.method === 'POST') {
     return handleFinanceCompensationWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-compensation-plan-v1' && req.method === 'GET') {
+    return handleFinanceCompensationPlanContract(req, env);
   }
 
   if (path === '/api/contracts/staff-role-v1' && req.method === 'GET') {
@@ -219,6 +264,252 @@ async function handleFinanceBudgetWriteContract(req, env) {
   return json({ ok: true, saved: result.saved, savedBy: user.username });
 }
 
+// ── Budget Plan generate / generate-all / commit / delete, relayed from Finance's own Budget
+// Planner UI ──────────────────────────────────────────────────────────────────────────────
+// Same shape as handleFinanceBudgetWriteContract above: the X-Contract-Key check only proves the
+// call came from Finance's Worker, this proves WHO Finance says is acting, and the verified
+// identity's real Connect role decides whether the operation is allowed -- admin only for all
+// four, matching finance/planning/church/generate[-all]/commit/DELETE's own gate exactly, since
+// each of these calls the identical helper (src/api-finance.js) that route uses. One shared
+// implementation per operation means the legacy in-Connect Budget Planner and these relays can
+// never drift on validation.
+async function handleFinanceBudgetGenerateContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const targetYears = Array.isArray(body.target_years) ? body.target_years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
+  const result = await generateBudgetPlanRows(db, {
+    category: String(body.category || '').trim(), classification: body.classification || 'Expenses',
+    baseAmountCents: Math.round(Number(body.base_amount) * 100), growthPct: Number(body.growth_pct),
+    targetYears, notes: body.notes,
+  });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+async function handleFinanceBudgetGenerateAllContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await generateAllBudgetPlan(db, {
+    baseYear: parseInt(body.base_year, 10), targetYear: parseInt(body.target_year, 10),
+    growthPct: Number(body.growth_pct), throughWeekInput: body.through_week,
+  });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+async function handleFinanceBudgetCommitContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: committing a budget plan requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await commitBudgetPlan(db, parseInt(body.fiscal_year, 10));
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+async function handleFinanceBudgetRemoveContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await deleteBudgetPlanRow(db, String(body.category || '').trim(), parseInt(body.fiscal_year, 10));
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Church Report actual-figure correction, relayed from Finance's own Church Report UI ─────
+// Same shape as the Budget Plan relays above: the X-Contract-Key check only proves the call came
+// from Finance's Worker, this proves WHO Finance says is acting, and the verified identity's real
+// Connect role decides whether the correction is allowed -- admin only, matching finance/church/
+// actual-override's own gate exactly, since this calls the identical applyChurchActualOverride()
+// helper that route uses (src/api-finance.js).
+async function handleFinanceChurchActualOverrideContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: correcting an actual figure requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await applyChurchActualOverride(db, parseInt(body.year, 10), body.rows);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Daycare entry, relayed from Finance's own Daycare Report UI ─────────────────────────────
+// Same shape as handleGivingQuickEntryContract above: the X-Contract-Key check only proves the
+// call came from Finance's Worker, this proves WHO Finance says is acting, and the verified
+// identity's real Connect role/permissions decide whether the write is allowed. Unlike every
+// other write relay in this file, the legacy finance/daycare route itself has no role check
+// beyond the blanket ACCESS_GATE wrapping the whole handler (src/api-chms.js's financeSegItems
+// maps this exact segment to ['finance', 'budget', 'compensation'], granting access if ANY of
+// those three items is edit-level for this role) -- so this re-derives that same "any of the
+// three" check via getRolePermissions/permissionsForRole rather than a simple role-name check,
+// the same real-permission-matrix pattern the Giving relay above already uses.
+async function handleFinanceDaycareEntryContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  const perms = await getRolePermissions(db);
+  const rolePerms = permissionsForRole(perms, user.role);
+  const canEnterDaycare = ['finance', 'budget', 'compensation'].some((item) => rolePerms[item] === 'edit');
+  if (!canEnterDaycare) return json({ error: 'Access denied' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+
+  const result = await recordDaycareEntry(db, body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+
+  await db.prepare(
+    `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+     VALUES('daycare_entry_via_finance','finance_daycare_entries',?,?,'entered_by','',?)`
+  ).bind(String(result.id ?? ''), '', email).run().catch(() => {});
+
+  return json({ ok: true, id: result.id, savedBy: user.username });
+}
+
+// ── Chart of Accounts board-category merge, relayed from Finance's own Chart of Accounts UI ──
+// Same shape as handleFinanceBudgetWriteContract above: the X-Contract-Key check only proves the
+// call came from Finance's Worker, this proves WHO Finance says is acting, and the verified
+// identity's real Connect role decides whether the merge is allowed -- admin only, matching
+// finance/planning/board-categories's own gate exactly, since this calls the identical
+// applyBoardCategoryMerge() helper that route uses (src/api-finance.js).
+async function handleFinanceBoardCategoriesWriteContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing the chart of accounts requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await applyBoardCategoryMerge(db, body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Commercial Property monthly-financials write, relayed from Finance's own Property Operating
+// Results UI ──────────────────────────────────────────────────────────────────────────────────
+// Same shape as handleFinanceBudgetWriteContract above: the X-Contract-Key check only proves the
+// call came from Finance's Worker, this proves WHO Finance says is acting, and the verified
+// identity's real Connect role decides whether the write is allowed -- admin only, matching
+// finance/property/ivanhoe/monthly's own gate exactly, since this calls the identical
+// upsertPropertyMonthly() helper that route uses (src/api-finance.js). The property key is
+// hardcoded to 'ivanhoe' here, never taken from the request body, the same way the legacy route's
+// own dispatcher (handleFinanceApi) hardcodes it rather than letting a caller target an arbitrary
+// key -- see that dispatcher's own comment on why only 'ivanhoe' exists today.
+async function handleFinancePropertyMonthlyWriteContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await upsertPropertyMonthly(db, 'ivanhoe', body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Commercial Property repairs & maintenance log write, relayed from Finance's own Work orders
+// UI ─────────────────────────────────────────────────────────────────────────────────────────
+// Same shape as handleFinancePropertyMonthlyWriteContract above: admin only, matching
+// finance/property/ivanhoe/repairs's own gate exactly, since this calls the identical
+// addPropertyRepair() helper that route uses (src/api-finance.js). The property key is hardcoded
+// to 'ivanhoe' here, never taken from the request body, same reasoning as the monthly-write relay.
+async function handleFinancePropertyRepairWriteContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await addPropertyRepair(db, 'ivanhoe', body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
 // ── Salary/Compensation Planner write, relayed from Finance's own Compensation Planner UI ───
 // Same shape as handleFinanceBudgetWriteContract above: the X-Contract-Key check only proves the
 // call came from Finance's Worker, this proves WHO Finance says is acting, and the verified
@@ -262,4 +553,40 @@ async function handleFinanceCompensationWriteContract(req, env) {
   ).bind('', '', email).run().catch(() => {});
 
   return json({ ok: true, savedBy: user.username });
+}
+
+// ── Salary/Compensation Planner READ, relayed to Finance's own Compensation Planner editor ──
+// Returns the exact raw, editable plan state the legacy finance/planning/salary GET route would
+// for this identity's role (resolveSalaryPlannerState, src/api-finance.js) -- the complete
+// internal roster/settings shape Finance's own write relay above expects back on save, NOT the
+// normalized connect.finance-compensation.v1 reporting contract's per-person roster (different
+// field shapes; that contract exists to describe compensation data for display, not to round-trip
+// a save). Finance's editor fetches this first, lets the viewer change specific fields, and
+// resubmits the COMPLETE result to finance-compensation-write-v1 -- fetch-edit-resubmit, never a
+// partial body, so nothing else in the real plan is silently wiped (see finance-compensation-
+// client.js's own comment on why postConnectFinanceCompensationWrite requires the whole state).
+//
+// Same real, individually-identifiable compensation data as the write side -- gated to admin,
+// compensation, or council only, matching COMPENSATION_LIVE_ALLOWED_ROLES (apps/finance/
+// compensation-report-service.js) and the legacy Salary Planner's own access.
+async function handleFinanceCompensationPlanContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(
+    `SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`
+  ).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  if (user.role !== 'admin' && user.role !== 'compensation' && user.role !== 'council') {
+    return json({ error: 'Access denied: the salary planner requires admin, compensation, or council access' }, 403);
+  }
+
+  const data = await resolveSalaryPlannerState(db, user.role, user.username);
+  return json({ data });
 }

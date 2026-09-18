@@ -2,7 +2,7 @@ const READ_METHODS = Object.freeze(['GET', 'HEAD']);
 const WRITE_METHODS = Object.freeze(['POST']);
 
 const ROUTES = [
-  { id: 'shell', paths: ['/', '/index.html'], dataSource: 'synthetic-d1', queryBudget: 'summary', optionalQueryBudgets: ['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'cashRunway'] },
+  { id: 'shell', paths: ['/', '/index.html'], dataSource: 'synthetic-d1', queryBudget: 'summary', optionalQueryBudgets: ['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'compensationPlanRaw', 'cashRunway'] },
   { id: 'health', paths: ['/health'], dataSource: 'none' },
   { id: 'summary-v1', paths: ['/api/v1/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', contract: 'finance.summary.v1' },
   { id: 'giving-preview-v1', paths: ['/api/v1/connect-giving-preview'], dataSource: 'synthetic-static', contract: 'connect.giving-summary.v1' },
@@ -27,6 +27,51 @@ const ROUTES = [
   // endpoint (never writes to Finance's own database). Gated admin/council only, on Connect's
   // side, matching the legacy in-Connect Budget Planner's own override-bulk route exactly.
   { id: 'budget-plan-write-v1', paths: ['/api/v1/connect-budget-plan-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-write-relay.v1' },
+  // Same deliberate exception as the Giving/Budget relays above, for the Compensation Plan roster
+  // editor: relays a fetch-edit-resubmit add/update/remove to Connect's own
+  // finance-compensation-write-v1 contract endpoint (never writes to Finance's own database).
+  // Gated admin/compensation only, on Connect's side, matching the legacy in-Connect Salary
+  // Planner's own PUT route exactly -- council's real editing surface stays the separate, narrower
+  // raise-plan-field overlay, not this route.
+  { id: 'compensation-plan-write-v1', paths: ['/api/v1/connect-compensation-plan-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-compensation-write-relay.v1' },
+  // Same deliberate exception as the relays above, for Budget Planner's admin-only generate/
+  // generate-all/commit/remove-a-category operations: each relays to its own Connect contract
+  // endpoint (never writes to Finance's own database), gated admin-only on Connect's side,
+  // matching the legacy in-Connect Budget Planner's own generate[-all]/commit/DELETE routes
+  // exactly -- see the shared helpers' header comment in src/api-finance.js.
+  { id: 'budget-generate-v1', paths: ['/api/v1/connect-budget-generate'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-generate-relay.v1' },
+  { id: 'budget-generate-all-v1', paths: ['/api/v1/connect-budget-generate-all'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-generate-all-relay.v1' },
+  { id: 'budget-commit-v1', paths: ['/api/v1/connect-budget-commit'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-commit-relay.v1' },
+  { id: 'budget-plan-remove-v1', paths: ['/api/v1/connect-budget-plan-remove'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-remove-relay.v1' },
+  // Same deliberate exception as the relays above, for Church Report's admin-only actual-figure
+  // correction: relays to Connect's own finance-church-actual-override-v1 contract endpoint
+  // (never writes to Finance's own database), matching the legacy in-Connect Church Report's own
+  // finance/church/actual-override route exactly.
+  { id: 'church-actual-override-v1', paths: ['/api/v1/connect-church-actual-override'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-actual-override-relay.v1' },
+  // Same deliberate exception as the relays above, for a single Daycare Report entry: relays to
+  // Connect's own finance-daycare-entry-v1 contract endpoint (never writes to Finance's own
+  // database), matching the legacy in-Connect Daycare Report's own finance/daycare route exactly
+  // -- gated on Connect's side by real edit permission on any of finance/budget/compensation, not
+  // a simple role-name check (see the contract handler's own comment).
+  { id: 'daycare-entry-v1', paths: ['/api/v1/connect-daycare-entry'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-entry-relay.v1' },
+  // Same deliberate exception as the relays above, for Chart of Accounts' board-category
+  // assignment: relays to Connect's own finance-board-categories-write-v1 contract endpoint
+  // (never writes to Finance's own database), matching the legacy in-Connect Chart of Accounts'
+  // own finance/planning/board-categories PUT route exactly (admin-only, a MERGE not a replace).
+  { id: 'board-categories-write-v1', paths: ['/api/v1/connect-board-categories-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-board-categories-write-relay.v1' },
+  // Same deliberate exception as the relays above, for Commercial Property's monthly financials
+  // entry: relays to Connect's own finance-property-monthly-write-v1 contract endpoint (never
+  // writes to Finance's own database), matching the legacy in-Connect Property Operating Results'
+  // own finance/property/ivanhoe/monthly POST route exactly (admin-only, one property/period
+  // upsert). Distinct from the separately-merged Finance-owned-D1 reserve/disbursement/
+  // distribution/capital-ledger routes -- this is the core monthly revenue/expense/NOI row those
+  // don't cover.
+  { id: 'property-monthly-write-v1', paths: ['/api/v1/connect-property-monthly-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-monthly-write-relay.v1' },
+  // Same deliberate exception as the relays above, for Commercial Property's repairs &
+  // maintenance log: relays to Connect's own finance-property-repair-write-v1 contract endpoint
+  // (never writes to Finance's own database), matching the legacy in-Connect Work orders page's
+  // own finance/property/ivanhoe/repairs POST route exactly (admin-only).
+  { id: 'property-repair-write-v1', paths: ['/api/v1/connect-property-repair-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-repair-write-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no

@@ -12,10 +12,35 @@ export function renderLiveDaycareRows(categories) {
   return categories.map((c) => `<tr><td>${escapeHtml(c.classification)}</td><td>${escapeHtml(c.category)}</td><td>${formatCents(c.actualCents)}</td><td>${formatCents(c.budgetCents)}</td></tr>`).join('');
 }
 
+// Single-entry write -- relayed live to Connect's real finance_daycare_entries table (see
+// finance-daycare-entry-v1 in src/api-contracts-service.js), never stored in Finance's own
+// database. The legacy in-Connect route has no role check beyond edit permission on any of
+// finance/budget/compensation (not admin-only, unlike Budget's generate/commit/remove), so this
+// is shown to any verified viewer who can reach the Daycare section at all -- UI hiding is never
+// authorization, the real gate is the relay contract's own permission check on Connect's side.
+function renderDaycareEntryForm(period, entryStatus, entryMessage) {
+  return `<section aria-label="Record a Daycare Report entry">
+    ${renderSectionHeading({ eyebrow: 'Daycare Report', heading: 'Record an entry', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-daycare-entry">
+      <div class="grid form-grid">
+        <div class="field"><label for="dc-period">Period (YYYY or YYYY-MM)</label><input id="dc-period" type="text" name="period" pattern="\\d{4}(-\\d{2})?" placeholder="${escapeHtml(String(period))}" value="${escapeHtml(String(period))}" required></div>
+        <div class="field"><label for="dc-category">Category</label><input id="dc-category" type="text" name="category" required></div>
+        <div class="field"><label for="dc-type">Type</label><select id="dc-type" name="entry_type"><option value="actual" selected>Actual</option><option value="budget">Budget</option></select></div>
+        <div class="field"><label for="dc-amount">Amount ($, whole dollars)</label><input id="dc-amount" type="number" name="amount" step="1" min="0" required></div>
+      </div>
+      <div class="field"><label for="dc-notes">Notes</label><input id="dc-notes" type="text" name="notes" placeholder="optional"></div>
+      <button type="submit">Record entry</button>
+    </form>
+    <p><small>This writes directly into Connect's own <code>finance_daycare_entries</code> table -- the same table the legacy in-Connect Daycare Report edits. Finance never stores a copy. Connect independently re-verifies your identity and edit permission for every request.</small></p>
+  </section>`;
+}
+
 // `daycareReport` here is resolveDaycareReport()'s result -- { source: 'live', fiscalYear,
 // categories, allocation, totals } or { source: 'synthetic-fallback', fallbackReason, rows,
 // allocation } -- never the raw synthetic row array daycare-pages.js used to receive directly.
-export function renderDaycarePage(pageId, { daycareReport }) {
+export function renderDaycarePage(pageId, { daycareReport, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage }) {
   const isLive = daycareReport.source === 'live';
   const report = isLive
     ? buildLiveDaycareReportView(daycareReport.categories, daycareReport.fiscalYear, daycareReport.totals)
@@ -33,7 +58,7 @@ export function renderDaycarePage(pageId, { daycareReport }) {
         ? renderTable({ head: ['Classification', 'Category', 'Actual', 'Budget'], rows })
         : renderTable({ head: ['Classification', 'Category', 'Type', 'Amount'], rows })}
       ${fallbackNote}
-    </section>`;
+    </section>${canRecordDaycareEntry ? renderDaycareEntryForm(report.period, daycareEntryStatus, daycareEntryMessage) : ''}`;
   }
   if (pageId === 'budget-comparison') {
     return `<section class="report" aria-label="Daycare Report budget comparison">

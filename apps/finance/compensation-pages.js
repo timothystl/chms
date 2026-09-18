@@ -2,6 +2,7 @@ import { buildCompensationCouncilSnapshot, buildCompensationReportView, buildLiv
 import { buildCompensationBenchmarkView } from './compensation-benchmark-service.js';
 import { buildCompensationBenefitsView } from './compensation-benefits-service.js';
 import { escapeHtml, formatCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
+import { renderCompensationPlanEditor } from './compensation-editor-pages.js';
 
 export function renderCompensationRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.role_label)}</td><td>${formatCents(row.salary_cents)}</td><td>${formatCents(row.benefits_cents)}</td><td>${row.adjustment_pct.toFixed(1)}%</td></tr>`).join('');
@@ -24,7 +25,24 @@ export function renderLiveCompensationWorkerRows(workers) {
   return workers.map((w) => `<tr><td>${escapeHtml(w.name || '(unnamed)')}</td><td>${escapeHtml(w.position || 'Role not set')}</td><td>${w.currentPayCents != null ? formatCents(w.currentPayCents) : '—'}</td><td>${escapeHtml(CURRENT_PAY_SOURCE_LABELS[w.currentPaySource] || w.currentPaySource)}</td></tr>`).join('');
 }
 
-export function renderCompensationPage(pageId, { compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, viewerRole }) {
+export function renderCompensationPage(pageId, {
+  compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, viewerRole,
+  compensationPlanRaw, canEditCompensation, editIndex, entryStatus, entryMessage,
+}) {
+  // The real roster editor (compensation-editor-pages.js) takes over the Plan page entirely for
+  // the admin/compensation roles it's built for, whenever shell.js's own fetch-edit-resubmit
+  // relay (fetchConnectSalaryPlannerState) actually returned the raw plan -- never for council
+  // (its real editing surface stays the separate, narrower raise-plan-field overlay) and never
+  // when the relay failed, in which case this falls through to the read-only live/synthetic
+  // views below. Checked before buildCompensationReportView() below (which needs a valid
+  // synthetic `compensationReport` and throws on SYNTHETIC_UNAVAILABLE) because the editor never
+  // reads the synthetic role-level report at all.
+  if (pageId === 'plan' && canEditCompensation && compensationPlanRaw && compensationPlanRaw.ok) {
+    return renderCompensationPlanEditor(compensationPlanRaw.data, editIndex, entryStatus, entryMessage);
+  }
+  const editUnavailableNote = (pageId === 'plan' && canEditCompensation && compensationPlanRaw && !compensationPlanRaw.ok)
+    ? `<p class="status status-pending">Editing is unavailable right now: ${escapeHtml(compensationPlanRaw.message || compensationPlanRaw.reason || 'unknown error')}.</p>`
+    : '';
   const report = buildCompensationReportView(compensationReport);
 
   // Benchmarks and Benefits stay synthetic for every role, unconditionally -- unlike Plan and
@@ -118,6 +136,7 @@ export function renderCompensationPage(pageId, { compensationReport, compensatio
       ])}
       ${renderTable({ head: ['Name', 'Position', 'Current pay', 'Source'], rows: renderLiveCompensationWorkerRows(workers) })}
       <p>Real, individually-identifiable compensation data -- restricted to the admin, council, and compensation roles. See Council snapshot for a real aggregate view, and Benefits &amp; taxes / Benchmarks for the still-synthetic, role-level rest of the compensation picture.</p>
+      ${editUnavailableNote}
     </section>`;
   }
   const fallbackNote = compensationReportLive

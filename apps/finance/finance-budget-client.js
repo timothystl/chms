@@ -89,3 +89,67 @@ export async function postConnectFinanceBudgetWrite(env, accessJwt, rows) {
   if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
   return { ok: true, result: payload };
 }
+
+// ── Shared transport for the admin-only Budget Plan generate/generate-all/commit/delete relays
+// below ──────────────────────────────────────────────────────────────────────────────────────
+// Same never-throws, always-{ok,reason}-labeled shape as postConnectFinanceBudgetWrite above --
+// factored out since generate/generate-all/commit/delete are four near-identical POST-with-JSON-
+// body relays to four different Connect contract endpoints, differing only in path and body.
+async function postConnectFinanceBudgetOp(env, accessJwt, contractPath, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = `https://connect.timothystl.org/api/contracts/${contractPath}`;
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
+// Relays finance/planning/church/generate: a compounding multi-year projection from a hand-typed
+// base dollar amount + a flat growth rate, one row per target year. Admin only, on Connect's side.
+export function postConnectFinanceBudgetGenerate(env, accessJwt, body) {
+  return postConnectFinanceBudgetOp(env, accessJwt, 'finance-budget-generate-v1', body);
+}
+
+// Relays finance/planning/church/generate-all: one plan row per real Chart of Accounts line,
+// grown off a base year's actual/budget. Admin only, on Connect's side.
+export function postConnectFinanceBudgetGenerateAll(env, accessJwt, body) {
+  return postConnectFinanceBudgetOp(env, accessJwt, 'finance-budget-generate-all-v1', body);
+}
+
+// Relays finance/planning/church/commit: finalizes one fiscal year's plan into
+// finance_church_entries as a placeholder budget. Admin only, on Connect's side.
+export function postConnectFinanceBudgetCommit(env, accessJwt, body) {
+  return postConnectFinanceBudgetOp(env, accessJwt, 'finance-budget-commit-v1', body);
+}
+
+// Relays a removal of one category/fiscal_year plan row (a DELETE on Connect's own legacy route).
+// Admin only, on Connect's side.
+export function postConnectFinanceBudgetRemove(env, accessJwt, body) {
+  return postConnectFinanceBudgetOp(env, accessJwt, 'finance-budget-remove-v1', body);
+}

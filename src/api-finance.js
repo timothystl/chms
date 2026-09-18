@@ -2594,6 +2594,60 @@ export function computePropertyAnnualSummary(monthlyRows, distributionRows, annu
     .sort((a, b) => a.year - b.year);
 }
 
+// ── Shared Commercial Property monthly-financials writer ────────────────────────────────────
+// Used by both the admin-only finance/property/:propertyKey/monthly POST route below and its
+// finance-property-monthly-write-v1 relay contract counterpart (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical upsert on behalf of an identity it verified via
+// Cloudflare Access. One implementation means the two entry points can never drift.
+export async function upsertPropertyMonthly(db, propertyKey, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  if (!b.period || !/^\d{4}-\d{2}$/.test(b.period)) return { error: 'period must be YYYY-MM', status: 400 };
+  const toCents = v => (v === '' || v === null || v === undefined) ? null : Math.round(Number(v) * 100);
+  const occ = (b.occupancy_pct === '' || b.occupancy_pct === null || b.occupancy_pct === undefined) ? null : Number(b.occupancy_pct);
+  if (occ !== null && !Number.isFinite(occ)) return { error: 'Invalid occupancy_pct', status: 400 };
+  const cents = {
+    total_revenue_cents: toCents(b.total_revenue),
+    total_expenses_cents: toCents(b.total_expenses),
+    net_income_cents: toCents(b.net_income),
+    net_operating_income_cents: toCents(b.net_operating_income),
+    available_for_distribution_cents: toCents(b.available_for_distribution),
+    reserve_balance_cents: toCents(b.reserve_balance),
+    // Real per-month loan payment + interest expense (bank rec + income statement) — lets the
+    // confirmed mortgage balance roll forward automatically instead of needing a fresh lender
+    // confirmation every time (see finComputeMortgageRemainingCents).
+    loan_payment_cents: toCents(b.loan_payment),
+    interest_expense_cents: toCents(b.interest_expense),
+  };
+  for (const [k, v] of Object.entries(cents)) { if (v !== null && !Number.isFinite(v)) return { error: `Invalid ${k}`, status: 400 }; }
+  await db.prepare(
+    `INSERT INTO finance_property_monthly
+       (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,loan_payment_cents,interest_expense_cents,source_report,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+     ON CONFLICT(property_key,period) DO UPDATE SET
+       occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
+       net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
+       available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
+       loan_payment_cents=excluded.loan_payment_cents, interest_expense_cents=excluded.interest_expense_cents,
+       source_report=excluded.source_report, updated_at=excluded.updated_at`
+  ).bind(propertyKey, b.period, occ, cents.total_revenue_cents, cents.total_expenses_cents, cents.net_income_cents, cents.net_operating_income_cents, cents.available_for_distribution_cents, cents.reserve_balance_cents, cents.loan_payment_cents, cents.interest_expense_cents, b.source_report || '').run();
+  return { ok: true };
+}
+
+// ── Shared Commercial Property repairs & maintenance log writer ─────────────────────────────
+// Used by both the admin-only finance/property/:propertyKey/repairs POST route below and its
+// finance-property-repair-write-v1 relay contract counterpart (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical entry on behalf of an identity it verified via
+// Cloudflare Access. One implementation means the two entry points can never drift.
+export async function addPropertyRepair(db, propertyKey, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const amountCents = (b.amount === '' || b.amount === null || b.amount === undefined) ? null : Math.round(Number(b.amount) * 100);
+  if (amountCents !== null && !Number.isFinite(amountCents)) return { error: 'Invalid amount', status: 400 };
+  const r = await db.prepare(
+    `INSERT INTO finance_property_repairs (property_key,entry_date,category,description,amount_cents,payee,capitalized) VALUES (?,?,?,?,?,?,?)`
+  ).bind(propertyKey, b.entry_date || '', b.category || '', b.description || '', amountCents, b.payee || '', b.capitalized ? 1 : 0).run();
+  return { ok: true, id: r.meta?.last_row_id };
+}
+
 async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey) {
   if (seg === `finance/property/${propertyKey}` && method === 'GET') {
     const monthly = (await db.prepare('SELECT * FROM finance_property_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
@@ -2653,36 +2707,9 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   if (seg === `finance/property/${propertyKey}/monthly` && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    if (!b.period || !/^\d{4}-\d{2}$/.test(b.period)) return json({ error: 'period must be YYYY-MM' }, 400);
-    const toCents = v => (v === '' || v === null || v === undefined) ? null : Math.round(Number(v) * 100);
-    const occ = (b.occupancy_pct === '' || b.occupancy_pct === null || b.occupancy_pct === undefined) ? null : Number(b.occupancy_pct);
-    if (occ !== null && !Number.isFinite(occ)) return json({ error: 'Invalid occupancy_pct' }, 400);
-    const cents = {
-      total_revenue_cents: toCents(b.total_revenue),
-      total_expenses_cents: toCents(b.total_expenses),
-      net_income_cents: toCents(b.net_income),
-      net_operating_income_cents: toCents(b.net_operating_income),
-      available_for_distribution_cents: toCents(b.available_for_distribution),
-      reserve_balance_cents: toCents(b.reserve_balance),
-      // Real per-month loan payment + interest expense (bank rec + income statement) — lets the
-      // confirmed mortgage balance roll forward automatically instead of needing a fresh lender
-      // confirmation every time (see finComputeMortgageRemainingCents).
-      loan_payment_cents: toCents(b.loan_payment),
-      interest_expense_cents: toCents(b.interest_expense),
-    };
-    for (const [k, v] of Object.entries(cents)) { if (v !== null && !Number.isFinite(v)) return json({ error: `Invalid ${k}` }, 400); }
-    await db.prepare(
-      `INSERT INTO finance_property_monthly
-         (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,loan_payment_cents,interest_expense_cents,source_report,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
-       ON CONFLICT(property_key,period) DO UPDATE SET
-         occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
-         net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
-         available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
-         loan_payment_cents=excluded.loan_payment_cents, interest_expense_cents=excluded.interest_expense_cents,
-         source_report=excluded.source_report, updated_at=excluded.updated_at`
-    ).bind(propertyKey, b.period, occ, cents.total_revenue_cents, cents.total_expenses_cents, cents.net_income_cents, cents.net_operating_income_cents, cents.available_for_distribution_cents, cents.reserve_balance_cents, cents.loan_payment_cents, cents.interest_expense_cents, b.source_report || '').run();
-    return json({ ok: true });
+    const result = await upsertPropertyMonthly(db, propertyKey, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Bulk import of one or more months from the AHRA report's own monthly-financials CSV row
@@ -2843,12 +2870,9 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   if (seg === `finance/property/${propertyKey}/repairs` && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const amountCents = (b.amount === '' || b.amount === null || b.amount === undefined) ? null : Math.round(Number(b.amount) * 100);
-    if (amountCents !== null && !Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
-    const r = await db.prepare(
-      `INSERT INTO finance_property_repairs (property_key,entry_date,category,description,amount_cents,payee,capitalized) VALUES (?,?,?,?,?,?,?)`
-    ).bind(propertyKey, b.entry_date || '', b.category || '', b.description || '', amountCents, b.payee || '', b.capitalized ? 1 : 0).run();
-    return json({ ok: true, id: r.meta?.last_row_id });
+    const result = await addPropertyRepair(db, propertyKey, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   const repairsDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/repairs/(\\d+)$`));
@@ -2939,6 +2963,71 @@ export async function readPlanningBoardCategories(db) {
     };
   } catch { return empty; }
 }
+
+// ── Shared Chart of Accounts board-category writer ───────────────────────────────────────────
+// Used by both the admin-only finance/planning/board-categories PUT route below and its
+// finance-board-categories-write-v1 relay contract counterpart (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical merge on behalf of an identity it verified via
+// Cloudflare Access. One implementation means the two entry points can never drift. MERGES the
+// rows/labels in `body` into whatever is already saved -- a category assignment/rename made from
+// Planning's own inline picker and a bulk move made from Chart of Accounts both land in the same
+// store without one clobbering the other's unrelated entries. An empty-string value clears that
+// one entry back to the computed default.
+export async function applyBoardCategoryMerge(db, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const current = await readPlanningBoardCategories(db);
+  const merged = {
+    revenue: { ...current.revenue }, expense: { ...current.expense },
+    revenueLabels: { ...current.revenueLabels }, expenseLabels: { ...current.expenseLabels },
+    donorWrapperLabel: current.donorWrapperLabel,
+    accountLabels: { ...current.accountLabels },
+  };
+  if (b.revenue && typeof b.revenue === 'object') {
+    for (const [path, key] of Object.entries(b.revenue)) {
+      if (!path) continue;
+      if (key === '' || key == null) { delete merged.revenue[path]; continue; }
+      if (!REVENUE_STREAMS.includes(key)) return { error: `Invalid revenue category "${key}"`, status: 400 };
+      merged.revenue[path] = key;
+    }
+  }
+  if (b.expense && typeof b.expense === 'object') {
+    for (const [path, key] of Object.entries(b.expense)) {
+      if (!path) continue;
+      if (key === '' || key == null) { delete merged.expense[path]; continue; }
+      if (!BOARD_EXPENSE_KEYS.includes(key)) return { error: `Invalid expense category "${key}"`, status: 400 };
+      merged.expense[path] = key;
+    }
+  }
+  if (b.revenueLabels && typeof b.revenueLabels === 'object') {
+    for (const [key, label] of Object.entries(b.revenueLabels)) {
+      if (!REVENUE_STREAMS.includes(key)) continue;
+      const clean = String(label || '').trim();
+      if (clean) merged.revenueLabels[key] = clean; else delete merged.revenueLabels[key];
+    }
+  }
+  if (b.expenseLabels && typeof b.expenseLabels === 'object') {
+    for (const [key, label] of Object.entries(b.expenseLabels)) {
+      if (!BOARD_EXPENSE_KEYS.includes(key)) continue;
+      const clean = String(label || '').trim();
+      if (clean) merged.expenseLabels[key] = clean; else delete merged.expenseLabels[key];
+    }
+  }
+  if (typeof b.donorWrapperLabel === 'string') {
+    merged.donorWrapperLabel = b.donorWrapperLabel.trim();
+  }
+  if (b.accountLabels && typeof b.accountLabels === 'object') {
+    for (const [path, label] of Object.entries(b.accountLabels)) {
+      if (!path) continue;
+      const clean = String(label || '').trim();
+      if (clean) merged.accountLabels[path] = clean; else delete merged.accountLabels[path];
+    }
+  }
+  await db.prepare(
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_planning_board_categories',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(JSON.stringify(merged)).run();
+  return { ok: true, ...merged };
+}
+
 // Purpose tags reader — hoisted to module scope (was a closure inside handleFinanceApi) so it can
 // be imported by api-contracts.js's connect.finance-chart-of-accounts.v1 producer without
 // duplicating this parsing/defaulting logic. Behavior is unchanged from the original nested
@@ -3101,6 +3190,167 @@ export async function applyBudgetPlanOverrideRows(db, role, username, rowsInput)
   return { ok: true, saved: ops.length };
 }
 
+// ── Shared Budget Plan generate / generate-all / commit / delete ────────────────────────────
+// Used by both the admin-only finance/planning/church/generate[-all]/commit/DELETE routes below
+// and their finance-budget-*-v1 relay contract counterparts (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical operation on behalf of an identity it verified
+// via Cloudflare Access. One implementation each means the two entry points can never drift.
+export async function generateBudgetPlanRows(db, { category, classification, baseAmountCents, growthPct, targetYears, notes }) {
+  if (!category) return { error: 'category is required', status: 400 };
+  if (!Number.isFinite(baseAmountCents)) return { error: 'Invalid base_amount', status: 400 };
+  if (!Number.isFinite(growthPct)) return { error: 'Invalid growth_pct', status: 400 };
+  if (!Array.isArray(targetYears) || !targetYears.length) return { error: 'target_years is required', status: 400 };
+  const ops = targetYears.map((year, i) => {
+    const cents = Math.round(baseAmountCents * Math.pow(1 + growthPct, i + 1));
+    return db.prepare(
+      `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,growth_pct,base_amount_cents,notes,updated_at)
+       VALUES (?,?,?,?,'grown',?,?,?,datetime('now'))
+       ON CONFLICT(category,fiscal_year) DO UPDATE SET
+         classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis=excluded.basis,
+         growth_pct=excluded.growth_pct, base_amount_cents=excluded.base_amount_cents, notes=excluded.notes, updated_at=excluded.updated_at`
+    ).bind(category, classification, year, cents, growthPct, baseAmountCents, notes || '');
+  });
+  await db.batch(ops);
+  return { ok: true, years: targetYears };
+}
+
+export async function generateAllBudgetPlan(db, { baseYear, targetYear, growthPct, throughWeekInput }) {
+  if (!Number.isFinite(baseYear) || !Number.isFinite(targetYear)) return { error: 'base_year and target_year are required', status: 400 };
+  if (!Number.isFinite(growthPct)) return { error: 'Invalid growth_pct', status: 400 };
+  // period_month=0 = the annual row (see migrations/0018_finance_church_entries.sql) -- must
+  // filter it explicitly, since monthly rows (period_month 1-12) share the same source and
+  // fiscal_year, and would otherwise let a single month's figure silently clobber the true
+  // annual total for that category via the ON CONFLICT upsert below.
+  const baseRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(baseYear).all()).results || [];
+  if (!baseRows.length) return { error: `No Church Budget data found for ${baseYear} — sync or import that year first.`, status: 400 };
+  const resolved = resolveChurchYearPrecedence(baseRows);
+  // Elapsed time is measured in WEEKS, not calendar months -- see the identical comment on the
+  // legacy finance/planning/church/generate-all route below for why. throughWeekInput is an
+  // optional explicit override (real callers never send it -- only tests, for determinism);
+  // production always falls back to the real elapsed weeks for the real current year.
+  const now = new Date();
+  const explicitThroughWeek = Number(throughWeekInput);
+  const throughWeek = Number.isFinite(explicitThroughWeek) && throughWeekInput !== undefined && throughWeekInput !== null && throughWeekInput !== ''
+    ? explicitThroughWeek
+    : (baseYear === now.getFullYear()) ? weeksElapsedInYear(now) : 52;
+  const prorated = throughWeek < 52;
+  const ops = [];
+  let generated = 0;
+  for (const r of resolved) {
+    const baseAmountCents = (r.own_actual_cents && prorated)
+      ? Math.round(r.own_actual_cents * (52 / throughWeek))
+      : (r.own_actual_cents || r.own_budget_cents || 0);
+    if (!baseAmountCents) continue;
+    const plannedCents = Math.round(baseAmountCents * (1 + growthPct));
+    ops.push(db.prepare(
+      `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,growth_pct,base_amount_cents,notes,updated_at)
+       VALUES (?,?,?,?,'grown',?,?,?,datetime('now'))
+       ON CONFLICT(category,fiscal_year) DO UPDATE SET
+         classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis='grown',
+         growth_pct=excluded.growth_pct, base_amount_cents=excluded.base_amount_cents, notes=excluded.notes, updated_at=excluded.updated_at`
+    ).bind(r.category_path, r.classification, targetYear, plannedCents, growthPct, baseAmountCents, r.account_name));
+    generated++;
+  }
+  if (!ops.length) return { error: `No account had an actual or budget figure in ${baseYear} to grow from.`, status: 400 };
+  await db.batch(ops);
+  return { ok: true, generated, baseYear, targetYear, throughWeek, prorated };
+}
+
+export async function commitBudgetPlan(db, fiscalYear) {
+  if (!Number.isFinite(fiscalYear)) return { error: 'fiscal_year is required', status: 400 };
+  const planRows = (await db.prepare('SELECT * FROM finance_budget_plan WHERE fiscal_year=?').bind(fiscalYear).all()).results || [];
+  if (!planRows.length) return { error: `No plan rows exist for ${fiscalYear}`, status: 400 };
+  const syncedAt = new Date().toISOString();
+  const ops = [db.prepare(`DELETE FROM finance_church_entries WHERE source='plan_committed' AND fiscal_year=?`).bind(fiscalYear)];
+  for (const r of planRows) {
+    ops.push(db.prepare(
+      `INSERT INTO finance_church_entries
+         (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
+       VALUES (?,0,?,?,?,0,0,0,?,'plan_committed',?)`
+    ).bind(fiscalYear, r.classification, r.category, r.category, r.planned_amount_cents, syncedAt));
+  }
+  await db.batch(ops);
+  return { ok: true, fiscalYear, committed: planRows.length };
+}
+
+export async function deleteBudgetPlanRow(db, category, fiscalYear) {
+  if (!category || !Number.isFinite(fiscalYear)) return { error: 'category and fiscal_year are required', status: 400 };
+  await db.prepare('DELETE FROM finance_budget_plan WHERE category=? AND fiscal_year=?').bind(category, fiscalYear).run();
+  return { ok: true };
+}
+
+// ── Shared Church Report actual-figure correction writer ────────────────────────────────────
+// Used by both the admin-only finance/church/actual-override PUT route below and its
+// finance-church-actual-override-v1 relay contract counterpart (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical correction on behalf of an identity it verified
+// via Cloudflare Access. One implementation means the two entry points can never drift.
+//
+// Writes a real, whole-dollars-and-cents correction into finance_church_entries under
+// CHURCH_ACTUAL_OVERRIDE_SOURCE -- resolveChurchYearPrecedence() (above) gives this source
+// priority over whatever a sync/import already posted for the same category_path, so every reader
+// (Church Report, Financial Health, Planning) picks up the correction, and a later re-sync/
+// re-import of the same year does not erase it. An empty/blank amount clears a prior correction
+// back to the synced/imported figure (a delete, not a $0 override).
+export async function applyChurchActualOverride(db, year, rowsInput) {
+  if (!Number.isFinite(year)) return { error: 'year is required', status: 400 };
+  const rows = Array.isArray(rowsInput) ? rowsInput : [];
+  if (!rows.length) return { error: 'No rows to save', status: 400 };
+  const ops = [];
+  let saved = 0;
+  for (const r of rows) {
+    const category = String(r.category || '').trim();
+    if (!category) return { error: 'Every row needs a category', status: 400 };
+    // period_month=0 = the annual row (see migrations/0018_finance_church_entries.sql) -- this
+    // never touches a monthly (1-12) row, same scoping every other church-entries writer uses.
+    if (r.amount === '' || r.amount === null || r.amount === undefined) {
+      ops.push(db.prepare(
+        `DELETE FROM finance_church_entries WHERE fiscal_year=? AND period_month=0 AND category_path=? AND source=?`
+      ).bind(year, category, CHURCH_ACTUAL_OVERRIDE_SOURCE));
+      saved++;
+      continue;
+    }
+    const amountCents = Math.round(Number(r.amount) * 100);
+    if (!Number.isFinite(amountCents)) return { error: `Invalid amount for ${category}`, status: 400 };
+    const classification = String(r.classification || 'Expenses');
+    const accountName = String(r.account_name || category.split(':').pop() || category);
+    const depth = Math.max(0, category.split(':').length - 1);
+    ops.push(db.prepare(
+      `INSERT INTO finance_church_entries
+         (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, notes, synced_at)
+       VALUES (?,0,?,?,?,?,0,?,NULL,?,'Manually corrected',datetime('now'))
+       ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
+         own_actual_cents=excluded.own_actual_cents, classification=excluded.classification,
+         account_name=excluded.account_name, depth=excluded.depth, synced_at=excluded.synced_at`
+    ).bind(year, classification, category, accountName, depth, amountCents, CHURCH_ACTUAL_OVERRIDE_SOURCE));
+    saved++;
+  }
+  await db.batch(ops);
+  return { ok: true, year, saved };
+}
+
+// ── Shared Daycare entry writer ──────────────────────────────────────────────────────────────
+// Used by both the finance/daycare POST route below and its finance-daycare-entry-v1 relay
+// contract counterpart (src/api-contracts-service.js), so Finance's own Worker can forward the
+// identical entry on behalf of an identity it verified via Cloudflare Access. One implementation
+// means the two entry points can never drift. No role check here -- the legacy route itself has
+// none beyond the blanket isFinance gate wrapping the whole handler (any of the finance/budget/
+// compensation items, edit level -- see financeSegItems in src/api-chms.js), which the relay
+// contract re-derives independently via getRolePermissions/permissionsForRole rather than
+// trusting a simple role-name check.
+export async function recordDaycareEntry(db, body) {
+  const period = body?.period;
+  if (!period || !/^\d{4}(-\d{2})?$/.test(period)) return { error: 'Period must be YYYY or YYYY-MM', status: 400 };
+  const category = body?.category && String(body.category).trim();
+  if (!category) return { error: 'Category is required', status: 400 };
+  const amountCents = Math.round(Number(body?.amount_cents));
+  if (!Number.isFinite(amountCents)) return { error: 'Invalid amount', status: 400 };
+  const entryType = body?.entry_type === 'budget' ? 'budget' : 'actual';
+  const r = await db.prepare(
+    `INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,notes) VALUES (?,?,?,?,?)`
+  ).bind(period, category, entryType, amountCents, body?.notes || '').run();
+  return { ok: true, id: r.meta?.last_row_id };
+}
+
 // ── Shared Salary/Compensation Planner writer ────────────────────────────────
 // Used by both the admin/compensation/council finance/planning/salary PUT route below and the
 // finance-compensation-write-v1 relay contract (src/api-contracts-service.js) that lets Finance's
@@ -3114,6 +3364,58 @@ const SALARY_PLANNER_COMPENSATION_KEY = 'finance_salary_planner_compensation';
 const COUNCIL_EDITABLE_FIELDS = ['compMethod', 'compPerWorkerMethod', 'compCustomPct', 'compScalePct', 'compBaselineRosterOnly'];
 export function councilPlannerKey(username) {
   return 'finance_salary_planner_council_' + String(username || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+}
+
+// Shared with the finance-compensation-plan-v1 relay contract (src/api-contracts-service.js) --
+// same never-drifts rationale as applySalaryPlannerWrite above. Returns the plan state exactly as
+// the legacy finance/planning/salary GET route would for this role/username: the right stored key
+// (compensation role's own fork if one exists, admin/finance's shared key otherwise), with
+// council's hideFromCouncil filtering + index-reindexing applied first, then council's own saved
+// overlay fields laid on top -- never the reverse, and never another council member's.
+export async function resolveSalaryPlannerState(db, role, username) {
+  let key = SALARY_PLANNER_KEY;
+  if (role === 'compensation') {
+    const forkExists = await db.prepare("SELECT 1 FROM finance_settings WHERE key=?").bind(SALARY_PLANNER_COMPENSATION_KEY).first();
+    if (forkExists) key = SALARY_PLANNER_COMPENSATION_KEY;
+  }
+  const row = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(key).first();
+  let data = null;
+  if (row) { try { data = JSON.parse(row.value); } catch { data = null; } }
+  if (role === 'council' && data && Array.isArray(data.roster)) {
+    const oldToNewIndex = [];
+    const visibleRoster = [];
+    data.roster.forEach((w, i) => {
+      if (w && w.hideFromCouncil) return;
+      oldToNewIndex[i] = visibleRoster.length;
+      visibleRoster.push(w);
+    });
+    const reindex = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      const out = {};
+      for (const k of Object.keys(obj)) {
+        const newIndex = oldToNewIndex[Number(k)];
+        if (newIndex !== undefined) out[newIndex] = obj[k];
+      }
+      return out;
+    };
+    data = Object.assign({}, data, {
+      roster: visibleRoster,
+      compPerWorkerMethod: reindex(data.compPerWorkerMethod),
+      compOverrides: reindex(data.compOverrides),
+    });
+  }
+  if (role === 'council' && data && username) {
+    const overlayRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(councilPlannerKey(username)).first();
+    if (overlayRow) {
+      let overlay = null;
+      try { overlay = JSON.parse(overlayRow.value); } catch { overlay = null; }
+      if (overlay && typeof overlay === 'object') {
+        data = Object.assign({}, data);
+        for (const f of COUNCIL_EDITABLE_FIELDS) if (overlay[f] !== undefined) data[f] = overlay[f];
+      }
+    }
+  }
+  return data;
 }
 
 export async function applySalaryPlannerWrite(db, role, username, body) {
@@ -3556,15 +3858,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
 
   if (seg === 'finance/daycare' && method === 'POST') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-    if (!b.period || !/^\d{4}(-\d{2})?$/.test(b.period)) return json({ error: 'Period must be YYYY or YYYY-MM' }, 400);
-    if (!b.category || !String(b.category).trim()) return json({ error: 'Category is required' }, 400);
-    const amountCents = Math.round(Number(b.amount_cents));
-    if (!Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
-    const entryType = b.entry_type === 'budget' ? 'budget' : 'actual';
-    const r = await db.prepare(
-      `INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,notes) VALUES (?,?,?,?,?)`
-    ).bind(b.period, String(b.category).trim(), entryType, amountCents, b.notes || '').run();
-    return json({ ok: true, id: r.meta?.last_row_id });
+    const result = await recordDaycareEntry(db, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Bulk-enter past years — a paste-in alternative to the one-row-at-a-time form above, since
@@ -4355,55 +4651,12 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/planning/church/generate-all' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const baseYear = parseInt(b.base_year, 10);
-    const targetYear = parseInt(b.target_year, 10);
-    const growthPct = Number(b.growth_pct);
-    if (!Number.isFinite(baseYear) || !Number.isFinite(targetYear)) return json({ error: 'base_year and target_year are required' }, 400);
-    if (!Number.isFinite(growthPct)) return json({ error: 'Invalid growth_pct' }, 400);
-    // period_month=0 = the annual row (see migrations/0018_finance_church_entries.sql) — must
-    // filter it explicitly, since monthly rows (period_month 1-12) share the same source and
-    // fiscal_year, and would otherwise let a single month's figure silently clobber the true
-    // annual total for that category via the ON CONFLICT upsert below.
-    const baseRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(baseYear).all()).results || [];
-    if (!baseRows.length) return json({ error: `No Church Budget data found for ${baseYear} — sync or import that year first.` }, 400);
-    const resolved = resolveChurchYearPrecedence(baseRows);
-    // If the base year is still in progress (its own actual is really a year-to-date figure, not
-    // a completed year), annualize it before applying the growth rate — otherwise a mid-year
-    // actual would be projected forward as if it were the whole year's total. A past, complete
-    // base year (or one with no actual at all, only a budget) is used as-is. Elapsed time is
-    // measured in WEEKS, not calendar months — a calendar month is ambiguous the moment you're
-    // partway through it (is the 5th of August "1 month" or "0 months" elapsed? both answers are
-    // defensible and give meaningfully different projections), where "days since Jan 1, divided
-    // by 7" has no such ambiguity and tracks this church's actual giving rhythm (weekly Sunday
-    // offerings) more closely than a monthly bucket does. through_week is an optional explicit
-    // override (real caller never sends it — only tests, for determinism); production always
-    // falls back to the real elapsed weeks for the real current year.
-    const now = new Date();
-    const explicitThroughWeek = Number(b.through_week);
-    const throughWeek = Number.isFinite(explicitThroughWeek) && b.through_week !== undefined && b.through_week !== null && b.through_week !== ''
-      ? explicitThroughWeek
-      : (baseYear === now.getFullYear()) ? weeksElapsedInYear(now) : 52;
-    const prorated = throughWeek < 52;
-    const ops = [];
-    let generated = 0;
-    for (const r of resolved) {
-      const baseAmountCents = (r.own_actual_cents && prorated)
-        ? Math.round(r.own_actual_cents * (52 / throughWeek))
-        : (r.own_actual_cents || r.own_budget_cents || 0);
-      if (!baseAmountCents) continue;
-      const plannedCents = Math.round(baseAmountCents * (1 + growthPct));
-      ops.push(db.prepare(
-        `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,growth_pct,base_amount_cents,notes,updated_at)
-         VALUES (?,?,?,?,'grown',?,?,?,datetime('now'))
-         ON CONFLICT(category,fiscal_year) DO UPDATE SET
-           classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis='grown',
-           growth_pct=excluded.growth_pct, base_amount_cents=excluded.base_amount_cents, notes=excluded.notes, updated_at=excluded.updated_at`
-      ).bind(r.category_path, r.classification, targetYear, plannedCents, growthPct, baseAmountCents, r.account_name));
-      generated++;
-    }
-    if (!ops.length) return json({ error: `No account had an actual or budget figure in ${baseYear} to grow from.` }, 400);
-    await db.batch(ops);
-    return json({ ok: true, generated, baseYear, targetYear, throughWeek, prorated });
+    const result = await generateAllBudgetPlan(db, {
+      baseYear: parseInt(b.base_year, 10), targetYear: parseInt(b.target_year, 10),
+      growthPct: Number(b.growth_pct), throughWeekInput: b.through_week,
+    });
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Bulk manual save — commits a whole edited table of Projected values in one round trip
@@ -4441,61 +4694,11 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // not one shared fork, so one council member's plan can never overwrite another's, and never
   // the real admin/finance plan. See COUNCIL_EDITABLE_FIELDS/councilPlannerKey below.
   if (seg === 'finance/planning/salary' && method === 'GET') {
-    let key = SALARY_PLANNER_KEY;
-    if (role === 'compensation') {
-      const forkExists = await db.prepare("SELECT 1 FROM finance_settings WHERE key=?").bind(SALARY_PLANNER_COMPENSATION_KEY).first();
-      if (forkExists) key = SALARY_PLANNER_COMPENSATION_KEY;
-    }
-    const row = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(key).first();
-    let data = null;
-    if (row) { try { data = JSON.parse(row.value); } catch { data = null; } }
-    // Council never sees a worker an admin has flagged hideFromCouncil — dropped from the
-    // roster entirely (never merely disabled) before anything else runs, and the per-worker
-    // method/override maps (keyed by roster array INDEX) re-indexed to match, the same class of
-    // fix finCompRemoveWorker already makes client-side when an admin deletes a row. Runs before
-    // the per-user plan overlay below so council's own saved per-worker method choices — which
-    // can only ever reference what they were shown — line up against this same filtered roster.
-    if (role === 'council' && data && Array.isArray(data.roster)) {
-      const oldToNewIndex = [];
-      const visibleRoster = [];
-      data.roster.forEach((w, i) => {
-        if (w && w.hideFromCouncil) return;
-        oldToNewIndex[i] = visibleRoster.length;
-        visibleRoster.push(w);
-      });
-      const reindex = (obj) => {
-        if (!obj || typeof obj !== 'object') return obj;
-        const out = {};
-        for (const k of Object.keys(obj)) {
-          const newIndex = oldToNewIndex[Number(k)];
-          if (newIndex !== undefined) out[newIndex] = obj[k];
-        }
-        return out;
-      };
-      data = Object.assign({}, data, {
-        roster: visibleRoster,
-        compPerWorkerMethod: reindex(data.compPerWorkerMethod),
-        compOverrides: reindex(data.compOverrides),
-      });
-    }
-    // Council reads the real shared roster/reference data (so their plan is built off the same
-    // facts admin/finance see) with only their own saved plan fields laid on top — never the
-    // reverse, and never another council member's.
-    if (role === 'council' && data) {
-      let username = '';
+    let username = '';
+    if (role === 'council') {
       try { username = ((await getAuthInfo(req, env)) || {}).username || ''; } catch { username = ''; }
-      if (username) {
-        const overlayRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(councilPlannerKey(username)).first();
-        if (overlayRow) {
-          let overlay = null;
-          try { overlay = JSON.parse(overlayRow.value); } catch { overlay = null; }
-          if (overlay && typeof overlay === 'object') {
-            data = Object.assign({}, data);
-            for (const f of COUNCIL_EDITABLE_FIELDS) if (overlay[f] !== undefined) data[f] = overlay[f];
-          }
-        }
-      }
     }
+    const data = await resolveSalaryPlannerState(db, role, username);
     return json({ data });
   }
   if (seg === 'finance/planning/salary' && method === 'PUT') {
@@ -4562,42 +4765,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/church/actual-override' && method === 'PUT') {
     if (!isAdmin) return json({ error: 'Access denied: correcting an actual figure requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const year = parseInt(b.year, 10);
-    const rows = Array.isArray(b.rows) ? b.rows : [];
-    if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
-    if (!rows.length) return json({ error: 'No rows to save' }, 400);
-    const ops = [];
-    let saved = 0;
-    for (const r of rows) {
-      const category = String(r.category || '').trim();
-      if (!category) return json({ error: 'Every row needs a category' }, 400);
-      // period_month=0 = the annual row (see migrations/0018_finance_church_entries.sql) — this
-      // never touches a monthly (1-12) row, same scoping every other church-entries writer here
-      // uses.
-      if (r.amount === '' || r.amount === null || r.amount === undefined) {
-        ops.push(db.prepare(
-          `DELETE FROM finance_church_entries WHERE fiscal_year=? AND period_month=0 AND category_path=? AND source=?`
-        ).bind(year, category, CHURCH_ACTUAL_OVERRIDE_SOURCE));
-        saved++;
-        continue;
-      }
-      const amountCents = Math.round(Number(r.amount) * 100);
-      if (!Number.isFinite(amountCents)) return json({ error: `Invalid amount for ${category}` }, 400);
-      const classification = String(r.classification || 'Expenses');
-      const accountName = String(r.account_name || category.split(':').pop() || category);
-      const depth = Math.max(0, category.split(':').length - 1);
-      ops.push(db.prepare(
-        `INSERT INTO finance_church_entries
-           (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, notes, synced_at)
-         VALUES (?,0,?,?,?,?,0,?,NULL,?,'Manually corrected',datetime('now'))
-         ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
-           own_actual_cents=excluded.own_actual_cents, classification=excluded.classification,
-           account_name=excluded.account_name, depth=excluded.depth, synced_at=excluded.synced_at`
-      ).bind(year, classification, category, accountName, depth, amountCents, CHURCH_ACTUAL_OVERRIDE_SOURCE));
-      saved++;
-    }
-    await db.batch(ops);
-    return json({ ok: true, year, saved });
+    const result = await applyChurchActualOverride(db, parseInt(b.year, 10), b.rows);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Chart of Accounts — which board category a fund reads under on Planning's "Board view", and
@@ -4614,60 +4784,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/planning/board-categories' && method === 'PUT') {
     if (!isAdmin) return json({ error: 'Access denied: editing the chart of accounts requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const current = await readPlanningBoardCategories(db);
-    const merged = {
-      revenue: { ...current.revenue }, expense: { ...current.expense },
-      revenueLabels: { ...current.revenueLabels }, expenseLabels: { ...current.expenseLabels },
-      donorWrapperLabel: current.donorWrapperLabel,
-      accountLabels: { ...current.accountLabels },
-    };
-    if (b.revenue && typeof b.revenue === 'object') {
-      for (const [path, key] of Object.entries(b.revenue)) {
-        if (!path) continue;
-        if (key === '' || key == null) { delete merged.revenue[path]; continue; }
-        if (!REVENUE_STREAMS.includes(key)) return json({ error: `Invalid revenue category "${key}"` }, 400);
-        merged.revenue[path] = key;
-      }
-    }
-    if (b.expense && typeof b.expense === 'object') {
-      for (const [path, key] of Object.entries(b.expense)) {
-        if (!path) continue;
-        if (key === '' || key == null) { delete merged.expense[path]; continue; }
-        if (!BOARD_EXPENSE_KEYS.includes(key)) return json({ error: `Invalid expense category "${key}"` }, 400);
-        merged.expense[path] = key;
-      }
-    }
-    if (b.revenueLabels && typeof b.revenueLabels === 'object') {
-      for (const [key, label] of Object.entries(b.revenueLabels)) {
-        if (!REVENUE_STREAMS.includes(key)) continue;
-        const clean = String(label || '').trim();
-        if (clean) merged.revenueLabels[key] = clean; else delete merged.revenueLabels[key];
-      }
-    }
-    if (b.expenseLabels && typeof b.expenseLabels === 'object') {
-      for (const [key, label] of Object.entries(b.expenseLabels)) {
-        if (!BOARD_EXPENSE_KEYS.includes(key)) continue;
-        const clean = String(label || '').trim();
-        if (clean) merged.expenseLabels[key] = clean; else delete merged.expenseLabels[key];
-      }
-    }
-    if (typeof b.donorWrapperLabel === 'string') {
-      merged.donorWrapperLabel = b.donorWrapperLabel.trim();
-    }
-    // Leaf-level renames — no fixed allowlist (any category_path is a valid key, same as
-    // revenue/expense above), so only a non-empty path is required. An empty value clears that
-    // one account back to its real QuickBooks name.
-    if (b.accountLabels && typeof b.accountLabels === 'object') {
-      for (const [path, label] of Object.entries(b.accountLabels)) {
-        if (!path) continue;
-        const clean = String(label || '').trim();
-        if (clean) merged.accountLabels[path] = clean; else delete merged.accountLabels[path];
-      }
-    }
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES ('finance_planning_board_categories',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(JSON.stringify(merged)).run();
-    return json({ ok: true, ...merged });
+    const result = await applyBoardCategoryMerge(db, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Purpose tags — a SECOND, independent axis over the same accounts and Compensation Planner
@@ -4755,27 +4874,14 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/planning/church/generate' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const category = String(b.category || '').trim();
-    if (!category) return json({ error: 'category is required' }, 400);
-    const classification = b.classification || 'Expenses';
-    const baseAmountCents = Math.round(Number(b.base_amount) * 100);
-    if (!Number.isFinite(baseAmountCents)) return json({ error: 'Invalid base_amount' }, 400);
-    const growthPct = Number(b.growth_pct);
-    if (!Number.isFinite(growthPct)) return json({ error: 'Invalid growth_pct' }, 400);
     const targetYears = Array.isArray(b.target_years) ? b.target_years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
-    if (!targetYears.length) return json({ error: 'target_years is required' }, 400);
-    const ops = targetYears.map((year, i) => {
-      const cents = Math.round(baseAmountCents * Math.pow(1 + growthPct, i + 1));
-      return db.prepare(
-        `INSERT INTO finance_budget_plan (category,classification,fiscal_year,planned_amount_cents,basis,growth_pct,base_amount_cents,notes,updated_at)
-         VALUES (?,?,?,?,'grown',?,?,?,datetime('now'))
-         ON CONFLICT(category,fiscal_year) DO UPDATE SET
-           classification=excluded.classification, planned_amount_cents=excluded.planned_amount_cents, basis=excluded.basis,
-           growth_pct=excluded.growth_pct, base_amount_cents=excluded.base_amount_cents, notes=excluded.notes, updated_at=excluded.updated_at`
-      ).bind(category, classification, year, cents, growthPct, baseAmountCents, b.notes || '');
+    const result = await generateBudgetPlanRows(db, {
+      category: String(b.category || '').trim(), classification: b.classification || 'Expenses',
+      baseAmountCents: Math.round(Number(b.base_amount) * 100), growthPct: Number(b.growth_pct),
+      targetYears, notes: b.notes,
     });
-    await db.batch(ops);
-    return json({ ok: true, years: targetYears });
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Manual override for a single category/year — always wins over whatever finance/planning/
@@ -4817,9 +4923,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   const planDeleteMatch = seg.match(/^finance\/planning\/church\/([^/]+)\/(\d{4})$/);
   if (planDeleteMatch && method === 'DELETE') {
     if (!isAdmin) return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
-    await db.prepare('DELETE FROM finance_budget_plan WHERE category=? AND fiscal_year=?')
-      .bind(decodeURIComponent(planDeleteMatch[1]), parseInt(planDeleteMatch[2], 10)).run();
-    return json({ ok: true });
+    const result = await deleteBudgetPlanRow(db, decodeURIComponent(planDeleteMatch[1]), parseInt(planDeleteMatch[2], 10));
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Commits every planned category for one fiscal year into finance_church_entries as a
@@ -4829,21 +4935,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/planning/church/commit' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: committing a budget plan requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const fiscalYear = parseInt(b.fiscal_year, 10);
-    if (!Number.isFinite(fiscalYear)) return json({ error: 'fiscal_year is required' }, 400);
-    const planRows = (await db.prepare('SELECT * FROM finance_budget_plan WHERE fiscal_year=?').bind(fiscalYear).all()).results || [];
-    if (!planRows.length) return json({ error: `No plan rows exist for ${fiscalYear}` }, 400);
-    const syncedAt = new Date().toISOString();
-    const ops = [db.prepare(`DELETE FROM finance_church_entries WHERE source='plan_committed' AND fiscal_year=?`).bind(fiscalYear)];
-    for (const r of planRows) {
-      ops.push(db.prepare(
-        `INSERT INTO finance_church_entries
-           (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, synced_at)
-         VALUES (?,0,?,?,?,0,0,0,?,'plan_committed',?)`
-      ).bind(fiscalYear, r.classification, r.category, r.category, r.planned_amount_cents, syncedAt));
-    }
-    await db.batch(ops);
-    return json({ ok: true, fiscalYear, committed: planRows.length });
+    const result = await commitBudgetPlan(db, parseInt(b.fiscal_year, 10));
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // ── Board Packet export — a single clean JSON snapshot of the numbers a board would need for

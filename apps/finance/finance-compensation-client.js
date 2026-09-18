@@ -95,3 +95,44 @@ export async function postConnectFinanceCompensationWrite(env, accessJwt, body) 
   if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
   return { ok: true, result: payload };
 }
+
+// ── Real transport for connect.finance-compensation-plan-relay.v1 (the raw, editable state) ──
+// Fetches the SAME raw plan shape postConnectFinanceCompensationWrite expects back on save --
+// not the normalized connect.finance-compensation.v1 reporting contract (fetchLiveFinanceCompensation
+// above), which has a different, display-oriented per-worker shape and cannot be resubmitted as a
+// save. The editor calls this first, applies one change, and resubmits the COMPLETE result --
+// fetch-edit-resubmit, exactly like every other manual-edit form in this app, just against a
+// whole-object save instead of a single row.
+//
+// Never throws. Every failure mode -- the binding/key not configured, no Access identity on the
+// incoming request, a network error, a non-200 response (including a real "not authorized for
+// this role" refusal), or malformed JSON -- resolves to { ok: false, reason }. Only a genuinely
+// accepted read resolves to { ok: true, data } (`data` is null when nothing has been saved yet,
+// matching the legacy route's own "no plan yet" shape).
+export async function fetchConnectSalaryPlannerState(env, accessJwt) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-compensation-plan-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      headers: { 'X-Contract-Key': key, 'Cf-Access-Jwt-Assertion': accessJwt, Accept: 'application/json' },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, data: payload?.data ?? null };
+}

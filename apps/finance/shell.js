@@ -17,6 +17,11 @@ import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.j
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
 import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
+import { postConnectFinanceChurchActualOverride } from './finance-church-report-client.js';
+import { postConnectFinanceDaycareEntry } from './finance-daycare-client.js';
+import { postConnectBoardCategoriesWrite } from './finance-chart-of-accounts-client.js';
+import { postConnectPropertyMonthlyWrite } from './finance-property-operating-client.js';
+import { postConnectPropertyRepairWrite } from './finance-property-ledgers-client.js';
 import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
@@ -24,8 +29,12 @@ import {
   resolvePropertyValuation, resolvePropertyReport, resolvePropertyReserves, resolvePropertyLedgers,
 } from './property-report-service.js';
 import { resolveBudgetReport } from './budget-report-service.js';
-import { postConnectFinanceBudgetWrite } from './finance-budget-client.js';
+import {
+  postConnectFinanceBudgetWrite, postConnectFinanceBudgetGenerate, postConnectFinanceBudgetGenerateAll,
+  postConnectFinanceBudgetCommit, postConnectFinanceBudgetRemove,
+} from './finance-budget-client.js';
 import { isBudgetPlanWritesEnabled, validateBudgetPlanRows, saveBudgetPlanRows } from './budget-plan-write-service.js';
+import { fetchConnectSalaryPlannerState, postConnectFinanceCompensationWrite } from './finance-compensation-client.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
@@ -146,6 +155,150 @@ function describeBudgetEntryError(reason, message) {
   }
 }
 
+// Same shape as describeBudgetEntryError above, for the admin-only generate/generate-all/commit/
+// remove-a-category plan operations (postConnectFinanceBudgetGenerate[All]/Commit/Remove) --
+// `verb` names the failed operation in the default/not_configured messages so the banner reads
+// naturally for whichever of the four just ran.
+function describeBudgetPlanOpError(reason, message, verb) {
+  switch (reason) {
+    case 'not_configured': return `Budget Plan ${verb} is not connected yet. Nothing changed.`;
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing changed — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed.';
+    case 'http_error': return message ? String(message) : 'Connect refused the request.';
+    default: return `The ${verb} did not complete.`;
+  }
+}
+const BUDGET_PLAN_OP_VERBS = { generate: 'generation', 'generate-all': 'generation', commit: 'commit', remove: 'removal' };
+
+// Mirrors REVENUE_STREAMS/BOARD_EXPENSE_KEYS (src/api-finance.js) -- only used here to decide
+// which of applyBoardCategoryMerge's two maps (revenue vs expense) a submitted board-category key
+// belongs in, since the form (accounts-pages.js) offers one combined picker. Connect's own
+// applyBoardCategoryMerge re-validates the key against its own real allowlist regardless, so a
+// drift here could only ever misfile a save into the wrong map (a visible, immediately obvious
+// mistake), never let an invalid key through.
+const BOARD_REVENUE_KEYS = ['donor', 'earned', 'passive', 'restricted'];
+const BOARD_EXPENSE_KEYS_LOCAL = ['mdo', 'salaries', 'benefits', 'worship', 'property', 'education', 'youth_family', 'district_synod', 'programs'];
+
+// Same shape as describeBudgetEntryError above, for postConnectFinanceChurchActualOverride() failures.
+function describeChurchOverrideError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Church Report corrections are not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the correction.';
+    default: return 'The correction was not saved.';
+  }
+}
+
+// Same shape as describeChurchOverrideError above, for postConnectFinanceDaycareEntry() failures.
+function describeDaycareEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Daycare entry is not connected yet. Nothing was recorded.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was recorded — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as recorded.';
+    case 'http_error': return message ? String(message) : 'Connect refused the entry.';
+    default: return 'The entry was not recorded.';
+  }
+}
+
+// Same shape as describeDaycareEntryError above, for postConnectBoardCategoriesWrite() failures.
+function describeBoardCategoryEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Chart of Accounts editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the assignment.';
+    default: return 'The assignment was not saved.';
+  }
+}
+
+// Same shape as describeBoardCategoryEntryError above, for postConnectPropertyMonthlyWrite() failures.
+function describePropertyMonthlyEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the entry.';
+    default: return 'The month was not saved.';
+  }
+}
+
+// Same shape as describePropertyMonthlyEntryError above, for postConnectPropertyRepairWrite() failures.
+function describePropertyRepairEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the entry.';
+    default: return 'The entry was not saved.';
+  }
+}
+
+// Same shape as describeBudgetEntryError above, for postConnectFinanceCompensationWrite() /
+// fetchConnectSalaryPlannerState() failures.
+function describeCompensationEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Compensation Plan editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'invalid_index': return 'That worker no longer matches the current plan — reload and try again.';
+    case 'http_error': return message ? String(message) : 'Connect refused the edit.';
+    default: return 'The Compensation Plan edit was not saved.';
+  }
+}
+
+// Builds a raw roster worker record from the edit/add form's fields (compensation-editor-pages.js),
+// matching the exact raw field names api-finance.js's SALARY_PLANNER_KEY plan stores (see
+// api-contracts.js's buildFinanceCompensationV1 comment on the raw roster shape) -- `existing` is
+// spread first so an edit only overwrites the fields this form actually collects, never dropping
+// a field (like a council-only override) the editor doesn't show.
+function workerFromForm(form, existing) {
+  const numberOrNull = (v) => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const w = existing && typeof existing === 'object' ? { ...existing } : {};
+  w.name = String(form.get('name') || '');
+  w.position = String(form.get('position') || '');
+  w.accountCode = String(form.get('accountCode') || '');
+  w.role = String(form.get('role') || 'other');
+  w.trackKey = String(form.get('trackKey') || '');
+  w.education = String(form.get('education') || '');
+  w.yearsExperience = numberOrNull(form.get('yearsExperience')) ?? 0;
+  w.responsibilityStipend = numberOrNull(form.get('responsibilityStipend')) ?? 0;
+  w.attendanceBonus = numberOrNull(form.get('attendanceBonus')) ?? 0;
+  const actualSalary = numberOrNull(form.get('actualSalary'));
+  w.actualSalaryCents = actualSalary != null ? Math.round(actualSalary * 100) : null;
+  w.selfEmployedFica = form.get('selfEmployedFica') === 'on';
+  w.hasDependents = form.get('hasDependents') === 'on';
+  w.healthEnrolled = form.get('healthEnrolled') === 'on';
+  w.hideFromCouncil = form.get('hideFromCouncil') === 'on';
+  return w;
+}
+
+// Reindexes a per-worker override map (compPerWorkerMethod/compOverrides -- object keyed by roster
+// array index, see resolveSalaryPlannerState's own reindex in api-finance.js) after `removedIndex`
+// is spliced out of the roster: the removed key is dropped, and every key above it shifts down by
+// one to keep tracking the same worker at its new position.
+function reindexAfterRemove(obj, removedIndex) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const out = {};
+  for (const k of Object.keys(obj)) {
+    const oldIndex = Number(k);
+    if (oldIndex === removedIndex) continue;
+    out[oldIndex > removedIndex ? oldIndex - 1 : oldIndex] = obj[k];
+  }
+  return out;
+}
+
 // Confirms the payroll relay actually reached Website's proxy and got real data back, without
 // ever putting a staff name, ID, or wage figure in the response -- a count and the real result's
 // field names are enough to prove the round trip is genuine, and this is deliberately reachable
@@ -219,6 +372,13 @@ function renderSectionBody(ctx) {
     propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
     compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage,
     budgetEntryStatus, budgetEntryMessage, payrollBundle,
+    compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
+    canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
+    churchOverrideStatus, churchOverrideMessage,
+    daycareEntryStatus, daycareEntryMessage,
+    boardCategoryEntryStatus, boardCategoryEntryMessage,
+    propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
+    propertyRepairEntryStatus, propertyRepairEntryMessage,
     roleResult,
   } = ctx;
   if (section.id === 'health') {
@@ -358,18 +518,38 @@ function renderSectionBody(ctx) {
     return renderChartsPage(page.id, { churchReport, churchReportLive, cashRunway, propertyReserves, propertyReservesLive, giving, givingSource });
   }
   if (section.id === 'church') {
-    return renderChurchPage(page.id, { churchReport: churchReportLive, churchTrendLive });
+    // Same admin-only gate as the legacy in-Connect Church Report's own actual-override route --
+    // UI hiding is never authorization, the real gate is finance-church-actual-override-v1's own
+    // role check on Connect's side, but there's no reason to show a form that will only 403.
+    const canManageChurchReport = roleResult.ok && roleResult.role === 'admin';
+    return renderChurchPage(page.id, {
+      churchReport: churchReportLive, churchTrendLive, canManageChurchReport, churchOverrideStatus, churchOverrideMessage,
+    });
   }
   if (section.id === 'balance') {
     return renderBalancePage(page.id, { balanceSheet, balanceTrends });
   }
   if (section.id === 'daycare') {
-    return renderDaycarePage(page.id, { daycareReport: daycareReportLive });
+    // Any verified role that can reach this section at all may attempt an entry -- the legacy
+    // in-Connect route's own gate is edit permission on any of finance/budget/compensation, not a
+    // simple role-name check apps/finance's coarse role model can precisely replicate; the real
+    // gate is finance-daycare-entry-v1's own permission check on Connect's side (see its header
+    // comment in src/api-contracts-service.js).
+    const canRecordDaycareEntry = roleResult.ok;
+    return renderDaycarePage(page.id, { daycareReport: daycareReportLive, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage });
   }
   if (section.id === 'property') {
+    // Same admin-only gate as the legacy in-Connect Property Operating Results' own monthly POST
+    // route and Work orders' own repairs POST route -- UI hiding is never authorization, the real
+    // gate is finance-property-monthly-write-v1's/finance-property-repair-write-v1's own role
+    // check on Connect's side.
+    const canManagePropertyMonthly = roleResult.ok && roleResult.role === 'admin';
+    const canManagePropertyRepairs = roleResult.ok && roleResult.role === 'admin';
     return renderPropertyPage(page.id, {
       propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
       propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions,
+      canManagePropertyMonthly, propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
+      canManagePropertyRepairs, propertyRepairEntryStatus, propertyRepairEntryMessage,
     });
   }
   if (section.id === 'planning') {
@@ -377,10 +557,24 @@ function renderSectionBody(ctx) {
     // only) -- UI hiding is never authorization, the real gate is finance-budget-write-v1's own
     // role check on Connect's side, but there's no reason to show a form that will only 403.
     const canEditBudget = roleResult.ok && (roleResult.role === 'admin' || roleResult.role === 'council');
-    return renderPlanningPage(page.id, { budgetReport, canEditBudget, budgetEntryStatus, budgetEntryMessage });
+    // generate/generate-all/commit/remove-a-category stay admin-only, matching their legacy
+    // routes' own gate exactly (see the shared helpers' header comment in src/api-finance.js) --
+    // council may only hand-correct a planned amount via canEditBudget's form above, never
+    // regenerate or finalize the shared plan wholesale.
+    const canManageBudgetPlan = roleResult.ok && roleResult.role === 'admin';
+    return renderPlanningPage(page.id, {
+      budgetReport, canEditBudget, budgetEntryStatus, budgetEntryMessage,
+      canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
+    });
   }
   if (section.id === 'accounts') {
-    return renderAccountsPage(page.id, { accountsReport });
+    // Same admin-only gate as the legacy in-Connect Chart of Accounts' own board-categories PUT
+    // route -- UI hiding is never authorization, the real gate is
+    // finance-board-categories-write-v1's own role check on Connect's side.
+    const canManageBoardCategories = roleResult.ok && roleResult.role === 'admin';
+    return renderAccountsPage(page.id, {
+      accountsReport, canManageBoardCategories, boardCategoryEntryStatus, boardCategoryEntryMessage,
+    });
   }
   if (section.id === 'compensation') {
     // viewerRole (not just the compensationRoleVerified boolean that gates the live fetch itself)
@@ -390,6 +584,8 @@ function renderSectionBody(ctx) {
     return renderCompensationPage(page.id, {
       compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits,
       viewerRole: roleResult && roleResult.ok ? roleResult.role : null,
+      compensationPlanRaw, canEditCompensation, editIndex: compensationEditIndex,
+      entryStatus: compensationEntryStatus, entryMessage: compensationEntryMessage,
     });
   }
   if (section.id === 'quickbooks') {
@@ -781,6 +977,226 @@ export default {
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
 
+    // Admin-only generate/generate-all/commit/remove-a-category plan operations, each relaying to
+    // its own Connect contract endpoint (src/api-contracts-service.js) -- same 303-redirect-after-
+    // POST shape as budget-plan-write-v1 above, distinguished on redirect by the 'op' query param
+    // (planOpKind in shell.js's GET handler) so the right form/table shows the right status.
+    if (route.id === 'budget-generate-v1' || route.id === 'budget-generate-all-v1'
+      || route.id === 'budget-commit-v1' || route.id === 'budget-plan-remove-v1') {
+      const opKind = { 'budget-generate-v1': 'generate', 'budget-generate-all-v1': 'generate-all', 'budget-commit-v1': 'commit', 'budget-plan-remove-v1': 'remove' }[route.id];
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: `/?section=planning&op=${opKind}&status=error&reason=invalid_json` } });
+      }
+      let result;
+      if (opKind === 'generate') {
+        const targetYears = String(form.get('target_years') || '').split(',').map((s) => s.trim()).filter(Boolean);
+        result = await postConnectFinanceBudgetGenerate(env, accessJwt, {
+          category: form.get('category') || '', classification: form.get('classification') || 'Expenses',
+          base_amount: form.get('base_amount') || '', growth_pct: form.get('growth_pct') || '', target_years: targetYears,
+          notes: form.get('notes') || '',
+        });
+      } else if (opKind === 'generate-all') {
+        result = await postConnectFinanceBudgetGenerateAll(env, accessJwt, {
+          base_year: form.get('base_year') || '', target_year: form.get('target_year') || '', growth_pct: form.get('growth_pct') || '',
+        });
+      } else if (opKind === 'commit') {
+        result = await postConnectFinanceBudgetCommit(env, accessJwt, { fiscal_year: form.get('fiscal_year') || '' });
+      } else {
+        result = await postConnectFinanceBudgetRemove(env, accessJwt, { category: form.get('category') || '', fiscal_year: form.get('fiscal_year') || '' });
+      }
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: `/?section=planning&op=${opKind}&status=ok` } });
+      }
+      const params = new URLSearchParams({ section: 'planning', op: opKind, status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Church Report's admin-only actual-figure correction, same 303-redirect-after-POST shape as
+    // the routes above.
+    if (route.id === 'church-actual-override-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=church&status=error&reason=invalid_json' } });
+      }
+      const row = {
+        category: form.get('category') || '',
+        classification: form.get('classification') || 'Expenses',
+        account_name: form.get('account_name') || '',
+        amount: form.get('amount') || '',
+      };
+      const result = await postConnectFinanceChurchActualOverride(env, accessJwt, { year: form.get('year') || '', rows: [row] });
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=church&page=income-expense&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'church', page: 'income-expense', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'daycare-entry-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&status=error&reason=invalid_json' } });
+      }
+      const amount = Number(form.get('amount'));
+      const body = {
+        period: form.get('period') || '',
+        category: form.get('category') || '',
+        entry_type: form.get('entry_type') || 'actual',
+        amount_cents: Number.isFinite(amount) ? Math.round(amount * 100) : null,
+        notes: form.get('notes') || '',
+      };
+      const result = await postConnectFinanceDaycareEntry(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&page=actuals&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'daycare', page: 'actuals', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'board-categories-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=accounts&status=error&reason=invalid_json' } });
+      }
+      const path = form.get('category_path') || '';
+      const boardCategory = form.get('board_category') || '';
+      const body = BOARD_REVENUE_KEYS.includes(boardCategory)
+        ? { revenue: { [path]: boardCategory } }
+        : BOARD_EXPENSE_KEYS_LOCAL.includes(boardCategory)
+          ? { expense: { [path]: boardCategory } }
+          // Blank/unrecognized selection clears the assignment -- sent to both maps since this
+          // form doesn't know which one (if either) currently holds this path; an empty value for
+          // a path that was never in a given map is a harmless no-op there.
+          : { revenue: { [path]: '' }, expense: { [path]: '' } };
+      const result = await postConnectBoardCategoriesWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=accounts&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'accounts', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'property-monthly-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = {
+        period: form.get('period') || '',
+        occupancy_pct: form.get('occupancy_pct') || '',
+        total_revenue: form.get('total_revenue') || '',
+        total_expenses: form.get('total_expenses') || '',
+        net_income: form.get('net_income') || '',
+        net_operating_income: form.get('net_operating_income') || '',
+        available_for_distribution: form.get('available_for_distribution') || '',
+        reserve_balance: form.get('reserve_balance') || '',
+        loan_payment: form.get('loan_payment') || '',
+        interest_expense: form.get('interest_expense') || '',
+        source_report: 'finance-app',
+      };
+      const result = await postConnectPropertyMonthlyWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=operating-results&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'operating-results', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'property-repair-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = {
+        entry_date: form.get('entry_date') || '',
+        category: form.get('category') || '',
+        description: form.get('description') || '',
+        amount: form.get('amount') || '',
+        payee: form.get('payee') || '',
+        capitalized: form.get('capitalized') === 'on',
+      };
+      const result = await postConnectPropertyRepairWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=work-orders&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'work-orders', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Compensation Plan roster editor's own fetch-edit-resubmit save: fetch the CURRENT complete
+    // plan from Connect (never trust a stale copy the browser may have rendered from), apply one
+    // add/edit/remove, and resubmit the whole merged plan -- see finance-compensation-client.js's
+    // own comment on why a partial body would wipe the rest of a real plan.
+    if (route.id === 'compensation-plan-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=compensation&status=error&reason=invalid_json' } });
+      }
+      const current = await fetchConnectSalaryPlannerState(env, accessJwt);
+      if (!current.ok) {
+        const params = new URLSearchParams({ section: 'compensation', status: 'error', reason: current.reason || 'unknown' });
+        if (current.message) params.set('message', String(current.message).slice(0, 200));
+        return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+      }
+      const data = current.data && typeof current.data === 'object' ? { ...current.data } : {};
+      const roster = Array.isArray(data.roster) ? [...data.roster] : [];
+      const action = String(form.get('action') || 'add');
+      const indexRaw = form.get('index');
+      const index = indexRaw !== null && indexRaw !== '' ? Number(indexRaw) : null;
+
+      if (action === 'remove' || action === 'edit') {
+        if (index == null || !Number.isInteger(index) || !roster[index]) {
+          return response(null, { status: 303, headers: { Location: '/?section=compensation&status=error&reason=invalid_index' } });
+        }
+      }
+      if (action === 'remove') {
+        roster.splice(index, 1);
+        data.compPerWorkerMethod = reindexAfterRemove(data.compPerWorkerMethod, index);
+        data.compOverrides = reindexAfterRemove(data.compOverrides, index);
+      } else if (action === 'edit') {
+        roster[index] = workerFromForm(form, roster[index]);
+      } else {
+        roster.push(workerFromForm(form, null));
+      }
+      data.roster = roster;
+
+      const result = await postConnectFinanceCompensationWrite(env, accessJwt, data);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=compensation&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'compensation', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
     if (route.id === 'payroll-relay-diagnostic-v1') {
       const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
       const result = await callPayrollProxy(env, accessJwt, 'payroll_get_staff', {});
@@ -1045,6 +1461,12 @@ export default {
       try {
         const section = resolveFinanceSection(url.searchParams.get('section'));
         const pageId = url.searchParams.get('page');
+        // The 'page' query param is optional -- resolveFinancePage() is what actually defaults a
+        // missing/unknown one to the section's first page (e.g. Compensation's 'plan'), the same
+        // resolution renderCompensationPage's own pageId argument (page.id, not this raw pageId)
+        // already goes through in renderSectionBody below. Needed here, before that render happens,
+        // to gate the Compensation Plan roster editor's own live fetch on the right page.
+        const effectivePageId = resolveFinancePage(section, pageId).id;
         const councilPreview = url.searchParams.get('council') === '1';
         const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
         const roleResult = await fetchVerifiedRole(env, accessJwt);
@@ -1246,6 +1668,25 @@ export default {
           ? await safeSyntheticRead(() => readSyntheticCompensationBenchmarks(env.FINANCE_DB)) : null;
         const compensationBenefits = section.id === 'compensation'
           ? await safeSyntheticRead(() => readSyntheticCompensationBenefits(env.FINANCE_DB)) : null;
+        // The roster editor (compensation-editor-pages.js) is admin/compensation only -- council's
+        // real editing surface stays the separate, narrower raise-plan-field overlay
+        // (COUNCIL_EDITABLE_FIELDS, api-finance.js), not this whole-roster editor. Only fetched on
+        // the Plan page itself, and only via the same fetchConnectSalaryPlannerState() relay the
+        // save route resubmits against -- it never throws, so no safeSyntheticRead wrapper is
+        // needed here (unlike the resolvers above, which can).
+        const canEditCompensation = roleResult.ok && (roleResult.role === 'admin' || roleResult.role === 'compensation');
+        const compensationPlanRaw = (section.id === 'compensation' && effectivePageId === 'plan' && canEditCompensation)
+          ? await fetchConnectSalaryPlannerState(env, request.headers.get('Cf-Access-Jwt-Assertion') || '') : null;
+        const compensationEditIndex = (section.id === 'compensation' && effectivePageId === 'plan') ? (() => {
+          const raw = url.searchParams.get('edit');
+          if (raw === null) return null;
+          const n = Number(raw);
+          return Number.isInteger(n) && n >= 0 ? n : null;
+        })() : null;
+        const compensationEntryStatus = section.id === 'compensation' ? url.searchParams.get('status') : null;
+        const compensationEntryMessage = compensationEntryStatus === 'error'
+          ? describeCompensationEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const cashRunway = ['health', 'charts'].includes(section.id)
           ? await safeSyntheticRead(() => readSyntheticCashRunway(env.FINANCE_DB)) : null;
         const { giving, source: givingSource } = ['health', 'giving', 'charts', 'packet'].includes(section.id)
@@ -1254,9 +1695,42 @@ export default {
         const givingEntryMessage = givingEntryStatus === 'error'
           ? describeGivingEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
-        const budgetEntryStatus = section.id === 'planning' ? url.searchParams.get('status') : null;
+        // 'op' distinguishes a generate/generate-all/commit/remove redirect (planOp* below) from a
+        // plain manual-edit redirect (budgetEntryStatus, unchanged) -- both land back on
+        // ?section=planning with the same status/reason/message shape, so the presence of 'op' is
+        // what tells the two apart.
+        const planOpKind = section.id === 'planning' ? url.searchParams.get('op') : null;
+        const budgetEntryStatus = section.id === 'planning' && !planOpKind ? url.searchParams.get('status') : null;
         const budgetEntryMessage = budgetEntryStatus === 'error'
           ? describeBudgetEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const planOpStatus = planOpKind ? url.searchParams.get('status') : null;
+        const planOpMessage = planOpStatus === 'error'
+          ? describeBudgetPlanOpError(url.searchParams.get('reason'), url.searchParams.get('message'), BUDGET_PLAN_OP_VERBS[planOpKind] || 'operation')
+          : null;
+        const churchOverrideStatus = section.id === 'church' ? url.searchParams.get('status') : null;
+        const churchOverrideMessage = churchOverrideStatus === 'error'
+          ? describeChurchOverrideError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const daycareEntryStatus = section.id === 'daycare' ? url.searchParams.get('status') : null;
+        const daycareEntryMessage = daycareEntryStatus === 'error'
+          ? describeDaycareEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const boardCategoryEntryStatus = section.id === 'accounts' ? url.searchParams.get('status') : null;
+        const boardCategoryEntryMessage = boardCategoryEntryStatus === 'error'
+          ? describeBoardCategoryEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        // Both property forms (Operating results' monthly entry and Work orders' repair entry)
+        // redirect back to ?section=property with the same status/reason/message shape,
+        // distinguished by `page` (each page shows only its own form) -- so both statuses read the
+        // same query params, just through their own describer for the right wording.
+        const propertyMonthlyEntryStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyMonthlyEntryMessage = propertyMonthlyEntryStatus === 'error'
+          ? describePropertyMonthlyEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const propertyRepairEntryStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyRepairEntryMessage = propertyRepairEntryStatus === 'error'
+          ? describePropertyRepairEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
@@ -1266,7 +1740,11 @@ export default {
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
+          compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
+          planOpKind, planOpStatus, planOpMessage, churchOverrideStatus, churchOverrideMessage,
+          daycareEntryStatus, daycareEntryMessage, boardCategoryEntryStatus, boardCategoryEntryMessage,
+          propertyMonthlyEntryStatus, propertyMonthlyEntryMessage, propertyRepairEntryStatus, propertyRepairEntryMessage,
         }), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });

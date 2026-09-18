@@ -48,25 +48,81 @@ export function renderPropertyDistributionRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${formatCents(row.amount_cents)}</td></tr>`).join('');
 }
 
+// Admin-only monthly financials entry/upsert -- relayed live to Connect's real
+// finance_property_monthly table (see finance-property-monthly-write-v1 in
+// src/api-contracts-service.js), never stored in Finance's own database. One period at a time,
+// matching Budget/Church's own single-row edit forms; re-submitting the same period upserts that
+// row rather than adding a second one, same as the legacy in-Connect Property Operating Results.
+function renderPropertyMonthlyForm(entryStatus, entryMessage) {
+  return `<section aria-label="Record a Commercial Property month">
+    ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Record a month', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-property-monthly-write">
+      <div class="grid form-grid">
+        <div class="field"><label for="pm-period">Period (YYYY-MM)</label><input id="pm-period" type="text" name="period" pattern="\\d{4}-\\d{2}" placeholder="2027-01" required></div>
+        <div class="field"><label for="pm-occ">Occupancy (%)</label><input id="pm-occ" type="number" name="occupancy_pct" step="0.1" min="0" max="100"></div>
+        <div class="field"><label for="pm-revenue">Total revenue ($)</label><input id="pm-revenue" type="number" name="total_revenue" step="0.01"></div>
+        <div class="field"><label for="pm-expenses">Total expenses ($)</label><input id="pm-expenses" type="number" name="total_expenses" step="0.01"></div>
+        <div class="field"><label for="pm-net">Net income ($)</label><input id="pm-net" type="number" name="net_income" step="0.01"></div>
+        <div class="field"><label for="pm-noi">Net operating income ($)</label><input id="pm-noi" type="number" name="net_operating_income" step="0.01"></div>
+        <div class="field"><label for="pm-afd">Available for distribution ($)</label><input id="pm-afd" type="number" name="available_for_distribution" step="0.01"></div>
+        <div class="field"><label for="pm-reserve">Reserve balance ($)</label><input id="pm-reserve" type="number" name="reserve_balance" step="0.01"></div>
+        <div class="field"><label for="pm-loan">Loan payment ($)</label><input id="pm-loan" type="number" name="loan_payment" step="0.01"></div>
+        <div class="field"><label for="pm-interest">Interest expense ($)</label><input id="pm-interest" type="number" name="interest_expense" step="0.01"></div>
+      </div>
+      <button type="submit">Save month</button>
+    </form>
+    <p><small>This writes directly into Connect's own <code>finance_property_monthly</code> table -- the same table the legacy in-Connect Property Operating Results edits. Every field except period is optional; leaving one blank keeps it null (not a fabricated $0). Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
+// Admin-only repairs & maintenance log entry -- relayed live to Connect's real
+// finance_property_repairs table (see finance-property-repair-write-v1 in
+// src/api-contracts-service.js), never stored in Finance's own database.
+function renderPropertyRepairForm(entryStatus, entryMessage) {
+  return `<section aria-label="Record a repair or maintenance entry">
+    ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Record a repair or maintenance entry', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-property-repair-write">
+      <div class="grid form-grid">
+        <div class="field"><label for="pr-date">Date (YYYY, YYYY-MM, or YYYY-MM-DD)</label><input id="pr-date" type="text" name="entry_date" placeholder="2027-01-15"></div>
+        <div class="field"><label for="pr-category">Repair category</label><input id="pr-category" type="text" name="category" placeholder="e.g. HVAC"></div>
+        <div class="field"><label for="pr-payee">Payee</label><input id="pr-payee" type="text" name="payee"></div>
+        <div class="field"><label for="pr-amount">Amount ($)</label><input id="pr-amount" type="number" name="amount" step="0.01"></div>
+      </div>
+      <div class="field"><label for="pr-description">Description</label><input id="pr-description" type="text" name="description"></div>
+      <div class="field"><label><input type="checkbox" name="capitalized"> Capitalized (goes toward the capital improvements ledger, not an operating expense)</label></div>
+      <button type="submit">Save entry</button>
+    </form>
+    <p><small>This writes directly into Connect's own <code>finance_property_repairs</code> table -- the same table the legacy in-Connect Work orders page edits. Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
 export function renderPropertyPage(pageId, {
   propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
   propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions,
+  canManagePropertyMonthly, propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
+  canManagePropertyRepairs, propertyRepairEntryStatus, propertyRepairEntryMessage,
 }) {
-  const report = buildPropertyReportView(propertyReport);
-
   if (pageId === 'operating-results') {
     // Live-first: tries connect.finance-property-operating.v1 (property-report-service.js's
     // resolvePropertyReport), falls back to the committed synthetic fixture -- same
-    // isLive/fallbackNote convention as the 'rent-roll'/'valuation' pages below.
+    // isLive/fallbackNote convention as the 'rent-roll'/'valuation' pages below. buildPropertyReportView
+    // is only called on the synthetic-fallback path -- never unconditionally -- so a live-configured
+    // request never depends on propertyReport also having resolved successfully (it may be
+    // SYNTHETIC_UNAVAILABLE here and that's fine, since it's never touched when isLive).
     const isLive = propertyReportLive && propertyReportLive.source === 'live';
-    const rows = isLive ? propertyReportLive.rows : report.rows;
-    const periodEnd = rows.length ? rows[rows.length - 1].period : report.periodEnd;
+    const syntheticReport = isLive ? null : buildPropertyReportView(propertyReport);
+    const rows = isLive ? propertyReportLive.rows : syntheticReport.rows;
+    const periodEnd = rows.length ? rows[rows.length - 1].period : syntheticReport.periodEnd;
     const fallbackNote = isLive ? '' : `<p><small>The committed synthetic fixture (the live endpoint is not configured or did not answer${propertyReportLive && propertyReportLive.fallbackReason ? `: ${escapeHtml(propertyReportLive.fallbackReason)}` : ''}).</small></p>`;
     return `<section class="report" aria-label="${isLive ? 'Commercial Property operating results' : 'Synthetic Commercial Property operating results'}">
       ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: `Operating results through ${escapeHtml(periodEnd)}`, badge: isLive ? 'Live from Connect' : 'Synthetic staging' })}
       ${renderTable({ head: ['Period', 'Occupancy', 'Revenue', 'Expenses', 'Net income'], rows: renderPropertyRows(rows) })}
       ${fallbackNote}
-    </section>`;
+    </section>${canManagePropertyMonthly ? renderPropertyMonthlyForm(propertyMonthlyEntryStatus, propertyMonthlyEntryMessage) : ''}`;
   }
   if (pageId === 'rent-roll') {
     const isLive = propertyValuation.source === 'live';
@@ -91,7 +147,7 @@ export function renderPropertyPage(pageId, {
       ${renderKpiCards([{ label: 'Repairs & maintenance', value: formatCents(ledgers.totals.repairs_cents) }])}
       ${renderTable({ head: ['Date', 'Repair category', 'Description', 'Payee', 'Amount'], rows: renderPropertyRepairRows(ledgers.repairs) })}
       ${fallbackNote}
-    </section>`;
+    </section>${canManagePropertyRepairs ? renderPropertyRepairForm(propertyRepairEntryStatus, propertyRepairEntryMessage) : ''}`;
   }
   if (pageId === 'reserve-distribution') {
     // Live-first: tries connect.finance-property-reserves.v1 (property-report-service.js's
@@ -215,7 +271,11 @@ export function renderPropertyPage(pageId, {
   };
   if (unavailable[pageId]) return renderUnavailablePage({ eyebrow: 'Commercial Property', ...unavailable[pageId] });
 
-  // 'overview' (default)
+  // 'overview' (default) -- entirely synthetic, no live variant. Computed here, not at the top
+  // of this function, so a SYNTHETIC_UNAVAILABLE propertyReport only ever breaks this one
+  // fallback page, never a page (like 'operating-results' above) with its own live path that
+  // doesn't need it.
+  const report = buildPropertyReportView(propertyReport);
   return `<section class="report" aria-label="Synthetic Commercial Property overview">
     ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: `Property performance through ${escapeHtml(report.periodEnd)}`, badge: 'Synthetic staging' })}
     ${renderKpiCards([

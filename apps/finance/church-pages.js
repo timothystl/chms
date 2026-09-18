@@ -1,6 +1,32 @@
 import { buildChurchReportView, buildLiveChurchReportView } from './church-report-service.js';
 import { escapeHtml, formatCents, formatSignedCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
 
+// Admin-only correction of one account's real, posted actual figure -- relayed live to Connect's
+// finance_church_entries table (see finance-church-actual-override-v1 in
+// src/api-contracts-service.js), never stored in Finance's own database. Shown only on Income &
+// expense detail, the one page with the per-account rows a correction targets; Overview/Multi-year
+// trend/Budget vs actual stay read-only summaries of the same underlying data. Leaving Amount blank
+// clears a prior correction back to whatever the last real sync/import posted for that account,
+// matching the legacy route's own delete-on-blank behavior.
+function renderChurchActualOverrideForm(fiscalYear, entryStatus, entryMessage) {
+  return `<section aria-label="Correct a Church Report actual figure">
+    ${renderSectionHeading({ eyebrow: 'Church Report', heading: 'Correct an actual figure', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-church-actual-override">
+      <div class="grid form-grid">
+        <div class="field"><label for="cao-year">Fiscal year</label><input id="cao-year" type="number" name="year" min="2000" max="2100" value="${escapeHtml(String(fiscalYear))}" required></div>
+        <div class="field"><label for="cao-category">Account (category path)</label><input id="cao-category" type="text" name="category" placeholder="e.g. Expenses:Utilities" required></div>
+        <div class="field"><label for="cao-classification">Classification</label><select id="cao-classification" name="classification"><option value="Expenses" selected>Expenses</option><option value="Income">Income</option><option value="Cost of Goods Sold">Cost of Goods Sold</option><option value="Other Income">Other Income</option><option value="Other Expenses">Other Expenses</option></select></div>
+        <div class="field"><label for="cao-name">Account name</label><input id="cao-name" type="text" name="account_name" placeholder="optional -- defaults from the category path"></div>
+        <div class="field"><label for="cao-amount">Corrected actual ($, blank clears a prior correction)</label><input id="cao-amount" type="number" name="amount" step="0.01"></div>
+      </div>
+      <button type="submit">Save correction</button>
+    </form>
+    <p><small>This writes directly into Connect's own <code>finance_church_entries</code> table as a manual correction that takes precedence over whatever the last QuickBooks sync or CSV import posted for this exact account -- every reader (Church Report, Financial Health, Planning) picks it up, and a later re-sync/re-import does not erase it. Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
 export function renderChurchRows(rows) {
   return rows.map((row) => {
     const variance = row.classification === 'Income'
@@ -46,7 +72,7 @@ export function renderLiveChurchTrendRows(years) {
 // fallbackReason, rows } -- for the 'trend' (multi-year) page specifically. Health/Charts/Packet's
 // own still-synthetic churchReport/churchTrends usage in shell.js is untouched, out of scope for
 // this contract.
-export function renderChurchPage(pageId, { churchReport, churchTrendLive }) {
+export function renderChurchPage(pageId, { churchReport, churchTrendLive, canManageChurchReport, churchOverrideStatus, churchOverrideMessage }) {
   if (pageId === 'trend') {
     const isTrendLive = churchTrendLive.source === 'live';
     const badge = isTrendLive ? 'Live from Connect' : 'Synthetic staging';
@@ -73,7 +99,7 @@ export function renderChurchPage(pageId, { churchReport, churchTrendLive }) {
       ${renderSectionHeading({ eyebrow: 'Church Report', heading: `Income &amp; expense detail · FY${report.fiscalYear}`, badge })}
       ${renderTable({ head: ['Classification', 'Account', 'Actual', 'Budget', 'Favorable variance'], rows })}
       ${fallbackNote}
-    </section>`;
+    </section>${canManageChurchReport ? renderChurchActualOverrideForm(report.fiscalYear, churchOverrideStatus, churchOverrideMessage) : ''}`;
   }
   if (pageId === 'budget-actual') {
     return `<section class="report" aria-label="Church Report budget vs actual">
