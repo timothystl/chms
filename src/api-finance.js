@@ -3810,6 +3810,149 @@ export async function importDaycareFromChurchBudget(db, year) {
   return { ok: true, year, imported: entries.length };
 }
 
+// ── Shared Daycare entry editor (partial update) ─────────────────────────────────────────────
+// Used by both the finance/daycare/:id PUT route below and its finance-daycare-entry-edit-v1 relay
+// contract counterpart (src/api-contracts-service.js), so Finance's own Worker can forward the
+// identical partial-update edit on behalf of an identity it verified via Cloudflare Access. One
+// implementation means the two entry points can never drift. No role check here -- like
+// recordDaycareEntry/bulkRecordDaycareEntries above, the legacy route itself has none beyond the
+// blanket ACCESS_GATE wrapping the whole handler -- verified directly against source, not assumed.
+// idInput is re-validated against the same \d+ shape the legacy route's own URL regex enforces,
+// since a relay body has no URL to guarantee that shape -- this never changes the legacy route's
+// own behavior (its regex capture already always matches). Unset fields keep their existing value.
+export async function editDaycareEntry(db, idInput, body) {
+  const idStr = String(idInput ?? '');
+  if (!/^\d+$/.test(idStr)) return { error: 'id must be a positive integer', status: 400 };
+  const id = parseInt(idStr, 10);
+  const b = body && typeof body === 'object' ? body : {};
+  const existing = await db.prepare('SELECT * FROM finance_daycare_entries WHERE id=?').bind(id).first();
+  if (!existing) return { error: 'Not found', status: 404 };
+  if (b.period !== undefined && !/^\d{4}(-\d{2})?$/.test(b.period)) return { error: 'Period must be YYYY or YYYY-MM', status: 400 };
+  const amountCents = b.amount_cents !== undefined ? Math.round(Number(b.amount_cents)) : existing.amount_cents;
+  if (!Number.isFinite(amountCents)) return { error: 'Invalid amount', status: 400 };
+  await db.prepare(
+    `UPDATE finance_daycare_entries SET period=?, category=?, entry_type=?, amount_cents=?, notes=? WHERE id=?`
+  ).bind(
+    b.period ?? existing.period,
+    b.category !== undefined ? String(b.category).trim() : existing.category,
+    b.entry_type === 'budget' ? 'budget' : (b.entry_type === 'actual' ? 'actual' : existing.entry_type),
+    amountCents, b.notes ?? existing.notes, id
+  ).run();
+  return { ok: true };
+}
+
+// ── Shared Daycare entry remover ─────────────────────────────────────────────────────────────
+// Used by both the finance/daycare/:id DELETE route below and its finance-daycare-entry-remove-v1
+// relay contract counterpart. Same idInput re-validation as editDaycareEntry above. Removing an
+// already-absent id is a silent no-op, matching the legacy DELETE statement's own unchecked
+// affected-row count -- the same behavior every prior remove-by-key relay in this file preserves.
+export async function removeDaycareEntry(db, idInput) {
+  const idStr = String(idInput ?? '');
+  if (!/^\d+$/.test(idStr)) return { error: 'id must be a positive integer', status: 400 };
+  await db.prepare('DELETE FROM finance_daycare_entries WHERE id=?').bind(parseInt(idStr, 10)).run();
+  return { ok: true };
+}
+
+// ── Shared Daycare-app money sync ────────────────────────────────────────────────────────────
+// Used by both the finance/daycare/sync POST route below and its finance-daycare-sync-v1 relay
+// contract counterpart (src/api-contracts-service.js), so Finance's own Worker can trigger the
+// identical pull from the daycare app's own finance API on behalf of an identity it verified via
+// Cloudflare Access. One implementation means the two entry points can never drift. No role check
+// here -- like recordDaycareEntry/bulkRecordDaycareEntries above, the legacy route itself has none
+// beyond the blanket ACCESS_GATE wrapping the whole handler -- verified directly against source,
+// not assumed. Unlike every other extracted Daycare writer in this file, this one calls OUT to an
+// external API, not just the database, so it takes env (for DAYCARE_API_URL/DAYCARE_API_KEY via
+// makeDaycareClient) as well as db. Wholesale-replaces only source='daycare_api' rows for the
+// periods present in the response, leaving any hand-entered rows untouched, exactly as the legacy
+// route already does.
+export async function syncDaycareFromApi(env, db) {
+  const client = makeDaycareClient(env);
+  // makeDaycareClient can now also be built from the rooms URL alone, so check for the method
+  // this function actually calls rather than for a truthy client.
+  if (!client || !client.summary) return { error: 'The daycare app is not configured. Add DAYCARE_API_URL and DAYCARE_API_KEY (see SECRETS.md).', status: 503 };
+  let res;
+  try { res = await client.summary(); }
+  catch (e) { return { error: 'Could not reach the daycare app: ' + e.message, status: 502 }; }
+  if (!res.ok) return { error: `Daycare app returned HTTP ${res.status}`, status: 502 };
+  let data; try { data = await res.json(); } catch { return { error: 'Daycare app returned invalid JSON', status: 502 }; }
+  const rows = Array.isArray(data.budget) ? data.budget : [];
+  const periods = [...new Set(rows.map(r => r.period).filter(p => /^\d{4}-\d{2}$/.test(p)))];
+  const ops = [];
+  if (periods.length) {
+    const placeholders = periods.map(() => '?').join(',');
+    ops.push(db.prepare(`DELETE FROM finance_daycare_entries WHERE source='daycare_api' AND period IN (${placeholders})`).bind(...periods));
+  }
+  let imported = 0;
+  for (const r of rows) {
+    if (!/^\d{4}-\d{2}$/.test(r.period) || !r.category || (r.type !== 'actual' && r.type !== 'budget')) continue;
+    const cents = Math.round(Number(r.amount_cents));
+    if (!Number.isFinite(cents)) continue;
+    ops.push(db.prepare(
+      `INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,source) VALUES (?,?,?,?,'daycare_api')`
+    ).bind(r.period, String(r.category).trim(), r.type, cents));
+    imported++;
+  }
+  if (ops.length) await db.batch(ops);
+  const syncedAt = new Date().toISOString();
+  await db.prepare(
+    `INSERT INTO finance_settings (key,value) VALUES ('daycare_last_synced_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(syncedAt).run();
+  // Cache accounts too, alongside the QBO ones, so the balances table can show both.
+  if (Array.isArray(data.accounts)) {
+    await db.prepare(
+      `INSERT INTO finance_qb_snapshot (key,value,synced_at) VALUES ('daycare_accounts',?,?)
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, synced_at=excluded.synced_at`
+    ).bind(JSON.stringify(data.accounts), syncedAt).run();
+  }
+  return { ok: true, syncedAt, imported, periods };
+}
+
+// ── Shared Daycare-app room sync ─────────────────────────────────────────────────────────────
+// Used by both the finance/daycare/rooms/sync POST route below and its finance-daycare-rooms-
+// sync-v1 relay contract counterpart. Unlike syncDaycareFromApi above, the legacy route itself IS
+// admin-only -- that check stays at each call site (both the legacy route and the relay contract
+// handler keep their own isAdmin check), not inside this shared function, matching every other
+// admin-gated shared writer in this file. Wholesale-replaces one period's rooms, the same pattern
+// syncDaycareFromApi uses for the money rows -- a room that disappears from the daycare app's
+// response for a period is meant to disappear here too, not linger as a stale row nobody can
+// delete.
+export async function syncDaycareRoomsFromApi(env, db) {
+  const client = makeDaycareClient(env);
+  if (!client || !client.rooms) return { error: 'Daycare app room API is not configured (DAYCARE_ROOMS_API_URL)', status: 400 };
+  let payload;
+  try {
+    const res = await client.rooms();
+    if (!res.ok) return { error: `Daycare app returned ${res.status}`, status: 502 };
+    payload = await res.json();
+  } catch (e) {
+    return { error: `Could not reach the daycare app: ${e.message}`, status: 502 };
+  }
+  const period = String(payload?.period || '');
+  if (!/^\d{4}-\d{2}$/.test(period)) return { error: 'Daycare app response is missing a valid "period" (YYYY-MM)', status: 502 };
+  const rooms = Array.isArray(payload.rooms) ? payload.rooms : [];
+  const syncedAt = new Date().toISOString();
+  const ops = [db.prepare('DELETE FROM finance_daycare_rooms WHERE period=?').bind(period)];
+  for (const r of rooms) {
+    if (!r || !r.name) continue;
+    ops.push(db.prepare(
+      `INSERT INTO finance_daycare_rooms
+         (period,room_name,capacity_per_day,avg_daily_enrolled,billed_cents,labor_cost_cents,waitlist_families,seasonal,synced_at)
+         VALUES (?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      period, String(r.name),
+      Number.isFinite(r.capacity_per_day) ? r.capacity_per_day : null,
+      Number.isFinite(r.avg_daily_enrolled) ? r.avg_daily_enrolled : null,
+      Number.isFinite(r.billed_cents) ? Math.round(r.billed_cents) : null,
+      Number.isFinite(r.labor_cost_cents) ? Math.round(r.labor_cost_cents) : null,
+      Number.isFinite(r.waitlist_families) ? Math.round(r.waitlist_families) : 0,
+      r.seasonal ? 1 : 0,
+      syncedAt
+    ));
+  }
+  await db.batch(ops);
+  return { ok: true, period, rooms: ops.length - 1, syncedAt };
+}
+
 // ── Shared Salary/Compensation Planner writer ────────────────────────────────
 // Used by both the admin/compensation/council finance/planning/salary PUT route below and the
 // finance-compensation-write-v1 relay contract (src/api-contracts-service.js) that lets Finance's
@@ -4233,45 +4376,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // response, leaving any hand-entered ('manual') rows untouched — see SECRETS.md for the
   // response contract the daycare app's /api/finance/summary endpoint must implement.
   if (seg === 'finance/daycare/sync' && method === 'POST') {
-    const client = makeDaycareClient(env);
-    // makeDaycareClient can now also be built from the rooms URL alone, so check for the method
-    // this handler actually calls rather than for a truthy client.
-    if (!client || !client.summary) return json({ error: 'The daycare app is not configured. Add DAYCARE_API_URL and DAYCARE_API_KEY (see SECRETS.md).' }, 503);
-    let res;
-    try { res = await client.summary(); }
-    catch (e) { return json({ error: 'Could not reach the daycare app: ' + e.message }, 502); }
-    if (!res.ok) return json({ error: `Daycare app returned HTTP ${res.status}` }, 502);
-    let data; try { data = await res.json(); } catch { return json({ error: 'Daycare app returned invalid JSON' }, 502); }
-    const rows = Array.isArray(data.budget) ? data.budget : [];
-    const periods = [...new Set(rows.map(r => r.period).filter(p => /^\d{4}-\d{2}$/.test(p)))];
-    const ops = [];
-    if (periods.length) {
-      const placeholders = periods.map(() => '?').join(',');
-      ops.push(db.prepare(`DELETE FROM finance_daycare_entries WHERE source='daycare_api' AND period IN (${placeholders})`).bind(...periods));
-    }
-    let imported = 0;
-    for (const r of rows) {
-      if (!/^\d{4}-\d{2}$/.test(r.period) || !r.category || (r.type !== 'actual' && r.type !== 'budget')) continue;
-      const cents = Math.round(Number(r.amount_cents));
-      if (!Number.isFinite(cents)) continue;
-      ops.push(db.prepare(
-        `INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,source) VALUES (?,?,?,?,'daycare_api')`
-      ).bind(r.period, String(r.category).trim(), r.type, cents));
-      imported++;
-    }
-    if (ops.length) await db.batch(ops);
-    const syncedAt = new Date().toISOString();
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES ('daycare_last_synced_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(syncedAt).run();
-    // Cache accounts too, alongside the QBO ones, so the balances table can show both.
-    if (Array.isArray(data.accounts)) {
-      await db.prepare(
-        `INSERT INTO finance_qb_snapshot (key,value,synced_at) VALUES ('daycare_accounts',?,?)
-         ON CONFLICT(key) DO UPDATE SET value=excluded.value, synced_at=excluded.synced_at`
-      ).bind(JSON.stringify(data.accounts), syncedAt).run();
-    }
-    return json({ ok: true, syncedAt, imported, periods });
+    const result = await syncDaycareFromApi(env, db);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // ── Daycare — manual entries (no known API/export yet) ────────────────
@@ -4357,40 +4464,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // disappear here too, not linger as a stale row nobody can delete.
   if (seg === 'finance/daycare/rooms/sync' && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: syncing daycare room data requires admin access' }, 403);
-    const client = makeDaycareClient(env);
-    if (!client || !client.rooms) return json({ error: 'Daycare app room API is not configured (DAYCARE_ROOMS_API_URL)' }, 400);
-    let payload;
-    try {
-      const res = await client.rooms();
-      if (!res.ok) return json({ error: `Daycare app returned ${res.status}` }, 502);
-      payload = await res.json();
-    } catch (e) {
-      return json({ error: `Could not reach the daycare app: ${e.message}` }, 502);
-    }
-    const period = String(payload?.period || '');
-    if (!/^\d{4}-\d{2}$/.test(period)) return json({ error: 'Daycare app response is missing a valid "period" (YYYY-MM)' }, 502);
-    const rooms = Array.isArray(payload.rooms) ? payload.rooms : [];
-    const syncedAt = new Date().toISOString();
-    const ops = [db.prepare('DELETE FROM finance_daycare_rooms WHERE period=?').bind(period)];
-    for (const r of rooms) {
-      if (!r || !r.name) continue;
-      ops.push(db.prepare(
-        `INSERT INTO finance_daycare_rooms
-           (period,room_name,capacity_per_day,avg_daily_enrolled,billed_cents,labor_cost_cents,waitlist_families,seasonal,synced_at)
-         VALUES (?,?,?,?,?,?,?,?,?)`
-      ).bind(
-        period, String(r.name),
-        Number.isFinite(r.capacity_per_day) ? r.capacity_per_day : null,
-        Number.isFinite(r.avg_daily_enrolled) ? r.avg_daily_enrolled : null,
-        Number.isFinite(r.billed_cents) ? Math.round(r.billed_cents) : null,
-        Number.isFinite(r.labor_cost_cents) ? Math.round(r.labor_cost_cents) : null,
-        Number.isFinite(r.waitlist_families) ? Math.round(r.waitlist_families) : 0,
-        r.seasonal ? 1 : 0,
-        syncedAt
-      ));
-    }
-    await db.batch(ops);
-    return json({ ok: true, period, rooms: ops.length - 1, syncedAt });
+    const result = await syncDaycareRoomsFromApi(env, db);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // ── Revenue-stream classification (Financial Health page) ────────────────────────────────
@@ -4524,26 +4600,15 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
 
   const dcMatch = seg.match(/^finance\/daycare\/(\d+)$/);
   if (dcMatch && method === 'PUT') {
-    const id = parseInt(dcMatch[1], 10);
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-    const existing = await db.prepare('SELECT * FROM finance_daycare_entries WHERE id=?').bind(id).first();
-    if (!existing) return json({ error: 'Not found' }, 404);
-    if (b.period !== undefined && !/^\d{4}(-\d{2})?$/.test(b.period)) return json({ error: 'Period must be YYYY or YYYY-MM' }, 400);
-    const amountCents = b.amount_cents !== undefined ? Math.round(Number(b.amount_cents)) : existing.amount_cents;
-    if (!Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
-    await db.prepare(
-      `UPDATE finance_daycare_entries SET period=?, category=?, entry_type=?, amount_cents=?, notes=? WHERE id=?`
-    ).bind(
-      b.period ?? existing.period,
-      b.category !== undefined ? String(b.category).trim() : existing.category,
-      b.entry_type === 'budget' ? 'budget' : (b.entry_type === 'actual' ? 'actual' : existing.entry_type),
-      amountCents, b.notes ?? existing.notes, id
-    ).run();
-    return json({ ok: true });
+    const result = await editDaycareEntry(db, dcMatch[1], b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
   if (dcMatch && method === 'DELETE') {
-    await db.prepare('DELETE FROM finance_daycare_entries WHERE id=?').bind(parseInt(dcMatch[1], 10)).run();
-    return json({ ok: true });
+    const result = await removeDaycareEntry(db, dcMatch[1]);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // ── Church Report v2: This Year — persisted-table read, no live QuickBooks call ────────

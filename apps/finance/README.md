@@ -797,6 +797,91 @@ upsert-by-period re-import, non-admin rejection, missing file, oversized file, a
 no "Budget Detail" sheet). `test/finance-route-manifest.test.js` is extended with all nine new
 route ids.
 
+Alpha.51 completes the Daycare Report's write parity: an existing entry's edit/remove (by id) and
+the two trigger-a-sync actions -- each relays to its own new Connect contract endpoint
+(`finance-daycare-entry-edit-v1`, `finance-daycare-entry-remove-v1`, `finance-daycare-sync-v1`,
+`finance-daycare-rooms-sync-v1`), matching the legacy in-Connect Daycare Report's own
+`finance/daycare/:id` PUT/DELETE and `finance/daycare/sync`, `finance/daycare/rooms/sync` POST
+routes exactly -- full function, same data, same app, never a second writer. This is the last
+Daycare write route batch: every legacy Daycare write route is now relayed except the two
+church-budget-derived routes already relayed in Alpha.47 (`daycare-budget-override-write-v1`,
+`daycare-church-budget-import-write-v1`) and the destructive/QuickBooks-adjacent paths deliberately
+out of scope for this whole effort.
+
+`src/api-finance.js` extracts `editDaycareEntry`/`removeDaycareEntry`/`syncDaycareFromApi`/
+`syncDaycareRoomsFromApi` as shared functions (same extraction style as `bulkRecordDaycareEntries`/
+`importDaycareFromChurchBudget` above), called by both the legacy route handlers (unchanged
+validation and behavior -- verified against a new legacy-route regression suite,
+`test/finance-daycare-sync-legacy.test.js`, since none of these three routes had prior direct test
+coverage) and their new relay contract counterparts in `src/api-contracts-service.js`. Re-verified
+directly against source for this batch, not assumed: `finance/daycare/:id` (both PUT and DELETE)
+and `finance/daycare/sync` carry no role check of their own beyond the blanket `financeSegItems`
+ACCESS_GATE (edit on any of finance/budget/compensation) -- the same looser gate `daycare-entry-v1`/
+`daycare-bulk-write-v1` already use -- while `finance/daycare/rooms/sync` IS admin-only, matching
+its own explicit `isAdmin` check exactly. `editDaycareEntry` preserves the legacy PUT route's
+partial-edit-by-id semantics field for field (an omitted field keeps its existing value) and its
+404-on-a-nonexistent-id behavior; `removeDaycareEntry` preserves the legacy DELETE statement's own
+unchecked affected-row count, so removing an already-absent id is a silent no-op on both the legacy
+route and the relay. An `id` argument is a URL path segment on the legacy route (shape-guaranteed
+by that route's own `\d+` regex) but an ordinary JSON body field on the relay; both new functions
+re-validate that argument against the exact same shape the URL regex enforces (the same reasoning
+already applied to property `period`/`report_month`/`period_key` arguments in Alpha.50), so a
+malformed relay body fails closed with a 400 instead of silently matching zero rows.
+`syncDaycareFromApi`/`syncDaycareRoomsFromApi` are true extractions of the legacy routes' own pull-
+from-the-daycare-app-and-wholesale-replace logic, unchanged; when the daycare app's own env vars
+(`DAYCARE_API_URL`/`DAYCARE_API_KEY`/`DAYCARE_ROOMS_API_URL`) are not configured on Connect's own
+side, the shared function returns the exact same "not configured" error the legacy route already
+returns, and the relay contract handler surfaces that same message through as a plain HTTP error --
+never reworded into a relay-specific failure -- so Finance's UI shows the real Connect-side reason.
+
+New transports in `apps/finance/finance-daycare-client.js`: `postConnectDaycareEntryEdit`,
+`postConnectDaycareEntryRemove`, `postConnectDaycareSync`, `postConnectDaycareRoomsSync` (same
+never-throws `{ok,reason}` shape as every other transport in that file). New routes in
+`route-manifest.js` (`daycare-entry-edit-v1`, `daycare-entry-remove-v1`, `daycare-sync-v1`,
+`daycare-rooms-sync-v1`, all `dataSource: 'live-relay', writer: true`) and `shell.js` POST handlers,
+using the word-substitution naming convention already established for `budget-plan-remove-v1`/the
+Alpha.50 Property remove routes ("edit"/"remove" rather than the literal words this file's own
+banned-word test rejects).
+
+**Edit/remove ship without a page form.** The `connect.finance-daycare-report.v1` contract the
+Daycare Report's own Actuals detail table reads is aggregated by category (`{category,
+classification, actualCents, budgetCents}`) and never exposes a row's own `id` anywhere -- confirmed
+directly against `buildFinanceDaycareReportV1` (`src/api-contracts.js`) and
+`renderLiveDaycareRows`/`renderDaycareRows` (`apps/finance/daycare-pages.js`) -- so there is no id
+for a per-row Edit/Remove action to target client-side, the same gap the Alpha.50 Property capital-
+ledger/repair-remove routes already shipped into. Both routes are still fully real, directly
+POST-able write paths end to end -- shared function, contract handler, `route-manifest.js` entry,
+and a `shell.js` POST route -- just not yet linked from a form.
+
+**The two sync triggers get a new "Sync now" section on Daycare Report's Overview page**
+(`daycare-pages.js`'s `renderDaycareSyncForms`) -- a plain-button form per sync (no fields to fill
+in), each showing its own last-submission status independently. Money sync uses the same looser
+`canRecordDaycareEntry`-style gate as the entry/bulk/church-budget-import forms (any verified role
+that can reach the Daycare section); room sync is admin-only, matching `finance/daycare/rooms/
+sync`'s own gate -- UI hiding is never authorization, the real gate is each relay contract's own
+role check on Connect's side. Both forms redirect back to `?section=daycare`; the room-sync form
+adds its own `op=rooms-sync` marker so its status/message never bleeds onto the money-sync form's
+status, the same disambiguation technique the Alpha.48 base-projection form already used against the
+unrelated Budget edit form on the same page.
+
+Tests: `test/finance-daycare-entry-edit-contract.test.js` and
+`test/finance-daycare-entry-remove-contract.test.js` (the looser permission-matrix shape mirroring
+`test/finance-daycare-entry-contract.test.js`, plus a nonexistent-id 404 case for edit and a
+nonexistent-id no-op case for remove, plus an invalid-id-shape 400 case for both);
+`test/finance-daycare-sync-contract.test.js` and `test/finance-daycare-rooms-sync-contract.test.js`
+(the looser/admin-only permission shapes respectively, plus each surfacing the legacy route's own
+"not configured" message verbatim through an ordinary `http_error` rather than a relay-specific
+failure, and an upstream daycare-app HTTP error passing through as a 502); `test/finance-daycare-
+sync-route.test.js` and `test/finance-daycare-rooms-sync-route.test.js` (method-not-allowed,
+role-gated form visibility, not_configured/no_access_identity redirects, successful relay +
+redirect, refusal-reason passthrough including the "not configured" pass-through case, and
+network_error handling -- the same shape as the Alpha.47/Alpha.50 route tests, plus a check that the
+room-sync form's own status never bleeds onto the unrelated money-sync form); and
+`test/finance-daycare-sync-legacy.test.js` (direct `handleFinanceApi` regression coverage for all
+three legacy routes, including the "no role check of its own" finding for edit/remove/sync and the
+admin requirement for room sync). `test/finance-route-manifest.test.js` is extended with all four
+new route ids.
+
 ## QuickBooks OAuth/sync design (dark code, never exercised against the real account)
 
 This adds a Finance-owned design (plus as much working code as is honest to write without live

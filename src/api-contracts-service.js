@@ -19,6 +19,7 @@ import {
   upsertPropertyReserveDisbursement, addPropertyCapitalLedgerEntry,
   saveRevenueStreamMap, saveFlowExpenseMap, saveCashPolicy, saveDaycareAllocationConfig,
   applyDaycareBudgetOverride, bulkRecordDaycareEntries, importDaycareFromChurchBudget,
+  editDaycareEntry, removeDaycareEntry, syncDaycareFromApi, syncDaycareRoomsFromApi,
   saveBaseProjectionOverrides, savePurposeTags,
   importChurchBudgetXlsx, importChurchBalancesXlsx,
   removePropertyMonthlyEntry, removePropertyDistribution, removePropertyReserveMonthly,
@@ -220,6 +221,22 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-daycare-church-budget-import-write-v1' && req.method === 'POST') {
     return handleFinanceDaycareChurchBudgetImportWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-daycare-entry-edit-v1' && req.method === 'POST') {
+    return handleFinanceDaycareEntryEditContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-daycare-entry-remove-v1' && req.method === 'POST') {
+    return handleFinanceDaycareEntryRemoveContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-daycare-sync-v1' && req.method === 'POST') {
+    return handleFinanceDaycareSyncContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-daycare-rooms-sync-v1' && req.method === 'POST') {
+    return handleFinanceDaycareRoomsSyncContract(req, env);
   }
 
   if (path === '/api/contracts/finance-base-projection-write-v1' && req.method === 'POST') {
@@ -1285,6 +1302,138 @@ async function handleFinanceDaycareChurchBudgetImportWriteContract(req, env) {
      VALUES('daycare_church_budget_import_via_finance','finance_daycare_entries',?,?,'entered_by','',?)`
   ).bind('', '', email).run().catch(() => {});
 
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Daycare entry edit (partial update), relayed from Finance's own Daycare Report UI ──────────
+// Same shape as handleFinanceDaycareEntryContract above: the same looser "any of
+// finance/budget/compensation edit" blanket-ACCESS_GATE re-derivation, matching the legacy
+// finance/daycare/:id PUT route's own gate exactly (no role check beyond that blanket wrapper),
+// since this calls the identical editDaycareEntry() helper that route uses (src/api-finance.js).
+async function handleFinanceDaycareEntryEditContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  const perms = await getRolePermissions(db);
+  const rolePerms = permissionsForRole(perms, user.role);
+  const canEnterDaycare = ['finance', 'budget', 'compensation'].some((item) => rolePerms[item] === 'edit');
+  if (!canEnterDaycare) return json({ error: 'Access denied' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await editDaycareEntry(db, body?.id, body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+
+  await db.prepare(
+    `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+     VALUES('daycare_entry_edit_via_finance','finance_daycare_entries',?,?,'entered_by','',?)`
+  ).bind(String(body?.id ?? ''), '', email).run().catch(() => {});
+
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Daycare entry removal, relayed from Finance's own Daycare Report UI ────────────────────────
+// Same shape as handleFinanceDaycareEntryEditContract above: the same looser "any of
+// finance/budget/compensation edit" blanket-ACCESS_GATE re-derivation, matching the legacy
+// finance/daycare/:id DELETE route's own gate exactly (no role check beyond that blanket
+// wrapper), since this calls the identical removeDaycareEntry() helper that route uses
+// (src/api-finance.js). Removing an already-absent id is a silent no-op, matching the legacy
+// DELETE statement's own unchecked affected-row count.
+async function handleFinanceDaycareEntryRemoveContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  const perms = await getRolePermissions(db);
+  const rolePerms = permissionsForRole(perms, user.role);
+  const canEnterDaycare = ['finance', 'budget', 'compensation'].some((item) => rolePerms[item] === 'edit');
+  if (!canEnterDaycare) return json({ error: 'Access denied' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await removeDaycareEntry(db, body?.id);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+
+  await db.prepare(
+    `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+     VALUES('daycare_entry_remove_via_finance','finance_daycare_entries',?,?,'entered_by','',?)`
+  ).bind(String(body?.id ?? ''), '', email).run().catch(() => {});
+
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Daycare-app money sync, relayed from Finance's own Daycare Report UI ───────────────────────
+// Same shape as handleFinanceDaycareEntryEditContract above: the same looser "any of
+// finance/budget/compensation edit" blanket-ACCESS_GATE re-derivation, matching the legacy
+// finance/daycare/sync route's own gate exactly (no role check beyond that blanket wrapper), since
+// this calls the identical syncDaycareFromApi() helper that route uses (src/api-finance.js). If
+// the daycare app's own env vars (DAYCARE_API_URL/DAYCARE_API_KEY) are not configured HERE on
+// Connect's side, syncDaycareFromApi returns the exact same "not configured" error the legacy
+// route itself already returns -- this is surfaced through as a plain 503, not swallowed or
+// reworded into a relay-specific failure.
+async function handleFinanceDaycareSyncContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  const perms = await getRolePermissions(db);
+  const rolePerms = permissionsForRole(perms, user.role);
+  const canEnterDaycare = ['finance', 'budget', 'compensation'].some((item) => rolePerms[item] === 'edit');
+  if (!canEnterDaycare) return json({ error: 'Access denied' }, 403);
+
+  const result = await syncDaycareFromApi(env, db);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+
+  await db.prepare(
+    `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+     VALUES('daycare_sync_via_finance','finance_daycare_entries',?,?,'entered_by','',?)`
+  ).bind('', '', email).run().catch(() => {});
+
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Daycare-app room sync, relayed from Finance's own Daycare Report UI ────────────────────────
+// Same shape as handleFinanceDaycareAllocationConfigWriteContract above: admin only, matching
+// finance/daycare/rooms/sync's own gate exactly, since this calls the identical
+// syncDaycareRoomsFromApi() helper that route uses (src/api-finance.js). Same "not configured"
+// pass-through as handleFinanceDaycareSyncContract above.
+async function handleFinanceDaycareRoomsSyncContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: syncing daycare room data requires admin access' }, 403);
+
+  const result = await syncDaycareRoomsFromApi(env, db);
+  if (result.error) return json({ error: result.error }, result.status || 400);
   return json({ ...result, savedBy: user.username });
 }
 
