@@ -124,12 +124,14 @@ as the reference bar) plus explicit research asks. What changed:
   staff review queue, but **not** used for matching — matching is still email-then-phone only
   (see `matchPersonForPayer`). Fuzzy address-based matching is a real feature, not a quick
   addition; flagged here rather than built half-right.
-- **Cover the fees.** `cover_fees: true` adds an ESTIMATED fee (2.9% + $0.30 — see
-  `ESTIMATED_FEE_RATE`/`ESTIMATED_FEE_FIXED_CENTS` in `src/stax-giving-mockup.js`) to the total
-  and rides on the first gift line. **This rate is a guess, not Timothy Lutheran's actual
-  negotiated Stax rate** — replace it before this is anything but a mockup. The rate that
-  actually gets stored on a real charge (`fee_cents`) always comes from Stax's own response
-  (`total_fees`), never this estimate.
+- **Cover the fees.** `cover_fees: true` adds an ESTIMATED fee (a flat 2% — see
+  `ESTIMATED_FEE_RATE` in `src/stax-giving-mockup.js`) to the total and rides on the first gift
+  line. Andrew's own approximation of what Stax actually charges (real interchange + $0.12 per
+  transaction, which he estimates nets to roughly 2% of a typical gift) — deliberately a single
+  flat percentage rather than interchange-plus-fixed-cents, since interchange itself varies by
+  card network/type and can't be known before a real charge. The rate that actually gets stored
+  on a real charge (`fee_cents`) always comes from Stax's own response (`total_fees`), never
+  this estimate.
 - **Memo** (`memo`, up to 500 chars) is stored on the ledger row's `notes` and, on a real charge,
   sent to Stax as the transaction memo.
 - **Wider recurring frequencies.** `weekly`/`biweekly`/`twice_monthly` (Tithe.ly's own "1st &
