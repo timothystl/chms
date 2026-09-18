@@ -13,8 +13,9 @@
 //
 // Gifts land in the EXISTING giving_entries ledger (see migration 0053's header comment) so a
 // donor who gives through both Tithe.ly and this mockup reads as one giving history, not two.
-import { json, html, timingSafeEqual } from './auth.js';
+import { json, html, timingSafeEqual, esc } from './auth.js';
 import { normalizePhone } from './api-utils.js';
+import { sendBrevoTransactionalEmail } from './api-emails.js';
 
 // Same single Core API host for sandbox and production; only the API key differs. Verified live
 // against this host by childcare-portal's Stax integration (see its create-stax-charge and
@@ -180,6 +181,76 @@ export async function recordStaxGift(db, g) {
   return { entryId: entryIds[0], entryIds, matched: !!person, personId: person ? person.id : null, alreadyRecorded: false };
 }
 
+// ── Gift receipt email ──────────────────────────────────────────────────────
+// Callers only invoke this from the two paths where a Stax charge is actually confirmed — the
+// synchronous checkout success branch and the webhook's charge-success branch — never from demo
+// mode's simulated-gift branch (mailing a real "thank you" for a fake transaction would be
+// actively misleading) or from the recurring-signup endpoint (which only schedules a future
+// charge and hasn't taken any money yet). Reuses the SAME Brevo transactional-email path the
+// giving-letter/thank-you-receipt features already use in production
+// (sendBrevoTransactionalEmail in api-emails.js) — not a new email vendor or template engine. A
+// failure here never fails the gift itself: the ledger write already succeeded, and a missed
+// receipt email is a much smaller problem than losing a recorded gift over it.
+async function sendGiftReceiptEmail(db, env, g) {
+  if (!g.payerEmail) return;
+  if (!env.BREVO_API_KEY) return;
+
+  const fundIds = g.splits.map(s => s.fundId);
+  const placeholders = fundIds.map(() => '?').join(',');
+  const fundRows = (await db.prepare(
+    `SELECT id, name FROM funds WHERE id IN (${placeholders})`
+  ).bind(...fundIds).all()).results || [];
+  const fundName = id => (fundRows.find(f => f.id === id) || {}).name || 'General Fund';
+
+  const totalCents = g.splits.reduce((sum, s) => sum + s.amountCents, 0);
+  const money = c => '$' + (Math.round(c) / 100).toFixed(2);
+  const dateStr = new Date((g.contributionDate || '') + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  const fromNameRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_from_name'").first();
+  const fromEmailRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_from_email'").first();
+  const einRow = await db.prepare("SELECT value FROM chms_config WHERE key='church_ein'").first();
+  const fromName = fromNameRow?.value || 'Timothy Lutheran Church';
+  const fromEmail = fromEmailRow?.value || '';
+  if (!fromEmail) return; // sendBrevoTransactionalEmail would just reject this anyway — see its own guard.
+  const ein = einRow?.value || '';
+  // Same wording js-reports.js's giving-letter template already uses for this exact disclaimer —
+  // not a new form of words for the same legal requirement.
+  const einLine = ein
+    ? `Our EIN/Tax ID is ${esc(ein)}. No goods or services were provided in exchange for this contribution. Please retain this receipt for your tax records.`
+    : 'No goods or services were provided in exchange for this contribution. Please retain this receipt for your tax records.';
+
+  const fundRowsHtml = g.splits.map(s =>
+    `<tr><td style="padding:6px 0;color:#3D3530;">${esc(fundName(s.fundId))}</td><td style="padding:6px 0;text-align:right;color:#3D3530;">${money(s.amountCents)}</td></tr>`
+  ).join('');
+  const memoHtml = g.note
+    ? `<p style="color:#3D3530;line-height:1.6;margin-top:16px;"><strong>Memo:</strong> ${esc(g.note)}</p>`
+    : '';
+  const donorName = [g.payerFirstName, g.payerLastName].filter(Boolean).join(' ');
+  const bodyHtml = `
+    <p style="font-size:1.15rem;color:#0A3C5C;font-weight:600;margin-bottom:16px;">Thank you for your gift${donorName ? ', ' + esc(donorName) : ''}!</p>
+    <p style="color:#3D3530;line-height:1.6;">We received your gift to Timothy Lutheran Church on ${esc(dateStr)}.</p>
+    <table style="width:100%;border-collapse:collapse;margin-top:16px;">${fundRowsHtml}
+      <tr><td style="padding:10px 0 0;border-top:1px solid #E8E0D0;font-weight:600;color:#0A3C5C;">Total</td><td style="padding:10px 0 0;border-top:1px solid #E8E0D0;text-align:right;font-weight:600;color:#0A3C5C;">${money(totalCents)}</td></tr>
+    </table>
+    ${memoHtml}
+    <p style="color:#7A6E60;font-size:.85rem;line-height:1.6;margin-top:24px;">${einLine}</p>`;
+  const html = `<!DOCTYPE html><html><body style="font-family:Georgia,serif;background:#FAF7F0;margin:0;padding:32px 16px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:40px 32px;border:1px solid #E8E0D0;">
+    ${bodyHtml}
+    <div style="margin-top:32px;padding-top:20px;border-top:1px solid #E8E0D0;font-size:.8rem;color:#7A6E60;text-align:center;">
+      Timothy Lutheran Church &middot; 6704 Fyler Ave, St. Louis, MO 63139
+    </div>
+  </div></body></html>`;
+
+  try {
+    await sendBrevoTransactionalEmail(env, {
+      toEmail: g.payerEmail, toName: donorName || undefined,
+      subject: 'Thank you for your gift to Timothy Lutheran Church',
+      html, fromName, fromEmail,
+    });
+  } catch { /* a missed receipt email is never worth failing an already-recorded gift over */ }
+}
+
 // Reversal (refund/void): recorded as a negative entry against the same fund/person as the
 // original charge, carrying its OWN external_txn_id (the refund/void event's id, not the
 // original charge's) so it can never collide with — or be mistaken for a re-run of — the
@@ -294,6 +365,12 @@ export async function handleStaxGivingWebhook(req, env, url) {
       staxCustomerId: String(transaction?.customer_id || ''),
     });
     if (result.error) return json({ error: result.error }, 422);
+    if (!result.alreadyRecorded) {
+      await sendGiftReceiptEmail(db, env, {
+        splits, payerFirstName: meta.payer_first_name || '', payerLastName: meta.payer_last_name || '',
+        payerEmail: meta.payer_email || '', note: meta.memo || '', contributionDate: todayIso(),
+      });
+    }
     return json({ received: true, ...result }, 200);
   }
 
@@ -486,6 +563,12 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
       staxCustomerId,
     });
     if (result.error) return j({ error: result.error }, 422);
+    if (!result.alreadyRecorded) {
+      await sendGiftReceiptEmail(db, env, {
+        splits, payerFirstName: contact.payerFirstName, payerLastName: contact.payerLastName,
+        payerEmail: contact.payerEmail, note: memo, contributionDate: todayIso(),
+      });
+    }
     return j({ ok: true, demo: false, totalCents, ...result });
   }
 
