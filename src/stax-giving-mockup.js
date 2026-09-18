@@ -321,16 +321,18 @@ function corsHeadersFor(req) {
   return { 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin' };
 }
 
-// ⚠ ESTIMATE ONLY. A rough blended card-processing rate (2.9% + $0.30), used only to show a
-// "cover the fees" amount on the form before any real charge exists. Not verified against
-// Timothy Lutheran's actual negotiated Stax rate — replace with the real rate (and re-derive it
-// per payment method, since ACH is typically much cheaper than card) before this is anything
-// more than a mockup. The AUTHORITATIVE fee, once a card is actually charged, is whatever Stax's
-// own `total_fees` on the transaction says — recordStaxGift always stores that, not this guess.
-const ESTIMATED_FEE_RATE = 0.029;
-const ESTIMATED_FEE_FIXED_CENTS = 30;
+// ⚠ ESTIMATE ONLY. Andrew's own flat-rate approximation of what Stax actually charges (real
+// interchange + $0.12 per transaction, which he estimates nets out to roughly 2% of the gift) —
+// used only to show a "cover the fees" amount on the form before any real charge exists.
+// Deliberately a single flat percentage, not interchange-plus-fixed-cents: interchange itself
+// varies by card network/type and can't be known before a real charge, so a second guessed
+// constant on top of it would be false precision, not more accuracy. Re-derive per payment
+// method if ACH is ever added here (it's typically much cheaper than card). The AUTHORITATIVE
+// fee, once a card is actually charged, is whatever Stax's own `total_fees` on the transaction
+// says — recordStaxGift always stores that, never this estimate.
+const ESTIMATED_FEE_RATE = 0.02;
 function estimateFeeCents(subtotalCents) {
-  return Math.round(subtotalCents * ESTIMATED_FEE_RATE) + ESTIMATED_FEE_FIXED_CENTS;
+  return Math.round(subtotalCents * ESTIMATED_FEE_RATE);
 }
 
 // Validates a `gifts: [{fund_id, amount}, ...]` submission (the "multiple gifts" rows) against
@@ -396,7 +398,7 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     const rows = (await db.prepare(
       "SELECT id, name FROM funds WHERE active=1 AND public_giving=1 ORDER BY sort_order, name"
     ).all()).results || [];
-    return j({ funds: rows, configured: staxMockupConfigured(env), estimatedFeeRate: ESTIMATED_FEE_RATE, estimatedFeeFixedCents: ESTIMATED_FEE_FIXED_CENTS });
+    return j({ funds: rows, configured: staxMockupConfigured(env), estimatedFeeRate: ESTIMATED_FEE_RATE });
   }
 
   // The web payments token is a merchant-level, publishable-style token (not a secret) that

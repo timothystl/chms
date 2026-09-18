@@ -410,10 +410,10 @@ describe('Stax Giving mockup — public checkout API (demo mode)', () => {
     const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'POST', 'checkout');
     const body = await res.json();
     expect(res.status).toBe(200);
-    // 10000 * 0.029 + 30 = 320 -> total 10320, per the module's documented (estimated) fee rate.
-    expect(body.totalCents).toBe(10320);
+    // 10000 * 0.02 = 200 -> total 10200, per the module's documented flat estimated fee rate.
+    expect(body.totalCents).toBe(10200);
     const row = await db.prepare('SELECT amount FROM giving_entries WHERE id=?').bind(body.entryId).first();
-    expect(row.amount).toBe(10320);
+    expect(row.amount).toBe(10200);
   });
 });
 
