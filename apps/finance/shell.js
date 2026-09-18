@@ -17,6 +17,7 @@ import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.j
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
 import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
+import { postConnectFinanceChurchActualOverride } from './finance-church-report-client.js';
 import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
@@ -166,6 +167,18 @@ function describeBudgetPlanOpError(reason, message, verb) {
 }
 const BUDGET_PLAN_OP_VERBS = { generate: 'generation', 'generate-all': 'generation', commit: 'commit', remove: 'removal' };
 
+// Same shape as describeBudgetEntryError above, for postConnectFinanceChurchActualOverride() failures.
+function describeChurchOverrideError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Church Report corrections are not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the correction.';
+    default: return 'The correction was not saved.';
+  }
+}
+
 // Same shape as describeBudgetEntryError above, for postConnectFinanceCompensationWrite() /
 // fetchConnectSalaryPlannerState() failures.
 function describeCompensationEntryError(reason, message) {
@@ -300,6 +313,7 @@ function renderSectionBody(ctx) {
     budgetEntryStatus, budgetEntryMessage, payrollBundle,
     compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
     canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
+    churchOverrideStatus, churchOverrideMessage,
     roleResult,
   } = ctx;
   if (section.id === 'health') {
@@ -439,7 +453,13 @@ function renderSectionBody(ctx) {
     return renderChartsPage(page.id, { churchReport, churchReportLive, cashRunway, propertyReserves, propertyReservesLive, giving, givingSource });
   }
   if (section.id === 'church') {
-    return renderChurchPage(page.id, { churchReport: churchReportLive, churchTrendLive });
+    // Same admin-only gate as the legacy in-Connect Church Report's own actual-override route --
+    // UI hiding is never authorization, the real gate is finance-church-actual-override-v1's own
+    // role check on Connect's side, but there's no reason to show a form that will only 403.
+    const canManageChurchReport = roleResult.ok && roleResult.role === 'admin';
+    return renderChurchPage(page.id, {
+      churchReport: churchReportLive, churchTrendLive, canManageChurchReport, churchOverrideStatus, churchOverrideMessage,
+    });
   }
   if (section.id === 'balance') {
     return renderBalancePage(page.id, { balanceSheet, balanceTrends });
@@ -907,6 +927,31 @@ export default {
         return response(null, { status: 303, headers: { Location: `/?section=planning&op=${opKind}&status=ok` } });
       }
       const params = new URLSearchParams({ section: 'planning', op: opKind, status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Church Report's admin-only actual-figure correction, same 303-redirect-after-POST shape as
+    // the routes above.
+    if (route.id === 'church-actual-override-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=church&status=error&reason=invalid_json' } });
+      }
+      const row = {
+        category: form.get('category') || '',
+        classification: form.get('classification') || 'Expenses',
+        account_name: form.get('account_name') || '',
+        amount: form.get('amount') || '',
+      };
+      const result = await postConnectFinanceChurchActualOverride(env, accessJwt, { year: form.get('year') || '', rows: [row] });
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=church&page=income-expense&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'church', page: 'income-expense', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -1471,6 +1516,10 @@ export default {
         const planOpMessage = planOpStatus === 'error'
           ? describeBudgetPlanOpError(url.searchParams.get('reason'), url.searchParams.get('message'), BUDGET_PLAN_OP_VERBS[planOpKind] || 'operation')
           : null;
+        const churchOverrideStatus = section.id === 'church' ? url.searchParams.get('status') : null;
+        const churchOverrideMessage = churchOverrideStatus === 'error'
+          ? describeChurchOverrideError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
@@ -1481,7 +1530,7 @@ export default {
           dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
-          planOpKind, planOpStatus, planOpMessage,
+          planOpKind, planOpStatus, planOpMessage, churchOverrideStatus, churchOverrideMessage,
         }), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });

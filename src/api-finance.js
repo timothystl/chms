@@ -3190,6 +3190,55 @@ export async function deleteBudgetPlanRow(db, category, fiscalYear) {
   return { ok: true };
 }
 
+// ── Shared Church Report actual-figure correction writer ────────────────────────────────────
+// Used by both the admin-only finance/church/actual-override PUT route below and its
+// finance-church-actual-override-v1 relay contract counterpart (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical correction on behalf of an identity it verified
+// via Cloudflare Access. One implementation means the two entry points can never drift.
+//
+// Writes a real, whole-dollars-and-cents correction into finance_church_entries under
+// CHURCH_ACTUAL_OVERRIDE_SOURCE -- resolveChurchYearPrecedence() (above) gives this source
+// priority over whatever a sync/import already posted for the same category_path, so every reader
+// (Church Report, Financial Health, Planning) picks up the correction, and a later re-sync/
+// re-import of the same year does not erase it. An empty/blank amount clears a prior correction
+// back to the synced/imported figure (a delete, not a $0 override).
+export async function applyChurchActualOverride(db, year, rowsInput) {
+  if (!Number.isFinite(year)) return { error: 'year is required', status: 400 };
+  const rows = Array.isArray(rowsInput) ? rowsInput : [];
+  if (!rows.length) return { error: 'No rows to save', status: 400 };
+  const ops = [];
+  let saved = 0;
+  for (const r of rows) {
+    const category = String(r.category || '').trim();
+    if (!category) return { error: 'Every row needs a category', status: 400 };
+    // period_month=0 = the annual row (see migrations/0018_finance_church_entries.sql) -- this
+    // never touches a monthly (1-12) row, same scoping every other church-entries writer uses.
+    if (r.amount === '' || r.amount === null || r.amount === undefined) {
+      ops.push(db.prepare(
+        `DELETE FROM finance_church_entries WHERE fiscal_year=? AND period_month=0 AND category_path=? AND source=?`
+      ).bind(year, category, CHURCH_ACTUAL_OVERRIDE_SOURCE));
+      saved++;
+      continue;
+    }
+    const amountCents = Math.round(Number(r.amount) * 100);
+    if (!Number.isFinite(amountCents)) return { error: `Invalid amount for ${category}`, status: 400 };
+    const classification = String(r.classification || 'Expenses');
+    const accountName = String(r.account_name || category.split(':').pop() || category);
+    const depth = Math.max(0, category.split(':').length - 1);
+    ops.push(db.prepare(
+      `INSERT INTO finance_church_entries
+         (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, notes, synced_at)
+       VALUES (?,0,?,?,?,?,0,?,NULL,?,'Manually corrected',datetime('now'))
+       ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
+         own_actual_cents=excluded.own_actual_cents, classification=excluded.classification,
+         account_name=excluded.account_name, depth=excluded.depth, synced_at=excluded.synced_at`
+    ).bind(year, classification, category, accountName, depth, amountCents, CHURCH_ACTUAL_OVERRIDE_SOURCE));
+    saved++;
+  }
+  await db.batch(ops);
+  return { ok: true, year, saved };
+}
+
 // ── Shared Salary/Compensation Planner writer ────────────────────────────────
 // Used by both the admin/compensation/council finance/planning/salary PUT route below and the
 // finance-compensation-write-v1 relay contract (src/api-contracts-service.js) that lets Finance's
@@ -4610,42 +4659,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/church/actual-override' && method === 'PUT') {
     if (!isAdmin) return json({ error: 'Access denied: correcting an actual figure requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const year = parseInt(b.year, 10);
-    const rows = Array.isArray(b.rows) ? b.rows : [];
-    if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
-    if (!rows.length) return json({ error: 'No rows to save' }, 400);
-    const ops = [];
-    let saved = 0;
-    for (const r of rows) {
-      const category = String(r.category || '').trim();
-      if (!category) return json({ error: 'Every row needs a category' }, 400);
-      // period_month=0 = the annual row (see migrations/0018_finance_church_entries.sql) — this
-      // never touches a monthly (1-12) row, same scoping every other church-entries writer here
-      // uses.
-      if (r.amount === '' || r.amount === null || r.amount === undefined) {
-        ops.push(db.prepare(
-          `DELETE FROM finance_church_entries WHERE fiscal_year=? AND period_month=0 AND category_path=? AND source=?`
-        ).bind(year, category, CHURCH_ACTUAL_OVERRIDE_SOURCE));
-        saved++;
-        continue;
-      }
-      const amountCents = Math.round(Number(r.amount) * 100);
-      if (!Number.isFinite(amountCents)) return json({ error: `Invalid amount for ${category}` }, 400);
-      const classification = String(r.classification || 'Expenses');
-      const accountName = String(r.account_name || category.split(':').pop() || category);
-      const depth = Math.max(0, category.split(':').length - 1);
-      ops.push(db.prepare(
-        `INSERT INTO finance_church_entries
-           (fiscal_year, period_month, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source, notes, synced_at)
-         VALUES (?,0,?,?,?,?,0,?,NULL,?,'Manually corrected',datetime('now'))
-         ON CONFLICT(fiscal_year, period_month, category_path, source) DO UPDATE SET
-           own_actual_cents=excluded.own_actual_cents, classification=excluded.classification,
-           account_name=excluded.account_name, depth=excluded.depth, synced_at=excluded.synced_at`
-      ).bind(year, classification, category, accountName, depth, amountCents, CHURCH_ACTUAL_OVERRIDE_SOURCE));
-      saved++;
-    }
-    await db.batch(ops);
-    return json({ ok: true, year, saved });
+    const result = await applyChurchActualOverride(db, parseInt(b.year, 10), b.rows);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Chart of Accounts — which board category a fund reads under on Planning's "Board view", and

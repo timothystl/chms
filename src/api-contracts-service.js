@@ -14,6 +14,7 @@ import { recordQuickGivingEntry } from './api-giving.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
+  applyChurchActualOverride,
 } from './api-finance.js';
 
 export async function handleContractsServiceApi(req, env, path) {
@@ -110,6 +111,10 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-budget-remove-v1' && req.method === 'POST') {
     return handleFinanceBudgetRemoveContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-church-actual-override-v1' && req.method === 'POST') {
+    return handleFinanceChurchActualOverrideContract(req, env);
   }
 
   if (path === '/api/contracts/finance-compensation-write-v1' && req.method === 'POST') {
@@ -335,6 +340,32 @@ async function handleFinanceBudgetRemoveContract(req, env) {
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
   const result = await deleteBudgetPlanRow(db, String(body.category || '').trim(), parseInt(body.fiscal_year, 10));
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Church Report actual-figure correction, relayed from Finance's own Church Report UI ─────
+// Same shape as the Budget Plan relays above: the X-Contract-Key check only proves the call came
+// from Finance's Worker, this proves WHO Finance says is acting, and the verified identity's real
+// Connect role decides whether the correction is allowed -- admin only, matching finance/church/
+// actual-override's own gate exactly, since this calls the identical applyChurchActualOverride()
+// helper that route uses (src/api-finance.js).
+async function handleFinanceChurchActualOverrideContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: correcting an actual figure requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await applyChurchActualOverride(db, parseInt(body.year, 10), body.rows);
   if (result.error) return json({ error: result.error }, result.status || 400);
   return json({ ...result, savedBy: user.username });
 }

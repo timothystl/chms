@@ -43,6 +43,11 @@ const ROUTES = [
   { id: 'budget-generate-all-v1', paths: ['/api/v1/connect-budget-generate-all'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-generate-all-relay.v1' },
   { id: 'budget-commit-v1', paths: ['/api/v1/connect-budget-commit'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-commit-relay.v1' },
   { id: 'budget-plan-remove-v1', paths: ['/api/v1/connect-budget-plan-remove'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-remove-relay.v1' },
+  // Same deliberate exception as the relays above, for Church Report's admin-only actual-figure
+  // correction: relays to Connect's own finance-church-actual-override-v1 contract endpoint
+  // (never writes to Finance's own database), matching the legacy in-Connect Church Report's own
+  // finance/church/actual-override route exactly.
+  { id: 'church-actual-override-v1', paths: ['/api/v1/connect-church-actual-override'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-actual-override-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no
