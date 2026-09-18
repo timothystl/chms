@@ -272,6 +272,101 @@ describe('Stax Giving mockup — webhook', () => {
     expect(rows.map(r => r.amount).sort((a, b) => a - b)).toEqual([2000, 3000]);
   });
 
+  it('emails a gift receipt via the existing Brevo transactional path once a charge is confirmed', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'Building Fund');
+    db._raw.prepare("INSERT INTO chms_config (key, value) VALUES ('church_from_email', 'giving@timothystl.org')").run();
+
+    const brevoCalls = [];
+    global.fetch = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.includes('/transaction/')) {
+        return new Response(JSON.stringify({
+          data: {
+            id: 'evt_receipt_1', type: 'charge', success: true, status: 'SUCCESS', total: '75.00',
+            customer_id: 'cus_r1', meta: { fund_id: fundId, payer_first_name: 'Robin', payer_last_name: 'Vale', payer_email: 'robin@example.com', memo: 'In memory of Grandma' },
+            payment_method: { method_type: 'card' },
+          },
+        }), { status: 200 });
+      }
+      if (u.includes('api.brevo.com')) {
+        brevoCalls.push(JSON.parse(init.body));
+        return new Response(JSON.stringify({ messageId: 'brevo_1' }), { status: 200 });
+      }
+      throw new Error('unexpected fetch ' + u);
+    });
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/webhook?secret=whsec_test', {
+      method: 'POST', body: JSON.stringify({ id: 'evt_receipt_1' }),
+    });
+    const res = await handleStaxGivingWebhook(req, { ...env(), BREVO_API_KEY: 'brevo_test', DB: db }, new URL(req.url));
+    expect(res.status).toBe(200);
+
+    expect(brevoCalls.length).toBe(1);
+    expect(brevoCalls[0].to[0].email).toBe('robin@example.com');
+    expect(brevoCalls[0].subject).toContain('Thank you');
+    expect(brevoCalls[0].htmlContent).toContain('Building Fund');
+    expect(brevoCalls[0].htmlContent).toContain('$75.00');
+    expect(brevoCalls[0].htmlContent).toContain('In memory of Grandma');
+  });
+
+  it('never emails a receipt for a redelivered webhook event (idempotent on alreadyRecorded)', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    db._raw.prepare("INSERT INTO chms_config (key, value) VALUES ('church_from_email', 'giving@timothystl.org')").run();
+
+    let brevoCallCount = 0;
+    global.fetch = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.includes('/transaction/')) {
+        return new Response(JSON.stringify({
+          data: {
+            id: 'evt_redeliver_1', type: 'charge', success: true, status: 'SUCCESS', total: '15.00',
+            customer_id: 'cus_r2', meta: { fund_id: fundId, payer_email: 'again@example.com' },
+            payment_method: { method_type: 'card' },
+          },
+        }), { status: 200 });
+      }
+      if (u.includes('api.brevo.com')) { brevoCallCount++; return new Response(JSON.stringify({ messageId: 'x' }), { status: 200 }); }
+      throw new Error('unexpected fetch ' + u);
+    });
+
+    const makeReq = () => new Request('https://connect.timothystl.org/api/mockup/stax-giving/webhook?secret=whsec_test', {
+      method: 'POST', body: JSON.stringify({ id: 'evt_redeliver_1' }),
+    });
+    const testEnv = { ...env(), BREVO_API_KEY: 'brevo_test', DB: db };
+    await handleStaxGivingWebhook(makeReq(), testEnv, new URL('https://x/?secret=whsec_test'));
+    await handleStaxGivingWebhook(makeReq(), testEnv, new URL('https://x/?secret=whsec_test'));
+    expect(brevoCallCount).toBe(1);
+  });
+
+  it('never emails a receipt in demo mode — there is no real charge behind it to confirm', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    db._raw.prepare("INSERT INTO chms_config (key, value) VALUES ('church_from_email', 'giving@timothystl.org')").run();
+
+    let brevoCallCount = 0;
+    global.fetch = vi.fn(async (url) => {
+      if (String(url).includes('api.brevo.com')) { brevoCallCount++; return new Response(JSON.stringify({ messageId: 'x' }), { status: 200 }); }
+      throw new Error('unexpected fetch ' + url);
+    });
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '25.00' }],
+        payer_first_name: 'Demo', payer_last_name: 'Mode', payer_email: 'demo@example.com',
+      }),
+    });
+    // BREVO_API_KEY set, but no STAX_SANDBOX_API_KEY — demo mode, per staxMockupConfigured().
+    const res = await handleStaxGivingMockupPublicApi(req, { BREVO_API_KEY: 'brevo_test', DB: db }, new URL(req.url), 'POST', 'checkout');
+    expect(res.status).toBe(200);
+    expect(brevoCallCount).toBe(0);
+  });
+
   it('refuses a partial refund against a multi-fund gift rather than guessing which fund absorbs it', async () => {
     const db = makeDb();
     await initDb(db);

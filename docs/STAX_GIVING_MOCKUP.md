@@ -172,8 +172,17 @@ as the reference bar) plus explicit research asks. What changed:
 - **Stax.js origins for the page's CSP** are the Website repo's problem now, not this repo's —
   see its own doc for that flag. This repo's CSP is unchanged (its only page here, the staff
   review queue, needs nothing beyond `self`).
-- **No receipt email.** childcare-portal's webhook sends a branded receipt on every recovered
-  charge. This mockup doesn't — worth adding before any real use.
+- **Gift receipt email** (`sendGiftReceiptEmail` in `src/stax-giving-mockup.js`) fires once a
+  charge is actually confirmed — the synchronous checkout success path and the webhook's
+  charge-success path, never demo mode's simulated gift or the recurring-signup endpoint (no
+  charge has happened there yet). Reuses the same Brevo transactional-email path the
+  giving-letter/thank-you-receipt features already use in production
+  (`sendBrevoTransactionalEmail` in `src/api-emails.js`) — no new email vendor, and the same
+  `church_from_name`/`church_from_email`/`church_ein` config keys and tax-deductibility wording
+  the giving-letter templates use. Per-fund line items, memo, and total; idempotent the same way
+  the ledger write is (a webhook redelivery of an already-recorded charge sends nothing). A
+  missed receipt email never fails the gift itself — the ledger write already succeeded by the
+  time this runs, and it's wrapped in its own try/catch.
 - **Apple Pay is not active.** The Website repo's `/.well-known/apple-developer-merchantid-domain-
   association` serves an explanatory placeholder, not real verification content (only Stax/Apple
   can issue that, per registered domain). Its form's wallet mount points
