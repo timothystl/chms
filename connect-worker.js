@@ -21,7 +21,8 @@ import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPass
 import { wrapEnvForDbAttribution, logDbAttribution } from './src/db-attribution.js';
 import { handleIntakeApi } from './src/api-intake.js';
 import {
-  handleStaxGivingMockupPublicApi, handleStaxGivingWebhook, renderStaxGivingMockupReviewHtml,
+  handleStaxGivingMockupPublicApi, handleStaxGivingWebhook,
+  renderStaxGivingMockupReviewHtml, renderStaxGivingMockupFundsAdminHtml,
 } from './src/stax-giving-mockup.js';
 import { handleContractsServiceApi } from './src/api-contracts-service.js';
 import { handleMemberSetup } from './src/api-people.js';
@@ -473,6 +474,10 @@ async function _fetchRouted(req, env, url, path, method) {
     if (path === '/admin/giving/stax-mockup' && method === 'GET') {
       if (!await isAuthed(req, env)) return html(LOGIN_HTML);
       return renderStaxGivingMockupReviewHtml();
+    }
+    if (path === '/admin/giving/stax-mockup/funds' && method === 'GET') {
+      if (!await isAuthed(req, env)) return html(LOGIN_HTML);
+      return renderStaxGivingMockupFundsAdminHtml();
     }
     // Old chms.timothystl.org hostname → 301 to connect.timothystl.org (page views only,
     // same treatment volunteer.timothystl.org→serve.timothystl.org would have gotten had

@@ -35,9 +35,12 @@ function makeDb() {
   return db;
 }
 
-function insertFund(db, name) {
-  db._raw.prepare('INSERT INTO funds (name) VALUES (?)').run(name);
-  return db._raw.prepare('SELECT id FROM funds WHERE name=?').get(name).id;
+function insertFund(db, name, { publicGiving = true } = {}) {
+  // initDb seeds its own defaults, some sharing common names ("General Fund") — look up by the
+  // row just inserted (highest id), not by name, so a test never accidentally reads back a
+  // same-named seeded row instead of the one it just created.
+  const r = db._raw.prepare('INSERT INTO funds (name, public_giving) VALUES (?,?)').run(name, publicGiving ? 1 : 0);
+  return Number(r.lastInsertRowid);
 }
 function insertPerson(db, { first, last, email, phone }) {
   db._raw.prepare(
@@ -239,15 +242,66 @@ describe('Stax Giving mockup — webhook', () => {
     expect(count.c).toBe(1);
     void charge; // referenced above only to create the original gift
   });
+
+  it('parses meta.splits for a multi-fund charge into one giving_entries row per fund', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundA = insertFund(db, 'General Fund');
+    const fundB = insertFund(db, 'Missions');
+
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({
+      data: {
+        id: 'evt_multi_1', type: 'charge', success: true, status: 'SUCCESS', total: '50.00',
+        customer_id: 'cus_multi',
+        meta: {
+          splits: JSON.stringify([{ f: fundA, a: 3000 }, { f: fundB, a: 2000 }]),
+          payer_first_name: 'Multi', payer_last_name: 'Payer', payer_email: 'multi@example.com',
+        },
+        payment_method: { method_type: 'card' },
+      },
+    }), { status: 200 }));
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/webhook?secret=whsec_test', {
+      method: 'POST', body: JSON.stringify({ id: 'evt_multi_1' }),
+    });
+    const res = await handleStaxGivingWebhook(req, { ...env(), DB: db }, new URL(req.url));
+    expect(res.status).toBe(200);
+
+    const rows = (await db.prepare("SELECT fund_id, amount FROM giving_entries WHERE external_txn_id LIKE 'evt_multi_1%' ORDER BY fund_id").all()).results;
+    expect(rows.length).toBe(2);
+    expect(rows.map(r => r.amount).sort((a, b) => a - b)).toEqual([2000, 3000]);
+  });
+
+  it('refuses a partial refund against a multi-fund gift rather than guessing which fund absorbs it', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundA = insertFund(db, 'General Fund');
+    const fundB = insertFund(db, 'Missions');
+    await recordStaxGift(db, {
+      externalTxnId: 'chg_multi', splits: [{ fundId: fundA, amountCents: 3000 }, { fundId: fundB, amountCents: 2000 }],
+      payerEmail: 'x@example.com',
+    });
+
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({
+      data: { id: 'evt_partial_refund', type: 'refund', success: true, status: 'SUCCESS', total: '20.00', reference_id: 'chg_multi' },
+    }), { status: 200 }));
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/webhook?secret=whsec_test', {
+      method: 'POST', body: JSON.stringify({ id: 'evt_partial_refund' }),
+    });
+    const res = await handleStaxGivingWebhook(req, { ...env(), DB: db }, new URL(req.url));
+    expect(res.status).toBe(409);
+  });
 });
 
 describe('Stax Giving mockup — public checkout API (demo mode)', () => {
-  it('lists only active funds', async () => {
+  it('lists only active, public_giving funds', async () => {
     const db = makeDb();
     await initDb(db);
-    // initDb seeds its own default funds (seedChmsDefaults) — assert on the two funds this test
-    // adds, not on the full list, so it doesn't drift if the seeded defaults ever change.
+    // initDb seeds its own default funds (seedChmsDefaults) with public_giving=0 (the new
+    // column's default) — assert on the funds this test adds, not the full list, so it doesn't
+    // drift if the seeded defaults ever change.
     insertFund(db, 'Mockup Open Fund');
+    insertFund(db, 'Mockup Not-Public Fund', { publicGiving: false });
     const closedId = insertFund(db, 'Mockup Closed Fund');
     await db.prepare('UPDATE funds SET active=0 WHERE id=?').bind(closedId).run();
 
@@ -256,6 +310,7 @@ describe('Stax Giving mockup — public checkout API (demo mode)', () => {
     const body = await res.json();
     const names = body.funds.map(f => f.name);
     expect(names).toContain('Mockup Open Fund');
+    expect(names).not.toContain('Mockup Not-Public Fund');
     expect(names).not.toContain('Mockup Closed Fund');
     expect(body.configured).toBe(false);
   });
@@ -268,7 +323,10 @@ describe('Stax Giving mockup — public checkout API (demo mode)', () => {
 
     const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
       method: 'POST',
-      body: JSON.stringify({ fund_id: fundId, amount: '25.00', payer_name: 'Jamie Vogel', payer_email: 'jamie@example.com' }),
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '25.00' }],
+        payer_first_name: 'Jamie', payer_last_name: 'Vogel', payer_email: 'jamie@example.com',
+      }),
     });
     const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'POST', 'checkout');
     expect(res.status).toBe(200);
@@ -276,19 +334,122 @@ describe('Stax Giving mockup — public checkout API (demo mode)', () => {
     expect(body.demo).toBe(true);
     expect(body.matched).toBe(true);
     expect(body.personId).toBe(pid);
+    expect(body.totalCents).toBe(2500);
   });
 
-  it('refuses a checkout against an inactive fund', async () => {
+  it('requires first name, last name, and email', async () => {
     const db = makeDb();
     await initDb(db);
-    const fundId = insertFund(db, 'Retired Fund');
-    await db.prepare('UPDATE funds SET active=0 WHERE id=?').bind(fundId).run();
-
+    const fundId = insertFund(db, 'General Fund');
     const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
-      method: 'POST', body: JSON.stringify({ fund_id: fundId, amount: '10.00', payer_name: 'X', payer_email: 'x@example.com' }),
+      method: 'POST',
+      body: JSON.stringify({ gifts: [{ fund_id: fundId, amount: '10.00' }], payer_first_name: 'X' }),
     });
     const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'POST', 'checkout');
     expect(res.status).toBe(400);
+  });
+
+  it('refuses a checkout against a fund not open for public giving', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'Retired Fund', { publicGiving: false });
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '10.00' }],
+        payer_first_name: 'X', payer_last_name: 'Y', payer_email: 'x@example.com',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'POST', 'checkout');
+    expect(res.status).toBe(400);
+  });
+
+  it('splits one gift across multiple funds into separate ledger rows sharing one base transaction id', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundA = insertFund(db, 'General Fund');
+    const fundB = insertFund(db, 'Missions');
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundA, amount: '30.00' }, { fund_id: fundB, amount: '20.00' }],
+        payer_first_name: 'Multi', payer_last_name: 'Fund', payer_email: 'multi@example.com',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'POST', 'checkout');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.entryIds.length).toBe(2);
+    expect(body.totalCents).toBe(5000);
+
+    const rows = (await db.prepare('SELECT fund_id, amount, external_txn_id FROM giving_entries WHERE id IN (?,?) ORDER BY fund_id').bind(...body.entryIds).all()).results;
+    expect(rows.map(r => r.amount).sort((a, b) => a - b)).toEqual([2000, 3000]);
+    // Both rows carry the SAME base transaction id (fund-suffixed), never two independent ids —
+    // that's what keeps a webhook redelivery for this one Stax charge idempotent for the group.
+    // (A plain split('-f') is ambiguous here: the demo mode's base id is itself a UUID, whose hex
+    // groups routinely contain their own "-f" substrings — strip each row's own known suffix
+    // instead of guessing where the base id ends.)
+    const baseIds = rows.map(r => r.external_txn_id.slice(0, r.external_txn_id.length - `-f${r.fund_id}`.length));
+    expect(baseIds[0]).toBe(baseIds[1]);
+    for (const r of rows) expect(r.external_txn_id).toBe(`${baseIds[0]}-f${r.fund_id}`);
+  });
+
+  it('cover_fees adds an estimated fee to the total and the first gift line only', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '100.00' }], cover_fees: true,
+        payer_first_name: 'Fee', payer_last_name: 'Cover', payer_email: 'fee@example.com',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'POST', 'checkout');
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    // 10000 * 0.029 + 30 = 320 -> total 10320, per the module's documented (estimated) fee rate.
+    expect(body.totalCents).toBe(10320);
+    const row = await db.prepare('SELECT amount FROM giving_entries WHERE id=?').bind(body.entryId).first();
+    expect(row.amount).toBe(10320);
+  });
+});
+
+describe('Stax Giving mockup — funds visibility (staff, src/api-giving.js)', () => {
+  it('lists all active funds with their public_giving flag for staff, and only saves the flag on POST', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund', { publicGiving: false });
+
+    const listReq = new Request('https://connect.timothystl.org/admin/api/giving/stax-mockup/funds');
+    const listRes = await handleGivingApi(listReq, { DB: db }, new URL(listReq.url), 'GET', 'giving/stax-mockup/funds', db, false, true, false, true);
+    const listBody = await listRes.json();
+    expect(listBody.funds.some(f => f.id === fundId && f.public_giving === 0)).toBe(true);
+
+    const saveReq = new Request('https://connect.timothystl.org/admin/api/giving/stax-mockup/funds', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ funds: [{ id: fundId, public_giving: true }] }),
+    });
+    const saveRes = await handleGivingApi(saveReq, { DB: db }, new URL(saveReq.url), 'POST', 'giving/stax-mockup/funds', db, false, true, false, true);
+    expect(saveRes.status).toBe(200);
+
+    const fund = await db.prepare('SELECT public_giving, name FROM funds WHERE id=?').bind(fundId).first();
+    expect(fund.public_giving).toBe(1);
+    expect(fund.name).toBe('General Fund'); // untouched — this endpoint only ever writes the flag
+  });
+
+  it('rejects saving fund visibility for a non-finance role', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const req = new Request('https://connect.timothystl.org/admin/api/giving/stax-mockup/funds', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ funds: [{ id: fundId, public_giving: false }] }),
+    });
+    const res = await handleGivingApi(req, { DB: db }, new URL(req.url), 'POST', 'giving/stax-mockup/funds', db, false, false, false, true);
+    expect(res.status).toBe(403);
   });
 });
 

@@ -867,7 +867,9 @@ if (seg === 'giving/unassigned-gifts' && method === 'GET') {
 // (enforced once, at the top of handleGivingApi); GET is open to anyone this dispatch let in.
 if (seg === 'giving/stax-mockup/queue' && method === 'GET') {
   const rows = (await db.prepare(
-    `SELECT u.id AS queue_id, u.payer_name, u.payer_email, u.payer_phone, u.card_brand, u.card_last4,
+    `SELECT u.id AS queue_id, u.payer_name, u.payer_first_name, u.payer_last_name, u.payer_email,
+            u.payer_phone, u.payer_address_line1, u.payer_city, u.payer_state, u.payer_zip,
+            u.card_brand, u.card_last4,
             ge.id AS entry_id, ge.amount, ge.contribution_date, f.name AS fund_name
        FROM giving_stax_unmatched u
        JOIN giving_entries ge ON ge.id = u.giving_entry_id
@@ -877,6 +879,32 @@ if (seg === 'giving/stax-mockup/queue' && method === 'GET') {
       LIMIT 200`
   ).all()).results || [];
   return json({ queue: rows });
+}
+
+// ── Stax Giving MOCKUP: which funds appear on the public form ──────────────
+// Separate from the general Manage Funds screen's `active` flag on purpose (see migration
+// 0054's comment) — this repo's production `funds` table carries every budget line, and the
+// public giving form must only ever offer the small subset staff has actually curated for
+// donors, not all of them.
+if (seg === 'giving/stax-mockup/funds' && method === 'GET') {
+  const rows = (await db.prepare(
+    `SELECT id, name, active, public_giving FROM funds WHERE active=1 ORDER BY sort_order, name`
+  ).all()).results || [];
+  return json({ funds: rows });
+}
+if (seg === 'giving/stax-mockup/funds' && method === 'POST') {
+  if (!isFinance) return json({ error: 'Access denied' }, 403);
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const rows = Array.isArray(b.funds) ? b.funds : [];
+  const stmts = [];
+  for (const r of rows) {
+    const id = parseInt(r.id);
+    if (!Number.isInteger(id)) continue;
+    stmts.push(db.prepare(`UPDATE funds SET public_giving=? WHERE id=?`).bind(r.public_giving ? 1 : 0, id));
+  }
+  if (!stmts.length) return json({ error: 'No valid fund rows' }, 400);
+  await db.batch(stmts);
+  return json({ ok: true, count: stmts.length });
 }
 const staxQueueLinkMatch = seg.match(/^giving\/stax-mockup\/queue\/(\d+)\/link$/);
 if (staxQueueLinkMatch && method === 'POST') {

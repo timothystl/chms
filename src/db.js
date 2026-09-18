@@ -2195,6 +2195,16 @@ async function _doInitDb(db) {
      )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_stax_unmatched_entry ON giving_stax_unmatched(giving_entry_id)`,
     `CREATE INDEX IF NOT EXISTS idx_stax_unmatched_status ON giving_stax_unmatched(status)`,
+    // (see migrations/0054_stax_giving_v2.sql): multi-fund gifts, richer donor contact fields,
+    // and a way to curate which funds show on the public giving form.
+    "ALTER TABLE funds ADD COLUMN public_giving INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE giving_stax_unmatched ADD COLUMN payer_first_name TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE giving_stax_unmatched ADD COLUMN payer_last_name TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE giving_stax_unmatched ADD COLUMN payer_address_line1 TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE giving_stax_unmatched ADD COLUMN payer_city TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE giving_stax_unmatched ADD COLUMN payer_state TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE giving_stax_unmatched ADD COLUMN payer_zip TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE giving_stax_recurring_schedules ADD COLUMN schedule_group TEXT NOT NULL DEFAULT ''",
   ];
   // Every statement here is either an idempotent CREATE ... IF NOT EXISTS, or an ALTER TABLE
   // ADD COLUMN — SQLite has no "ADD COLUMN IF NOT EXISTS", so a re-run always throws "duplicate
