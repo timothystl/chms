@@ -2633,6 +2633,21 @@ export async function upsertPropertyMonthly(db, propertyKey, body) {
   return { ok: true };
 }
 
+// ── Shared Commercial Property repairs & maintenance log writer ─────────────────────────────
+// Used by both the admin-only finance/property/:propertyKey/repairs POST route below and its
+// finance-property-repair-write-v1 relay contract counterpart (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical entry on behalf of an identity it verified via
+// Cloudflare Access. One implementation means the two entry points can never drift.
+export async function addPropertyRepair(db, propertyKey, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const amountCents = (b.amount === '' || b.amount === null || b.amount === undefined) ? null : Math.round(Number(b.amount) * 100);
+  if (amountCents !== null && !Number.isFinite(amountCents)) return { error: 'Invalid amount', status: 400 };
+  const r = await db.prepare(
+    `INSERT INTO finance_property_repairs (property_key,entry_date,category,description,amount_cents,payee,capitalized) VALUES (?,?,?,?,?,?,?)`
+  ).bind(propertyKey, b.entry_date || '', b.category || '', b.description || '', amountCents, b.payee || '', b.capitalized ? 1 : 0).run();
+  return { ok: true, id: r.meta?.last_row_id };
+}
+
 async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey) {
   if (seg === `finance/property/${propertyKey}` && method === 'GET') {
     const monthly = (await db.prepare('SELECT * FROM finance_property_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
@@ -2855,12 +2870,9 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   if (seg === `finance/property/${propertyKey}/repairs` && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const amountCents = (b.amount === '' || b.amount === null || b.amount === undefined) ? null : Math.round(Number(b.amount) * 100);
-    if (amountCents !== null && !Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
-    const r = await db.prepare(
-      `INSERT INTO finance_property_repairs (property_key,entry_date,category,description,amount_cents,payee,capitalized) VALUES (?,?,?,?,?,?,?)`
-    ).bind(propertyKey, b.entry_date || '', b.category || '', b.description || '', amountCents, b.payee || '', b.capitalized ? 1 : 0).run();
-    return json({ ok: true, id: r.meta?.last_row_id });
+    const result = await addPropertyRepair(db, propertyKey, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   const repairsDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/repairs/(\\d+)$`));

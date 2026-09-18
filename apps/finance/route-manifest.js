@@ -67,6 +67,11 @@ const ROUTES = [
   // distribution/capital-ledger routes -- this is the core monthly revenue/expense/NOI row those
   // don't cover.
   { id: 'property-monthly-write-v1', paths: ['/api/v1/connect-property-monthly-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-monthly-write-relay.v1' },
+  // Same deliberate exception as the relays above, for Commercial Property's repairs &
+  // maintenance log: relays to Connect's own finance-property-repair-write-v1 contract endpoint
+  // (never writes to Finance's own database), matching the legacy in-Connect Work orders page's
+  // own finance/property/ivanhoe/repairs POST route exactly (admin-only).
+  { id: 'property-repair-write-v1', paths: ['/api/v1/connect-property-repair-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-repair-write-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no

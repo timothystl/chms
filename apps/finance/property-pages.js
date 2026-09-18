@@ -77,10 +77,34 @@ function renderPropertyMonthlyForm(entryStatus, entryMessage) {
   </section>`;
 }
 
+// Admin-only repairs & maintenance log entry -- relayed live to Connect's real
+// finance_property_repairs table (see finance-property-repair-write-v1 in
+// src/api-contracts-service.js), never stored in Finance's own database.
+function renderPropertyRepairForm(entryStatus, entryMessage) {
+  return `<section aria-label="Record a repair or maintenance entry">
+    ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Record a repair or maintenance entry', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-property-repair-write">
+      <div class="grid form-grid">
+        <div class="field"><label for="pr-date">Date (YYYY, YYYY-MM, or YYYY-MM-DD)</label><input id="pr-date" type="text" name="entry_date" placeholder="2027-01-15"></div>
+        <div class="field"><label for="pr-category">Repair category</label><input id="pr-category" type="text" name="category" placeholder="e.g. HVAC"></div>
+        <div class="field"><label for="pr-payee">Payee</label><input id="pr-payee" type="text" name="payee"></div>
+        <div class="field"><label for="pr-amount">Amount ($)</label><input id="pr-amount" type="number" name="amount" step="0.01"></div>
+      </div>
+      <div class="field"><label for="pr-description">Description</label><input id="pr-description" type="text" name="description"></div>
+      <div class="field"><label><input type="checkbox" name="capitalized"> Capitalized (goes toward the capital improvements ledger, not an operating expense)</label></div>
+      <button type="submit">Save entry</button>
+    </form>
+    <p><small>This writes directly into Connect's own <code>finance_property_repairs</code> table -- the same table the legacy in-Connect Work orders page edits. Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
 export function renderPropertyPage(pageId, {
   propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
   propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions,
   canManagePropertyMonthly, propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
+  canManagePropertyRepairs, propertyRepairEntryStatus, propertyRepairEntryMessage,
 }) {
   if (pageId === 'operating-results') {
     // Live-first: tries connect.finance-property-operating.v1 (property-report-service.js's
@@ -123,7 +147,7 @@ export function renderPropertyPage(pageId, {
       ${renderKpiCards([{ label: 'Repairs & maintenance', value: formatCents(ledgers.totals.repairs_cents) }])}
       ${renderTable({ head: ['Date', 'Repair category', 'Description', 'Payee', 'Amount'], rows: renderPropertyRepairRows(ledgers.repairs) })}
       ${fallbackNote}
-    </section>`;
+    </section>${canManagePropertyRepairs ? renderPropertyRepairForm(propertyRepairEntryStatus, propertyRepairEntryMessage) : ''}`;
   }
   if (pageId === 'reserve-distribution') {
     // Live-first: tries connect.finance-property-reserves.v1 (property-report-service.js's
