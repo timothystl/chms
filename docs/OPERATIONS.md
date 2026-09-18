@@ -1,51 +1,44 @@
 # Operations
 
+Updated September 18, 2026. [AGENTS.md](../AGENTS.md) defines routine delivery authorization.
+
 ## Environments
 
-| Environment | Worker | Data/storage | Release boundary |
+| Environment | Worker | Data/storage | Release |
 |---|---|---|---|
-| Production | `tlc-chms` | Production D1, KV, and R2; daily cron | Manual approved-main SHA workflow only |
-| Connect staging | `timothy-connect-staging` (renamed 2026-09-09 from `breeze-proxy-worker-staging`) | Separate staging D1, KV, and R2; no cron | Manual Wrangler operation |
-| Finance staging | `timothy-finance-app-staging` | Separate Finance D1; synthetic data only | Manual reviewed alpha release |
-| Finance production | `timothy-finance-app` (not yet deployed) | Separate Finance D1; not yet created | Not started — see [`FINANCE_PRODUCTION_CUTOVER.md`](FINANCE_PRODUCTION_CUTOVER.md) |
+| Connect production | `timothy-connect` | `timothy-connect-db`, `KV`, `timothy-connect-photos`; daily cron | `deploy.yml`, manual dispatch |
+| Connect staging | `timothy-connect-staging` | Separate D1/KV/R2; no cron | Staging workflow/config |
+| Finance production | `timothy-finance-app` | Separate `timothy-finance-db`, Connect and Website service bindings | `deploy-finance.yml`, manual dispatch |
+| Finance staging | `timothy-finance-app-staging` | Separate Finance D1; fixtures explicit | Finance staging workflow/config |
 
-## Production release
+Main merges do not automatically deploy either production Worker. Dispatch the affected
+workflow with the tested full main SHA and an accurate release reason. Connect repeats
+`npm test` and the built-script check; Finance runs `npm run validate:finance:prod`.
+Verify completion. A requested routine release needs no additional signoff.
 
-`.github/workflows/deploy.yml` is dispatch-only. It verifies the requested full SHA is on `main`,
-installs with Node 22, runs the full tests and built-script parser, and deploys through the protected
-`production` environment. Never dispatch it without explicit production-release approval.
+[Connect release](https://github.com/timothystl/chms/actions/runs/35352987006) succeeded at
+`7e93e60f3`; [Finance release](https://github.com/timothystl/chms/actions/runs/35351838490)
+succeeded at `582c72a8f` on September 18. Finance infrastructure is deployed; its authoritative
+data/user cutover remains unfinished. See [the runbook](FINANCE_PRODUCTION_CUTOVER.md).
 
-Rollback uses a known-good Cloudflare deployment or a reviewed redeployment of the recorded commit,
-followed by bounded smoke checks and datastore/control-total verification appropriate to the event.
-Application rollback does not roll back D1, KV, or R2 state.
+## Data and rollback
 
-## Staging commands
+Inspect target configuration and live schema before migrations. Connect's current production
+source is `timothy-connect-db`, not retained `tlc-volunteer-db`. Finance schema migrations
+and synthetic fixtures are separate operations; never load fixtures into production.
+A data move needs a usable backup and reconciliation, with deliberate reader/writer cutover.
+Do not enable unfinished feature flags merely because their code has deployed.
 
-Inspect before changing anything:
+Rollback uses a known-good Cloudflare deployment or tested source redeployment, followed by
+relevant smoke checks. Worker rollback does not undo D1/KV/R2 changes.
 
-```sh
-npx wrangler whoami
-npx wrangler deploy --dry-run --config wrangler.staging.toml
-npx wrangler deploy --dry-run --config wrangler.finance.staging.jsonc
-```
+## Recovery and monitoring
 
-Finance schema and fixtures have separate commands by design:
+The recorded Connect backup policy includes encrypted source/D1/R2/configuration inventory,
+weekly and month-end retention, and disposable restore exercises. Sole-operator continuity
+was accepted; do not restart it as an approval gate. A historical drill or policy does not prove
+today's backup freshness. Verify the actual backup when a data move depends on it.
 
-```sh
-npx wrangler d1 migrations apply timothy-finance-db-staging --remote --config wrangler.finance.staging.jsonc
-npx wrangler d1 execute timothy-finance-db-staging --remote --config wrangler.finance.staging.jsonc --file apps/finance/fixtures/0001_synthetic_staging.sql
-```
-
-Those commands mutate staging and must be run only against the verified staging database UUID.
-Never point them at `tlc-volunteer-db` or copy production rows into the alpha.
-
-## Backup and recovery
-
-The retained CHMS package includes source, D1, R2 objects, and configuration inventory, encrypted
-with `age` and stored in a restricted SharePoint location. Weekly retention, pre-migration exports,
-eight weekly copies, twelve month-end copies, and quarterly disposable restore tests are the
-recorded policy. Andrew is the sole operator by accepted decision.
-
-Monitor GitHub Actions, Cloudflare Worker/D1 logs and analytics, scheduled-job status, import state,
-and application error references. Never put personal, financial, or credential values in logs or
-issues.
+Monitor Worker/D1 logs, query attribution, scheduled jobs, import state, and error references.
+Keep personal, financial, and credential values out of logs/issues. Use the relevant Wrangler
+config for dry runs and releases; do not deploy against historical resource names.

@@ -6,10 +6,11 @@ Connect remains authoritative for people and Giving. New Finance has separate st
 production Workers/databases, real contract reads and Giving/payroll relays, alongside synthetic
 readers and unfinished pages. It is no longer accurately described as synthetic-only or read-only.
 
-The [production infrastructure runbook](docs/FINANCE_PRODUCTION_CUTOVER.md) records the September 15
-deployment. Financial data/user cutover and retirement of legacy Finance remain open. Source review
-also found synthetic-row dependencies and incomplete section authorization in the new shell;
-see [Finance scope and limitations](apps/finance/README.md). Deployment success is not report parity.
+The [production runbook](docs/FINANCE_PRODUCTION_CUTOVER.md) records deployed infrastructure.
+Finance released again September 18 with expanded report/edit paths. Missing-fixture page crashes
+and runtime role-failure behavior have been improved; data/writer cutover, complete permissions,
+and workflow parity remain open. New Finance-owned writes are off by default.
+See [Finance scope and limitations](apps/finance/README.md).
 
 Start with [AGENTS.md](AGENTS.md) for development and release boundaries. Current reference docs:
 
@@ -28,5 +29,6 @@ npm test
 node .github/scripts/check-built-scripts.js
 ```
 
-Production deployment is manual-only and requires an explicitly approved full `main` SHA and
-release reason. An ordinary branch or pull request does not deploy production.
+Connect and Finance have separate manual-dispatch production workflows requiring the exact main
+SHA and a release reason. Complete routine requested releases under [AGENTS.md](AGENTS.md);
+no repeat approval is required. Documentation-only changes need no manual Worker deployment.

@@ -1,110 +1,87 @@
 # Timothy Connect and Finance — Agent Instructions
 
-This is the only AI startup instruction file for this repository. Claude reads it through
-`CLAUDE.md`; Codex reads it directly. Do not preload or inventory other Markdown files.
-Open a reference only when the current task specifically requires it, and verify dated claims
-against current source, tests, GitHub, deployed configuration, and live behavior.
+Updated September 18, 2026, at Andrew's request to remove unnecessary approval and incremental-work restrictions.
 
-## Product boundary
+## Working agreement
 
-This repository currently serves Connect, Giving, Finance, Serve, and Scheduler from the
-Cloudflare Worker now named `timothy-connect`. September 17 source configuration uses D1
-`timothy-connect-db` (cutover from `tlc-volunteer-db` deployed and verified), the Connect KV
-namespace `timothy-connect-kv` through binding `KV` (renamed from `RSVP_STORE`), R2
-`timothy-connect-photos`, and a daily `14:00 UTC` cron. Staging has separate D1 and no cron.
-New Finance also has separate production/staging Workers and D1 databases in this repository.
+Andrew's request authorizes the implementation, tests, documentation, commits, PR merge, and
+routine deployment needed to finish that request. This applies equally to Codex, Claude, and
+other agents. Carry the work through to a usable result; do not stop at a draft PR or ask again
+for approval already given. Follow an explicit review-only, no-deploy, or other scope limit.
 
-The target architecture has four staff products: Church Website, Connect, Finance, and myMDO.
+Deliver a coherent feature or fix in a sensible batch. Do not manufacture tiny increments,
+separate approvals for each file, numbered preparation gates, or evidence packets. Split work
+only when dependencies, rollback risk, or a real product decision justify it. Update useful
+documentation when behavior or ownership changes; normal commits and PRs are the work record.
 
-- Connect owns people, households, Giving, communications, volunteers, scheduling,
-  facilities, governance, and restricted church HR.
-- Finance owns accounting imports, budgets, actuals, balances, forecasts, property finance,
-  compensation planning, and future payroll processing.
-- Giving remains authoritative in Connect. Finance must eventually consume versioned summaries,
-  not become a second writer of gifts, batches, deposits, funds, or donor records.
-- myMDO owns raw childcare operations, billing, schedules, clock events, and MDO payroll inputs.
-- Repository or database boundaries change only when ownership, security, load, or failure
-  isolation justifies them.
+Ask only when a material decision is missing, the work would expand the requested scope, or an
+action would destroy data, irreversibly affect people, or create a new financial commitment
+not already authorized. Complete independent work while that decision is pending. A routine
+production release is not, by itself, a reason to ask. Do not send real messages or initiate
+real charges merely to test an application.
 
-## Settled operational facts
+Preserve unrelated work and shared history. Use a branch/worktree as useful, inspect concurrent
+changes, and resolve routine conflicts. Do not force-push or reset someone else's work.
+Current code, configuration, tests, and observed deployments outrank dated prose.
 
-- Legacy Finance still shares Connect's Worker/D1. New `apps/finance` has independent production
-  infrastructure; authoritative data/writer migration and user cutover are unfinished.
-- Finance-owned configuration was extracted to `finance_settings`; do not describe it as still
-  entirely mixed into `chms_config`. Verify live migration state before any data movement.
-- Versioned Giving/report contracts and Giving/payroll relays exist. Giving stays Connect-owned;
-  payroll's backend remains in Website. Contract reads do not establish Finance data ownership.
-- The new shell still has eager synthetic-row dependencies and only denies section access when
-  role lookup succeeds. Its coarse role model is incomplete; compensation live data has an
-  additional verified-role restriction. See `apps/finance/README.md` before proposing cutover.
-- QuickBooks Online OAuth actually connected and synced successfully once, in production on
-  2026-07-28 (see `SECRETS.md`'s `QB_CLIENT_ID`/`QB_CLIENT_SECRET` entry and `NOTES.md`) — the
-  "never connected successfully" claim this line used to carry was stale. QuickBooks' own native
-  Budget-vs-Actual report is Intuit-side unsupported at this app's tier; the working path is
-  `mergeCurrentYearBudgetAndActual()`'s reconstruction from the `Budget` entity + a date-scoped
-  `ProfitAndLoss` report, not the native report endpoint. Budget data also still has the
-  CSV/Excel import path as a fallback. Checked directly against production `finance_qb_connection`
-  on 2026-09-13: the connection has been completely idle since the day it was made —
-  `last_synced_at` is still 2026-07-28T19:37:52Z (21 seconds after `connected_at`), and both token
-  expiry columns still hold their original post-connect values, meaning `ensureFreshAccessToken()`
-  has never run again since. The stored refresh-token expiry (2026-11-06) has not yet passed, so
-  the connection is not necessarily dead, but "not expired by its own stored clock" is not the same
-  as "confirmed working" — only an actual QuickBooks call (which would rotate the tokens and move
-  `last_synced_at`) proves that. Re-check before relying on it, and don't assume either outcome
-  past 2026-11-06.
-- TinyMCE is self-hosted from `vendor/tinymce/`. The subscription has lapsed. Do not add cloud
-  scripts, cloud API keys, paid editor loads, or a CDN dependency.
-- Production schema initialization is currently coupled to runtime `initDb()` and
-  `schema_fingerprint`; the numbered migration folder is not the complete production ledger.
-  Do not “fix” that during unrelated work.
+## Verification and reporting
 
-## Access and data safety
+Match verification to the change. Run meaningful tests for changed behavior and required CI;
+do not invent tests or rebuild applications solely for Markdown edits. For documentation-only
+work, review the diff, validate links and factual claims, and let applicable CI run.
+For releases, confirm the deployed revision and relevant checks. Report what shipped and any
+material limitation honestly; a green build is not proof of data migration or user acceptance.
 
-- Roles are `admin`, `finance`, `staff`, `council`, `member`, `volunteer`, and `compensation`
-  (view+edit access to the Compensation Planner sub-tab of Finance only, saved separately from
-  the shared admin/finance roster); feature access is resolved by the server-side permission
-  matrix. UI hiding is never authorization.
-- Council Giving access is aggregate/anonymous only. New anonymous endpoints are denied until
-  explicitly allowlisted.
-- Never expose credentials or personal, giving, payroll, HR, child/family, or payment data.
-- `SECRETS.md` is security-sensitive reference material, not startup reading. Do not reproduce
-  values. Any removal requires credential inventory, rotation decisions, and Git-history review.
-- Documentation changes and read-only production queries do not require separate approval.
-- Ask Andrew before changing application source code. Production migrations, deployments,
-  authentication or configuration changes, data moves, and destructive cleanup also require his
-  explicit approval for that operation.
+## Documentation policy
 
-## Git, deployment, and verification
+This is the current agent policy; `CLAUDE.md` imports it. Read only task-relevant references.
+Older approval language in plans, runbooks, comments, and archived evidence is superseded by
+this working agreement. Keep useful technical procedures and data protections, but do not
+revive retired preparation gates, waived baselines, or repeated release signoffs.
+The current overhaul status is maintained in
+[the architecture plan](https://github.com/timothystl/digital-architecture/blob/main/architecture/11-overhaul-readiness-and-execution-plan.md).
+Keep durable instructions here and detailed progress there.
 
-Automatic merging of Claude's branches and pull requests is back on once npm test and the built-scripts check pass. Merging to main never deploys by itself — deployment stays the separate, manual, explicitly-approved step below.
-Claude Code may dispatch production deployments through .github/workflows/deploy.yml without asking first, supplying the exact approved main commit SHA being released and a real release reason for the audit trail.
-Preserve unrelated concurrent work. Do not reset, rebase, force-push, or overwrite shared history. Use a branch or disposable worktree.
-Use Node 22. Run npm test and node .github/scripts/check-built-scripts.js before merge. Add focused tests for the changed path and verify regression tests are non-vacuous.
-Current code and live evidence outrank documentation. Search callers and tests before removing routes, schema, configuration keys, or compatibility paths.
+## Runtime and ownership
 
-## Timothy Digital overhaul checkpoint
+- `connect-worker.js` serves Connect, Giving, Serve/Scheduler, and legacy Finance as
+  `timothy-connect`. Production binds `DB` to `timothy-connect-db`, `KV` to the
+  `timothy-connect-kv` namespace, and `PHOTOS` to `timothy-connect-photos`.
+- `apps/finance/shell.js` deploys separately as `timothy-finance-app`, with its own
+  `timothy-finance-db`. Both applications also have isolated staging configurations.
+- Giving stays authoritative in Connect. Finance consumes versioned summaries and relays
+  Giving writes to Connect. Payroll currently relays to Website's backend. Finance-owned
+  accounting data/writers are being migrated; separate infrastructure is already deployed.
+- Legacy Finance settings use `finance_settings`. Runtime `initDb()` and
+  `schema_fingerprint` still participate in Connect schema setup; numbered migrations alone
+  are not the complete production ledger. Check actual state before schema changes.
+- QuickBooks has a historical successful connection; do not repeat “never connected.”
+  A stored token or historical sync does not prove current connectivity. Avoid competing
+  refresh-token writers when moving that integration.
+- TinyMCE is self-hosted from `vendor/tinymce/`; preserve the self-hosted editor.
 
-Andrew retired the old preparation-gate/implementation-phase ceremony on September 9, 2026. The
-current plan is a plain task list in the private `digital-architecture` repository's
-`architecture/11-overhaul-readiness-and-execution-plan.md` — read it before starting overhaul work
-here, not the retired gate language this section used to carry. In short, the goals are: Finance
-becomes its own application; shared staff login across products; code normalized and functions
-moved/renamed to match current scope (the legacy `tlc-volunteer-db`/`tlc-chms-photos`/`RSVP_STORE`
-names are done — see the resource-naming table in `digital-architecture`'s doc 11); real developer
-documentation; and better observability so a resource spike (like the earlier hard-to-diagnose D1
-usage spike) is easy to root-cause. None of these are gated behind each other — pick up whichever
-is asked for. CHMS's own backup/restore is real and tested (a
-disposable database restore drill passed). Website D1/R2 recovery workflows passed September 11,
-Finance D1 September 14, and myMDO public-schema restore September 13. myMDO's drill does not
-cover Auth's separate schema, Storage bytes or hosted services; drill success is not backup retention.
-Renaming any live D1 database, R2 bucket, or KV namespace needs a deploy that repoints bindings —
-batch those with other planned deploys and back up first. myMDO's authorization migrations are
-already live and synchronized to source through childcare-portal PR #328; do not reapply them.
+## Data and authorization
 
-## Documentation discipline
+Enforce the server-side permission matrix. UI visibility is not authorization. Council Giving
+is aggregate/anonymous only; preserve compensation visibility and per-user draft isolation.
+Never expose secrets or personal/giving/payroll records in logs, fixtures, or documentation.
+Use managed secrets; read security-sensitive references only when needed, without copying values.
 
-`CLAUDE.md` only imports this file. `AI_SESSION_START_HERE.md`, `NOTES.md`, `PLAN.md`, the
-architecture packet, and dated evidence remain reference/history—not startup instructions or
-competing current status. Read the smallest task-relevant source only. Preserve licenses and
-evidence. Keep durable rules here, work items in the issue tracker, and history in Git. Keep this
-file below 200 lines and update the checkpoint whenever overhaul status materially changes.
+For real data moves, verify the current source/target, take a usable backup, reconcile counts
+and financial controls, preserve provenance, and switch authoritative writers deliberately.
+Do not seed production with synthetic Finance data or enable unfinished writers as a side
+effect of a documentation task. Keep fixtures and production clearly separate.
+
+## Tests and releases
+
+Use Node 22. For application changes run `npm test` and
+`node .github/scripts/check-built-scripts.js`; Finance changes also use
+`npm run validate:finance` or `npm run validate:finance:prod` for the target configuration.
+Add focused regression coverage when useful.
+
+Main merges do not deploy Connect or Finance automatically. Complete a requested application
+release by dispatching `.github/workflows/deploy.yml` (Connect) or
+`.github/workflows/deploy-finance.yml` (Finance), with the exact tested main SHA and a real
+release reason. The working agreement above supplies routine release authorization; the
+workflow's “approved SHA” wording does not require another question. Deploy only the affected
+application. Documentation-only changes normally need no manual Worker deployment.
