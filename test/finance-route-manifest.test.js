@@ -33,10 +33,12 @@ const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv
 // test/finance-compensation-plan-write-service.test.js).
 const D1_WRITE_ROUTE_IDS = new Set([
   'import-church-v1', 'import-church-balances-v1', 'import-daycare-v1', 'import-property-budget-v1',
+  'import-church-xlsx-v1', 'import-church-balances-xlsx-v1',
 ]);
 const DB_WRITE_ROUTE_IDS = new Set([
   'compensation-plan-save-v1', 'property-reserve-entry-v1', 'property-reserve-disbursement-entry-v1',
   'property-distribution-entry-v1', 'property-capital-ledger-entry-v1',
+  'compensation-raise-plan-save-v1', 'compensation-council-draft-save-v1',
 ]);
 
 describe('Finance staging route manifest', () => {
@@ -55,9 +57,11 @@ describe('Finance staging route manifest', () => {
       '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
       '/api/v1/payroll-email',
       '/api/v1/import/church', '/api/v1/import/church-balances', '/api/v1/import/daycare', '/api/v1/import/property-budget',
+      '/api/v1/import/church-xlsx', '/api/v1/import/church-balances-xlsx',
       '/api/v1/compensation-plan-save', '/api/v1/property-reserve-entry',
       '/api/v1/property-reserve-disbursement-entry', '/api/v1/property-distribution-entry',
       '/api/v1/property-capital-ledger-entry',
+      '/api/v1/compensation-raise-plan-save', '/api/v1/compensation-council-draft-save',
     ]);
     for (const route of FINANCE_ROUTE_MANIFEST) {
       if (WRITE_ROUTE_IDS.has(route.id)) {
@@ -178,6 +182,12 @@ describe('Finance staging route manifest', () => {
     expect(resolveFinanceRoute('/api/v1/import/property-budget')).toMatchObject({
       id: 'import-property-budget-v1', contract: 'finance.import-property-budget.v1', dataSource: 'd1-write', writer: true,
     });
+    expect(resolveFinanceRoute('/api/v1/import/church-xlsx')).toMatchObject({
+      id: 'import-church-xlsx-v1', contract: 'finance.import-church-xlsx.v1', dataSource: 'd1-write', writer: true,
+    });
+    expect(resolveFinanceRoute('/api/v1/import/church-balances-xlsx')).toMatchObject({
+      id: 'import-church-balances-xlsx-v1', contract: 'finance.import-church-balances-xlsx.v1', dataSource: 'd1-write', writer: true,
+    });
     expect(resolveFinanceRoute('/api/v1/compensation-plan-save')).toMatchObject({
       id: 'compensation-plan-save-v1', dataSource: 'finance-db-write', writer: true, methods: ['POST'],
     });
@@ -192,6 +202,12 @@ describe('Finance staging route manifest', () => {
     });
     expect(resolveFinanceRoute('/api/v1/property-capital-ledger-entry')).toMatchObject({
       id: 'property-capital-ledger-entry-v1', dataSource: 'finance-db-write', writer: true, methods: ['POST'],
+    });
+    expect(resolveFinanceRoute('/api/v1/compensation-raise-plan-save')).toMatchObject({
+      id: 'compensation-raise-plan-save-v1', dataSource: 'finance-db-write', writer: true, methods: ['POST'],
+    });
+    expect(resolveFinanceRoute('/api/v1/compensation-council-draft-save')).toMatchObject({
+      id: 'compensation-council-draft-save-v1', dataSource: 'finance-db-write', writer: true, methods: ['POST'],
     });
     expect(resolveFinanceRoute('/missing')).toBeUndefined();
 

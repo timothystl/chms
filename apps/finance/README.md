@@ -72,17 +72,57 @@ oversight:
   salary, benefits, notes), a per-worker `hideFromCouncil` flag enforced identically to the read
   side, and a per-worker raise `comp_method`/`adjustment_pct` that a `council` viewer may edit on a
   *visible* row only (the per-worker analogue of legacy's `COUNCIL_EDITABLE_FIELDS`).
-- Not covered: legacy's GLOBAL `compCustomPct`/`compScalePct`/`compBaselineRosterOnly` raise-plan
-  assumptions; legacy's hand-typed `compOverrides` dollar overrides; and legacy's private
-  per-council-member overlay fork (`finance_salary_planner_council_<username>`) -- a council save
-  here lands directly on the ONE shared table (restricted to the two fields above, on rows they may
-  see), not an isolated per-user draft, so two council users editing the same fiscal year can now
-  see and overwrite each other's `comp_method`/`adjustment_pct` choice. This mirrors how Finance's
-  existing read side already has no per-council-overlay concept at all, rather than introducing a
-  second, divergent council-state model just for this write path.
-See `compensation-plan-write-service.js`'s header comment for the same list with full rationale,
+- A council save here still lands directly on the ONE shared table (restricted to the two fields
+  above, on rows they may see), not an isolated per-user draft, so two council users editing the
+  same fiscal year can still see and overwrite each other's `comp_method`/`adjustment_pct` choice
+  on that SHARED table -- unchanged by the additive tables below, which give council a SEPARATE,
+  private option rather than changing this one.
+- **September 18, 2026, additive, also OFF by default:** legacy's GLOBAL
+  `compCustomPct`/`compScalePct`/`compBaselineRosterOnly` raise-plan assumptions and legacy's
+  private per-council-member overlay fork (`finance_salary_planner_council_<username>`) are now
+  both ported, as two further Finance-owned tables (migration `0009`) that are additive to, and
+  never a replacement for, the shared `finance_compensation_worker_plan` write path just described:
+  - `compensation-raise-plan-service.js`'s `finance_compensation_raise_plan_options` is a single
+    per-fiscal-year row for the plan-wide `customPct`/`scalePct`/`baselineRosterOnly` assumptions,
+    writable by admin/compensation only (`RAISE_PLAN_WRITE_ROLES`, a strict subset of
+    `COMPENSATION_LIVE_ALLOWED_ROLES` -- council is deliberately excluded here, matching legacy's
+    own split between the shared key and council's separate overlay fork). Route:
+    `POST /api/v1/compensation-raise-plan-save`.
+  - `compensation-council-draft-service.js`'s `finance_compensation_council_draft` is a PRIVATE,
+    per-council-member draft: its own copy of the three plan-wide settings plus a `worker_overrides`
+    JSON map of private `comp_method`/`adjustment_pct` overrides. Unlike legacy's
+    `compPerWorkerMethod`/`compOverrides` maps (keyed by fragile roster array INDEX, requiring
+    `resolveSalaryPlannerState`'s own `oldToNewIndex` reindexing whenever a hidden worker changes
+    which indices are visible), this app's map is keyed by the SAME stable `worker_key` migration
+    `0007` already uses -- a deliberate, documented improvement on the legacy addressing scheme,
+    not a behavior gap. `buildCouncilDraftView` merges a viewer's own draft onto the
+    already-council-filtered shared roster (falling back to the global row above for any setting
+    the draft doesn't override), and a draft entry naming a worker who is no longer visible
+    (removed, or since flagged `hideFromCouncil`) is silently never applied -- it can never leak
+    that worker back into view. Route: `POST /api/v1/compensation-council-draft-save`.
+  - **Identity limitation, stated plainly:** legacy keys its overlay by a username Connect's own
+    session already verifies. Finance's own role contract (`connect-role-client.js`) still does not
+    carry a verified username (the same gap `compensation-plan-write-service.js` and
+    `budget-plan-write-service.js` already noted for their own scopes), so the council draft is
+    keyed by the SAME unverified JWT email claim `payroll-section.js`'s `approverEmailFromJwt`
+    already reads for an audit-trail label -- here, additionally as a storage key. This is a real,
+    bounded trust difference from that existing precedent (there is no downstream re-verification
+    step here the way Website's payroll proxy re-verifies its own token), accepted as a
+    narrowly-scoped limitation rather than a new authentication mechanism -- see
+    `compensation-council-draft-service.js`'s header comment for the full reasoning and exactly
+    what it would take to close this properly (a verified username on `connect.staff-role-v1`).
+  - Legacy's hand-typed `compOverrides` dollar-figure map is still NOT ported, for the same reason
+    `compensation-plan-write-service.js` already gives for its own scope: there is no seed-vs-
+    computed-then-overridden distinction in this app's schema to hang an override on.
+  - Both routes reuse the SAME `isCompensationPlanWriteEnabled` flag as the shared write path above
+    (one Compensation Planner rollout decision, not a second flag) and are OFF by default in every
+    environment today.
+See `compensation-plan-write-service.js`'s, `compensation-raise-plan-service.js`'s, and
+`compensation-council-draft-service.js`'s header comments for the same lists with full rationale,
 and `test/finance-compensation-plan-write-service.test.js` /
-`test/finance-compensation-plan-write-route.test.js` for the tests, including the council-isolation
+`test/finance-compensation-plan-write-route.test.js` /
+`test/finance-compensation-raise-plan-service.test.js` /
+`test/finance-compensation-raise-plan-route.test.js` for the tests, including the council-isolation
 precedent matching `test/council-compensation-role.test.js`.
 
 **Property reserve/distribution/capital-ledger entry (September 17, 2026, code-complete but OFF by
@@ -190,6 +230,8 @@ noted above. Consult their source and the page registry for current per-page beh
 - `finance-data-status-consumer.js` — fail-closed parser for the `connect.finance-data-status.v1` contract.
 - `finance-data-status-client.js` — real transport for the live endpoint, with a fail-closed fallback to the synthetic fixture (same shape as `connect-giving-client.js`).
 - `compensation-report-service.js` — one-query synthetic role-level compensation plan and reconciled totals, `resolveCompensationReport`'s live-with-synthetic-fallback for the real per-person `connect.finance-compensation.v1` roster (admin/council/compensation only), a synthetic role-only council review snapshot that cannot imply approval, and `buildLiveCompensationCouncilSnapshot`'s real aggregate equivalent for that same allowed-role set (real worker/entered-pay counts and totals only -- no fabricated benefits-share or weighted-adjustment figure, since the real roster stores neither per worker).
+- `compensation-plan-write-service.js` — the shared per-worker Compensation Planner write path onto Finance's OWN `finance_compensation_worker_plan`, off by default behind `isCompensationPlanWriteEnabled`; see the changelog paragraph above.
+- `compensation-raise-plan-service.js` / `compensation-council-draft-service.js` — the additive GLOBAL raise-plan-options row and per-council-member private draft overlay (migration `0009`), each off by default behind the SAME `isCompensationPlanWriteEnabled` flag; see the Alpha.45 entry below.
 - `compensation-benchmark-service.js` — one-query role-level synthetic benchmark comparison with explicit non-published source classification.
 - `compensation-benefits-service.js` — one-query role-level benefits and employer-tax breakdown with exact plan reconciliation.
 - `cash-runway-service.js` — two-query synthetic operating-cash and expense-coverage boundary.
@@ -197,6 +239,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `entity-overview-service.js` — pure separately-periodized Church, Daycare, and Property view; still synthetic-only by investigated decision, not merely unwired -- see the Financial Health entry below.
 - `operating-bridge-service.js` — pure reconciled annual Church income-to-result bridge; reads only `fiscalYear`/`totals.{incomeActualCents,expenseActualCents,actualNetCents}`, a shape the live Church Report view (`buildLiveChurchReportView`) already matches exactly, so no live-aware wrapper was needed to make Financial Health's Church operating bridge live-first too.
 - `csv-import-service.js` — CSV parsing, validation, and FINANCE_DB persistence for the Church/Balance/Daycare/Property Budget import write paths, plus the off-by-default `isCsvImportWritesEnabled` gate; see the Alpha.43 entry below.
+- `xlsx-import-service.js` — ported ZIP/XML `.xlsx` grid reader and grid parsers for the Church Budget-vs-Actuals and Balance Sheet imports, plus the off-by-default (and separate from CSV's) `isXlsxImportWritesEnabled` gate; see the Alpha.45 entry below.
 - `quickbooks-oauth-client.js` — DESIGN + DARK CODE, not wired to any route. Finance-owned port of `src/quickbooks.js`'s OAuth token exchange/refresh and Reports/Query API request shapes, with every network call going through an injectable `fetchImpl` so it is unit-testable against mocked HTTP responses. See its header comment for the open Intuit app-registration question and the dual-writer refresh-token-rotation hazard.
 - `quickbooks-token-service.js` — DESIGN + DARK CODE. Finance-owned port of `src/api-finance.js`'s `ensureFreshAccessToken`, with the HTTP call and the D1 persistence both passed in explicitly so tests exercise it with a mocked refresh function and a fake D1, never a real network call or database.
 - `quickbooks-budget-merge.js` — DESIGN + DARK CODE. Finance-owned port of `mergeLeafCells`/`mergeSection`/`mergeTree`/`mergeProfitAndLossTree`/`mergeCurrentYearBudgetAndActual`/`fetchQboJson` -- the confirmed-working Budget-entity-plus-ProfitAndLoss reconstruction AGENTS.md describes, tested against fixture JSON shaped like Intuit's real Budget/Reports API responses.
@@ -469,7 +512,9 @@ Alpha.43 adds CSV import write paths for Church Report (annual Budget-vs-Actuals
 Connect's real import routes (`src/api-finance.js`'s `finance/church/import`,
 `finance/church/balances/import`, `finance/daycare/bulk`, and the AHRA
 `finance/property/:key/budget-import`/`monthly-import-csv` routes) — not the ~750-line server-side
-`.xlsx` grid reader those Church/Balance routes also support, which is out of scope here. The CSV
+`.xlsx` grid reader those Church/Balance routes also support, which was out of scope for this
+change (see the later `.xlsx` import entry below for the two report types that reader was
+subsequently ported for). The CSV
 tokenizer and thousands-comma-aware money parser are ported verbatim from `src/api-utils.js`'s
 `parseCsvRows` and `src/api-finance.js`'s `dollarsToCents` (this app never imports from legacy
 `src/`), but validation is deliberately stricter: an unparsable amount is a hard row-level error
@@ -516,6 +561,59 @@ This tooling is built and unit-tested (`test/finance-migration-*.test.js`) again
 data standing in for the real databases only. It has not been run, and must not be run, against
 any real staging or production database without Andrew's separate, explicit approval for that
 specific run, per AGENTS.md.
+
+Alpha.45 (September 18, 2026, code-complete but OFF by default) closes two confirmed parity gaps
+against legacy Connect that were still open as of Alpha.44:
+
+1. **`.xlsx` (Excel) import for Church Budget-vs-Actuals and Balance Sheet** --
+   `xlsx-import-service.js` ports legacy's server-side ZIP/XML grid reader
+   (`finZipReadEntries`/`finInflateRaw`/`parseXlsxAllSheets` and
+   `parseBudgetVsActualsGrid`/`parseBalanceSheetGrid` in `src/api-finance.js`), scoped to exactly
+   the same two report types `csv-import-service.js` already covers by CSV: the annual "Budget vs.
+   Actuals" Church Report import and the single-snapshot "Statement of Financial Position" Balance
+   Sheet import. Same leading-space depth tree-walk, same Revenue/Expenditures -> Income/Expenses
+   wording normalization, same running-subtotal skip rules, same Assets/Liabilities/Equity
+   classification-reset tree walk, and same Cash/Accrual basis footer detection as legacy -- ported
+   byte-for-byte/algorithm-for-algorithm, not reimplemented from a guess. Writes go to the exact
+   same tables the CSV path uses (`finance_church_entries`/`finance_church_balances`), tagged with
+   their OWN `source='import_xlsx'` (never `'import_csv'`), so an xlsx import and a CSV import for
+   the same fiscal year coexist rather than one silently overwriting the other.
+   - Gated OFF by default behind its OWN flag, `isXlsxImportWritesEnabled` (env var
+     `FINANCE_XLSX_IMPORT_WRITES_ENABLED` or `finance_settings` key
+     `finance_xlsx_import_writes_enabled`) -- a SEPARATE check from `isCsvImportWritesEnabled`, so
+     enabling CSV import can never silently enable this path (and vice versa); see
+     `test/finance-xlsx-import.test.js`'s dedicated end-to-end assertion of exactly that. Routes:
+     `POST /api/v1/import/church-xlsx` and `POST /api/v1/import/church-balances-xlsx`.
+   - **Real simplification vs. legacy, stated plainly:** legacy's own routes are a two-step
+     preview-then-commit flow (`finance/church/import-preview` parses and returns rows for a
+     checkbox-per-row review UI; a separate commit call persists only the checked rows). This port
+     is a single request: the uploaded file (base64-encoded in the JSON body, like every other
+     FINANCE_DB write route in this app, rather than a multipart upload) is parsed AND persisted in
+     one call, with no server-rendered preview/edit step in between. This matches
+     `csv-import-service.js`'s own existing single-request shape for the same two report types, but
+     is a real, deliberate reduction from legacy's own UX for this specific file format -- there is
+     no way today for an importer to review or selectively exclude rows before they land.
+   - Deliberately NOT ported: legacy's Monthly P&L import, the Statement of
+     Activity/Budget-by-Year multi-year Income Statement imports, the multi-year Statement of
+     Financial Position import, and the AHRA Commercial Property "Budget Detail" grid -- see
+     `xlsx-import-service.js`'s own closing comment for why each is out of this pass's scope (a
+     different report family, a different persistence shape, or an already-covered table via CSV).
+   - Tests: `test/finance-xlsx-import.test.js` (parsing correctness against a real, hand-built
+     uncompressed `.xlsx`-shaped ZIP -- including the fiscal-year/as-of-date/basis detection, the
+     running-subtotal skip rules, and the xlsx path's OWN legacy-matching "blank cell reads as 0"
+     behavior, which is deliberately different from `csv-import-service.js`'s stricter "never
+     fabricate a number" CSV rule -- plus HTTP route tests for both routes' off/on gate states).
+2. **Compensation Planner's GLOBAL raise-plan options and per-council-member private draft** --
+   see the Compensation Planner paragraph above (now updated in place) for the full description:
+   `compensation-raise-plan-service.js` and `compensation-council-draft-service.js`, migration
+   `0009`, both additive to the existing `finance_compensation_worker_plan` write path and both OFF
+   by default behind the same `isCompensationPlanWriteEnabled` flag. Tests:
+   `test/finance-compensation-raise-plan-service.test.js` (parsing/validation, council-draft
+   isolation between two different council members, and the merge-back-onto-roster logic including
+   the "never leak a hidden worker via a stale draft" case) and
+   `test/finance-compensation-raise-plan-route.test.js` (HTTP route tests for both new routes'
+   gate/role states, and an end-to-end two-council-members-get-two-isolated-rows test through the
+   actual Worker fetch handler).
 
 ## QuickBooks OAuth/sync design (dark code, never exercised against the real account)
 

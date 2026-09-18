@@ -106,6 +106,14 @@ const ROUTES = [
   { id: 'import-church-balances-v1', paths: ['/api/v1/import/church-balances'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-church-balances.v1' },
   { id: 'import-daycare-v1', paths: ['/api/v1/import/daycare'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-daycare.v1' },
   { id: 'import-property-budget-v1', paths: ['/api/v1/import/property-budget'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-property-budget.v1' },
+  // ── .xlsx (Excel) import writes for the same two report types csv-import-service.js already
+  // covers by CSV -- see xlsx-import-service.js's header comment for the ported grid-reader
+  // parsing rules and why this is a SEPARATE gate from the CSV routes above (never piggybacked on
+  // isCsvImportWritesEnabled). Same 'd1-write' dataSource and off-by-default shape as the CSV
+  // import routes; writes to the exact same finance_church_entries/finance_church_balances tables,
+  // tagged with their own 'import_xlsx' source.
+  { id: 'import-church-xlsx-v1', paths: ['/api/v1/import/church-xlsx'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-church-xlsx.v1' },
+  { id: 'import-church-balances-xlsx-v1', paths: ['/api/v1/import/church-balances-xlsx'], methods: WRITE_METHODS, dataSource: 'd1-write', writer: true, contract: 'finance.import-church-balances-xlsx.v1' },
   // Compensation planning is target-architecture Finance-owned data (chms/AGENTS.md's product
   // boundary: "Finance owns ... compensation planning"), not a relay of someone else's
   // authoritative record, so a real local copy is the intended end state, not a stopgap. See
@@ -126,6 +134,13 @@ const ROUTES = [
   { id: 'property-reserve-disbursement-entry-v1', paths: ['/api/v1/property-reserve-disbursement-entry'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
   { id: 'property-distribution-entry-v1', paths: ['/api/v1/property-distribution-entry'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
   { id: 'property-capital-ledger-entry-v1', paths: ['/api/v1/property-capital-ledger-entry'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  // ── Compensation Planner GLOBAL raise-plan options + per-council-member private draft --
+  // additive to compensation-plan-save-v1 above, never a replacement for it (see
+  // compensation-raise-plan-service.js's and compensation-council-draft-service.js's header
+  // comments). Same 'finance-db-write' shape, same reused isCompensationPlanWriteEnabled gate --
+  // one Compensation Planner write rollout decision, not a second flag to keep in sync.
+  { id: 'compensation-raise-plan-save-v1', paths: ['/api/v1/compensation-raise-plan-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  { id: 'compensation-council-draft-save-v1', paths: ['/api/v1/compensation-council-draft-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
 ];
 
 export const FINANCE_ROUTE_MANIFEST = Object.freeze(ROUTES.map((route) => Object.freeze({

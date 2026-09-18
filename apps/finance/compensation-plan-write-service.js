@@ -66,7 +66,10 @@ export const COMPENSATION_PLAN_COMP_METHODS = Object.freeze(['cola', 'custom', '
 // a worker is hidden from council in the first place.
 export const COUNCIL_EDITABLE_WORKER_FIELDS = Object.freeze(['compMethod', 'adjustmentPct']);
 
-const WORKER_KEY_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
+// Exported so compensation-council-draft-service.js's private per-worker override map (keyed by
+// this SAME worker_key, never a roster index) can validate against the identical pattern rather
+// than risking drift from a re-declared copy.
+export const WORKER_KEY_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const MAX_ROWS_PER_SAVE = 200;
 
 // Checked FIRST by the route, before any role check -- an environment with the flag off answers
