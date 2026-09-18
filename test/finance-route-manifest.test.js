@@ -23,6 +23,9 @@ const WRITE_ROUTE_IDS = new Set([
   'church-actual-override-v1', 'daycare-entry-v1', 'board-categories-write-v1', 'property-monthly-write-v1',
   'property-repair-write-v1', 'property-distribution-write-v1', 'property-reserve-monthly-write-v1',
   'property-reserve-disbursement-write-v1', 'property-capital-ledger-write-v1',
+  'revenue-streams-write-v1', 'flow-expense-map-write-v1', 'cash-policy-write-v1',
+  'daycare-allocation-config-write-v1', 'daycare-budget-override-write-v1', 'daycare-bulk-write-v1',
+  'daycare-church-budget-import-write-v1',
 ]);
 const OWN_DB_WRITE_ROUTE_IDS = new Set(['budget-plan-save-v1']);
 const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1']);
@@ -55,6 +58,9 @@ describe('Finance staging route manifest', () => {
       '/api/v1/connect-property-monthly-write', '/api/v1/connect-property-repair-write',
       '/api/v1/connect-property-distribution-write', '/api/v1/connect-property-reserve-monthly-write',
       '/api/v1/connect-property-reserve-disbursement-write', '/api/v1/connect-property-capital-ledger-write',
+      '/api/v1/connect-revenue-streams-write', '/api/v1/connect-flow-expense-map-write', '/api/v1/connect-cash-policy-write',
+      '/api/v1/connect-daycare-allocation-config-write', '/api/v1/connect-daycare-budget-override-write',
+      '/api/v1/connect-daycare-bulk-write', '/api/v1/connect-daycare-church-budget-import-write',
       '/api/summary', '/api/v1/payroll-relay-diagnostic',
       '/api/v1/payroll-hours-save', '/api/v1/payroll-period-approve',
       '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
@@ -163,6 +169,27 @@ describe('Finance staging route manifest', () => {
     });
     expect(resolveFinanceRoute('/api/v1/connect-property-capital-ledger-write')).toMatchObject({
       id: 'property-capital-ledger-write-v1', contract: 'connect.finance-property-capital-ledger-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-revenue-streams-write')).toMatchObject({
+      id: 'revenue-streams-write-v1', contract: 'connect.finance-revenue-streams-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-flow-expense-map-write')).toMatchObject({
+      id: 'flow-expense-map-write-v1', contract: 'connect.finance-flow-expense-map-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-cash-policy-write')).toMatchObject({
+      id: 'cash-policy-write-v1', contract: 'connect.finance-cash-policy-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-daycare-allocation-config-write')).toMatchObject({
+      id: 'daycare-allocation-config-write-v1', contract: 'connect.finance-daycare-allocation-config-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-daycare-budget-override-write')).toMatchObject({
+      id: 'daycare-budget-override-write-v1', contract: 'connect.finance-daycare-budget-override-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-daycare-bulk-write')).toMatchObject({
+      id: 'daycare-bulk-write-v1', contract: 'connect.finance-daycare-bulk-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-daycare-church-budget-import-write')).toMatchObject({
+      id: 'daycare-church-budget-import-write-v1', contract: 'connect.finance-daycare-church-budget-import-write-relay.v1', dataSource: 'live-relay',
     });
     expect(resolveFinanceRoute('/api/v1/payroll-relay-diagnostic')).toMatchObject({
       id: 'payroll-relay-diagnostic-v1', contract: 'finance.payroll-relay-diagnostic.v1', dataSource: 'live-relay-read',

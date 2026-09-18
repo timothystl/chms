@@ -37,10 +37,92 @@ function renderDaycareEntryForm(period, entryStatus, entryMessage) {
   </section>`;
 }
 
+// Bulk paste-in write -- relayed live to Connect's real finance_daycare_entries table (see
+// finance-daycare-bulk-write-v1 in src/api-contracts-service.js), never stored in Finance's own
+// database. A paste-in alternative to the one-row-at-a-time form above, for entering past years the
+// daycare app's own API has no history for. Same looser gate as the single-entry form above -- shown
+// to any verified viewer who can reach the Daycare section at all.
+function renderDaycareBulkForm(bulkStatus, bulkMessage) {
+  return `<section aria-label="Bulk-paste Daycare Report entries">
+    ${renderSectionHeading({ eyebrow: 'Daycare Report', heading: 'Bulk-paste entries', badge: 'Relayed live to Connect' })}
+    ${bulkStatus === 'ok' ? '<p class="status">Rows recorded in Connect.</p>' : ''}
+    ${bulkStatus === 'error' ? `<p class="status status-error">Not recorded: ${escapeHtml(bulkMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-daycare-bulk-write">
+      <div class="field"><label for="dc-bulk-rows">One row per line: period,category,entry_type,amount,notes</label><textarea id="dc-bulk-rows" name="rows" rows="6" placeholder="2025,Tuition Income,actual,142000,\n2025,Utilities,budget,18000,imported estimate" required></textarea></div>
+      <button type="submit">Import rows</button>
+    </form>
+    <p><small>Amount is whole dollars; entry_type defaults to "actual" if omitted. All-or-nothing: any invalid row rejects the whole paste.</small></p>
+  </section>`;
+}
+
+// Church-Budget re-derivation -- relayed live to Connect's real finance_daycare_entries table
+// (see finance-daycare-church-budget-import-write-v1 in src/api-contracts-service.js). Same looser
+// gate as the single-entry/bulk forms above.
+function renderDaycareChurchBudgetImportForm(importStatus, importMessage) {
+  return `<section aria-label="Import Daycare entries from Church Budget">
+    ${renderSectionHeading({ eyebrow: 'Daycare Report', heading: 'Import from Church Budget (MDO accounts)', badge: 'Relayed live to Connect' })}
+    ${importStatus === 'ok' ? '<p class="status">Imported from the Church Budget in Connect.</p>' : ''}
+    ${importStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(importMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-daycare-church-budget-import-write">
+      <div class="grid form-grid">
+        <div class="field"><label for="dc-cbi-year">Fiscal year</label><input id="dc-cbi-year" type="number" name="year" step="1" required></div>
+      </div>
+      <button type="submit">Re-derive from Church Budget</button>
+    </form>
+    <p><small>Re-extracts every MDO-tagged account from that year's already-imported Church Budget vs. Actuals and replaces this year's church-budget-derived rows. Requires that year's Church Budget to already be imported (Church Report &rarr; Import Budget).</small></p>
+  </section>`;
+}
+
+// Utilities/Insurance cost-share config -- relayed live to Connect's real finance_settings key
+// (see finance-daycare-allocation-config-write-v1 in src/api-contracts-service.js). Admin-only,
+// matching the legacy in-Connect Daycare Report's own allocation-config PUT route.
+function renderDaycareAllocationConfigForm(utilityPct, insurancePct, configStatus, configMessage) {
+  return `<section aria-label="Edit the Utilities/Insurance cost-share config">
+    ${renderSectionHeading({ eyebrow: 'Daycare Report', heading: 'Edit cost-share config', badge: 'Relayed live to Connect' })}
+    ${configStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${configStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(configMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-daycare-allocation-config-write">
+      <div class="grid form-grid">
+        <div class="field"><label for="dc-util-pct">Utilities share (0-1, e.g. 0.5 for 50%)</label><input id="dc-util-pct" type="number" name="utility_pct" step="0.01" min="0" max="1" value="${escapeHtml(String(utilityPct))}" required></div>
+        <div class="field"><label for="dc-ins-pct">Insurance share (0-1, e.g. 0.5 for 50%)</label><input id="dc-ins-pct" type="number" name="insurance_pct" step="0.01" min="0" max="1" value="${escapeHtml(String(insurancePct))}" required></div>
+      </div>
+      <button type="submit">Save cost-share config</button>
+    </form>
+    <p><small>This writes directly into Connect's own <code>finance_settings</code> row -- the same config the legacy in-Connect Daycare Report edits.</small></p>
+  </section>`;
+}
+
+// Per-(year,category) Budget-cell override -- relayed live to Connect's real finance_daycare_entries
+// table (see finance-daycare-budget-override-write-v1 in src/api-contracts-service.js). Admin-only,
+// matching the legacy in-Connect Daycare Report's own budget-override POST route. Leaving the
+// amount blank clears any existing override for that cell.
+function renderDaycareBudgetOverrideForm(period, overrideStatus, overrideMessage) {
+  return `<section aria-label="Override a Daycare Report Budget figure">
+    ${renderSectionHeading({ eyebrow: 'Daycare Report', heading: 'Override a Budget figure', badge: 'Relayed live to Connect' })}
+    ${overrideStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${overrideStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(overrideMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-daycare-budget-override-write">
+      <div class="grid form-grid">
+        <div class="field"><label for="dc-bo-year">Year</label><input id="dc-bo-year" type="number" name="year" step="1" placeholder="${escapeHtml(String(period))}" value="${escapeHtml(String(period))}" required></div>
+        <div class="field"><label for="dc-bo-category">Category</label><input id="dc-bo-category" type="text" name="category" required></div>
+        <div class="field"><label for="dc-bo-budget">Budget ($, whole dollars -- blank clears)</label><input id="dc-bo-budget" type="number" name="budget" step="1"></div>
+      </div>
+      <button type="submit">Save Budget override</button>
+    </form>
+    <p><small>Actual always comes from the imported Church Budget; this only ever touches the Budget side of one (year, category) cell, and takes precedence over any Budget figure the Church-Budget import also brought in for that cell.</small></p>
+  </section>`;
+}
+
 // `daycareReport` here is resolveDaycareReport()'s result -- { source: 'live', fiscalYear,
 // categories, allocation, totals } or { source: 'synthetic-fallback', fallbackReason, rows,
 // allocation } -- never the raw synthetic row array daycare-pages.js used to receive directly.
-export function renderDaycarePage(pageId, { daycareReport, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage }) {
+export function renderDaycarePage(pageId, {
+  daycareReport, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage,
+  canManageDaycareAllocation, daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
+  canManageDaycareBudgetOverride, daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
+  daycareBulkEntryStatus, daycareBulkEntryMessage,
+  daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
+}) {
   const isLive = daycareReport.source === 'live';
   const report = isLive
     ? buildLiveDaycareReportView(daycareReport.categories, daycareReport.fiscalYear, daycareReport.totals)
@@ -58,7 +140,9 @@ export function renderDaycarePage(pageId, { daycareReport, canRecordDaycareEntry
         ? renderTable({ head: ['Classification', 'Category', 'Actual', 'Budget'], rows })
         : renderTable({ head: ['Classification', 'Category', 'Type', 'Amount'], rows })}
       ${fallbackNote}
-    </section>${canRecordDaycareEntry ? renderDaycareEntryForm(report.period, daycareEntryStatus, daycareEntryMessage) : ''}`;
+    </section>${canRecordDaycareEntry ? renderDaycareEntryForm(report.period, daycareEntryStatus, daycareEntryMessage) : ''}
+    ${canRecordDaycareEntry ? renderDaycareBulkForm(daycareBulkEntryStatus, daycareBulkEntryMessage) : ''}
+    ${canRecordDaycareEntry ? renderDaycareChurchBudgetImportForm(daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage) : ''}`;
   }
   if (pageId === 'budget-comparison') {
     return `<section class="report" aria-label="Daycare Report budget comparison">
@@ -69,7 +153,7 @@ export function renderDaycarePage(pageId, { daycareReport, canRecordDaycareEntry
         { label: 'Operating result', value: formatSignedCents(report.totals.netActualCents), hint: `Budget ${formatSignedCents(report.totals.netBudgetCents)} · variance ${formatSignedCents(variance)}` },
       ])}
       ${fallbackNote}
-    </section>`;
+    </section>${canManageDaycareBudgetOverride ? renderDaycareBudgetOverrideForm(report.period, daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage) : ''}`;
   }
   if (pageId === 'shared-costs') {
     const utilityPct = isLive ? allocation.utilityPct : allocation.utility_pct;
@@ -85,7 +169,7 @@ export function renderDaycarePage(pageId, { daycareReport, canRecordDaycareEntry
         { label: 'Church insurance actual', value: formatCents(insuranceSourceCents), hint: `Daycare share ${formatCents(insuranceAllocatedCents)}` },
       ])}
       ${fallbackNote}
-    </section>`;
+    </section>${canManageDaycareAllocation ? renderDaycareAllocationConfigForm(utilityPct, insurancePct, daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage) : ''}`;
   }
   // 'overview' (default)
   return `<section class="report" aria-label="Daycare Report overview">

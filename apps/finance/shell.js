@@ -18,8 +18,14 @@ import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, gro
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
 import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
 import { postConnectFinanceChurchActualOverride } from './finance-church-report-client.js';
-import { postConnectFinanceDaycareEntry } from './finance-daycare-client.js';
-import { postConnectBoardCategoriesWrite } from './finance-chart-of-accounts-client.js';
+import {
+  postConnectFinanceDaycareEntry, postConnectDaycareAllocationConfigWrite, postConnectDaycareBudgetOverrideWrite,
+  postConnectDaycareBulkWrite, postConnectDaycareChurchBudgetImportWrite,
+} from './finance-daycare-client.js';
+import {
+  postConnectBoardCategoriesWrite, postConnectRevenueStreamsWrite, postConnectFlowExpenseMapWrite,
+  postConnectCashPolicyWrite,
+} from './finance-chart-of-accounts-client.js';
 import { postConnectPropertyMonthlyWrite } from './finance-property-operating-client.js';
 import { postConnectPropertyRepairWrite, postConnectPropertyCapitalLedgerWrite } from './finance-property-ledgers-client.js';
 import {
@@ -295,6 +301,92 @@ function describePropertyCapitalLedgerEntryError(reason, message) {
   }
 }
 
+// Same shape as describePropertyCapitalLedgerEntryError above, for postConnectRevenueStreamsWrite()
+// failures. No existing live page surfaces this write's form yet (see route-manifest.js's own
+// comment), but the redirect-after-POST shape stays identical for when one is added.
+function describeRevenueStreamsEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Revenue-stream classification editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the edit.';
+    default: return 'The revenue-stream map was not saved.';
+  }
+}
+
+// Same shape as describeRevenueStreamsEntryError above, for postConnectFlowExpenseMapWrite() failures.
+function describeFlowExpenseMapEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Expense-category mapping editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the edit.';
+    default: return 'The expense-category map was not saved.';
+  }
+}
+
+// Same shape as describeRevenueStreamsEntryError above, for postConnectCashPolicyWrite() failures.
+function describeCashPolicyEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Cash policy editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the edit.';
+    default: return 'The cash policy was not saved.';
+  }
+}
+
+// Same shape as describeDaycareEntryError above, for postConnectDaycareAllocationConfigWrite() failures.
+function describeDaycareAllocationConfigEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Daycare cost-share editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the edit.';
+    default: return 'The cost-share config was not saved.';
+  }
+}
+
+// Same shape as describeDaycareEntryError above, for postConnectDaycareBudgetOverrideWrite() failures.
+function describeDaycareBudgetOverrideEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Daycare Budget editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the edit.';
+    default: return 'The Budget override was not saved.';
+  }
+}
+
+// Same shape as describeDaycareEntryError above, for postConnectDaycareBulkWrite() failures.
+function describeDaycareBulkEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Daycare bulk entry is not connected yet. Nothing was recorded.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was recorded — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as recorded.';
+    case 'http_error': return message ? String(message) : 'Connect refused the import.';
+    default: return 'The rows were not recorded.';
+  }
+}
+
+// Same shape as describeDaycareEntryError above, for postConnectDaycareChurchBudgetImportWrite() failures.
+function describeDaycareChurchBudgetImportEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Church Budget import is not connected yet. Nothing was recorded.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was recorded — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as recorded.';
+    case 'http_error': return message ? String(message) : 'Connect refused the import.';
+    default: return 'The Church Budget import did not complete.';
+  }
+}
+
 // Same shape as describeBudgetEntryError above, for postConnectFinanceCompensationWrite() /
 // fetchConnectSalaryPlannerState() failures.
 function describeCompensationEntryError(reason, message) {
@@ -431,6 +523,10 @@ function renderSectionBody(ctx) {
     canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
     churchOverrideStatus, churchOverrideMessage,
     daycareEntryStatus, daycareEntryMessage,
+    daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
+    daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
+    daycareBulkEntryStatus, daycareBulkEntryMessage,
+    daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
     boardCategoryEntryStatus, boardCategoryEntryMessage,
     propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
     propertyRepairEntryStatus, propertyRepairEntryMessage,
@@ -595,7 +691,18 @@ function renderSectionBody(ctx) {
     // gate is finance-daycare-entry-v1's own permission check on Connect's side (see its header
     // comment in src/api-contracts-service.js).
     const canRecordDaycareEntry = roleResult.ok;
-    return renderDaycarePage(page.id, { daycareReport: daycareReportLive, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage });
+    // Same admin-only gate as the legacy in-Connect Daycare Report's own allocation-config and
+    // budget-override POST routes -- UI hiding is never authorization, the real gate is each
+    // finance-daycare-*-write-v1 contract's own role check on Connect's side.
+    const canManageDaycareAllocation = roleResult.ok && roleResult.role === 'admin';
+    const canManageDaycareBudgetOverride = roleResult.ok && roleResult.role === 'admin';
+    return renderDaycarePage(page.id, {
+      daycareReport: daycareReportLive, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage,
+      canManageDaycareAllocation, daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
+      canManageDaycareBudgetOverride, daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
+      daycareBulkEntryStatus, daycareBulkEntryMessage,
+      daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
+    });
   }
   if (section.id === 'property') {
     // Same admin-only gate as the legacy in-Connect Property Operating Results' own monthly POST
@@ -1312,6 +1419,175 @@ export default {
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
 
+    // Revenue-stream classification, flow-expense-category mapping, and the cash-runway policy
+    // settings -- no existing live page in this app surfaces their read data yet (see
+    // route-manifest.js's own comment), so these three routes have no linked form and redirect
+    // back to the plain root rather than a specific `section`/`page`. Still a fully real,
+    // directly POST-able write path: `label`/`stream` (resp. `label`/`key`) are parallel repeated
+    // fields so a future form can submit the whole map at once (Connect's own
+    // saveRevenueStreamMap()/saveFlowExpenseMap() overwrite the whole stored map, same as legacy).
+    if (route.id === 'revenue-streams-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?status=error&reason=invalid_json' } });
+      }
+      const labels = form.getAll('label');
+      const streams = form.getAll('stream');
+      const map = {};
+      labels.forEach((label, i) => { if (label) map[String(label)] = streams[i] || ''; });
+      const result = await postConnectRevenueStreamsWrite(env, accessJwt, { map });
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?status=ok' } });
+      }
+      const params = new URLSearchParams({ status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'flow-expense-map-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?status=error&reason=invalid_json' } });
+      }
+      const labels = form.getAll('label');
+      const keys = form.getAll('key');
+      const map = {};
+      labels.forEach((label, i) => { if (label) map[String(label)] = keys[i] || ''; });
+      const result = await postConnectFlowExpenseMapWrite(env, accessJwt, { map });
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?status=ok' } });
+      }
+      const params = new URLSearchParams({ status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'cash-policy-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?status=error&reason=invalid_json' } });
+      }
+      const body = {
+        policy_floor_months: form.get('policy_floor_months') || '',
+        cash_on_hand_cents: form.get('cash_on_hand_cents') || '',
+        cash_account_code: form.get('cash_account_code') || '',
+        general_fund_budget_code: form.get('general_fund_budget_code') || '',
+      };
+      const result = await postConnectCashPolicyWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?status=ok' } });
+      }
+      const params = new URLSearchParams({ status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Daycare Report's Utilities/Insurance cost-share config -- shown on the Shared costs page.
+    if (route.id === 'daycare-allocation-config-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&status=error&reason=invalid_json' } });
+      }
+      const body = {
+        utilityPct: form.get('utility_pct') || '',
+        insurancePct: form.get('insurance_pct') || '',
+      };
+      const result = await postConnectDaycareAllocationConfigWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&page=shared-costs&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'daycare', page: 'shared-costs', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Daycare Report's per-(year,category) Budget-cell override -- shown on the Budget comparison
+    // page. Omitting the amount field clears any existing override, same as the legacy form.
+    if (route.id === 'daycare-budget-override-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&status=error&reason=invalid_json' } });
+      }
+      const body = {
+        year: form.get('year') || '',
+        category: form.get('category') || '',
+        budget: form.get('budget') || '',
+      };
+      const result = await postConnectDaycareBudgetOverrideWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&page=budget-comparison&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'daycare', page: 'budget-comparison', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Daycare Report's bulk paste-in entry -- shown on the Actuals detail page, alongside the
+    // single-entry form. One row per line: period,category,entry_type,amount,notes (amount in
+    // whole dollars, converted to cents here -- entry_type defaults to "actual" if omitted/blank).
+    if (route.id === 'daycare-bulk-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&status=error&reason=invalid_json' } });
+      }
+      const pasted = String(form.get('rows') || '');
+      const rows = pasted.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
+        const [period, category, entryType, amount, ...noteParts] = line.split(',').map((f) => f.trim());
+        const dollars = Number(amount);
+        return {
+          period, category,
+          entry_type: entryType === 'budget' ? 'budget' : 'actual',
+          amount_cents: Number.isFinite(dollars) ? Math.round(dollars * 100) : NaN,
+          notes: noteParts.join(',').trim(),
+        };
+      });
+      const result = await postConnectDaycareBulkWrite(env, accessJwt, { rows });
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&page=actuals&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'daycare', page: 'actuals', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Daycare Report's re-derivation from an already-imported Church Budget -- shown on the
+    // Actuals detail page, alongside the single-entry and bulk-paste forms.
+    if (route.id === 'daycare-church-budget-import-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&status=error&reason=invalid_json' } });
+      }
+      const body = { year: form.get('year') || '' };
+      const result = await postConnectDaycareChurchBudgetImportWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&page=actuals&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'daycare', page: 'actuals', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
     // Compensation Plan roster editor's own fetch-edit-resubmit save: fetch the CURRENT complete
     // plan from Connect (never trust a stale copy the browser may have rendered from), apply one
     // add/edit/remove, and resubmit the whole merged plan -- see finance-compensation-client.js's
@@ -1988,6 +2264,25 @@ export default {
         const daycareEntryMessage = daycareEntryStatus === 'error'
           ? describeDaycareEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        // Same shared status/reason/message query-param shape as daycareEntryStatus above, for the
+        // three further Daycare Report write forms (allocation-config, budget-override, bulk,
+        // church-budget-import) -- distinguished by `page`, each page shows only its own form.
+        const daycareAllocationConfigEntryStatus = section.id === 'daycare' ? url.searchParams.get('status') : null;
+        const daycareAllocationConfigEntryMessage = daycareAllocationConfigEntryStatus === 'error'
+          ? describeDaycareAllocationConfigEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const daycareBudgetOverrideEntryStatus = section.id === 'daycare' ? url.searchParams.get('status') : null;
+        const daycareBudgetOverrideEntryMessage = daycareBudgetOverrideEntryStatus === 'error'
+          ? describeDaycareBudgetOverrideEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const daycareBulkEntryStatus = section.id === 'daycare' ? url.searchParams.get('status') : null;
+        const daycareBulkEntryMessage = daycareBulkEntryStatus === 'error'
+          ? describeDaycareBulkEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const daycareChurchBudgetImportEntryStatus = section.id === 'daycare' ? url.searchParams.get('status') : null;
+        const daycareChurchBudgetImportEntryMessage = daycareChurchBudgetImportEntryStatus === 'error'
+          ? describeDaycareChurchBudgetImportEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const boardCategoryEntryStatus = section.id === 'accounts' ? url.searchParams.get('status') : null;
         const boardCategoryEntryMessage = boardCategoryEntryStatus === 'error'
           ? describeBoardCategoryEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
@@ -2034,7 +2329,12 @@ export default {
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
           planOpKind, planOpStatus, planOpMessage, churchOverrideStatus, churchOverrideMessage,
-          daycareEntryStatus, daycareEntryMessage, boardCategoryEntryStatus, boardCategoryEntryMessage,
+          daycareEntryStatus, daycareEntryMessage,
+          daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
+          daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
+          daycareBulkEntryStatus, daycareBulkEntryMessage,
+          daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
+          boardCategoryEntryStatus, boardCategoryEntryMessage,
           propertyMonthlyEntryStatus, propertyMonthlyEntryMessage, propertyRepairEntryStatus, propertyRepairEntryMessage,
           propertyDistributionEntryStatus, propertyDistributionEntryMessage,
           propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage,
