@@ -46,6 +46,58 @@ function renderBoardCategoryForm(entryStatus, entryMessage) {
   </section>`;
 }
 
+// Every distinct purpose tag this page currently knows about, derived straight from the account
+// rows already fetched for the table above (each row carries its own account's purpose_tag_id/
+// purpose_tag_label) -- there is no separate read endpoint for the raw tag list itself, so this is
+// the only source apps/finance has for prefilling the tag-list form below. A tag with no account
+// currently wearing it (freshly added, or every account it was on got reassigned) won't show up
+// here until it is put on at least one account -- a real limitation of deriving the list this way,
+// not a bug in the derivation itself.
+function deriveCurrentPurposeTags(rows) {
+  const seen = new Map();
+  for (const row of rows) {
+    if (row.purpose_tag_id && row.purpose_tag_label && !seen.has(row.purpose_tag_id)) {
+      seen.set(row.purpose_tag_id, row.purpose_tag_label);
+    }
+  }
+  return [...seen.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
+}
+
+// Admin-only purpose-tag management -- relayed live to Connect's real
+// finance_planning_purpose_tags store (see finance-purpose-tags-write-v1 in
+// src/api-contracts-service.js), never stored in Finance's own database. Two separate forms
+// posting to the same relay route: the first is a FULL REPLACE of the tag list itself (one
+// "id,label" pair per line -- leave the id blank to mint a new one; a line taken out of the
+// textarea is a tag taken out of the store, matching Connect's own purpose-tags PUT route
+// exactly), prefilled with every tag this page currently knows about so renaming/adding/removing
+// is a plain text edit rather than risking an accidental loss of an untouched tag. The second
+// assigns one already-defined tag to one ledger leaf (category_path), which Connect MERGES into
+// whatever is already saved -- the same reasoning as the board-category form above.
+function renderPurposeTagsForms(currentTags, entryStatus, entryMessage) {
+  const tagLines = currentTags.map((t) => `${t.id},${t.label}`).join('\n');
+  const options = currentTags.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.label)}</option>`).join('');
+  return `<section aria-label="Manage purpose tags">
+    ${renderSectionHeading({ eyebrow: 'Chart of Accounts', heading: 'Manage purpose tags', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-purpose-tags-write">
+      <div class="field"><label for="pt-tags">One tag per line: id,label (leave the id blank to add a new tag; take out a line to remove that tag)</label><textarea id="pt-tags" name="tags" rows="6">${escapeHtml(tagLines)}</textarea></div>
+      <button type="submit">Save tag list</button>
+    </form>
+    <form method="POST" action="/api/v1/connect-purpose-tags-write">
+      <div class="grid form-grid">
+        <div class="field"><label for="pt-path">Ledger path</label><input id="pt-path" type="text" name="category_path" placeholder="e.g. Expenses:60000 Programs" required></div>
+        <div class="field"><label for="pt-tag">Purpose tag</label><select id="pt-tag" name="purpose_tag_id">
+          <option value="">— (clear assignment)</option>
+          ${options}
+        </select></div>
+      </div>
+      <button type="submit">Save assignment</button>
+    </form>
+    <p><small>Purpose tags are a second, independent axis over the same accounts the board-category assignment above already classifies -- one line can carry a board category ("Salaries") and a free-form purpose ("Youth") at once. Saving the tag list above sends the whole list as it stands -- every tag you want kept needs its own line, not just the one you're changing. Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
 function flattenAccountHierarchy(nodes) {
   return nodes.flatMap((node) => [node, ...flattenAccountHierarchy(node.children)]);
 }
@@ -57,7 +109,10 @@ export function renderAccountHierarchy(nodes) {
   }).join('');
 }
 
-export function renderAccountsPage(pageId, { accountsReport, canManageBoardCategories, boardCategoryEntryStatus, boardCategoryEntryMessage }) {
+export function renderAccountsPage(pageId, {
+  accountsReport, canManageBoardCategories, boardCategoryEntryStatus, boardCategoryEntryMessage,
+  canManagePurposeTags, purposeTagsEntryStatus, purposeTagsEntryMessage,
+}) {
   const isLive = accountsReport.source === 'live';
   const report = buildAccountsReportView(accountsReport.rows);
   return `<section class="report" aria-label="${isLive ? 'Chart of Accounts' : 'Synthetic Chart of Accounts'}">
@@ -65,12 +120,12 @@ export function renderAccountsPage(pageId, { accountsReport, canManageBoardCateg
     ${renderKpiCards([
       { label: 'Total accounts', value: String(report.counts.total), hint: `${report.counts.income} income · ${report.counts.expenses} expense` },
       { label: 'Board categories', value: String(report.counts.boardCategories), hint: 'Presentation only; ledger paths unchanged' },
-      { label: 'Purpose tags', value: String(report.counts.purposeTags), hint: 'Independent reporting lens · read-only' },
+      { label: 'Purpose tags', value: String(report.counts.purposeTags), hint: 'Independent reporting lens over the same accounts' },
     ])}
     ${renderSectionHeading({ eyebrow: 'Ledger hierarchy', heading: 'Account tree', badge: 'Paths preserved', trend: true })}
     ${renderTable({ head: ['Hierarchy', 'Ledger path', 'Account', 'Board category', 'Purpose'], rows: renderAccountHierarchy(report.hierarchy) })}
     <p><small>${isLive
       ? "Fetched live from Connect's real, structural-only finance-chart-of-accounts contract endpoint. No dollar figure, gift, donor, or person crosses this contract."
       : `The committed synthetic fixture (the live endpoint is not configured or did not answer${accountsReport.fallbackReason ? `: ${escapeHtml(accountsReport.fallbackReason)}` : ''}).`}</small></p>
-  </section>${canManageBoardCategories ? renderBoardCategoryForm(boardCategoryEntryStatus, boardCategoryEntryMessage) : ''}`;
+  </section>${canManageBoardCategories ? renderBoardCategoryForm(boardCategoryEntryStatus, boardCategoryEntryMessage) : ''}${canManagePurposeTags ? renderPurposeTagsForms(deriveCurrentPurposeTags(report.rows), purposeTagsEntryStatus, purposeTagsEntryMessage) : ''}`;
 }

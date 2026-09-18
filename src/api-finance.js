@@ -3180,8 +3180,9 @@ export async function applyBoardCategoryMerge(db, body) {
 // Purpose tags reader — hoisted to module scope (was a closure inside handleFinanceApi) so it can
 // be imported by api-contracts.js's connect.finance-chart-of-accounts.v1 producer without
 // duplicating this parsing/defaulting logic. Behavior is unchanged from the original nested
-// version; see the 'finance/planning/purpose-tags' route below for the writer and
-// finSlugifyPurposeTag (still local to that route, since only the writer needs it).
+// version; see savePurposeTags below for the writer and finSlugifyPurposeTag (now also hoisted to
+// module scope, for the same reason as applyBoardCategoryMerge above — so the
+// finance-purpose-tags-write-v1 relay contract handler can call the identical writer).
 export async function readPurposeTags(db) {
   const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_planning_purpose_tags'").first();
   const empty = { tags: [], categories: {} };
@@ -3194,6 +3195,96 @@ export async function readPurposeTags(db) {
     };
   } catch { return empty; }
 }
+
+// Mints a fresh purpose-tag id from a label (lowercase snake_case, deduplicated against `taken`) —
+// only used by savePurposeTags below, kept as its own function (rather than inlined) since it was
+// already factored out this way inside the original route closure.
+function finSlugifyPurposeTag(label, taken) {
+  const base = String(label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'tag';
+  let id = base, n = 2;
+  while (taken.has(id)) { id = base + '_' + n; n++; }
+  taken.add(id);
+  return id;
+}
+
+// ── Shared Purpose-tags writer ───────────────────────────────────────────────────────────────
+// Used by both the admin-only finance/planning/purpose-tags PUT route below and its
+// finance-purpose-tags-write-v1 relay contract counterpart (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical edit on behalf of an identity it verified via
+// Cloudflare Access. `tags` is a FULL REPLACE (rename keeps a sent row's own id, add is a row with
+// no id — a fresh slug is minted — and a tag left off the array entirely is gone); `categories`
+// MERGES, same reasoning as applyBoardCategoryMerge above: it comes from many different per-leaf
+// pickers, none of which should be able to wipe every other leaf's assignment just by saving its
+// own one change. A deleted tag (omitted from `tags`) drops any stale category assignment that
+// pointed at it, same as the original route.
+export async function savePurposeTags(db, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const current = await readPurposeTags(db);
+  let tags = current.tags;
+  if (Array.isArray(b.tags)) {
+    const takenIds = new Set();
+    const existingById = new Map(current.tags.map(t => [t.id, t]));
+    tags = [];
+    for (const t of b.tags) {
+      const label = String((t && t.label) || '').trim();
+      if (!label) return { error: 'Every tag needs a label', status: 400 };
+      let id = t && typeof t.id === 'string' ? t.id.trim() : '';
+      if (id && existingById.has(id) && !takenIds.has(id)) {
+        takenIds.add(id);
+      } else {
+        id = finSlugifyPurposeTag(label, takenIds);
+      }
+      tags.push({ id, label });
+    }
+  }
+  const finalIds = new Set(tags.map(t => t.id));
+  const categories = { ...current.categories };
+  if (b.categories && typeof b.categories === 'object') {
+    for (const [path, tagId] of Object.entries(b.categories)) {
+      if (!path) continue;
+      if (tagId === '' || tagId == null) { delete categories[path]; continue; }
+      if (!finalIds.has(tagId)) return { error: `Unknown purpose tag "${tagId}"`, status: 400 };
+      categories[path] = tagId;
+    }
+  }
+  for (const path of Object.keys(categories)) if (!finalIds.has(categories[path])) delete categories[path];
+  const merged = { tags, categories };
+  await db.prepare(
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_planning_purpose_tags',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(JSON.stringify(merged)).run();
+  return { ok: true, ...merged };
+}
+
+// ── Shared Base-year "FY{base} Projected" override writer ───────────────────────────────────
+// Used by both the admin-only finance/planning/base-projection PUT route below and its
+// finance-base-projection-write-v1 relay contract counterpart (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical edit on behalf of an identity it verified via
+// Cloudflare Access. Whole dollars only (see finPlanSanitizeWholeDollarInput on the frontend and
+// the route's own comment below) — an empty/null amount clears that category's override.
+export async function saveBaseProjectionOverrides(db, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const year = parseInt(b.year, 10);
+  const rows = Array.isArray(b.rows) ? b.rows : [];
+  if (!Number.isFinite(year)) return { error: 'year is required', status: 400 };
+  const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_base_proj_overrides'").first();
+  let overrides = {};
+  if (row) { try { overrides = JSON.parse(row.value) || {}; } catch { overrides = {}; } }
+  const yearOverrides = Object.assign({}, overrides[String(year)]);
+  for (const r of rows) {
+    const category = String(r.category || '').trim();
+    if (!category) continue;
+    if (r.amount === '' || r.amount === null || r.amount === undefined) { delete yearOverrides[category]; continue; }
+    const amountCents = Math.round(Number(r.amount)) * 100;
+    if (!Number.isFinite(amountCents)) return { error: `Invalid amount for ${category}`, status: 400 };
+    yearOverrides[category] = amountCents;
+  }
+  overrides[String(year)] = yearOverrides;
+  await db.prepare(
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_base_proj_overrides',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(JSON.stringify(overrides)).run();
+  return { ok: true, year, saved: rows.length };
+}
+
 const DEFAULT_CASH_POLICY = { policy_floor_months: 3, cash_on_hand_cents: null, cash_account_code: '', general_fund_budget_code: '' };
 export async function readCashPolicy(db) {
   const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_cash_policy'").first();
@@ -4868,27 +4959,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/planning/base-projection' && method === 'PUT') {
     if (!isAdmin) return json({ error: 'Access denied: editing the budget plan requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const year = parseInt(b.year, 10);
-    const rows = Array.isArray(b.rows) ? b.rows : [];
-    if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
-    const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_base_proj_overrides'").first();
-    let overrides = {};
-    if (row) { try { overrides = JSON.parse(row.value) || {}; } catch { overrides = {}; } }
-    const yearOverrides = Object.assign({}, overrides[String(year)]);
-    for (const r of rows) {
-      const category = String(r.category || '').trim();
-      if (!category) continue;
-      if (r.amount === '' || r.amount === null || r.amount === undefined) { delete yearOverrides[category]; continue; }
-      // Whole dollars only (see finPlanSanitizeWholeDollarInput on the frontend).
-      const amountCents = Math.round(Number(r.amount)) * 100;
-      if (!Number.isFinite(amountCents)) return json({ error: `Invalid amount for ${category}` }, 400);
-      yearOverrides[category] = amountCents;
-    }
-    overrides[String(year)] = yearOverrides;
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES ('finance_base_proj_overrides',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(JSON.stringify(overrides)).run();
-    return json({ ok: true, year, saved: rows.length });
+    const result = await saveBaseProjectionOverrides(db, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Corrects one account's Actual figure for one year directly, without re-uploading or
@@ -4947,63 +5020,15 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // (readPurposeTags itself now lives at module scope, next to readPlanningBoardCategories, so
   // the connect.finance-chart-of-accounts.v1 producer in api-contracts.js can read the exact same
   // saved tags/categories this route reads and writes — see that file's own comment.)
-  function finSlugifyPurposeTag(label, taken) {
-    const base = String(label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'tag';
-    let id = base, n = 2;
-    while (taken.has(id)) { id = base + '_' + n; n++; }
-    taken.add(id);
-    return id;
-  }
   if (seg === 'finance/planning/purpose-tags' && method === 'GET') {
     return json(await readPurposeTags(db));
   }
   if (seg === 'finance/planning/purpose-tags' && method === 'PUT') {
     if (!isAdmin) return json({ error: 'Access denied: editing purpose tags requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const current = await readPurposeTags(db);
-    let tags = current.tags;
-    // A full replace, not a merge — this is what makes delete work by omission: rename keeps a
-    // sent row's own id, add is a row with no id (a fresh slug is minted), and a tag left off the
-    // array entirely is gone. `categories` below still merges, the same reasoning as the board
-    // categories store: it comes from many different per-leaf pickers, none of which should be
-    // able to wipe every other leaf's assignment just by saving its own one change.
-    if (Array.isArray(b.tags)) {
-      const takenIds = new Set();
-      const existingById = new Map(current.tags.map(t => [t.id, t]));
-      tags = [];
-      for (const t of b.tags) {
-        const label = String((t && t.label) || '').trim();
-        if (!label) return json({ error: 'Every tag needs a label' }, 400);
-        let id = t && typeof t.id === 'string' ? t.id.trim() : '';
-        if (id && existingById.has(id) && !takenIds.has(id)) {
-          takenIds.add(id);
-        } else {
-          id = finSlugifyPurposeTag(label, takenIds);
-        }
-        tags.push({ id, label });
-      }
-    }
-    const finalIds = new Set(tags.map(t => t.id));
-    const categories = { ...current.categories };
-    if (b.categories && typeof b.categories === 'object') {
-      for (const [path, tagId] of Object.entries(b.categories)) {
-        if (!path) continue;
-        if (tagId === '' || tagId == null) { delete categories[path]; continue; }
-        if (!finalIds.has(tagId)) return json({ error: `Unknown purpose tag "${tagId}"` }, 400);
-        categories[path] = tagId;
-      }
-    }
-    // A deleted tag (omitted from b.tags) can leave a stale category assignment pointing at an id
-    // that no longer exists — drop those rather than let a "ghost" tag keep showing up in the
-    // by-purpose report with no way to see or clear it from the UI. (A worker's own purposeTag
-    // field lives in the salary-planner blob, not here, and is cleaned up client-side — see
-    // finPurposeTagsSaveList in js-finance.js.)
-    for (const path of Object.keys(categories)) if (!finalIds.has(categories[path])) delete categories[path];
-    const merged = { tags, categories };
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES ('finance_planning_purpose_tags',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(JSON.stringify(merged)).run();
-    return json({ ok: true, ...merged });
+    const result = await savePurposeTags(db, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Generates a compounding multi-year projection from a base dollar amount + a flat growth

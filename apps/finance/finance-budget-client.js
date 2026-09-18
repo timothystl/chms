@@ -153,3 +153,11 @@ export function postConnectFinanceBudgetCommit(env, accessJwt, body) {
 export function postConnectFinanceBudgetRemove(env, accessJwt, body) {
   return postConnectFinanceBudgetOp(env, accessJwt, 'finance-budget-remove-v1', body);
 }
+
+// Relays finance/planning/base-projection: a hand-typed whole-dollar correction to one or more
+// categories' "FY{base} Projected" column for one fiscal year (`{year, rows: [{category, amount}]}`
+// — an empty/null amount clears that category's override). Admin only, on Connect's side, matching
+// the legacy in-Connect route's own gate exactly.
+export function postConnectBaseProjectionWrite(env, accessJwt, body) {
+  return postConnectFinanceBudgetOp(env, accessJwt, 'finance-base-projection-write-v1', body);
+}

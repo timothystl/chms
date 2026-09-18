@@ -43,6 +43,12 @@ const ROUTES = [
   { id: 'budget-generate-all-v1', paths: ['/api/v1/connect-budget-generate-all'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-generate-all-relay.v1' },
   { id: 'budget-commit-v1', paths: ['/api/v1/connect-budget-commit'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-commit-relay.v1' },
   { id: 'budget-plan-remove-v1', paths: ['/api/v1/connect-budget-plan-remove'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-budget-remove-relay.v1' },
+  // Same deliberate exception as the relays above, for the Budget builder's admin-only
+  // "FY{base} Projected" column correction: relays to Connect's own
+  // finance-base-projection-write-v1 contract endpoint (never writes to Finance's own database),
+  // matching the legacy in-Connect Planning table's own finance/planning/base-projection PUT route
+  // exactly (whole-dollar corrections, keyed by fiscal year; an empty amount clears one category).
+  { id: 'base-projection-write-v1', paths: ['/api/v1/connect-base-projection-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-base-projection-write-relay.v1' },
   // Same deliberate exception as the relays above, for Church Report's admin-only actual-figure
   // correction: relays to Connect's own finance-church-actual-override-v1 contract endpoint
   // (never writes to Finance's own database), matching the legacy in-Connect Church Report's own
@@ -59,6 +65,12 @@ const ROUTES = [
   // (never writes to Finance's own database), matching the legacy in-Connect Chart of Accounts'
   // own finance/planning/board-categories PUT route exactly (admin-only, a MERGE not a replace).
   { id: 'board-categories-write-v1', paths: ['/api/v1/connect-board-categories-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-board-categories-write-relay.v1' },
+  // Same deliberate exception as the relays above, for Chart of Accounts' purpose-tag list and
+  // per-account tag assignment: relays to Connect's own finance-purpose-tags-write-v1 contract
+  // endpoint (never writes to Finance's own database), matching the legacy in-Connect Chart of
+  // Accounts' own finance/planning/purpose-tags PUT route exactly (admin-only). `tags` is a full
+  // replace of the whole tag list; `categories` merges, same as board-categories-write-v1 above.
+  { id: 'purpose-tags-write-v1', paths: ['/api/v1/connect-purpose-tags-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-purpose-tags-write-relay.v1' },
   // Same deliberate exception as the relays above, for Commercial Property's monthly financials
   // entry: relays to Connect's own finance-property-monthly-write-v1 contract endpoint (never
   // writes to Finance's own database), matching the legacy in-Connect Property Operating Results'

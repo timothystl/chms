@@ -113,9 +113,32 @@ function renderBudgetCommitForm(targetYear, planOpStatus, planOpMessage, planOpK
   </section>`;
 }
 
+// Admin-only whole-dollar correction to one category's "FY{base} Projected" column, for one
+// fiscal year -- relayed live to Connect's real finance_settings key finance_base_proj_overrides
+// (see finance-base-projection-write-v1 in src/api-contracts-service.js), never stored in
+// Finance's own database. One category per submit, same shape as Daycare Report's own Budget-cell
+// override form; leaving the amount blank clears any existing override for that category and year.
+function renderBaseProjectionForm(fiscalYear, entryStatus, entryMessage) {
+  return `<section aria-label="Correct a Projected figure">
+    ${renderSectionHeading({ eyebrow: 'Budget builder', heading: 'Correct a Projected figure', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-base-projection-write">
+      <div class="grid form-grid">
+        <div class="field"><label for="bpj-year">Fiscal year</label><input id="bpj-year" type="number" name="year" min="2000" max="2100" value="${escapeHtml(String(fiscalYear))}" required></div>
+        <div class="field"><label for="bpj-category">Category</label><input id="bpj-category" type="text" name="category" placeholder="e.g. Expenses:Utilities" required></div>
+        <div class="field"><label for="bpj-amount">Projected amount ($, whole dollars -- blank clears)</label><input id="bpj-amount" type="number" name="amount" step="1"></div>
+      </div>
+      <button type="submit">Save Projected correction</button>
+    </form>
+    <p><small>Corrects one category's own "FY${escapeHtml(String(fiscalYear))} Projected" figure -- the automatic actual-to-date annualization for the year still in progress -- without touching finance_budget_plan (a future year's plan) or the account's real posted actual. Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
 export function renderPlanningPage(pageId, {
   budgetReport, canEditBudget, budgetEntryStatus, budgetEntryMessage,
   canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
+  baseProjectionEntryStatus, baseProjectionEntryMessage,
 }) {
   if (pageId === 'compensation-link') {
     return `<section class="report" aria-label="Planning compensation link">
@@ -139,6 +162,7 @@ export function renderPlanningPage(pageId, {
       ${canManageBudgetPlan ? renderBudgetGenerateAllForm(view.fiscalYear - 1, view.fiscalYear, planOpStatus, planOpMessage, planOpKind) : ''}
       ${canManageBudgetPlan ? renderBudgetGenerateForm(view.fiscalYear, planOpStatus, planOpMessage, planOpKind) : ''}
       ${canManageBudgetPlan ? renderBudgetCommitForm(view.fiscalYear, planOpStatus, planOpMessage, planOpKind) : ''}
+      ${canManageBudgetPlan ? renderBaseProjectionForm(view.fiscalYear, baseProjectionEntryStatus, baseProjectionEntryMessage) : ''}
     </section>`;
   }
   const report = buildBudgetReportView(budgetReport.rows);
@@ -155,5 +179,6 @@ export function renderPlanningPage(pageId, {
     ${canManageBudgetPlan ? renderBudgetGenerateAllForm(report.fiscalYear - 1, report.fiscalYear, planOpStatus, planOpMessage, planOpKind) : ''}
     ${canManageBudgetPlan ? renderBudgetGenerateForm(report.fiscalYear, planOpStatus, planOpMessage, planOpKind) : ''}
     ${canManageBudgetPlan ? renderBudgetCommitForm(report.fiscalYear, planOpStatus, planOpMessage, planOpKind) : ''}
+    ${canManageBudgetPlan ? renderBaseProjectionForm(report.fiscalYear, baseProjectionEntryStatus, baseProjectionEntryMessage) : ''}
   </section>`;
 }
