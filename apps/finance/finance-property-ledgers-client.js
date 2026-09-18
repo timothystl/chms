@@ -85,6 +85,47 @@ export async function postConnectPropertyRepairWrite(env, accessJwt, body) {
   return { ok: true, result: payload };
 }
 
+// ── Real transport for connect.finance-property-repair-remove-relay.v1 (a write) ───────────
+// Relays a request to remove one repairs & maintenance log entry by id to Connect's own contract
+// endpoint, which is the only place it is actually removed -- Finance never stores a copy. Same
+// never-throws, always-{ok,reason}-labeled shape as postConnectPropertyRepairWrite above. Removing
+// an id that was never recorded is a silent no-op, matching the legacy in-Connect Work orders
+// page's own DELETE route exactly.
+export async function postConnectPropertyRepairRemove(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-property-repair-remove-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
 // ── Real transport for connect.finance-property-capital-ledger-write-relay.v1 (a write) ─────
 // Relays a hand-typed capital-improvements ledger entry to Connect's own contract endpoint
 // (src/api-contracts-service.js), which is the only place it is actually written -- Finance never
@@ -101,6 +142,128 @@ export async function postConnectPropertyCapitalLedgerWrite(env, accessJwt, body
   if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
 
   const url = 'https://connect.timothystl.org/api/contracts/finance-property-capital-ledger-write-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
+// ── Real transport for connect.finance-property-capital-ledger-remove-relay.v1 (a write) ────
+// Relays a request to remove one capital-improvements ledger entry by id to Connect's own contract
+// endpoint, which is the only place it is actually removed -- Finance never stores a copy. Same
+// never-throws, always-{ok,reason}-labeled shape as postConnectPropertyCapitalLedgerWrite above.
+// Removing an id that was never recorded is a silent no-op, matching the legacy in-Connect Capital
+// improvements page's own DELETE route exactly.
+export async function postConnectPropertyCapitalLedgerRemove(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-property-capital-ledger-remove-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
+// ── Real transport for connect.finance-property-meta-write-relay.v1 (a write) ───────────────
+// Relays a per-section metadata MERGE (property/valuation/loan/reserves/capital) to Connect's own
+// contract endpoint (src/api-contracts-service.js), which is the only place it is actually written
+// -- Finance never stores a copy. Same accessJwt pass-through and 'ivanhoe'-only property key as
+// postConnectPropertyRepairWrite above.
+export async function postConnectPropertyMetaWrite(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-property-meta-write-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
+// ── Real transport for connect.finance-property-budget-import-write-relay.v1 (a write) ──────
+// Relays an uploaded AHRA "Budget Detail" .xlsx workbook (base64-encoded, same convention as
+// postConnectChurchBudgetXlsxImport in finance-church-report-client.js) to Connect's own contract
+// endpoint (src/api-contracts-service.js), which is the only place the rows are actually written
+// -- Finance never stores a copy. Same accessJwt pass-through and 'ivanhoe'-only property key as
+// postConnectPropertyRepairWrite above.
+export async function postConnectPropertyBudgetImportWrite(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-property-budget-import-v1';
   let res;
   try {
     res = await binding.fetch(new Request(url, {

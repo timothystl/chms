@@ -511,3 +511,103 @@ describe('handleFinanceApi — monthly CSV bulk import endpoint', () => {
     expect(getBody.monthly).toHaveLength(0);
   });
 });
+
+// Builds a real, small, uncompressed .xlsx-shaped ZIP for the AHRA "Budget Detail" grid shape
+// test/finance-overview.test.js's own parsePropertyBudgetDetailGrid unit test already validates
+// (same account rows, same two rollup labels, same two-month header) -- reusing buildTestXlsxZip
+// above rather than a second, separate ZIP builder.
+function buildPropertyBudgetDetailXlsx() {
+  const grid = [
+    ['Budget Detail'],
+    ['Account Name', 'Jan 2026', 'Feb 2026', 'Total', 'Percent'],
+    ['    RENTAL INCOME'],
+    ['        Rent Income', 8278.5, 8278.5, 16557, 84.49],
+    ['Total Budgeted Operating Income', 9797.75, 9797.75, 19595.5, 100],
+    ['    REPAIRS & MAINTENANCE'],
+    ['Total Budgeted Operating Expense', 4627.04, 4617.19, 9244.23, 100],
+    ['Net Operating Income', 5170.71, 5180.56, 10351.27, 100],
+  ];
+  const colLetters = ['A', 'B', 'C', 'D', 'E'];
+  const rowsXml = grid.map((row, rIdx) => {
+    const cellsXml = row.map((value, cIdx) => {
+      if (value === undefined || value === null || value === '') return '';
+      const ref = `${colLetters[cIdx]}${rIdx + 1}`;
+      return typeof value === 'string'
+        ? `<c r="${ref}" t="str"><v>${value}</v></c>`
+        : `<c r="${ref}"><v>${value}</v></c>`;
+    }).join('');
+    return `<row r="${rIdx + 1}">${cellsXml}</row>`;
+  }).join('');
+  const sheetXml = `<?xml version="1.0"?><worksheet><sheetData>${rowsXml}</sheetData></worksheet>`;
+  const workbookXml = `<?xml version="1.0"?><workbook><sheets><sheet sheetId="1" name="Sheet1" r:id="rId1"/></sheets></workbook>`;
+  const relsXml = `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`;
+  return buildTestXlsxZip({ 'xl/workbook.xml': workbookXml, 'xl/_rels/workbook.xml.rels': relsXml, 'xl/worksheets/sheet1.xml': sheetXml });
+}
+
+function makeFileReq(zipBuffer) {
+  const file = { size: zipBuffer.byteLength, arrayBuffer: async () => zipBuffer };
+  return { formData: async () => new Map([['file', file]]) };
+}
+
+describe('handleFinanceApi — AHRA "Budget Detail" .xlsx bulk import endpoint', () => {
+  it('imports the two rollup months and they are retrievable via GET (forecast/budget-monthly rows)', async () => {
+    const db = makeTestDb();
+    const zip = buildPropertyBudgetDetailXlsx();
+    const res = await handleFinanceApi(makeFileReq(zip), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/budget-import', db, true, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.imported).toBe(2);
+    expect(body.months).toEqual([
+      { period: '2026-01', revenueCents: 979775, expensesCents: 462704, netIncomeCents: 979775 - 462704 },
+      { period: '2026-02', revenueCents: 979775, expensesCents: 461719, netIncomeCents: 979775 - 461719 },
+    ]);
+
+    const getRes = await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, true, true);
+    const getBody = await getRes.json();
+    expect(getBody.budgetMonthly).toHaveLength(2);
+    expect(getBody.budgetMonthly.map((r) => r.period)).toEqual(['2026-01', '2026-02']);
+    expect(getBody.budgetMonthly[0].revenue_cents).toBe(979775);
+    expect(getBody.budgetMonthly[0].expenses_cents).toBe(462704);
+    expect(getBody.budgetMonthly[0].source).toBe('ahra_import');
+  });
+
+  it('re-importing the same file upserts by period rather than duplicating rows', async () => {
+    const db = makeTestDb();
+    const zip = buildPropertyBudgetDetailXlsx();
+    await handleFinanceApi(makeFileReq(zip), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/budget-import', db, true, true);
+    await handleFinanceApi(makeFileReq(zip), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/budget-import', db, true, true);
+    const getRes = await handleFinanceApi({}, {}, new URL('https://x/'), 'GET', 'finance/property/ivanhoe', db, true, true);
+    const getBody = await getRes.json();
+    expect(getBody.budgetMonthly).toHaveLength(2);
+  });
+
+  it('rejects from a non-admin', async () => {
+    const db = makeTestDb();
+    const zip = buildPropertyBudgetDetailXlsx();
+    const res = await handleFinanceApi(makeFileReq(zip), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/budget-import', db, false, true);
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects a missing file with a 400', async () => {
+    const db = makeTestDb();
+    const res = await handleFinanceApi({ formData: async () => new Map() }, {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/budget-import', db, true, true);
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects an oversized file with a 413', async () => {
+    const db = makeTestDb();
+    const file = { size: 16 * 1024 * 1024, arrayBuffer: async () => new ArrayBuffer(0) };
+    const res = await handleFinanceApi({ formData: async () => new Map([['file', file]]) }, {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/budget-import', db, true, true);
+    expect(res.status).toBe(413);
+  });
+
+  it('rejects a workbook with no "Budget Detail" sheet with a 400', async () => {
+    const db = makeTestDb();
+    const sheetXml = `<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1" t="str"><v>Not budget detail</v></c></row></sheetData></worksheet>`;
+    const workbookXml = `<?xml version="1.0"?><workbook><sheets><sheet sheetId="1" name="Sheet1" r:id="rId1"/></sheets></workbook>`;
+    const relsXml = `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`;
+    const zip = buildTestXlsxZip({ 'xl/workbook.xml': workbookXml, 'xl/_rels/workbook.xml.rels': relsXml, 'xl/worksheets/sheet1.xml': sheetXml });
+    const res = await handleFinanceApi(makeFileReq(zip), {}, new URL('https://x/'), 'POST', 'finance/property/ivanhoe/budget-import', db, true, true);
+    expect(res.status).toBe(400);
+  });
+});

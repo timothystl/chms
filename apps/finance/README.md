@@ -680,6 +680,123 @@ side rejection before the relay is ever called, successful relay + redirect with
 verified byte-for-byte, refusal-reason passthrough, and network_error handling).
 `test/finance-route-manifest.test.js` is extended with both new route ids.
 
+Alpha.50 completes Commercial Property's write parity: the nine remaining legacy Property write
+routes that no earlier batch had reached -- the six per-row DELETE-by-key routes (monthly entry,
+distribution, named-reserve monthly schedule, named-reserve disbursement, capital-ledger entry,
+repairs entry), the meta PATCH (a per-section MERGE into the `finance_settings` JSON blob keyed
+`finance_property_ivanhoe_meta`), and the two bulk-import routes (the AHRA "Budget Detail" `.xlsx`
+workbook and a pasted-in monthly-financials CSV) -- each relays to its own new Connect contract
+endpoint, admin-only, matching the legacy in-Connect Property pages' own
+`finance/property/ivanhoe/monthly/:period`, `.../distributions/:period`,
+`.../reserves/:reserveKey/monthly/:report_month`, `.../reserves/:reserveKey/disbursements/
+:period_key`, `.../capital-ledger/:id`, `.../repairs/:id` DELETE routes, `.../meta` PATCH route,
+and `.../budget-import`/`.../monthly-import-csv` POST routes exactly -- full function, same data,
+same app, never a second writer. Every remaining legacy Commercial Property write route is now
+relayed; the separately-merged, still-OFF Finance-owned-D1 architecture (`property-ledger-write-
+service.js`) is untouched.
+
+`src/api-finance.js` extracts `removePropertyMonthlyEntry`/`removePropertyDistribution`/
+`removePropertyReserveMonthly`/`removePropertyReserveDisbursement`/
+`removePropertyCapitalLedgerEntry`/`removePropertyRepair`/`savePropertyMeta`/
+`importPropertyBudgetRows`/`importPropertyMonthlyCsv` as shared functions (same extraction style as
+`upsertPropertyMonthly`/`addPropertyRepair` above), called by both the legacy route handlers
+(unchanged validation and behavior -- verified against the existing `test/finance-property.test.js`
+regression suite, extended with a new `budget-import` describe block since that legacy route had no
+prior test coverage) and their new relay contract counterparts in `src/api-contracts-service.js`.
+None of the six removers checks for row existence first, so removing an already-absent row is a
+silent no-op on both the legacy route and the relay -- exactly like the legacy DELETE statements'
+own unchecked affected-row count. A period/report_month/period_key/id argument is a URL path
+segment on the legacy route (shape-guaranteed by that route's own regex) but an ordinary JSON body
+field on the relay; each remover re-validates that argument against the exact same shape the URL
+regex enforces (the same reasoning already applied to `reserveKey` in the Alpha.46 reserve writers),
+so a malformed relay body fails closed with a 400 instead of silently matching zero rows -- this
+never changes the legacy route's own behavior, since the value it passes in already satisfies the
+shape by construction. The two import routes are true extractions (unlike `importChurchBudgetXlsx`/
+`importChurchBalancesXlsx` above): legacy's own `budget-import`/`monthly-import-csv` routes are
+already single parse-and-commit requests, not a two-step preview/commit flow, so there is a real
+function to pull out rather than a new combination of primitives. `budget-import` reuses the SAME
+`parseXlsxAllSheets`/`findPropertyBudgetDetailSheet`/`parsePropertyBudgetDetailGrid` primitives the
+already-shipped AHRA import uses; `monthly-import-csv` carries its pasted CSV as a plain JSON string
+field on the relay (`csv`, matching what the legacy route itself parses -- a pasted-in text field,
+never a file upload), no base64/file-upload complexity needed, unlike the true binary `.xlsx`
+upload the budget-import relay carries (base64-encoded, same `decodeBase64XlsxUpload` helper and
+15 MB cap the Alpha.49 Church/Balance `.xlsx` relays already established).
+
+New route ids avoid the literal word "delete", the same word-substitution precedent
+`budget-plan-remove-v1` already established: `property-monthly-remove-v1`,
+`property-distribution-remove-v1`, `property-reserve-monthly-remove-v1`,
+`property-reserve-disbursement-remove-v1`, `property-capital-ledger-remove-v1`,
+`property-repair-remove-v1`, `property-meta-write-v1`, `property-budget-import-write-v1`,
+`property-monthly-import-csv-write-v1`. New transports live in
+`finance-property-operating-client.js` (`postConnectPropertyMonthlyRemove`,
+`postConnectPropertyMonthlyImportCsvWrite`), `finance-property-reserves-client.js`
+(`postConnectPropertyDistributionRemove`, `postConnectPropertyReserveMonthlyRemove`,
+`postConnectPropertyReserveDisbursementRemove`), and `finance-property-ledgers-client.js`
+(`postConnectPropertyRepairRemove`, `postConnectPropertyCapitalLedgerRemove`,
+`postConnectPropertyMetaWrite`, `postConnectPropertyBudgetImportWrite`) -- placed alongside each
+one's conceptually-nearest existing write transport, following the file's existing organization.
+
+**UI forms, and three deliberate exceptions:** a per-row Remove action was added next to each
+already-rendered row for the three routes whose natural key is genuinely present in the page's own
+data -- monthly entry (Operating results), distribution (both the standalone Distributions page and
+Reserve & distribution's own distribution-history sub-table), and the named-reserve monthly
+schedule (Reserve & distribution) -- plus a bulk-import form on the page that already renders the
+matching data: the CSV monthly-financials import on Operating results (same `finance_property_
+monthly` table the single-month form and its own Remove buttons already cover) and the AHRA
+`.xlsx` Budget Detail import on Run-rate forecast (`finance_property_budget_monthly`). Three of the
+nine ship with no UI form, the same allowance Alpha.47's three settings-blob routes already used
+("no existing live page in this app surfaces the underlying read data"), verified directly against
+the live/synthetic view-building code before concluding each was genuinely blocked, not merely
+inconvenient:
+
+1. **`property-capital-ledger-remove-v1` / `property-repair-remove-v1`** -- the `id` primary key
+   these two DELETE routes key on is not part of the `connect.finance-property-ledgers.v1` contract
+   at all (`finance-property-ledgers-consumer.js`'s `CAPITAL_KEYS`/`REPAIR_KEYS` carry no `id`, and
+   `src/api-contracts.js`'s own producer SQL never selects it, only orders by it) -- confirmed by
+   reading the actual consumer/producer/reshaping code, not assumed. Neither the live-resolved rows
+   (`resolvePropertyLedgers`) nor the synthetic fixture rows carry an id anywhere client-side, so
+   there is no value to put in a Remove button's hidden field. Extending the read contract to add
+   `id` was out of scope for a write-parity batch and was not done.
+2. **`property-reserve-disbursement-remove-v1`** -- no page in this app renders a disbursements
+   table at all today; `property-report-service.js`'s own `resolvePropertyReserves` comment already
+   documents that `reserveDisbursements` is fetched and validated by the contract but "carried
+   through unused" because "this staging page's existing layout doesn't render a disbursements
+   table yet" -- the same gap Alpha.46's own disbursement-write form already shipped into (a
+   write-only form with no paired read table), so this remove route simply inherits that same,
+   already-accepted precedent.
+3. **`property-meta-write-v1`** -- no page in this app reads or displays the `finance_property_
+   ivanhoe_meta` JSON blob at all; it backs the equity calculation in the legacy in-Connect page,
+   but staging's Overview page computes its own KPIs from `finance_property_monthly` alone.
+
+All three are still fully real, directly POST-able write paths end to end -- shared function,
+contract handler, `route-manifest.js` entry, and a `shell.js` POST route -- just not yet linked
+from a form.
+
+Tests: nine contract tests (`test/finance-property-monthly-remove-contract.test.js`,
+`test/finance-property-distribution-remove-contract.test.js`,
+`test/finance-property-reserve-monthly-remove-contract.test.js`,
+`test/finance-property-reserve-disbursement-remove-contract.test.js`,
+`test/finance-property-capital-ledger-remove-contract.test.js`,
+`test/finance-property-repair-remove-contract.test.js`,
+`test/finance-property-meta-write-contract.test.js`,
+`test/finance-property-budget-import-contract.test.js`,
+`test/finance-property-monthly-import-csv-contract.test.js` -- the same admin/finance-role/
+deactivated-user/wrong-contract-key/missing-identity/not-configured cases as the earlier property
+relay contracts, plus a "removing a nonexistent row succeeds as a no-op" case for each of the six
+remove routes, matching the legacy DELETE routes' own verified behavior), five shell route tests
+for the five routes that got a form (`test/finance-property-monthly-remove-route.test.js`,
+`test/finance-property-distribution-remove-route.test.js`,
+`test/finance-property-reserve-monthly-remove-route.test.js`,
+`test/finance-property-budget-import-route.test.js`,
+`test/finance-property-monthly-import-csv-route.test.js` -- method-not-allowed, role-gated
+visibility, not_configured/no_access_identity redirects, successful relay + form field forwarding,
+refusal-reason passthrough, and network_error handling, plus no_file/too_large client-side
+rejection for the `.xlsx` upload route), and a new legacy-route regression describe block in
+`test/finance-property.test.js` for the previously-untested `budget-import` route (valid import,
+upsert-by-period re-import, non-admin rejection, missing file, oversized file, and a workbook with
+no "Budget Detail" sheet). `test/finance-route-manifest.test.js` is extended with all nine new
+route ids.
+
 ## QuickBooks OAuth/sync design (dark code, never exercised against the real account)
 
 This adds a Finance-owned design (plus as much working code as is honest to write without live

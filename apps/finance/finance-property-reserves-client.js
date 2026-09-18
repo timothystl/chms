@@ -85,6 +85,47 @@ export async function postConnectPropertyDistributionWrite(env, accessJwt, body)
   return { ok: true, result: payload };
 }
 
+// ── Real transport for connect.finance-property-distribution-remove-relay.v1 (a write) ─────
+// Relays a request to remove one period's distribution row to Connect's own contract endpoint,
+// which is the only place it is actually removed -- Finance never stores a copy. Same
+// never-throws, always-{ok,reason}-labeled shape as postConnectPropertyDistributionWrite above.
+// Removing a period that was never recorded is a silent no-op, matching the legacy in-Connect
+// Distributions page's own DELETE route exactly.
+export async function postConnectPropertyDistributionRemove(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-property-distribution-remove-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
 // ── Real transport for connect.finance-property-reserve-monthly-write-relay.v1 (a write) ───
 // Relays a hand-typed named-reserve monthly schedule row (report month, target estimate,
 // contribution, optional explicit reserve-before override, tax year, note) to Connect's own
@@ -127,6 +168,48 @@ export async function postConnectPropertyReserveMonthlyWrite(env, accessJwt, bod
   return { ok: true, result: payload };
 }
 
+// ── Real transport for connect.finance-property-reserve-monthly-remove-relay.v1 (a write) ──
+// Relays a request to remove one named-reserve's monthly schedule row (reserve key + report
+// month) to Connect's own contract endpoint, which is the only place it is actually removed --
+// Finance never stores a copy. Same accessJwt pass-through, 'ivanhoe'-only property key, and
+// body-carried reserve key as postConnectPropertyReserveMonthlyWrite above. Removing a
+// reserve key/report month that was never recorded is a silent no-op, matching the legacy
+// in-Connect reserve schedule's own DELETE route exactly.
+export async function postConnectPropertyReserveMonthlyRemove(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-property-reserve-monthly-remove-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
 // ── Real transport for connect.finance-property-reserve-disbursement-write-relay.v1 (a write) ──
 // Relays a hand-typed named-reserve disbursement log row (period key, amount, paid-via report
 // month, note) to Connect's own contract endpoint (src/api-contracts-service.js), which is the
@@ -140,6 +223,48 @@ export async function postConnectPropertyReserveDisbursementWrite(env, accessJwt
   if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
 
   const url = 'https://connect.timothystl.org/api/contracts/finance-property-reserve-disbursement-write-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
+// ── Real transport for connect.finance-property-reserve-disbursement-remove-relay.v1 (a write) ──
+// Relays a request to remove one named-reserve disbursement row (reserve key + period key) to
+// Connect's own contract endpoint, which is the only place it is actually removed -- Finance never
+// stores a copy. Same accessJwt pass-through, 'ivanhoe'-only property key, and body-carried
+// reserve key as postConnectPropertyReserveDisbursementWrite above. Removing a reserve key/period
+// key that was never recorded is a silent no-op, matching the legacy in-Connect reserve
+// disbursement log's own DELETE route exactly.
+export async function postConnectPropertyReserveDisbursementRemove(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-property-reserve-disbursement-remove-v1';
   let res;
   try {
     res = await binding.fetch(new Request(url, {

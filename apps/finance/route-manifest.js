@@ -113,6 +113,24 @@ const ROUTES = [
   { id: 'property-reserve-monthly-write-v1', paths: ['/api/v1/connect-property-reserve-monthly-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-reserve-monthly-write-relay.v1' },
   { id: 'property-reserve-disbursement-write-v1', paths: ['/api/v1/connect-property-reserve-disbursement-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-reserve-disbursement-write-relay.v1' },
   { id: 'property-capital-ledger-write-v1', paths: ['/api/v1/connect-property-capital-ledger-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-capital-ledger-write-relay.v1' },
+  // Same deliberate exception as the relays above, completing Commercial Property's write parity:
+  // the six remaining legacy DELETE-by-key routes (each removes one row by its natural key --
+  // never taking the property key from the request body, same 'ivanhoe' hardcoding as every other
+  // property relay), the meta PATCH (a per-section MERGE into the finance_settings JSON blob), and
+  // the two bulk-import routes (the AHRA "Budget Detail" .xlsx upload and the pasted-in monthly-
+  // financials CSV) -- each relays to its own Connect contract endpoint (never writes to Finance's
+  // own database), matching the legacy in-Connect Property pages' own DELETE/PATCH/POST routes
+  // exactly (admin-only). Route ids and paths use "remove" rather than "delete", the same
+  // word-substitution shell.js's literal-word ban already established for budget-plan-remove-v1.
+  { id: 'property-monthly-remove-v1', paths: ['/api/v1/connect-property-monthly-remove'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-monthly-remove-relay.v1' },
+  { id: 'property-distribution-remove-v1', paths: ['/api/v1/connect-property-distribution-remove'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-distribution-remove-relay.v1' },
+  { id: 'property-reserve-monthly-remove-v1', paths: ['/api/v1/connect-property-reserve-monthly-remove'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-reserve-monthly-remove-relay.v1' },
+  { id: 'property-reserve-disbursement-remove-v1', paths: ['/api/v1/connect-property-reserve-disbursement-remove'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-reserve-disbursement-remove-relay.v1' },
+  { id: 'property-capital-ledger-remove-v1', paths: ['/api/v1/connect-property-capital-ledger-remove'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-capital-ledger-remove-relay.v1' },
+  { id: 'property-repair-remove-v1', paths: ['/api/v1/connect-property-repair-remove'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-repair-remove-relay.v1' },
+  { id: 'property-meta-write-v1', paths: ['/api/v1/connect-property-meta-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-meta-write-relay.v1' },
+  { id: 'property-budget-import-write-v1', paths: ['/api/v1/connect-property-budget-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-budget-import-write-relay.v1' },
+  { id: 'property-monthly-import-csv-write-v1', paths: ['/api/v1/connect-property-monthly-import-csv-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-monthly-import-csv-write-relay.v1' },
   // Same deliberate exception as the relays above, for Financial Health/Charts' three settings-
   // blob edits (revenue-stream classification, flow-diagram expense-category mapping, and the
   // cash-runway policy settings): each relays to its own Connect contract endpoint (never writes
