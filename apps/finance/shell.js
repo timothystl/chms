@@ -26,11 +26,17 @@ import {
   postConnectBoardCategoriesWrite, postConnectPurposeTagsWrite, postConnectRevenueStreamsWrite, postConnectFlowExpenseMapWrite,
   postConnectCashPolicyWrite,
 } from './finance-chart-of-accounts-client.js';
-import { postConnectPropertyMonthlyWrite } from './finance-property-operating-client.js';
-import { postConnectPropertyRepairWrite, postConnectPropertyCapitalLedgerWrite } from './finance-property-ledgers-client.js';
 import {
-  postConnectPropertyDistributionWrite, postConnectPropertyReserveMonthlyWrite,
-  postConnectPropertyReserveDisbursementWrite,
+  postConnectPropertyMonthlyWrite, postConnectPropertyMonthlyRemove, postConnectPropertyMonthlyImportCsvWrite,
+} from './finance-property-operating-client.js';
+import {
+  postConnectPropertyRepairWrite, postConnectPropertyRepairRemove, postConnectPropertyCapitalLedgerWrite,
+  postConnectPropertyCapitalLedgerRemove, postConnectPropertyMetaWrite, postConnectPropertyBudgetImportWrite,
+} from './finance-property-ledgers-client.js';
+import {
+  postConnectPropertyDistributionWrite, postConnectPropertyDistributionRemove, postConnectPropertyReserveMonthlyWrite,
+  postConnectPropertyReserveMonthlyRemove, postConnectPropertyReserveDisbursementWrite,
+  postConnectPropertyReserveDisbursementRemove,
 } from './finance-property-reserves-client.js';
 import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
 import { postConnectChurchBalancesXlsxImport } from './finance-balance-sheet-client.js';
@@ -359,6 +365,120 @@ function describePropertyCapitalLedgerEntryError(reason, message) {
   }
 }
 
+// Same shape as describePropertyMonthlyEntryError above, for postConnectPropertyMonthlyRemove()
+// failures. "Removed" rather than "saved" wording, matching describeBudgetPlanRemoveError-style
+// wording used for the budget-plan-remove-v1 form.
+function describePropertyMonthlyRemoveError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was removed.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was removed — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as removed.';
+    case 'http_error': return message ? String(message) : 'Connect refused the removal.';
+    default: return 'The month was not removed.';
+  }
+}
+
+// Same shape as describePropertyMonthlyRemoveError above, for postConnectPropertyDistributionRemove() failures.
+function describePropertyDistributionRemoveError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was removed.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was removed — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as removed.';
+    case 'http_error': return message ? String(message) : 'Connect refused the removal.';
+    default: return 'The distribution was not removed.';
+  }
+}
+
+// Same shape as describePropertyMonthlyRemoveError above, for postConnectPropertyReserveMonthlyRemove() failures.
+function describePropertyReserveMonthlyRemoveError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was removed.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was removed — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as removed.';
+    case 'http_error': return message ? String(message) : 'Connect refused the removal.';
+    default: return 'The reserve entry was not removed.';
+  }
+}
+
+// Same shape as describePropertyMonthlyRemoveError above, for postConnectPropertyReserveDisbursementRemove() failures.
+function describePropertyReserveDisbursementRemoveError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was removed.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was removed — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as removed.';
+    case 'http_error': return message ? String(message) : 'Connect refused the removal.';
+    default: return 'The disbursement was not removed.';
+  }
+}
+
+// Same shape as describePropertyMonthlyRemoveError above, for postConnectPropertyCapitalLedgerRemove() failures.
+function describePropertyCapitalLedgerRemoveError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was removed.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was removed — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as removed.';
+    case 'http_error': return message ? String(message) : 'Connect refused the removal.';
+    default: return 'The entry was not removed.';
+  }
+}
+
+// Same shape as describePropertyMonthlyRemoveError above, for postConnectPropertyRepairRemove() failures.
+function describePropertyRepairRemoveError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was removed.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was removed — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as removed.';
+    case 'http_error': return message ? String(message) : 'Connect refused the removal.';
+    default: return 'The entry was not removed.';
+  }
+}
+
+// Same shape as describePropertyCapitalLedgerEntryError above, for postConnectPropertyMetaWrite() failures.
+function describePropertyMetaEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the edit.';
+    default: return 'The property details were not saved.';
+  }
+}
+
+// Same shape as describePropertyCapitalLedgerEntryError above, for postConnectPropertyBudgetImportWrite()
+// failures, plus the two client-side rejections (no_file/too_large) shared with the Church/Balance
+// .xlsx import forms.
+function describePropertyBudgetImportError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property Budget import is not connected yet. Nothing was imported.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was imported — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as imported.';
+    case 'no_file': return 'No file was uploaded.';
+    case 'too_large': return 'That file is larger than 15 MB.';
+    case 'http_error': return message ? String(message) : 'Connect refused the import.';
+    default: return 'The Property Budget import did not complete.';
+  }
+}
+
+// Same shape as describePropertyCapitalLedgerEntryError above, for postConnectPropertyMonthlyImportCsvWrite() failures.
+function describePropertyMonthlyImportCsvError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property monthly-financials import is not connected yet. Nothing was imported.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was imported — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as imported.';
+    case 'http_error': return message ? String(message) : 'Connect refused the import.';
+    default: return 'The monthly-financials import did not complete.';
+  }
+}
+
 // Same shape as describePropertyCapitalLedgerEntryError above, for postConnectRevenueStreamsWrite()
 // failures. No existing live page surfaces this write's form yet (see route-manifest.js's own
 // comment), but the redirect-after-POST shape stays identical for when one is added.
@@ -596,6 +716,15 @@ function renderSectionBody(ctx) {
     propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage,
     propertyReserveDisbursementEntryStatus, propertyReserveDisbursementEntryMessage,
     propertyCapitalLedgerEntryStatus, propertyCapitalLedgerEntryMessage,
+    propertyMonthlyRemoveStatus, propertyMonthlyRemoveMessage,
+    propertyDistributionRemoveStatus, propertyDistributionRemoveMessage,
+    propertyReserveMonthlyRemoveStatus, propertyReserveMonthlyRemoveMessage,
+    propertyReserveDisbursementRemoveStatus, propertyReserveDisbursementRemoveMessage,
+    propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
+    propertyRepairRemoveStatus, propertyRepairRemoveMessage,
+    propertyMetaEntryStatus, propertyMetaEntryMessage,
+    propertyBudgetImportStatus, propertyBudgetImportMessage,
+    propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
     roleResult,
   } = ctx;
   if (section.id === 'health') {
@@ -798,6 +927,20 @@ function renderSectionBody(ctx) {
       propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage,
       propertyReserveDisbursementEntryStatus, propertyReserveDisbursementEntryMessage,
       propertyCapitalLedgerEntryStatus, propertyCapitalLedgerEntryMessage,
+      // Same admin-only gate as canManagePropertyMonthly/canManagePropertyRepairs/
+      // canManagePropertyLedgers above -- completes Commercial Property's write parity with a
+      // per-row Remove action on each already-rendered table, plus the meta and bulk-import forms.
+      // The real gate is each finance-property-*-remove-v1/-meta-write-v1/-budget-import-v1/
+      // -monthly-import-csv-v1 contract's own role check on Connect's side.
+      propertyMonthlyRemoveStatus, propertyMonthlyRemoveMessage,
+      propertyDistributionRemoveStatus, propertyDistributionRemoveMessage,
+      propertyReserveMonthlyRemoveStatus, propertyReserveMonthlyRemoveMessage,
+      propertyReserveDisbursementRemoveStatus, propertyReserveDisbursementRemoveMessage,
+      propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
+      propertyRepairRemoveStatus, propertyRepairRemoveMessage,
+      propertyMetaEntryStatus, propertyMetaEntryMessage,
+      propertyBudgetImportStatus, propertyBudgetImportMessage,
+      propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
     });
   }
   if (section.id === 'planning') {
@@ -1608,6 +1751,208 @@ export default {
         return response(null, { status: 303, headers: { Location: '/?section=property&page=capital&status=ok' } });
       }
       const params = new URLSearchParams({ section: 'property', page: 'capital', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Completes Commercial Property's write parity: the six per-row Remove actions (each removes
+    // one row by its natural key, same 303-redirect-after-POST shape as the write routes above --
+    // the browser form always POSTs, even though the legacy route this relays to uses a different
+    // HTTP method), the meta edit, and the two bulk imports.
+    if (route.id === 'property-monthly-remove-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = { period: form.get('period') || '' };
+      const result = await postConnectPropertyMonthlyRemove(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=operating-results&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'operating-results', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'property-distribution-remove-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = { period: form.get('period') || '' };
+      const result = await postConnectPropertyDistributionRemove(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=distributions&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'distributions', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'property-reserve-monthly-remove-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = {
+        reserve_key: form.get('reserve_key') || '',
+        report_month: form.get('report_month') || '',
+      };
+      const result = await postConnectPropertyReserveMonthlyRemove(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=reserve-distribution&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'reserve-distribution', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'property-reserve-disbursement-remove-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = {
+        reserve_key: form.get('reserve_key') || '',
+        period_key: form.get('period_key') || '',
+      };
+      const result = await postConnectPropertyReserveDisbursementRemove(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=reserve-distribution&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'reserve-distribution', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'property-capital-ledger-remove-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = { id: form.get('id') || '' };
+      const result = await postConnectPropertyCapitalLedgerRemove(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=capital&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'capital', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'property-repair-remove-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = { id: form.get('id') || '' };
+      const result = await postConnectPropertyRepairRemove(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=work-orders&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'work-orders', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Property Overview's meta edit -- a per-section MERGE (property/valuation/loan/reserves/
+    // capital), same shape as every other property write above; each section is submitted as its
+    // own JSON object field so postConnectPropertyMetaWrite can pass it straight through unchanged.
+    if (route.id === 'property-meta-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = {};
+      for (const section of ['property', 'valuation', 'loan', 'reserves', 'capital']) {
+        const raw = form.get(section);
+        if (raw === null || raw === '') continue;
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') body[section] = parsed;
+        } catch {
+          return response(null, { status: 303, headers: { Location: '/?section=property&page=overview&status=error&reason=invalid_json' } });
+        }
+      }
+      const result = await postConnectPropertyMetaWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=overview&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'overview', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Commercial Property's AHRA "Budget Detail" .xlsx import -- same real multipart/form-data
+    // file-upload handling as church-budget-xlsx-import-write-v1/church-balances-xlsx-import-write-v1
+    // above (base64-encoded here before relaying, capped at MAX_XLSX_UPLOAD_BYTES client-side first
+    // so an oversized upload never reaches the relay call).
+    if (route.id === 'property-budget-import-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const file = form.get('file');
+      if (!file || typeof file.arrayBuffer !== 'function') {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=forecast&status=error&reason=no_file' } });
+      }
+      if (file.size > MAX_XLSX_UPLOAD_BYTES) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=forecast&status=error&reason=too_large' } });
+      }
+      const fileBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+      const result = await postConnectPropertyBudgetImportWrite(env, accessJwt, { file_base64: fileBase64 });
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=forecast&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'forecast', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // Commercial Property's pasted-in monthly-financials CSV import -- unlike the .xlsx import
+    // above, legacy parses this as a plain pasted-in text field (not a file upload), so this relay
+    // carries it the same way: a plain textarea field, no base64/file-upload complexity needed.
+    if (route.id === 'property-monthly-import-csv-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = {
+        csv: form.get('csv') || '',
+        source_report: form.get('source_report') || '',
+      };
+      const result = await postConnectPropertyMonthlyImportCsvWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=operating-results&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'operating-results', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -2541,6 +2886,46 @@ export default {
         const propertyCapitalLedgerEntryMessage = propertyCapitalLedgerEntryStatus === 'error'
           ? describePropertyCapitalLedgerEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        // Same shared status/reason/message query-param shape as the six property statuses above,
+        // completing Commercial Property's write parity: the six per-row Remove actions, the meta
+        // edit, and the two bulk imports each redirect back to ?section=property (distinguished by
+        // `page`, each page shows only its own forms).
+        const propertyMonthlyRemoveStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyMonthlyRemoveMessage = propertyMonthlyRemoveStatus === 'error'
+          ? describePropertyMonthlyRemoveError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const propertyDistributionRemoveStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyDistributionRemoveMessage = propertyDistributionRemoveStatus === 'error'
+          ? describePropertyDistributionRemoveError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const propertyReserveMonthlyRemoveStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyReserveMonthlyRemoveMessage = propertyReserveMonthlyRemoveStatus === 'error'
+          ? describePropertyReserveMonthlyRemoveError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const propertyReserveDisbursementRemoveStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyReserveDisbursementRemoveMessage = propertyReserveDisbursementRemoveStatus === 'error'
+          ? describePropertyReserveDisbursementRemoveError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const propertyCapitalLedgerRemoveStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyCapitalLedgerRemoveMessage = propertyCapitalLedgerRemoveStatus === 'error'
+          ? describePropertyCapitalLedgerRemoveError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const propertyRepairRemoveStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyRepairRemoveMessage = propertyRepairRemoveStatus === 'error'
+          ? describePropertyRepairRemoveError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const propertyMetaEntryStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyMetaEntryMessage = propertyMetaEntryStatus === 'error'
+          ? describePropertyMetaEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const propertyBudgetImportStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyBudgetImportMessage = propertyBudgetImportStatus === 'error'
+          ? describePropertyBudgetImportError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const propertyMonthlyImportCsvStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyMonthlyImportCsvMessage = propertyMonthlyImportCsvStatus === 'error'
+          ? describePropertyMonthlyImportCsvError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
@@ -2567,6 +2952,15 @@ export default {
           propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage,
           propertyReserveDisbursementEntryStatus, propertyReserveDisbursementEntryMessage,
           propertyCapitalLedgerEntryStatus, propertyCapitalLedgerEntryMessage,
+          propertyMonthlyRemoveStatus, propertyMonthlyRemoveMessage,
+          propertyDistributionRemoveStatus, propertyDistributionRemoveMessage,
+          propertyReserveMonthlyRemoveStatus, propertyReserveMonthlyRemoveMessage,
+          propertyReserveDisbursementRemoveStatus, propertyReserveDisbursementRemoveMessage,
+          propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
+          propertyRepairRemoveStatus, propertyRepairRemoveMessage,
+          propertyMetaEntryStatus, propertyMetaEntryMessage,
+          propertyBudgetImportStatus, propertyBudgetImportMessage,
+          propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
         }), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });

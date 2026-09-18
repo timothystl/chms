@@ -3,16 +3,35 @@ import { buildPropertyForecastView, buildLivePropertyForecastView } from './prop
 import { buildPropertyDistributionsView } from './property-distributions-service.js';
 import { escapeHtml, formatCents, formatSignedCents, renderKpiCards, renderSectionHeading, renderTable, renderUnavailablePage } from './render-helpers.js';
 
-export function renderPropertyRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${row.occupancy_pct.toFixed(0)}%</td><td>${formatCents(row.total_revenue_cents)}</td><td>${formatCents(row.total_expenses_cents)}</td><td>${formatSignedCents(row.net_income_cents)}</td></tr>`).join('');
+// A per-row Remove action (admin only, matching the legacy DELETE finance/property/ivanhoe/
+// monthly/:period route's own gate) is appended as a last column when `canManage` -- relayed live
+// to Connect's real finance_property_monthly table (see finance-property-monthly-remove-v1 in
+// src/api-contracts-service.js), never stored in Finance's own database. Same Delete-button/
+// confirm() shape as planning-pages.js's renderLiveBudgetRows.
+export function renderPropertyRows(rows, canManage) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${row.occupancy_pct.toFixed(0)}%</td><td>${formatCents(row.total_revenue_cents)}</td><td>${formatCents(row.total_expenses_cents)}</td><td>${formatSignedCents(row.net_income_cents)}</td>${canManage ? `<td><form method="POST" action="/api/v1/connect-property-monthly-remove" style="display:inline">
+      <input type="hidden" name="period" value="${escapeHtml(row.period)}">
+      <button type="submit" onclick="return confirm('Remove the ${escapeHtml(row.period)} monthly entry?')">Delete</button>
+    </form></td>` : ''}</tr>`).join('');
 }
 
-export function renderPropertyReserveRows(rows) {
+export function renderPropertyReserveRows(rows, canManage) {
   // tax_year is null for a reserve bucket other than 'property_tax' (see migrations/0023's own
   // comment) -- never null in the committed synthetic fixture, but the live real-data path can
   // carry it, so this falls back to the same em-dash production's own finRenderPropertyTaxReserve
   // (src/frontend/js-finance.js) uses for a missing tax_year.
-  return rows.map((row) => `<tr><td>${escapeHtml(row.report_month)}</td><td>${row.tax_year != null ? row.tax_year : '—'}</td><td>${formatCents(row.target_estimate_cents)}</td><td>${formatCents(row.reserve_before_cents)}</td><td>${formatCents(row.contribution_cents)}</td><td>${formatCents(row.reserve_after_cents)}</td><td>${row.funded_pct.toFixed(1)}%</td></tr>`).join('');
+  //
+  // A per-row Remove action (admin only, matching the legacy DELETE finance/property/ivanhoe/
+  // reserves/:reserveKey/monthly/:report_month route's own gate) is appended as a last column when
+  // `canManage` -- relayed live to Connect's real finance_property_reserves table (see
+  // finance-property-reserve-monthly-remove-v1 in src/api-contracts-service.js). reserve_key is not
+  // a visible column here (this table shows a single reserve's schedule at a time), but is still
+  // present on each row (resolvePropertyReserves/readSyntheticPropertyReserves both carry it), so
+  // it travels as a hidden field.
+  return rows.map((row) => `<tr><td>${escapeHtml(row.report_month)}</td><td>${row.tax_year != null ? row.tax_year : '—'}</td><td>${formatCents(row.target_estimate_cents)}</td><td>${formatCents(row.reserve_before_cents)}</td><td>${formatCents(row.contribution_cents)}</td><td>${formatCents(row.reserve_after_cents)}</td><td>${row.funded_pct.toFixed(1)}%</td>${canManage ? `<td><form method="POST" action="/api/v1/connect-property-reserve-monthly-remove" style="display:inline">
+      <input type="hidden" name="reserve_key" value="${escapeHtml(row.reserve_key)}"><input type="hidden" name="report_month" value="${escapeHtml(row.report_month)}">
+      <button type="submit" onclick="return confirm('Remove the ${escapeHtml(row.report_month)} reserve entry?')">Delete</button>
+    </form></td>` : ''}</tr>`).join('');
 }
 
 export function renderPropertyCapitalRows(rows) {
@@ -44,8 +63,16 @@ export function renderLivePropertyForecastRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${formatCents(row.revenueCents)}</td><td>${formatCents(row.expensesCents)}</td><td>${formatSignedCents(row.netIncomeCents)}</td></tr>`).join('');
 }
 
-export function renderPropertyDistributionRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${formatCents(row.amount_cents)}</td></tr>`).join('');
+// A per-row Remove action (admin only, matching the legacy DELETE finance/property/ivanhoe/
+// distributions/:period route's own gate) is appended as a last column when `canManage` -- relayed
+// live to Connect's real finance_property_distributions table (see
+// finance-property-distribution-remove-v1 in src/api-contracts-service.js). Shared by both the
+// standalone Distributions page and Reserve & distribution's own distribution-history sub-table.
+export function renderPropertyDistributionRows(rows, canManage) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${formatCents(row.amount_cents)}</td>${canManage ? `<td><form method="POST" action="/api/v1/connect-property-distribution-remove" style="display:inline">
+      <input type="hidden" name="period" value="${escapeHtml(row.period)}">
+      <button type="submit" onclick="return confirm('Remove the ${escapeHtml(row.period)} distribution?')">Delete</button>
+    </form></td>` : ''}</tr>`).join('');
 }
 
 // Admin-only monthly financials entry/upsert -- relayed live to Connect's real
@@ -195,6 +222,55 @@ function renderPropertyCapitalLedgerForm(entryStatus, entryMessage) {
   </section>`;
 }
 
+// Shared status/error line for a Remove action -- same shape as every entry form's own status
+// paragraph above, but "Removed"/"Not removed" wording since these buttons sit inline in a table
+// row rather than their own form section (see budget-plan-remove-v1's identical precedent in
+// planning-pages.js, which shows no dedicated status line at all; this adds one anyway since it's
+// cheap and the redirect already carries the status/reason).
+function renderRemoveStatus(status, message) {
+  if (status === 'ok') return '<p class="status">Removed in Connect.</p>';
+  if (status === 'error') return `<p class="status status-error">Not removed: ${escapeHtml(message || 'unknown error')}</p>`;
+  return '';
+}
+
+// Admin-only bulk import of one or more months from the AHRA report's own monthly-financials CSV
+// row format -- relayed live to Connect's real finance_property_monthly table (see
+// finance-property-monthly-import-csv-v1 in src/api-contracts-service.js), never stored in
+// Finance's own database. Legacy parses this as a plain pasted-in text field (not a file upload),
+// so this form is a plain textarea, matching parsePropertyMonthlyCsv's own required columns
+// (src/api-finance.js) exactly.
+function renderPropertyMonthlyImportCsvForm(entryStatus, entryMessage) {
+  return `<section aria-label="Bulk import monthly financials from CSV">
+    ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Bulk import monthly financials (CSV)', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Imported into Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-property-monthly-import-csv-write">
+      <div class="field"><label for="pmic-csv">AHRA monthly-financials CSV (paste the whole report, header row included)</label><textarea id="pmic-csv" name="csv" rows="8" placeholder="period,occupancy_pct,total_revenue,operating_expenses,non_operating_expenses,net_operating_income,net_income,distribution_amount,total_property_reserve" required></textarea></div>
+      <div class="field"><label for="pmic-source">Source report label</label><input id="pmic-source" type="text" name="source_report" placeholder="csv_import"></div>
+      <button type="submit">Import CSV</button>
+    </form>
+    <p><small>This writes directly into Connect's own <code>finance_property_monthly</code> table -- the same table the legacy in-Connect Property Operating Results' AHRA monthly-financials CSV import writes. Each row upserts by period, same as the single-month form above. Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
+// Admin-only bulk import of an AHRA "Budget Detail" .xlsx export -- relayed live to Connect's real
+// finance_property_budget_monthly table (see finance-property-budget-import-v1 in
+// src/api-contracts-service.js), never stored in Finance's own database. Same real
+// multipart/form-data file-upload shape as Church Report's/Balance Sheet's own .xlsx import forms
+// (church-pages.js/balance-pages.js) -- base64-encoded by shell.js before relaying, capped at 15 MB.
+function renderPropertyBudgetImportForm(entryStatus, entryMessage) {
+  return `<section aria-label="Import an AHRA Budget Detail workbook">
+    ${renderSectionHeading({ eyebrow: 'Run-rate forecast', heading: 'Import AHRA Budget Detail (.xlsx)', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Imported into Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-property-budget-import-write" enctype="multipart/form-data">
+      <div class="field"><label for="pbi-file">AHRA "Budget Detail" workbook (.xlsx, max 15 MB)</label><input id="pbi-file" type="file" name="file" accept=".xlsx" required></div>
+      <button type="submit">Import workbook</button>
+    </form>
+    <p><small>This writes directly into Connect's own <code>finance_property_budget_monthly</code> table -- the same table the legacy in-Connect Property Run-rate forecast's AHRA "Budget Detail" import writes. Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
 export function renderPropertyPage(pageId, {
   propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
   propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions,
@@ -205,6 +281,11 @@ export function renderPropertyPage(pageId, {
   propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage,
   propertyReserveDisbursementEntryStatus, propertyReserveDisbursementEntryMessage,
   propertyCapitalLedgerEntryStatus, propertyCapitalLedgerEntryMessage,
+  propertyMonthlyRemoveStatus, propertyMonthlyRemoveMessage,
+  propertyDistributionRemoveStatus, propertyDistributionRemoveMessage,
+  propertyReserveMonthlyRemoveStatus, propertyReserveMonthlyRemoveMessage,
+  propertyBudgetImportStatus, propertyBudgetImportMessage,
+  propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
 }) {
   if (pageId === 'operating-results') {
     // Live-first: tries connect.finance-property-operating.v1 (property-report-service.js's
@@ -220,9 +301,10 @@ export function renderPropertyPage(pageId, {
     const fallbackNote = isLive ? '' : `<p><small>The committed synthetic fixture (the live endpoint is not configured or did not answer${propertyReportLive && propertyReportLive.fallbackReason ? `: ${escapeHtml(propertyReportLive.fallbackReason)}` : ''}).</small></p>`;
     return `<section class="report" aria-label="${isLive ? 'Commercial Property operating results' : 'Synthetic Commercial Property operating results'}">
       ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: `Operating results through ${escapeHtml(periodEnd)}`, badge: isLive ? 'Live from Connect' : 'Synthetic staging' })}
-      ${renderTable({ head: ['Period', 'Occupancy', 'Revenue', 'Expenses', 'Net income'], rows: renderPropertyRows(rows) })}
+      ${canManagePropertyMonthly ? renderRemoveStatus(propertyMonthlyRemoveStatus, propertyMonthlyRemoveMessage) : ''}
+      ${renderTable({ head: ['Period', 'Occupancy', 'Revenue', 'Expenses', 'Net income', ...(canManagePropertyMonthly ? [''] : [])], rows: renderPropertyRows(rows, canManagePropertyMonthly) })}
       ${fallbackNote}
-    </section>${canManagePropertyMonthly ? renderPropertyMonthlyForm(propertyMonthlyEntryStatus, propertyMonthlyEntryMessage) : ''}`;
+    </section>${canManagePropertyMonthly ? renderPropertyMonthlyForm(propertyMonthlyEntryStatus, propertyMonthlyEntryMessage) : ''}${canManagePropertyMonthly ? renderPropertyMonthlyImportCsvForm(propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage) : ''}`;
   }
   if (pageId === 'rent-roll') {
     const isLive = propertyValuation.source === 'live';
@@ -264,13 +346,15 @@ export function renderPropertyPage(pageId, {
     return `<section class="report" aria-label="${isLive ? 'Commercial Property reserve and distribution' : 'Synthetic Commercial Property reserve and distribution'}">
       ${renderSectionHeading({ eyebrow: 'Property tax reserve', heading: 'Monthly reserve schedule', badge: isLive ? 'Live from Connect' : 'Synthetic staging' })}
       <p><small>${latestReserve.funded_pct.toFixed(1)}% funded${isLive ? ` as of ${escapeHtml(latestReserve.report_month)}` : ''}</small></p>
-      ${renderTable({ head: ['Report month', 'Tax year', 'Target', 'Before', 'Contribution', 'After', 'Funded'], rows: renderPropertyReserveRows(reserveRows) })}
+      ${canManagePropertyLedgers ? renderRemoveStatus(propertyReserveMonthlyRemoveStatus, propertyReserveMonthlyRemoveMessage) : ''}
+      ${renderTable({ head: ['Report month', 'Tax year', 'Target', 'Before', 'Contribution', 'After', 'Funded', ...(canManagePropertyLedgers ? [''] : [])], rows: renderPropertyReserveRows(reserveRows, canManagePropertyLedgers) })}
       ${renderSectionHeading({ eyebrow: 'Distribution history', heading: 'Amounts distributed', badge: `${distributions.totals.distributionCount} period${distributions.totals.distributionCount === 1 ? '' : 's'}`, trend: true })}
       ${renderKpiCards([
         { label: 'Total distributed', value: formatCents(distributions.totals.distributionCents) },
         { label: 'Average per period', value: formatCents(distributions.totals.averageCents) },
       ])}
-      ${renderTable({ head: ['Period', 'Amount distributed'], rows: renderPropertyDistributionRows(distributions.rows) })}
+      ${canManagePropertyLedgers ? renderRemoveStatus(propertyDistributionRemoveStatus, propertyDistributionRemoveMessage) : ''}
+      ${renderTable({ head: ['Period', 'Amount distributed', ...(canManagePropertyLedgers ? [''] : [])], rows: renderPropertyDistributionRows(distributions.rows, canManagePropertyLedgers) })}
       ${fallbackNote}
     </section>${canManagePropertyLedgers ? renderPropertyReserveMonthlyForm(propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage) + renderPropertyReserveDisbursementForm(propertyReserveDisbursementEntryStatus, propertyReserveDisbursementEntryMessage) : ''}`;
   }
@@ -322,14 +406,14 @@ export function renderPropertyPage(pageId, {
         ])}
         ${renderTable({ head: ['Month', 'Revenue', 'Expenses', 'Net income'], rows: renderPropertyForecastRows(forecast.rows) })}
         ${fallbackNote}
-      </section>`;
+      </section>${canManagePropertyLedgers ? renderPropertyBudgetImportForm(propertyBudgetImportStatus, propertyBudgetImportMessage) : ''}`;
     }
     const forecast = buildLivePropertyForecastView(propertyForecastLive.periods, propertyForecastLive.forecastYear, propertyForecastLive.totals);
     if (!forecast.hasForecastYear) {
       return `<section class="report" aria-label="Commercial Property run-rate forecast">
         ${renderSectionHeading({ eyebrow: 'Run-rate forecast', heading: 'No complete forecast year on file', badge: 'Live from Connect' })}
         <p>Connect has budget-plan rows for ${escapeHtml(propertyForecastLive.propertyKey || 'this property')}, but no single fiscal year with all 12 months on file yet.</p>
-      </section>`;
+      </section>${canManagePropertyLedgers ? renderPropertyBudgetImportForm(propertyBudgetImportStatus, propertyBudgetImportMessage) : ''}`;
     }
     return `<section class="report" aria-label="Commercial Property run-rate forecast">
       ${renderSectionHeading({ eyebrow: 'Run-rate forecast', heading: `Fiscal year ${forecast.fiscalYear} monthly plan`, badge: 'Live from Connect' })}
@@ -339,7 +423,7 @@ export function renderPropertyPage(pageId, {
         { label: 'Forecast net income', value: formatSignedCents(forecast.totals.netIncomeCents), hint: forecast.totals.reconciled ? 'Reconciles to the cent' : 'Does not reconcile exactly -- review the source import' },
       ])}
       ${renderTable({ head: ['Month', 'Revenue', 'Expenses', 'Net income'], rows: renderLivePropertyForecastRows(forecast.rows) })}
-    </section>`;
+    </section>${canManagePropertyLedgers ? renderPropertyBudgetImportForm(propertyBudgetImportStatus, propertyBudgetImportMessage) : ''}`;
   }
   if (pageId === 'distributions') {
     // Live-first: reuses propertyReservesLive (property-report-service.js's resolvePropertyReserves,
@@ -359,7 +443,8 @@ export function renderPropertyPage(pageId, {
         { label: 'Average per period', value: formatCents(distributions.totals.averageCents) },
         { label: 'Periods recorded', value: String(distributions.totals.distributionCount) },
       ])}
-      ${renderTable({ head: ['Period', 'Amount distributed'], rows: renderPropertyDistributionRows(distributions.rows) })}
+      ${canManagePropertyLedgers ? renderRemoveStatus(propertyDistributionRemoveStatus, propertyDistributionRemoveMessage) : ''}
+      ${renderTable({ head: ['Period', 'Amount distributed', ...(canManagePropertyLedgers ? [''] : [])], rows: renderPropertyDistributionRows(distributions.rows, canManagePropertyLedgers) })}
       ${fallbackNote}
     </section>${canManagePropertyLedgers ? renderPropertyDistributionForm(propertyDistributionEntryStatus, propertyDistributionEntryMessage) : ''}`;
   }

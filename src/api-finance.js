@@ -2809,6 +2809,141 @@ export async function addPropertyCapitalLedgerEntry(db, propertyKey, body) {
   return { ok: true, id: r.meta?.last_row_id };
 }
 
+// ── Shared Commercial Property remove/import writers ─────────────────────────────────────────
+// The six removers below and the meta/import writers that follow are each used by both an
+// admin-only legacy finance/property/:propertyKey/... route in handlePropertyApi (unchanged
+// behavior) and its own new relay contract counterpart (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical operation on behalf of an identity it verified
+// via Cloudflare Access. One implementation per operation means the two entry points can never
+// drift. None of the six removers checks whether a matching row exists first -- exactly like the
+// legacy DELETE routes they're extracted from, whose own DELETE statement's affected-row count is
+// never checked either -- so removing an already-absent row is a silent no-op, not an error, on
+// both the legacy path and the relay.
+//
+// A period/report_month/period_key/id argument is a URL path segment on the legacy route (already
+// shape-guaranteed by that route's own regex before this function is ever reached) but an ordinary
+// JSON body field on the relay, which has no URL segment to validate it. Each remover therefore
+// re-validates that argument against the exact same shape the legacy route's own URL regex
+// enforces -- the same reasoning already applied to `reserveKey` in upsertPropertyReserveMonthly/
+// upsertPropertyReserveDisbursement above -- so a malformed relay body fails closed with a 400
+// instead of silently matching zero rows. This never changes the legacy route's own behavior: the
+// value it passes in already satisfies the shape by construction.
+export async function removePropertyMonthlyEntry(db, propertyKey, period) {
+  if (!period || !/^\d{4}-\d{2}$/.test(period)) return { error: 'period must be YYYY-MM', status: 400 };
+  await db.prepare('DELETE FROM finance_property_monthly WHERE property_key=? AND period=?').bind(propertyKey, period).run();
+  return { ok: true };
+}
+
+export async function removePropertyDistribution(db, propertyKey, period) {
+  if (!period || !/^\d{4}-\d{2}$/.test(period)) return { error: 'period must be YYYY-MM', status: 400 };
+  await db.prepare('DELETE FROM finance_property_distributions WHERE property_key=? AND period=?').bind(propertyKey, period).run();
+  return { ok: true };
+}
+
+export async function removePropertyReserveMonthly(db, propertyKey, reserveKey, reportMonth) {
+  if (!reserveKey || !/^[a-z_]+$/.test(reserveKey)) return { error: 'reserve key must match [a-z_]+', status: 400 };
+  if (!reportMonth || !/^\d{4}-\d{2}$/.test(reportMonth)) return { error: 'report_month must be YYYY-MM', status: 400 };
+  await db.prepare('DELETE FROM finance_property_reserves WHERE property_key=? AND reserve_key=? AND report_month=?')
+    .bind(propertyKey, reserveKey, reportMonth).run();
+  return { ok: true };
+}
+
+export async function removePropertyReserveDisbursement(db, propertyKey, reserveKey, periodKey) {
+  if (!reserveKey || !/^[a-z_]+$/.test(reserveKey)) return { error: 'reserve key must match [a-z_]+', status: 400 };
+  const key = (periodKey !== undefined && periodKey !== null) ? String(periodKey).trim() : '';
+  if (!key) return { error: 'period_key is required', status: 400 };
+  await db.prepare('DELETE FROM finance_property_reserve_disbursements WHERE property_key=? AND reserve_key=? AND period_key=?')
+    .bind(propertyKey, reserveKey, key).run();
+  return { ok: true };
+}
+
+export async function removePropertyCapitalLedgerEntry(db, propertyKey, id) {
+  const idStr = String(id ?? '').trim();
+  if (!/^\d+$/.test(idStr)) return { error: 'id must be a non-negative integer', status: 400 };
+  await db.prepare('DELETE FROM finance_property_capital_ledger WHERE property_key=? AND id=?').bind(propertyKey, parseInt(idStr, 10)).run();
+  return { ok: true };
+}
+
+export async function removePropertyRepair(db, propertyKey, id) {
+  const idStr = String(id ?? '').trim();
+  if (!/^\d+$/.test(idStr)) return { error: 'id must be a non-negative integer', status: 400 };
+  await db.prepare('DELETE FROM finance_property_repairs WHERE property_key=? AND id=?').bind(propertyKey, parseInt(idStr, 10)).run();
+  return { ok: true };
+}
+
+// ── Shared Commercial Property meta writer ───────────────────────────────────────────────────
+// Used by both the admin-only finance/property/:propertyKey/meta PATCH route below and its
+// finance-property-meta-write-v1 relay contract counterpart. Same per-section MERGE the legacy
+// route already does (property/valuation/loan/reserves/capital, each merged independently — an
+// omitted section is left untouched, and a present section merges only its own keys rather than
+// replacing the whole section), stored as the same finance_settings JSON blob keyed
+// `finance_property_${propertyKey}_meta`.
+export async function savePropertyMeta(db, propertyKey, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const metaRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
+  let meta = {};
+  if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
+  for (const section of ['property', 'valuation', 'loan', 'reserves', 'capital']) {
+    if (b[section] && typeof b[section] === 'object') meta[section] = { ...(meta[section] || {}), ...b[section] };
+  }
+  await db.prepare(
+    `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(`finance_property_${propertyKey}_meta`, JSON.stringify(meta)).run();
+  return { ok: true, meta };
+}
+
+// ── Shared Commercial Property AHRA "Budget Detail" (.xlsx) importer ────────────────────────
+// Used by both the admin-only finance/property/:propertyKey/budget-import POST route below and its
+// finance-property-budget-import-v1 relay contract counterpart. Unlike importChurchBudgetXlsx/
+// importChurchBalancesXlsx above (which combine primitives that legacy's own two-step preview/
+// commit flow never packaged into one function), this IS a straight extraction — legacy's own
+// budget-import route is already a single parse-and-commit request, same as every other
+// shared-function extraction in this file. `arrayBuffer` is the uploaded workbook's raw bytes
+// (from `file.arrayBuffer()` on the legacy route, or a base64-decoded upload's `.buffer` on the
+// relay contract).
+export async function importPropertyBudgetRows(db, propertyKey, arrayBuffer) {
+  let sheets;
+  try { sheets = await parseXlsxAllSheets(arrayBuffer); }
+  catch (e) { return { error: 'Could not read this file as an Excel workbook: ' + e.message, status: 400 }; }
+  const sheet = findPropertyBudgetDetailSheet(sheets);
+  if (!sheet) return { error: 'Could not find a "Budget Detail" sheet in this file (expected an "Account Name" / "Jan YYYY" header row).', status: 400 };
+  const { months } = parsePropertyBudgetDetailGrid(sheet.grid);
+  if (!months.length) return { error: 'Could not find "Total Budgeted Operating Income"/"Total Budgeted Operating Expense" rows in this sheet.', status: 400 };
+  const ops = months.map(m => db.prepare(
+    `INSERT INTO finance_property_budget_monthly (property_key, period, revenue_cents, expenses_cents, net_income_cents, source, updated_at)
+     VALUES (?,?,?,?,?,'ahra_import',datetime('now'))
+     ON CONFLICT(property_key, period) DO UPDATE SET revenue_cents=excluded.revenue_cents, expenses_cents=excluded.expenses_cents, net_income_cents=excluded.net_income_cents, source=excluded.source, updated_at=excluded.updated_at`
+  ).bind(propertyKey, m.period, m.revenueCents, m.expensesCents, m.netIncomeCents));
+  await db.batch(ops);
+  await recordImport(db, 'property_budget_xlsx', `${months.length} month(s)`);
+  return { ok: true, imported: months.length, months };
+}
+
+// ── Shared Commercial Property monthly-financials CSV importer ──────────────────────────────
+// Used by both the admin-only finance/property/:propertyKey/monthly-import-csv POST route below
+// and its finance-property-monthly-import-csv-v1 relay contract counterpart. A straight extraction
+// of the legacy route's own body, same as importPropertyBudgetRows above. `csvText` is the raw
+// pasted-in CSV (the relay carries it as a plain JSON string field — no base64/file-upload
+// complexity needed, unlike the true binary .xlsx uploads above).
+export async function importPropertyMonthlyCsv(db, propertyKey, csvText, sourceReport) {
+  const { rows, error } = parsePropertyMonthlyCsv(csvText || '');
+  if (error) return { error, status: 400 };
+  if (!rows.length) return { error: 'No data rows found in this CSV.', status: 400 };
+  const ops = rows.map(r => db.prepare(
+    `INSERT INTO finance_property_monthly
+       (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,source_report,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))
+     ON CONFLICT(property_key,period) DO UPDATE SET
+       occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
+       net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
+       available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
+       source_report=excluded.source_report, updated_at=excluded.updated_at`
+  ).bind(propertyKey, r.period, r.occupancy_pct, r.total_revenue_cents, r.total_expenses_cents, r.net_income_cents, r.net_operating_income_cents, r.available_for_distribution_cents, r.reserve_balance_cents, sourceReport || 'csv_import'));
+  await db.batch(ops);
+  await recordImport(db, 'property_monthly_csv', rows.map(r => r.period).join(', '));
+  return { ok: true, imported: rows.length, periods: rows.map(r => r.period) };
+}
+
 async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey) {
   if (seg === `finance/property/${propertyKey}` && method === 'GET') {
     const monthly = (await db.prepare('SELECT * FROM finance_property_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
@@ -2848,21 +2983,9 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
     const file = form && form.get('file');
     if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
     if (file.size > 15 * 1024 * 1024) return json({ error: 'File too large (max 15 MB)' }, 413);
-    let sheets;
-    try { sheets = await parseXlsxAllSheets(await file.arrayBuffer()); }
-    catch (e) { return json({ error: 'Could not read this file as an Excel workbook: ' + e.message }, 400); }
-    const sheet = findPropertyBudgetDetailSheet(sheets);
-    if (!sheet) return json({ error: 'Could not find a "Budget Detail" sheet in this file (expected an "Account Name" / "Jan YYYY" header row).' }, 400);
-    const { months } = parsePropertyBudgetDetailGrid(sheet.grid);
-    if (!months.length) return json({ error: 'Could not find "Total Budgeted Operating Income"/"Total Budgeted Operating Expense" rows in this sheet.' }, 400);
-    const ops = months.map(m => db.prepare(
-      `INSERT INTO finance_property_budget_monthly (property_key, period, revenue_cents, expenses_cents, net_income_cents, source, updated_at)
-       VALUES (?,?,?,?,?,'ahra_import',datetime('now'))
-       ON CONFLICT(property_key, period) DO UPDATE SET revenue_cents=excluded.revenue_cents, expenses_cents=excluded.expenses_cents, net_income_cents=excluded.net_income_cents, source=excluded.source, updated_at=excluded.updated_at`
-    ).bind(propertyKey, m.period, m.revenueCents, m.expensesCents, m.netIncomeCents));
-    await db.batch(ops);
-    await recordImport(db, 'property_budget_xlsx', `${months.length} month(s)`);
-    return json({ ok: true, imported: months.length, months });
+    const result = await importPropertyBudgetRows(db, propertyKey, await file.arrayBuffer());
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   if (seg === `finance/property/${propertyKey}/monthly` && method === 'POST') {
@@ -2881,29 +3004,17 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   if (seg === `finance/property/${propertyKey}/monthly-import-csv` && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const { rows, error } = parsePropertyMonthlyCsv(b.csv || '');
-    if (error) return json({ error }, 400);
-    if (!rows.length) return json({ error: 'No data rows found in this CSV.' }, 400);
-    const ops = rows.map(r => db.prepare(
-      `INSERT INTO finance_property_monthly
-         (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,source_report,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))
-       ON CONFLICT(property_key,period) DO UPDATE SET
-         occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
-         net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
-         available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
-         source_report=excluded.source_report, updated_at=excluded.updated_at`
-    ).bind(propertyKey, r.period, r.occupancy_pct, r.total_revenue_cents, r.total_expenses_cents, r.net_income_cents, r.net_operating_income_cents, r.available_for_distribution_cents, r.reserve_balance_cents, b.source_report || 'csv_import'));
-    await db.batch(ops);
-    await recordImport(db, 'property_monthly_csv', rows.map(r => r.period).join(', '));
-    return json({ ok: true, imported: rows.length, periods: rows.map(r => r.period) });
+    const result = await importPropertyMonthlyCsv(db, propertyKey, b.csv, b.source_report);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   const monthMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/monthly/(\\d{4}-\\d{2})$`));
   if (monthMatch && method === 'DELETE') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
-    await db.prepare('DELETE FROM finance_property_monthly WHERE property_key=? AND period=?').bind(propertyKey, monthMatch[1]).run();
-    return json({ ok: true });
+    const result = await removePropertyMonthlyEntry(db, propertyKey, monthMatch[1]);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   if (seg === `finance/property/${propertyKey}/distributions` && method === 'POST') {
@@ -2917,23 +3028,16 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   const distMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/distributions/(\\d{4}-\\d{2})$`));
   if (distMatch && method === 'DELETE') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
-    await db.prepare('DELETE FROM finance_property_distributions WHERE property_key=? AND period=?').bind(propertyKey, distMatch[1]).run();
-    return json({ ok: true });
+    const result = await removePropertyDistribution(db, propertyKey, distMatch[1]);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   if (seg === `finance/property/${propertyKey}/meta` && method === 'PATCH') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const metaRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
-    let meta = {};
-    if (metaRow) { try { meta = JSON.parse(metaRow.value) || {}; } catch { meta = {}; } }
-    for (const section of ['property', 'valuation', 'loan', 'reserves', 'capital']) {
-      if (b[section] && typeof b[section] === 'object') meta[section] = { ...(meta[section] || {}), ...b[section] };
-    }
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(`finance_property_${propertyKey}_meta`, JSON.stringify(meta)).run();
-    return json({ ok: true, meta });
+    const result = await savePropertyMeta(db, propertyKey, b);
+    return json(result);
   }
 
   // ── Named reserve schedules (property tax, capital paint/asphalt/concrete, ...) ────────────
@@ -2949,9 +3053,9 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   const reserveMonthDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/monthly/(\\d{4}-\\d{2})$`));
   if (reserveMonthDeleteMatch && method === 'DELETE') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
-    await db.prepare('DELETE FROM finance_property_reserves WHERE property_key=? AND reserve_key=? AND report_month=?')
-      .bind(propertyKey, reserveMonthDeleteMatch[1], reserveMonthDeleteMatch[2]).run();
-    return json({ ok: true });
+    const result = await removePropertyReserveMonthly(db, propertyKey, reserveMonthDeleteMatch[1], reserveMonthDeleteMatch[2]);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   const reserveDisbursementMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/disbursements$`));
@@ -2966,9 +3070,9 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   const reserveDisbursementDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/disbursements/(.+)$`));
   if (reserveDisbursementDeleteMatch && method === 'DELETE') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
-    await db.prepare('DELETE FROM finance_property_reserve_disbursements WHERE property_key=? AND reserve_key=? AND period_key=?')
-      .bind(propertyKey, reserveDisbursementDeleteMatch[1], decodeURIComponent(reserveDisbursementDeleteMatch[2])).run();
-    return json({ ok: true });
+    const result = await removePropertyReserveDisbursement(db, propertyKey, reserveDisbursementDeleteMatch[1], decodeURIComponent(reserveDisbursementDeleteMatch[2]));
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // ── Capital improvements ledger ────────────────────────────────────────────────────────────
@@ -2983,8 +3087,9 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   const capitalLedgerDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/capital-ledger/(\\d+)$`));
   if (capitalLedgerDeleteMatch && method === 'DELETE') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
-    await db.prepare('DELETE FROM finance_property_capital_ledger WHERE property_key=? AND id=?').bind(propertyKey, parseInt(capitalLedgerDeleteMatch[1], 10)).run();
-    return json({ ok: true });
+    const result = await removePropertyCapitalLedgerEntry(db, propertyKey, capitalLedgerDeleteMatch[1]);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // ── Repairs & maintenance log ──────────────────────────────────────────────────────────────
@@ -2999,8 +3104,9 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   const repairsDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/repairs/(\\d+)$`));
   if (repairsDeleteMatch && method === 'DELETE') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
-    await db.prepare('DELETE FROM finance_property_repairs WHERE property_key=? AND id=?').bind(propertyKey, parseInt(repairsDeleteMatch[1], 10)).run();
-    return json({ ok: true });
+    const result = await removePropertyRepair(db, propertyKey, repairsDeleteMatch[1]);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   return undefined;

@@ -21,6 +21,9 @@ import {
   applyDaycareBudgetOverride, bulkRecordDaycareEntries, importDaycareFromChurchBudget,
   saveBaseProjectionOverrides, savePurposeTags,
   importChurchBudgetXlsx, importChurchBalancesXlsx,
+  removePropertyMonthlyEntry, removePropertyDistribution, removePropertyReserveMonthly,
+  removePropertyReserveDisbursement, removePropertyCapitalLedgerEntry, removePropertyRepair,
+  savePropertyMeta, importPropertyBudgetRows, importPropertyMonthlyCsv,
 } from './api-finance.js';
 
 export async function handleContractsServiceApi(req, env, path) {
@@ -153,6 +156,42 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-property-capital-ledger-write-v1' && req.method === 'POST') {
     return handleFinancePropertyCapitalLedgerWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-property-monthly-remove-v1' && req.method === 'POST') {
+    return handleFinancePropertyMonthlyRemoveContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-property-distribution-remove-v1' && req.method === 'POST') {
+    return handleFinancePropertyDistributionRemoveContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-property-reserve-monthly-remove-v1' && req.method === 'POST') {
+    return handleFinancePropertyReserveMonthlyRemoveContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-property-reserve-disbursement-remove-v1' && req.method === 'POST') {
+    return handleFinancePropertyReserveDisbursementRemoveContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-property-capital-ledger-remove-v1' && req.method === 'POST') {
+    return handleFinancePropertyCapitalLedgerRemoveContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-property-repair-remove-v1' && req.method === 'POST') {
+    return handleFinancePropertyRepairRemoveContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-property-meta-write-v1' && req.method === 'POST') {
+    return handleFinancePropertyMetaWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-property-budget-import-v1' && req.method === 'POST') {
+    return handleFinancePropertyBudgetImportContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-property-monthly-import-csv-v1' && req.method === 'POST') {
+    return handleFinancePropertyMonthlyImportCsvContract(req, env);
   }
 
   if (path === '/api/contracts/finance-revenue-streams-write-v1' && req.method === 'POST') {
@@ -681,6 +720,241 @@ async function handleFinancePropertyCapitalLedgerWriteContract(req, env) {
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
   const result = await addPropertyCapitalLedgerEntry(db, 'ivanhoe', body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Commercial Property monthly-entry removal, relayed from Finance's own Operating results UI ──
+// Same shape as handleFinancePropertyMonthlyWriteContract above: admin only, matching
+// finance/property/ivanhoe/monthly/:period's own DELETE gate exactly, since this calls the
+// identical removePropertyMonthlyEntry() helper that route uses (src/api-finance.js). The property
+// key is hardcoded to 'ivanhoe' here, never taken from the request body, same reasoning as the
+// other property relays. Removing a period that was never recorded is a silent no-op, matching the
+// legacy route's own behavior exactly (its DELETE statement's affected-row count is never checked).
+async function handleFinancePropertyMonthlyRemoveContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await removePropertyMonthlyEntry(db, 'ivanhoe', String(body?.period || ''));
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Commercial Property distribution removal, relayed from Finance's own Distributions UI ──────
+// Same shape as handleFinancePropertyMonthlyRemoveContract above: admin only, matching
+// finance/property/ivanhoe/distributions/:period's own DELETE gate exactly, since this calls the
+// identical removePropertyDistribution() helper that route uses (src/api-finance.js).
+async function handleFinancePropertyDistributionRemoveContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await removePropertyDistribution(db, 'ivanhoe', String(body?.period || ''));
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Commercial Property named-reserve monthly-schedule removal, relayed from Finance's own
+// Reserve & distribution UI ─────────────────────────────────────────────────────────────────
+// Same shape as handleFinancePropertyReserveMonthlyWriteContract above: admin only, matching
+// finance/property/ivanhoe/reserves/:reserveKey/monthly/:report_month's own DELETE gate exactly,
+// since this calls the identical removePropertyReserveMonthly() helper that route uses
+// (src/api-finance.js). The reserve key comes from the request body (no URL path segment on a
+// contract relay) and is re-validated by the shared helper, same reasoning as the write relay.
+async function handleFinancePropertyReserveMonthlyRemoveContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await removePropertyReserveMonthly(db, 'ivanhoe', String(body?.reserve_key || ''), String(body?.report_month || ''));
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Commercial Property named-reserve disbursement removal, relayed from Finance's own Reserve &
+// distribution UI ───────────────────────────────────────────────────────────────────────────
+// Same shape as handleFinancePropertyReserveDisbursementWriteContract above: admin only, matching
+// finance/property/ivanhoe/reserves/:reserveKey/disbursements/:period_key's own DELETE gate
+// exactly, since this calls the identical removePropertyReserveDisbursement() helper that route
+// uses (src/api-finance.js). The legacy route URL-decodes its period_key path segment before
+// deleting; the relay's period_key is an ordinary JSON string field, already decoded.
+async function handleFinancePropertyReserveDisbursementRemoveContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await removePropertyReserveDisbursement(db, 'ivanhoe', String(body?.reserve_key || ''), body?.period_key);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Commercial Property capital-improvements ledger removal, relayed from Finance's own Capital
+// improvements UI ───────────────────────────────────────────────────────────────────────────
+// Same shape as handleFinancePropertyCapitalLedgerWriteContract above: admin only, matching
+// finance/property/ivanhoe/capital-ledger/:id's own DELETE gate exactly, since this calls the
+// identical removePropertyCapitalLedgerEntry() helper that route uses (src/api-finance.js).
+async function handleFinancePropertyCapitalLedgerRemoveContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await removePropertyCapitalLedgerEntry(db, 'ivanhoe', body?.id);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Commercial Property repairs & maintenance log removal, relayed from Finance's own Work
+// orders UI ─────────────────────────────────────────────────────────────────────────────────
+// Same shape as handleFinancePropertyRepairWriteContract above: admin only, matching
+// finance/property/ivanhoe/repairs/:id's own DELETE gate exactly, since this calls the identical
+// removePropertyRepair() helper that route uses (src/api-finance.js).
+async function handleFinancePropertyRepairRemoveContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await removePropertyRepair(db, 'ivanhoe', body?.id);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Commercial Property meta write, relayed from Finance's own Property Overview UI ────────────
+// Same shape as handleFinancePropertyMonthlyWriteContract above: admin only, matching
+// finance/property/ivanhoe/meta's own PATCH gate exactly, since this calls the identical
+// savePropertyMeta() helper that route uses (src/api-finance.js). Same per-section MERGE
+// (property/valuation/loan/reserves/capital) as the legacy route, never a whole-blob replace.
+async function handleFinancePropertyMetaWriteContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await savePropertyMeta(db, 'ivanhoe', body);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Commercial Property AHRA "Budget Detail" (.xlsx) import, relayed from Finance's own Run-rate
+// forecast UI ───────────────────────────────────────────────────────────────────────────────
+// Same shape as handleFinanceChurchBudgetXlsxImportContract below: admin only, matching
+// finance/property/ivanhoe/budget-import's own gate exactly, since this calls the identical
+// importPropertyBudgetRows() helper (src/api-finance.js). The uploaded file travels as a base64
+// string in the JSON body, decoded with the same decodeBase64XlsxUpload() helper the Church/
+// Balance .xlsx import relays use, capped at the same 15 MB limit.
+async function handleFinancePropertyBudgetImportContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const decoded = decodeBase64XlsxUpload(body && body.file_base64);
+  if (decoded.error) return json({ error: decoded.error }, decoded.status || 400);
+  const result = await importPropertyBudgetRows(db, 'ivanhoe', decoded.bytes.buffer);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Commercial Property monthly-financials CSV import, relayed from Finance's own Operating
+// results UI ────────────────────────────────────────────────────────────────────────────────
+// Same shape as handleFinancePropertyMonthlyWriteContract above: admin only, matching
+// finance/property/ivanhoe/monthly-import-csv's own gate exactly, since this calls the identical
+// importPropertyMonthlyCsv() helper (src/api-finance.js). Legacy parses `csv` as a plain pasted-in
+// text field (not a file upload), so this relay carries it the same way -- a plain JSON string
+// field, no base64/file-upload complexity needed.
+async function handleFinancePropertyMonthlyImportCsvContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await importPropertyMonthlyCsv(db, 'ivanhoe', body && body.csv, body && body.source_report);
   if (result.error) return json({ error: result.error }, result.status || 400);
   return json({ ...result, savedBy: user.username });
 }
