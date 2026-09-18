@@ -13,11 +13,11 @@
 | Website administration | `timothystl/website` | Worker `tlc-newsletter-admin` | `admin.timothystl.org` | D1 `tlc-newsletter-db`; R2 `tlc-news-images` |
 | Public giving presentation | `timothystl/website` | `timothystl-site` | `give.timothystl.org` | Website settings and external giving links |
 | Utility links | `timothystl/website` | Worker `tlc-links` | `links.timothystl.org` | Worker/site configuration |
-| Connect/CHMS | `timothystl/chms` | Worker `tlc-chms` | `connect.timothystl.org` | D1 `tlc-volunteer-db`; KV `RSVP_STORE`; R2 photos |
-| Giving | `timothystl/chms` | Same `tlc-chms` Worker | Connect Giving screens | Same `tlc-volunteer-db` |
-| Finance | `timothystl/chms` | Same `tlc-chms` Worker | Connect Finance screens | Same `tlc-volunteer-db` |
-| Serve | `timothystl/chms` | Same `tlc-chms` Worker | `serve.timothystl.org` | Same `tlc-volunteer-db` |
-| Scheduler | `timothystl/chms` | Same `tlc-chms` Worker | Embedded in Connect | Same `tlc-volunteer-db` |
+| Connect/CHMS | `timothystl/chms` | Worker `timothy-connect` | `connect.timothystl.org` | D1 `timothy-connect-db`; KV `timothy-connect-kv` (binding `KV`); R2 photos |
+| Giving | `timothystl/chms` | Same `timothy-connect` Worker | Connect Giving screens | Same `timothy-connect-db` |
+| Finance | `timothystl/chms` | Same `timothy-connect` Worker | Connect Finance screens | Same `timothy-connect-db` |
+| Serve | `timothystl/chms` | Same `timothy-connect` Worker | `serve.timothystl.org` | Same `timothy-connect-db` |
+| Scheduler | `timothystl/chms` | Same `timothy-connect` Worker | Embedded in Connect | Same `timothy-connect-db` |
 | Combined church/MDO payroll | `timothystl/website` | Website Admin Worker | Website Admin Payroll | Supabase payroll RPCs/tables |
 | myMDO | `timothystl/childcare-portal` | Cloudflare Worker `childcare-portal` deployed by GitHub Actions + Supabase Functions | Public, admin, parent, and staff surfaces | Supabase project `dahdstopsumxnqvdclmy`: Postgres, Auth, Storage, Functions |
 | MDO website controls | `timothystl/childcare-portal` | myMDO Admin | Settings → Website → MDO Website | Narrow seasonal settings; general page content is currently developer-managed in the repository |

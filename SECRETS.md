@@ -200,9 +200,9 @@ login path.
 
 | Binding | Type | Resource | Purpose |
 |---------|------|----------|---------|
-| `DB` | D1 | `tlc-volunteer-db` | Primary database |
-| `RSVP_STORE` | KV | `3db4fdc3...` | Rate limiting + dedup store |
-| `PHOTOS` | R2 | `tlc-chms-photos` | Member and household photos |
+| `DB` | D1 | `timothy-connect-db` | Primary database |
+| `KV` | KV | `timothy-connect-kv` (renamed from `RSVP_STORE`) | Rate limiting + dedup store |
+| `PHOTOS` | R2 | `timothy-connect-photos` | Member and household photos |
 
 These are wired by resource ID, not by secret — they survive a Worker rename (IN1).
 

@@ -9,8 +9,8 @@ The production Worker `tlc-chms` starts at `connect-worker.js` and serves:
 - the legacy redirect at `chms.timothystl.org/*`;
 - embedded Giving, Finance, and Scheduler modules.
 
-Production binds D1 `tlc-volunteer-db` as `DB`, KV as `RSVP_STORE`, R2
-`tlc-chms-photos` as `PHOTOS`, and a daily 14:00 UTC cron. `wrangler.toml` is the source
+Production binds D1 `timothy-connect-db` as `DB`, KV `timothy-connect-kv` as `KV`, R2
+`timothy-connect-photos` as `PHOTOS`, and a daily 14:00 UTC cron. `wrangler.toml` is the source
 configuration; live attachment still outranks prose.
 
 Connect staging runs the same entry point as Worker `timothy-connect-staging` (renamed 2026-09-09

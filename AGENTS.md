@@ -8,10 +8,10 @@ against current source, tests, GitHub, deployed configuration, and live behavior
 ## Product boundary
 
 This repository currently serves Connect, Giving, Finance, Serve, and Scheduler from the
-Cloudflare Worker now named `timothy-connect`. September 15 source configuration uses D1
-`tlc-volunteer-db`, the replacement Connect KV namespace through binding `RSVP_STORE`, R2
+Cloudflare Worker now named `timothy-connect`. September 17 source configuration uses D1
+`timothy-connect-db` (cutover from `tlc-volunteer-db` deployed and verified), the Connect KV
+namespace `timothy-connect-kv` through binding `KV` (renamed from `RSVP_STORE`), R2
 `timothy-connect-photos`, and a daily `14:00 UTC` cron. Staging has separate D1 and no cron.
-A successful D1-copy workflow does not itself switch the configured database.
 New Finance also has separate production/staging Workers and D1 databases in this repository.
 
 The target architecture has four staff products: Church Website, Connect, Finance, and myMDO.
@@ -95,10 +95,11 @@ current plan is a plain task list in the private `digital-architecture` reposito
 `architecture/11-overhaul-readiness-and-execution-plan.md` — read it before starting overhaul work
 here, not the retired gate language this section used to carry. In short, the goals are: Finance
 becomes its own application; shared staff login across products; code normalized and functions
-(and legacy names like `tlc-volunteer-db`, `tlc-chms-photos`, `RSVP_STORE`) moved/renamed to match
-current scope; real developer documentation; and better observability so a resource spike (like
-the earlier hard-to-diagnose D1 usage spike) is easy to root-cause. None of these are gated behind
-each other — pick up whichever is asked for. CHMS's own backup/restore is real and tested (a
+moved/renamed to match current scope (the legacy `tlc-volunteer-db`/`tlc-chms-photos`/`RSVP_STORE`
+names are done — see the resource-naming table in `digital-architecture`'s doc 11); real developer
+documentation; and better observability so a resource spike (like the earlier hard-to-diagnose D1
+usage spike) is easy to root-cause. None of these are gated behind each other — pick up whichever
+is asked for. CHMS's own backup/restore is real and tested (a
 disposable database restore drill passed). Website D1/R2 recovery workflows passed September 11,
 Finance D1 September 14, and myMDO public-schema restore September 13. myMDO's drill does not
 cover Auth's separate schema, Storage bytes or hosted services; drill success is not backup retention.
