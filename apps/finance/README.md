@@ -882,6 +882,110 @@ three legacy routes, including the "no role check of its own" finding for edit/r
 admin requirement for room sync). `test/finance-route-manifest.test.js` is extended with all four
 new route ids.
 
+Alpha.52 completes Church's Excel import write parity: the four remaining legacy Church Excel
+import routes -- Monthly P&L, and the three multi-year Income Statement/Balance Sheet imports
+(Statement of Activity, Budget by Year, Statement of Financial Position) -- relayed to four new
+Connect contract endpoints (`finance-church-monthly-xlsx-import-v1`,
+`finance-church-activity-xlsx-import-v1`, `finance-church-budget-multi-year-xlsx-import-v1`,
+`finance-church-balances-multi-year-xlsx-import-v1`), matching legacy's own `finance/church/
+monthly-import(-preview)`, `finance/church/activity-import(-preview)`, `finance/church/
+budget-multi-year-import(-preview)`, and `finance/church/balances/multi-year-import(-preview)`
+routes' parsing, validation, and persistence exactly -- full function, same data, same app, never
+a second writer. This is the same shape as the `be9ba81` batch (Alpha.49, above) applied to the
+four Church report types that batch's own closing comment named as deliberately out of scope: a
+legacy two-step preview/commit `.xlsx` import becomes a single-request parse-and-persist relay,
+base64 file upload in the JSON body, same as every xlsx relay before it. Every legacy Church Excel
+import route now has a relay counterpart except the deliberately-excluded `finance/church/
+clear-all` (destructive, out of scope for this whole effort).
+
+`src/api-finance.js` adds `importChurchMonthlyXlsx`/`importChurchActivityXlsx`/
+`importChurchBudgetMultiYearXlsx`/`importChurchBalancesMultiYearXlsx` as four new shared functions
+that reuse the EXISTING `findMonthlyPnLSheet`/`parseMonthlyPnLGrid`/
+`persistChurchEntriesMonthlyImport`, `findActivityMultiYearSheet`/`parseActivityMultiYearGrid`/
+`persistChurchEntriesActivityImport`, `findBudgetMultiYearSheet`/`parseBudgetMultiYearGrid`/
+`persistChurchEntriesBudgetMultiYearImport` (the same function as the Activity importer's, aliased
+in `src/api-finance.js`), and `findFinancialPositionMultiYearSheet`/
+`parseFinancialPositionMultiYearGrid`/`persistChurchBalancesMultiYearImport`/`recordImport`
+primitives verbatim -- the same "additive combination, not an extraction" shape `importChurchBudgetXlsx`/
+`importChurchBalancesXlsx` already established in Alpha.49, since none of these four legacy routes'
+own preview-then-checkbox-commit flow has a single function to pull out either. The three
+multi-year importers use the sheet's own full `years` array directly (never a caller-supplied
+`years` override) -- legacy's commit step takes an explicit `years` field only because its preview
+lets a caller check/uncheck rows across years; with no review step here, that field has nothing to
+override.
+
+**Role gate, verified directly against source rather than assumed -- and narrower than the
+Alpha.49 precedent, deliberately:** none of these four legacy routes carries an explicit `isAdmin`
+check of its own (confirmed by reading `src/api-finance.js`'s route bodies directly), unlike
+`finance/church/import(-preview)`/`finance/church/balances/import(-preview)` this same file's
+Alpha.49 entry made admin-only by analogy to `finance/church/actual-override`'s own real `isAdmin`
+check. The only gate these four legacy routes carry is the blanket `financeSegItems` ACCESS_GATE
+(`src/api-chms.js`) -- and unlike the Daycare relays' own looser gate (`finance`/`budget`/
+`compensation`, any one of the three), these four `finance/church/*` segments are NOT one of
+`financeSegItems`' explicitly-listed special cases, so they fall through to its default: the
+single `finance` item alone. The four new contract handlers in `src/api-contracts-service.js`
+re-derive that exact single-item check via `getRolePermissions`/`permissionsForRole`
+(`rolePerms.finance !== 'edit'` -> 403) rather than reusing the admin-only or three-item-OR shape
+of any earlier batch -- admin still passes unconditionally (`permissionsForRole` synthesizes
+`'edit'` on every item for the `admin` role), a `finance`-role user passes by default, and a
+`council`-role user is now correctly denied (council defaults to `'none'` on the plain `finance`
+item, unlike the Daycare relays' three-item OR, where council passes via `compensation:'edit'`) --
+a real, verified difference between this batch's four routes and every earlier "no isAdmin check"
+relay, not an invented stricter or looser rule.
+
+New transports: `postConnectChurchMonthlyXlsxImport`/`postConnectChurchActivityXlsxImport`/
+`postConnectChurchBudgetMultiYearXlsxImport` in `finance-church-report-client.js` and
+`postConnectChurchBalancesMultiYearXlsxImport` in `finance-balance-sheet-client.js` (the same
+never-throws `{ok,reason}` shape as every other transport). New routes in `route-manifest.js`
+(`church-monthly-xlsx-import-write-v1`, `church-activity-xlsx-import-write-v1`,
+`church-budget-multi-year-xlsx-import-write-v1`, `church-balances-multi-year-xlsx-import-write-v1`,
+all `dataSource: 'live-relay', writer: true`) and one shared `shell.js` POST handler for all four
+(same real `request.formData()` multipart file-upload handling as the Alpha.49 routes -- base64-
+encoded before relaying, capped at 15 MB client-side first).
+
+**UI forms, and one deliberate exception:** Monthly P&L ships with no UI form -- its
+`period_month` 1-12 rows are filtered out of both `connect.finance-church-report.v1` and
+`connect.finance-church-report-trend.v1` (every live/synthetic reader in `apps/finance` queries
+`WHERE period_month=0`), so there is no page anywhere in this app that renders monthly-grain
+Church data for a fresh import to feed -- verified directly against `church-report-service.js`'s
+readers, not assumed, the same "no existing live page" allowance Alpha.47's three settings-blob
+routes and Alpha.50's `property-meta-write-v1`/`property-reserve-disbursement-remove-v1` already
+used. It is still a fully real, directly POST-able write path end to end -- shared function,
+contract handler, `route-manifest.js` entry, and a `shell.js` POST route -- just not yet linked
+from a form. Activity and Budget by Year both write the SAME `import_activity`-tagged rows the
+existing multi-year trend view already reads (`resolveChurchYearPrecedence`'s own
+`CHURCH_SOURCE_PRIORITY` includes `import_activity`), so both new forms live on Church Report's
+existing "Multi-year trend" page (`church-pages.js`); the Balance Sheet multi-year import writes
+the same `source='import'` rows the existing "Multi-year position" page already reads, so its form
+lives there (`balance-pages.js`). All three forms use the same looser `roleResult.ok` (any
+verified role) visibility gate as `canRecordDaycareEntry` -- matching the real Connect-side gate
+above, not the admin-only `canManageChurchReport`/`canManageBalanceImport` gates the Alpha.49
+single-year forms use -- UI hiding is never authorization; Connect's own contract handler
+re-verifies the real permission independently of what the form shows or hides. Activity and Budget
+by Year share the 'trend' page's own status/reason/message query-param space (both landing on the
+same redirect), the same "two forms, one shared status" imprecision `daycareBulkEntryStatus`/
+`daycareChurchBudgetImportEntryStatus` already accept for two forms sharing the Daycare Actuals
+page.
+
+Tests: four contract tests (`test/finance-church-monthly-xlsx-import-write-contract.test.js`,
+`test/finance-church-activity-xlsx-import-write-contract.test.js`,
+`test/finance-church-budget-multi-year-xlsx-import-write-contract.test.js`,
+`test/finance-church-balances-multi-year-xlsx-import-write-contract.test.js` -- valid import saves
+real rows with the right tagged source/fiscal year(s), oversized file rejected, invalid/non-xlsx
+bytes rejected, admin allowed unconditionally, a `finance`-role user allowed, a `staff`-role user
+rejected, a `council`-role user rejected (the real, narrower-than-Daycare finding above), wrong
+contract key rejected, missing/invalid identity rejected, deactivated user rejected,
+not-configured -- each building a small real, hand-constructed uncompressed `.xlsx`-shaped ZIP
+fixture, adapting Alpha.49's own fixture-building helper), plus three shell route tests for the
+three routes that got a form (`test/finance-church-activity-xlsx-import-route.test.js`,
+`test/finance-church-budget-multi-year-xlsx-import-route.test.js`,
+`test/finance-church-balances-multi-year-xlsx-import-route.test.js` -- method-not-allowed,
+role-gated form visibility including a `council` viewer now correctly SEEING the form (the looser
+gate, unlike the Alpha.49 admin-only forms), no_file/too_large client-side rejection, successful
+relay + redirect with the base64 bytes verified byte-for-byte, refusal-reason passthrough, and
+network_error handling). `test/finance-route-manifest.test.js` is extended with all four new route
+ids.
+
 ## QuickBooks OAuth/sync design (dark code, never exercised against the real account)
 
 This adds a Finance-owned design (plus as much working code as is honest to write without live

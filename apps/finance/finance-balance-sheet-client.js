@@ -90,3 +90,45 @@ export async function postConnectChurchBalancesXlsxImport(env, accessJwt, body) 
   if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
   return { ok: true, result: payload };
 }
+
+// ── Real transport for connect.finance-church-balances-multi-year-xlsx-import-relay.v1 (a
+// write) ─────────────────────────────────────────────────────────────────────────────────────
+// Same shape as postConnectChurchBalancesXlsxImport above, for the multi-year "Statement of
+// Financial Position" import -- relays an uploaded file to Connect's own contract endpoint,
+// which parses AND persists it in one call via importChurchBalancesMultiYearXlsx
+// (src/api-finance.js). `body` is `{ file_base64 }`; the fiscal years come from the workbook's
+// own year columns, so there is no separate form field for them.
+export async function postConnectChurchBalancesMultiYearXlsxImport(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-church-balances-multi-year-xlsx-import-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS_BALANCES),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}

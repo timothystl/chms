@@ -17,7 +17,10 @@ import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.j
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
 import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
-import { postConnectFinanceChurchActualOverride, postConnectChurchBudgetXlsxImport } from './finance-church-report-client.js';
+import {
+  postConnectFinanceChurchActualOverride, postConnectChurchBudgetXlsxImport,
+  postConnectChurchMonthlyXlsxImport, postConnectChurchActivityXlsxImport, postConnectChurchBudgetMultiYearXlsxImport,
+} from './finance-church-report-client.js';
 import {
   postConnectFinanceDaycareEntry, postConnectDaycareAllocationConfigWrite, postConnectDaycareBudgetOverrideWrite,
   postConnectDaycareBulkWrite, postConnectDaycareChurchBudgetImportWrite,
@@ -40,7 +43,7 @@ import {
   postConnectPropertyReserveDisbursementRemove,
 } from './finance-property-reserves-client.js';
 import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
-import { postConnectChurchBalancesXlsxImport } from './finance-balance-sheet-client.js';
+import { postConnectChurchBalancesXlsxImport, postConnectChurchBalancesMultiYearXlsxImport } from './finance-balance-sheet-client.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
   buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers,
@@ -758,6 +761,9 @@ function renderSectionBody(ctx) {
     churchOverrideStatus, churchOverrideMessage,
     churchBudgetXlsxImportStatus, churchBudgetXlsxImportMessage,
     balanceXlsxImportStatus, balanceXlsxImportMessage,
+    churchActivityXlsxImportStatus, churchActivityXlsxImportMessage,
+    churchBudgetMultiYearXlsxImportStatus, churchBudgetMultiYearXlsxImportMessage,
+    balanceMultiYearXlsxImportStatus, balanceMultiYearXlsxImportMessage,
     daycareEntryStatus, daycareEntryMessage,
     daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
     daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
@@ -924,6 +930,15 @@ function renderSectionBody(ctx) {
     // UI hiding is never authorization, the real gate is finance-church-actual-override-v1's own
     // role check on Connect's side, but there's no reason to show a form that will only 403.
     const canManageChurchReport = roleResult.ok && roleResult.role === 'admin';
+    // Looser gate for the Activity/Budget-by-Year multi-year .xlsx import forms on Multi-year
+    // trend -- unlike canManageChurchReport above, the legacy finance/church/activity-import(-
+    // preview)/finance/church/budget-multi-year-import(-preview) routes carry no isAdmin check of
+    // their own, only the same blanket "finance edit" ACCESS_GATE finance/daycare's own relayed
+    // forms already use (canRecordDaycareEntry below) -- verified directly against
+    // src/api-chms.js's source, not assumed. Any verified role may attempt it; Connect's own
+    // contract handler re-derives the real permission-matrix check independently of what this
+    // form shows or hides (UI hiding is never authorization).
+    const canImportChurchMultiYear = roleResult.ok;
     return renderChurchPage(page.id, {
       churchReport: churchReportLive, churchTrendLive, canManageChurchReport, churchOverrideStatus, churchOverrideMessage,
       // Same admin-only gate as canManageChurchReport above -- the Budget vs. Actuals .xlsx import
@@ -931,6 +946,9 @@ function renderSectionBody(ctx) {
       // finance/church/import(-preview) admin-only gate exactly, so there's no reason for a
       // different check here.
       churchBudgetXlsxImportStatus, churchBudgetXlsxImportMessage,
+      canImportChurchMultiYear,
+      churchActivityXlsxImportStatus, churchActivityXlsxImportMessage,
+      churchBudgetMultiYearXlsxImportStatus, churchBudgetMultiYearXlsxImportMessage,
     });
   }
   if (section.id === 'balance') {
@@ -938,8 +956,13 @@ function renderSectionBody(ctx) {
     // finance/church/balances/import(-preview) routes -- UI hiding is never authorization, the
     // real gate is finance-church-balances-xlsx-import-v1's own role check on Connect's side.
     const canManageBalanceImport = roleResult.ok && roleResult.role === 'admin';
+    // Looser gate for the multi-year .xlsx import form on Multi-year position -- the legacy
+    // finance/church/balances/multi-year-import(-preview) route carries no isAdmin check of its
+    // own either, same reasoning as canImportChurchMultiYear above.
+    const canImportBalanceMultiYear = roleResult.ok;
     return renderBalancePage(page.id, {
       balanceSheet, balanceTrends, canManageBalanceImport, balanceXlsxImportStatus, balanceXlsxImportMessage,
+      canImportBalanceMultiYear, balanceMultiYearXlsxImportStatus, balanceMultiYearXlsxImportMessage,
     });
   }
   if (section.id === 'daycare') {
@@ -1565,6 +1588,51 @@ export default {
       const result = isBalances
         ? await postConnectChurchBalancesXlsxImport(env, accessJwt, { file_base64: fileBase64 })
         : await postConnectChurchBudgetXlsxImport(env, accessJwt, { fiscal_year_hint: form.get('fiscal_year_hint') || '', file_base64: fileBase64 });
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ ...redirectBase, status: 'ok' }).toString()}` } });
+      }
+      const params = new URLSearchParams({ ...redirectBase, status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    // The four remaining Church Excel import relays, completing Church's import write parity --
+    // same real multipart/form-data file-upload handling as the block above (base64-encoded here
+    // before relaying, capped at MAX_XLSX_UPLOAD_BYTES client-side first so an oversized upload
+    // never reaches the relay call). Monthly P&L has no linked form anywhere in this app (its
+    // period_month-scoped rows are never read by any live view here -- see
+    // route-manifest.js's own comment on this route), so it redirects to the plain root, same
+    // convention as revenue-streams-write-v1/flow-expense-map-write-v1/cash-policy-write-v1 above;
+    // Activity and Budget-by-Year both redirect back to Church Report's Multi-year trend page,
+    // and the Balance Sheet counterpart to Multi-year position -- the pages whose underlying data
+    // each import directly feeds.
+    if (
+      route.id === 'church-monthly-xlsx-import-write-v1' || route.id === 'church-activity-xlsx-import-write-v1'
+      || route.id === 'church-budget-multi-year-xlsx-import-write-v1' || route.id === 'church-balances-multi-year-xlsx-import-write-v1'
+    ) {
+      const redirectBase = route.id === 'church-monthly-xlsx-import-write-v1' ? {}
+        : route.id === 'church-balances-multi-year-xlsx-import-write-v1' ? { section: 'balance', page: 'multi-year' }
+        : { section: 'church', page: 'trend' };
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ ...redirectBase, status: 'error', reason: 'invalid_json' }).toString()}` } });
+      }
+      const file = form.get('file');
+      if (!file || typeof file.arrayBuffer !== 'function') {
+        return response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ ...redirectBase, status: 'error', reason: 'no_file' }).toString()}` } });
+      }
+      if (file.size > MAX_XLSX_UPLOAD_BYTES) {
+        return response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ ...redirectBase, status: 'error', reason: 'too_large' }).toString()}` } });
+      }
+      const fileBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+      const body = { file_base64: fileBase64 };
+      const result = route.id === 'church-monthly-xlsx-import-write-v1' ? await postConnectChurchMonthlyXlsxImport(env, accessJwt, body)
+        : route.id === 'church-activity-xlsx-import-write-v1' ? await postConnectChurchActivityXlsxImport(env, accessJwt, body)
+        : route.id === 'church-budget-multi-year-xlsx-import-write-v1' ? await postConnectChurchBudgetMultiYearXlsxImport(env, accessJwt, body)
+        : await postConnectChurchBalancesMultiYearXlsxImport(env, accessJwt, body);
       if (result.ok) {
         return response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ ...redirectBase, status: 'ok' }).toString()}` } });
       }
@@ -2978,6 +3046,24 @@ export default {
         const balanceXlsxImportMessage = balanceXlsxImportStatus === 'error'
           ? describeChurchXlsxImportError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        // Same shared status/reason/message query-param shape, for the Activity/Budget-by-Year
+        // multi-year .xlsx import forms, both on the 'trend' page -- same "both forms show the same
+        // redirect's status" imprecision daycareBulkEntryStatus/daycareChurchBudgetImportEntryStatus
+        // below already accept for two forms sharing one page.
+        const churchActivityXlsxImportStatus = section.id === 'church' ? url.searchParams.get('status') : null;
+        const churchActivityXlsxImportMessage = churchActivityXlsxImportStatus === 'error'
+          ? describeChurchXlsxImportError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const churchBudgetMultiYearXlsxImportStatus = section.id === 'church' ? url.searchParams.get('status') : null;
+        const churchBudgetMultiYearXlsxImportMessage = churchBudgetMultiYearXlsxImportStatus === 'error'
+          ? describeChurchXlsxImportError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        // Same shared status/reason/message query-param shape, for the Balance Sheet multi-year
+        // .xlsx import form on the 'multi-year' page.
+        const balanceMultiYearXlsxImportStatus = section.id === 'balance' ? url.searchParams.get('status') : null;
+        const balanceMultiYearXlsxImportMessage = balanceMultiYearXlsxImportStatus === 'error'
+          ? describeChurchXlsxImportError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const daycareEntryStatus = section.id === 'daycare' ? url.searchParams.get('status') : null;
         const daycareEntryMessage = daycareEntryStatus === 'error'
           ? describeDaycareEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
@@ -3108,6 +3194,9 @@ export default {
           churchOverrideStatus, churchOverrideMessage,
           churchBudgetXlsxImportStatus, churchBudgetXlsxImportMessage,
           balanceXlsxImportStatus, balanceXlsxImportMessage,
+          churchActivityXlsxImportStatus, churchActivityXlsxImportMessage,
+          churchBudgetMultiYearXlsxImportStatus, churchBudgetMultiYearXlsxImportMessage,
+          balanceMultiYearXlsxImportStatus, balanceMultiYearXlsxImportMessage,
           daycareEntryStatus, daycareEntryMessage,
           daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
           daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,

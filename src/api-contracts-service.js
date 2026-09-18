@@ -22,6 +22,7 @@ import {
   editDaycareEntry, removeDaycareEntry, syncDaycareFromApi, syncDaycareRoomsFromApi,
   saveBaseProjectionOverrides, savePurposeTags,
   importChurchBudgetXlsx, importChurchBalancesXlsx,
+  importChurchMonthlyXlsx, importChurchActivityXlsx, importChurchBudgetMultiYearXlsx, importChurchBalancesMultiYearXlsx,
   removePropertyMonthlyEntry, removePropertyDistribution, removePropertyReserveMonthly,
   removePropertyReserveDisbursement, removePropertyCapitalLedgerEntry, removePropertyRepair,
   savePropertyMeta, importPropertyBudgetRows, importPropertyMonthlyCsv,
@@ -253,6 +254,22 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-church-balances-xlsx-import-v1' && req.method === 'POST') {
     return handleFinanceChurchBalancesXlsxImportContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-church-monthly-xlsx-import-v1' && req.method === 'POST') {
+    return handleFinanceChurchMonthlyXlsxImportContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-church-activity-xlsx-import-v1' && req.method === 'POST') {
+    return handleFinanceChurchActivityXlsxImportContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-church-budget-multi-year-xlsx-import-v1' && req.method === 'POST') {
+    return handleFinanceChurchBudgetMultiYearXlsxImportContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-church-balances-multi-year-xlsx-import-v1' && req.method === 'POST') {
+    return handleFinanceChurchBalancesMultiYearXlsxImportContract(req, env);
   }
 
   if (path === '/api/contracts/finance-compensation-write-v1' && req.method === 'POST') {
@@ -1174,6 +1191,147 @@ async function handleFinanceChurchBalancesXlsxImportContract(req, env) {
   const decoded = decodeBase64XlsxUpload(body && body.file_base64);
   if (decoded.error) return json({ error: decoded.error }, decoded.status || 400);
   const result = await importChurchBalancesXlsx(db, { fileBytes: decoded.bytes });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Monthly P&L .xlsx import, relayed from Finance's own Church Report UI ──────────────────────
+// Unlike handleFinanceChurchBudgetXlsxImportContract/handleFinanceChurchBalancesXlsxImportContract
+// above (both admin-only, matching finance/church/actual-override's own EXPLICIT `if (!isAdmin)`
+// check), the legacy finance/church/monthly-import-preview/finance/church/monthly-import routes
+// carry NO isAdmin check of their own -- verified directly against src/api-finance.js's source,
+// not assumed. The only gate legacy applies is the blanket ACCESS_GATE wrapping the whole
+// handler (src/api-chms.js's financeSegItems falls through to the default `['finance']` for this
+// segment, since it is not one of financeSegItems' explicitly-listed special cases), so this
+// re-derives that SAME single-item "finance edit" check via getRolePermissions/permissionsForRole
+// rather than a simple role-name check -- the same real-permission-matrix pattern
+// handleFinanceDaycareEntryContract/handleFinanceDaycareBulkWriteContract already established for
+// legacy routes with no isAdmin check of their own (those use `finance`/`budget`/`compensation`
+// together because financeSegItems explicitly lists their segment against all three; this
+// segment isn't listed, so only the single `finance` item applies here, matching
+// canEditItem('finance') exactly). Calls the identical importChurchMonthlyXlsx() helper
+// (src/api-finance.js), which reuses the SAME findMonthlyPnLSheet/parseMonthlyPnLGrid/
+// persistChurchEntriesMonthlyImport primitives legacy's own routes use.
+async function handleFinanceChurchMonthlyXlsxImportContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  const perms = await getRolePermissions(db);
+  const rolePerms = permissionsForRole(perms, user.role);
+  if (rolePerms.finance !== 'edit') return json({ error: 'Access denied' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const decoded = decodeBase64XlsxUpload(body && body.file_base64);
+  if (decoded.error) return json({ error: decoded.error }, decoded.status || 400);
+  const result = await importChurchMonthlyXlsx(db, { fileBytes: decoded.bytes });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── "Statement of Activity" multi-year .xlsx import, relayed from Finance's own Church Report
+// UI ─────────────────────────────────────────────────────────────────────────────────────────
+// Same shape and same reasoning as handleFinanceChurchMonthlyXlsxImportContract above: the legacy
+// finance/church/activity-import-preview/finance/church/activity-import routes carry no isAdmin
+// check either -- only the same blanket single-item `finance` edit re-derivation applies. Calls
+// the identical importChurchActivityXlsx() helper (src/api-finance.js), which reuses the SAME
+// findActivityMultiYearSheet/parseActivityMultiYearGrid/persistChurchEntriesActivityImport
+// primitives legacy's own routes use.
+async function handleFinanceChurchActivityXlsxImportContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  const perms = await getRolePermissions(db);
+  const rolePerms = permissionsForRole(perms, user.role);
+  if (rolePerms.finance !== 'edit') return json({ error: 'Access denied' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const decoded = decodeBase64XlsxUpload(body && body.file_base64);
+  if (decoded.error) return json({ error: decoded.error }, decoded.status || 400);
+  const result = await importChurchActivityXlsx(db, { fileBytes: decoded.bytes });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── "Budget by Year" multi-year .xlsx import, relayed from Finance's own Church Report UI ──────
+// Same shape and same reasoning as handleFinanceChurchMonthlyXlsxImportContract above: the legacy
+// finance/church/budget-multi-year-import-preview/finance/church/budget-multi-year-import routes
+// carry no isAdmin check either -- only the same blanket single-item `finance` edit re-derivation
+// applies. Calls the identical importChurchBudgetMultiYearXlsx() helper (src/api-finance.js),
+// which reuses the SAME findBudgetMultiYearSheet/parseBudgetMultiYearGrid/
+// persistChurchEntriesBudgetMultiYearImport primitives legacy's own routes use.
+async function handleFinanceChurchBudgetMultiYearXlsxImportContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  const perms = await getRolePermissions(db);
+  const rolePerms = permissionsForRole(perms, user.role);
+  if (rolePerms.finance !== 'edit') return json({ error: 'Access denied' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const decoded = decodeBase64XlsxUpload(body && body.file_base64);
+  if (decoded.error) return json({ error: decoded.error }, decoded.status || 400);
+  const result = await importChurchBudgetMultiYearXlsx(db, { fileBytes: decoded.bytes });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── "Statement of Financial Position" multi-year .xlsx import, relayed from Finance's own
+// Balance Sheet UI ───────────────────────────────────────────────────────────────────────────
+// Same shape and same reasoning as handleFinanceChurchMonthlyXlsxImportContract above: the legacy
+// finance/church/balances/multi-year-import-preview/finance/church/balances/multi-year-import
+// routes carry no isAdmin check either -- only the same blanket single-item `finance` edit
+// re-derivation applies. Calls the identical importChurchBalancesMultiYearXlsx() helper
+// (src/api-finance.js), which reuses the SAME findFinancialPositionMultiYearSheet/
+// parseFinancialPositionMultiYearGrid/persistChurchBalancesMultiYearImport primitives legacy's
+// own routes use.
+async function handleFinanceChurchBalancesMultiYearXlsxImportContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  const perms = await getRolePermissions(db);
+  const rolePerms = permissionsForRole(perms, user.role);
+  if (rolePerms.finance !== 'edit') return json({ error: 'Access denied' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const decoded = decodeBase64XlsxUpload(body && body.file_base64);
+  if (decoded.error) return json({ error: decoded.error }, decoded.status || 400);
+  const result = await importChurchBalancesMultiYearXlsx(db, { fileBytes: decoded.bytes });
   if (result.error) return json({ error: result.error }, result.status || 400);
   return json({ ...result, savedBy: user.username });
 }

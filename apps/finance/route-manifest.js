@@ -68,6 +68,28 @@ const ROUTES = [
   // multipart upload and re-encodes it before calling out.
   { id: 'church-budget-xlsx-import-write-v1', paths: ['/api/v1/connect-church-budget-xlsx-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-budget-xlsx-import-write-relay.v1' },
   { id: 'church-balances-xlsx-import-write-v1', paths: ['/api/v1/connect-church-balances-xlsx-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-balances-xlsx-import-write-relay.v1' },
+  // Same deliberate exception as the two routes above, for the four remaining legacy Church Excel
+  // import routes: Monthly P&L, multi-year "Statement of Activity", multi-year "Budget by Year",
+  // and multi-year "Statement of Financial Position" -- completing Church's Excel import write
+  // parity (every legacy Church import route except the deliberately-excluded
+  // finance/church/clear-all now has a relay counterpart). Each relays an uploaded file to its own
+  // Connect contract endpoint (never writes to Finance's own database), matching the legacy
+  // in-Connect finance/church/monthly-import(-preview), finance/church/activity-import(-preview),
+  // finance/church/budget-multi-year-import(-preview), and finance/church/balances/
+  // multi-year-import(-preview) routes' own parsing/validation/persistence exactly -- but as ONE
+  // request that parses AND persists, not legacy's separate preview-then-checkbox-commit steps
+  // (see importChurchMonthlyXlsx's/importChurchActivityXlsx's/importChurchBudgetMultiYearXlsx's/
+  // importChurchBalancesMultiYearXlsx's own header comments in src/api-finance.js). Unlike the two
+  // routes above, none of these four legacy routes carries an explicit isAdmin check of its own --
+  // verified directly against src/api-finance.js's source, not assumed -- so Connect's own gate is
+  // the same looser blanket "finance edit" re-derivation the Daycare relays above already
+  // established for legacy routes with no isAdmin check, not admin-only (see each contract
+  // handler's own header comment in src/api-contracts-service.js). The uploaded file travels as a
+  // base64 string in the JSON relay body, same as the two routes above.
+  { id: 'church-monthly-xlsx-import-write-v1', paths: ['/api/v1/connect-church-monthly-xlsx-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-monthly-xlsx-import-write-relay.v1' },
+  { id: 'church-activity-xlsx-import-write-v1', paths: ['/api/v1/connect-church-activity-xlsx-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-activity-xlsx-import-write-relay.v1' },
+  { id: 'church-budget-multi-year-xlsx-import-write-v1', paths: ['/api/v1/connect-church-budget-multi-year-xlsx-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-budget-multi-year-xlsx-import-write-relay.v1' },
+  { id: 'church-balances-multi-year-xlsx-import-write-v1', paths: ['/api/v1/connect-church-balances-multi-year-xlsx-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-balances-multi-year-xlsx-import-write-relay.v1' },
   // Same deliberate exception as the relays above, for a single Daycare Report entry: relays to
   // Connect's own finance-daycare-entry-v1 contract endpoint (never writes to Finance's own
   // database), matching the legacy in-Connect Daycare Report's own finance/daycare route exactly

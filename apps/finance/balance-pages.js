@@ -22,6 +22,30 @@ function renderBalanceXlsxImportForm(entryStatus, entryMessage) {
   </section>`;
 }
 
+// "Statement of Financial Position" multi-year .xlsx import -- relayed live to Connect's real
+// finance_church_balances table (source='import', same as the single-snapshot import above),
+// never stored in Finance's own database. Shown only on Multi-year position, the page whose
+// underlying data (every fiscal year on file) this import directly feeds -- see
+// importChurchBalancesMultiYearXlsx's header comment in src/api-finance.js. Unlike
+// renderBalanceXlsxImportForm above, this form is NOT admin-only: the legacy finance/church/
+// balances/multi-year-import(-preview) route carries no isAdmin check of its own, only the same
+// blanket "finance edit" ACCESS_GATE every finance/church/* route not explicitly listed in
+// financeSegItems falls through to (verified directly against src/api-chms.js's source) --
+// Connect's own contract handler re-derives that real permission-matrix check independently of
+// what this form shows or hides (UI hiding is never authorization).
+function renderBalanceMultiYearXlsxImportForm(entryStatus, entryMessage) {
+  return `<section aria-label="Import multi-year Statement of Financial Position from Excel">
+    ${renderSectionHeading({ eyebrow: 'Balance Sheet', heading: 'Import Statement of Financial Position, multi-year (.xlsx)', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Imported into Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-church-balances-multi-year-xlsx-import-write" enctype="multipart/form-data">
+      <div class="field"><label for="bbmy-file">QuickBooks "Statement of Financial Position" multi-year export (.xlsx, max 15 MB)</label><input id="bbmy-file" type="file" name="file" accept=".xlsx" required></div>
+      <button type="submit">Import file</button>
+    </form>
+    <p><small>Parses the uploaded workbook (one column per fiscal year) and writes every account row directly into Connect's own <code>finance_church_balances</code> table, tagged <code>source='import'</code>, replacing any prior import for each fiscal year present in the file. Connect independently re-verifies your identity and real finance edit permission for every request.</small></p>
+  </section>`;
+}
+
 export function renderBalanceRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.account_name)}</td><td>${formatCents(row.own_balance_cents)}</td></tr>`).join('');
 }
@@ -49,6 +73,7 @@ export function renderBalanceTrendRows(rows) {
 // below it does, same pattern as 'position'/'account-detail' just below.
 export function renderBalancePage(pageId, {
   balanceSheet, balanceTrends, canManageBalanceImport, balanceXlsxImportStatus, balanceXlsxImportMessage,
+  canImportBalanceMultiYear, balanceMultiYearXlsxImportStatus, balanceMultiYearXlsxImportMessage,
 }) {
   if (pageId === 'multi-year') {
     const isLiveTrend = balanceTrends.source === 'live';
@@ -58,7 +83,7 @@ export function renderBalancePage(pageId, {
       ${renderSectionHeading({ eyebrow: 'Balance Sheet', heading: 'Multi-year financial position', badge: trendBadge })}
       ${renderTable({ head: ['Fiscal year', 'As of', 'Assets', 'Liabilities', 'Net assets'], rows: renderBalanceTrendRows(balanceTrends.rows) })}
       ${trendFallbackNote}
-    </section>`;
+    </section>${canImportBalanceMultiYear ? renderBalanceMultiYearXlsxImportForm(balanceMultiYearXlsxImportStatus, balanceMultiYearXlsxImportMessage) : ''}`;
   }
 
   const isLive = balanceSheet.source === 'live';

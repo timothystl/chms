@@ -50,6 +50,46 @@ function renderChurchBudgetXlsxImportForm(entryStatus, entryMessage) {
   </section>`;
 }
 
+// "Statement of Activity" multi-year .xlsx import -- relayed live to Connect's real
+// finance_church_entries table (source='import_activity'), never stored in Finance's own
+// database. Shown only on Multi-year trend, the page whose underlying data (every fiscal year on
+// file, resolveChurchYearPrecedence's 'import_activity' tier) this import directly feeds -- see
+// importChurchActivityXlsx's header comment in src/api-finance.js. Unlike
+// renderChurchBudgetXlsxImportForm above, this form is NOT admin-only: the legacy
+// finance/church/activity-import(-preview) route carries no isAdmin check of its own, only the
+// same blanket "finance edit" ACCESS_GATE every finance/church/* route not explicitly listed in
+// financeSegItems falls through to (verified directly against src/api-chms.js's source) --
+// Connect's own contract handler re-derives that real permission-matrix check independently of
+// what this form shows or hides (UI hiding is never authorization).
+function renderChurchActivityXlsxImportForm(entryStatus, entryMessage) {
+  return `<section aria-label="Import Statement of Activity from Excel">
+    ${renderSectionHeading({ eyebrow: 'Church Report', heading: 'Import Statement of Activity, multi-year (.xlsx)', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Imported into Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-church-activity-xlsx-import-write" enctype="multipart/form-data">
+      <div class="field"><label for="cax-file">QuickBooks "Statement of Activity" multi-year export (.xlsx, max 15 MB)</label><input id="cax-file" type="file" name="file" accept=".xlsx" required></div>
+      <button type="submit">Import file</button>
+    </form>
+    <p><small>Parses the uploaded workbook (one column per fiscal year) and writes every account row directly into Connect's own <code>finance_church_entries</code> table, tagged <code>source='import_activity'</code> -- the same table and source the legacy in-Connect Excel import writes, for exactly the fiscal years present in the file. A separately-uploaded "Budget by Year" file combines with this one into complete rows rather than overwriting it. Connect independently re-verifies your identity and real finance edit permission for every request.</small></p>
+  </section>`;
+}
+
+// "Budget by Year" multi-year .xlsx import -- same shape and same non-admin-only reasoning as
+// renderChurchActivityXlsxImportForm above, for the budget-only counterpart file (see
+// importChurchBudgetMultiYearXlsx's header comment in src/api-finance.js).
+function renderChurchBudgetMultiYearXlsxImportForm(entryStatus, entryMessage) {
+  return `<section aria-label="Import Budget by Year from Excel">
+    ${renderSectionHeading({ eyebrow: 'Church Report', heading: 'Import Budget by Year, multi-year (.xlsx)', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Imported into Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-church-budget-multi-year-xlsx-import-write" enctype="multipart/form-data">
+      <div class="field"><label for="cbmy-file">QuickBooks "Budget by Year" multi-year export (.xlsx, max 15 MB)</label><input id="cbmy-file" type="file" name="file" accept=".xlsx" required></div>
+      <button type="submit">Import file</button>
+    </form>
+    <p><small>Parses the uploaded workbook (one column per fiscal year) and writes every account row directly into Connect's own <code>finance_church_entries</code> table, tagged <code>source='import_activity'</code> -- combining field-by-field with a separately-uploaded "Statement of Activity" file rather than overwriting it. Connect independently re-verifies your identity and real finance edit permission for every request.</small></p>
+  </section>`;
+}
+
 export function renderChurchRows(rows) {
   return rows.map((row) => {
     const variance = row.classification === 'Income'
@@ -98,6 +138,9 @@ export function renderLiveChurchTrendRows(years) {
 export function renderChurchPage(pageId, {
   churchReport, churchTrendLive, canManageChurchReport, churchOverrideStatus, churchOverrideMessage,
   churchBudgetXlsxImportStatus, churchBudgetXlsxImportMessage,
+  canImportChurchMultiYear,
+  churchActivityXlsxImportStatus, churchActivityXlsxImportMessage,
+  churchBudgetMultiYearXlsxImportStatus, churchBudgetMultiYearXlsxImportMessage,
 }) {
   if (pageId === 'trend') {
     const isTrendLive = churchTrendLive.source === 'live';
@@ -108,7 +151,7 @@ export function renderChurchPage(pageId, {
       ${renderSectionHeading({ eyebrow: 'Church Report', heading: 'Multi-year operating trend', badge })}
       ${renderTable({ head: ['Fiscal year', 'Income', 'Expenses', 'Net result'], rows })}
       ${fallbackNote}
-    </section>`;
+    </section>${canImportChurchMultiYear ? renderChurchActivityXlsxImportForm(churchActivityXlsxImportStatus, churchActivityXlsxImportMessage) : ''}${canImportChurchMultiYear ? renderChurchBudgetMultiYearXlsxImportForm(churchBudgetMultiYearXlsxImportStatus, churchBudgetMultiYearXlsxImportMessage) : ''}`;
   }
 
   const isLive = churchReport.source === 'live';

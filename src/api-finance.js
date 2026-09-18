@@ -1720,6 +1720,153 @@ export async function importChurchBalancesXlsx(db, { fileBytes } = {}) {
   return { ok: true, fiscalYear: parsed.fiscalYear, asOfDate: parsed.asOfDate, basis: parsed.basis, imported: parsed.rows.length, skipped: parsed.skipped };
 }
 
+// ── Shared Monthly P&L .xlsx import: parse + persist in ONE call ────────────────────────────
+// Same "additive combination, not an extraction" shape as importChurchBudgetXlsx/
+// importChurchBalancesXlsx above -- used only by finance-church-monthly-xlsx-import-v1
+// (src/api-contracts-service.js), never by the legacy two-step finance/church/
+// monthly-import-preview -> finance/church/monthly-import routes above, which stay exactly as
+// they are. Reuses findMonthlyPnLSheet/parseMonthlyPnLGrid/persistChurchEntriesMonthlyImport/
+// recordImport verbatim. One file can span many fiscal years (each row already carries its own
+// fiscal_year from its own month column), so there is no single fiscalYear to report back --
+// `years` mirrors what the legacy commit route itself returns, and the recordImport note is
+// derived the same way legacy derives it: from what is now actually stored, not just this
+// request's slice, so a multi-year file re-imported in the future still describes the true
+// stored range even if this one call only touched part of it.
+export async function importChurchMonthlyXlsx(db, { fileBytes } = {}) {
+  if (!fileBytes || !fileBytes.byteLength) return { error: 'No file uploaded', status: 400 };
+  let sheets;
+  try { sheets = await parseXlsxAllSheets(fileBytes.buffer); }
+  catch (e) { return { error: 'Could not read this file as an Excel workbook: ' + e.message, status: 400 }; }
+  const sheet = findMonthlyPnLSheet(sheets);
+  if (!sheet) return { error: 'Could not find a month-by-month "Profit and Loss by Month" sheet (a sheet with columns like "Jan 2026", "Feb 2026", ...) in this file.', status: 400 };
+  let parsed;
+  try { parsed = parseMonthlyPnLGrid(sheet.grid, sheet.colAIndent); }
+  catch (e) { return { error: e.message, status: 400 }; }
+  if (!parsed.rows.length) {
+    return {
+      error: 'Found ' + parsed.skipped.length + ' row(s) in this sheet but could not read any of them as accounts — '
+        + 'no indentation was detected, so the account hierarchy could not be determined. Check that the export '
+        + 'preserves the row indenting QuickBooks applies to sub-accounts.',
+      status: 400,
+    };
+  }
+  try {
+    await persistChurchEntriesMonthlyImport(db, parsed.rows, new Date().toISOString());
+  } catch (e) {
+    return {
+      error: 'Could not save ' + parsed.rows.length + ' row(s) for '
+        + (parsed.years.length === 1 ? 'FY' + parsed.years[0] : 'FY' + parsed.years[0] + '-FY' + parsed.years[parsed.years.length - 1])
+        + ': ' + (e && e.message ? e.message : String(e)),
+      status: 500,
+    };
+  }
+  let lo = parsed.years[0], hi = parsed.years[parsed.years.length - 1];
+  try {
+    const stored = await db.prepare(
+      `SELECT MIN(fiscal_year) AS lo, MAX(fiscal_year) AS hi FROM finance_church_entries WHERE source='monthly_import' AND period_month BETWEEN 1 AND 12`
+    ).first();
+    if (stored && stored.lo != null) { lo = stored.lo; hi = stored.hi; }
+  } catch { /* fall back to this import's own year range */ }
+  await recordImport(db, 'church_monthly_pnl', lo === hi ? `FY${lo}` : `FY${lo}-FY${hi}`);
+  return { ok: true, years: parsed.years, monthsByYear: parsed.monthsByYear, imported: parsed.rows.length, skipped: parsed.skipped };
+}
+
+// ── Shared "Statement of Activity" multi-year .xlsx import: parse + persist in ONE call ─────
+// Same shape as importChurchMonthlyXlsx above -- used only by finance-church-activity-xlsx-
+// import-v1, never by the legacy finance/church/activity-import-preview/finance/church/
+// activity-import routes, which stay exactly as they are. Reuses findActivityMultiYearSheet/
+// parseActivityMultiYearGrid/persistChurchEntriesActivityImport/recordImport verbatim. Legacy's
+// commit step takes an explicit `years` array from the client because its preview lets a caller
+// selectively check/uncheck rows across years; with no review step here, `parsed.years` (the
+// full set the sheet itself declares) is used directly instead of trusting a caller-supplied list.
+export async function importChurchActivityXlsx(db, { fileBytes } = {}) {
+  if (!fileBytes || !fileBytes.byteLength) return { error: 'No file uploaded', status: 400 };
+  let sheets;
+  try { sheets = await parseXlsxAllSheets(fileBytes.buffer); }
+  catch (e) { return { error: 'Could not read this file as an Excel workbook: ' + e.message, status: 400 }; }
+  const sheet = findActivityMultiYearSheet(sheets);
+  if (!sheet) return { error: 'Could not find a year-by-year "Statement of Activity" sheet (a sheet with columns like "2019", "2020", ...) in this file.', status: 400 };
+  let parsed;
+  try { parsed = parseActivityMultiYearGrid(sheet.grid, sheet.colAIndent); }
+  catch (e) { return { error: e.message, status: 400 }; }
+  if (!parsed.years.length || !parsed.rows.length) return { error: 'No importable account rows found in this sheet.', status: 400 };
+  try {
+    await persistChurchEntriesActivityImport(db, parsed.rows, parsed.years, new Date().toISOString());
+  } catch (e) {
+    return {
+      error: 'Could not save ' + parsed.rows.length + ' row(s) for FY' + parsed.years[0]
+        + (parsed.years.length > 1 ? '-FY' + parsed.years[parsed.years.length - 1] : '')
+        + ': ' + (e && e.message ? e.message : String(e)),
+      status: 500,
+    };
+  }
+  await recordImport(db, 'church_activity_multi', parsed.years.join(', '));
+  return { ok: true, years: parsed.years, imported: parsed.rows.length, skipped: parsed.skipped };
+}
+
+// ── Shared "Budget by Year" multi-year .xlsx import: parse + persist in ONE call ────────────
+// Same shape as importChurchActivityXlsx above -- used only by finance-church-budget-multi-year-
+// xlsx-import-v1, never by the legacy finance/church/budget-multi-year-import-preview/finance/
+// church/budget-multi-year-import routes, which stay exactly as they are. Reuses
+// findBudgetMultiYearSheet/parseBudgetMultiYearGrid/persistChurchEntriesBudgetMultiYearImport
+// (the same function as persistChurchEntriesActivityImport, aliased above)/recordImport verbatim.
+export async function importChurchBudgetMultiYearXlsx(db, { fileBytes } = {}) {
+  if (!fileBytes || !fileBytes.byteLength) return { error: 'No file uploaded', status: 400 };
+  let sheets;
+  try { sheets = await parseXlsxAllSheets(fileBytes.buffer); }
+  catch (e) { return { error: 'Could not read this file as an Excel workbook: ' + e.message, status: 400 }; }
+  const sheet = findBudgetMultiYearSheet(sheets);
+  if (!sheet) return { error: 'Could not find a year-by-year "Budget by Year" sheet (a sheet with columns like "2019", "2020", ...) in this file.', status: 400 };
+  let parsed;
+  try { parsed = parseBudgetMultiYearGrid(sheet.grid, sheet.colAIndent); }
+  catch (e) { return { error: e.message, status: 400 }; }
+  if (!parsed.years.length || !parsed.rows.length) return { error: 'No importable account rows found in this sheet.', status: 400 };
+  try {
+    await persistChurchEntriesBudgetMultiYearImport(db, parsed.rows, parsed.years, new Date().toISOString());
+  } catch (e) {
+    return {
+      error: 'Could not save ' + parsed.rows.length + ' row(s) for FY' + parsed.years[0]
+        + (parsed.years.length > 1 ? '-FY' + parsed.years[parsed.years.length - 1] : '')
+        + ': ' + (e && e.message ? e.message : String(e)),
+      status: 500,
+    };
+  }
+  await recordImport(db, 'church_budget_multi', parsed.years.join(', '));
+  return { ok: true, years: parsed.years, imported: parsed.rows.length, skipped: parsed.skipped };
+}
+
+// ── Shared "Statement of Financial Position" multi-year .xlsx import: parse + persist in ONE
+// call ─────────────────────────────────────────────────────────────────────────────────────────
+// Same shape as the three above -- used only by finance-church-balances-multi-year-xlsx-import-v1,
+// never by the legacy finance/church/balances/multi-year-import-preview/finance/church/balances/
+// multi-year-import routes, which stay exactly as they are. Reuses
+// findFinancialPositionMultiYearSheet/parseFinancialPositionMultiYearGrid/
+// persistChurchBalancesMultiYearImport/recordImport verbatim.
+export async function importChurchBalancesMultiYearXlsx(db, { fileBytes } = {}) {
+  if (!fileBytes || !fileBytes.byteLength) return { error: 'No file uploaded', status: 400 };
+  let sheets;
+  try { sheets = await parseXlsxAllSheets(fileBytes.buffer); }
+  catch (e) { return { error: 'Could not read this file as an Excel workbook: ' + e.message, status: 400 }; }
+  const sheet = findFinancialPositionMultiYearSheet(sheets);
+  if (!sheet) return { error: 'Could not find a year-by-year "Statement of Financial Position" sheet (a sheet with columns like "2019", "2020", ...) in this file.', status: 400 };
+  let parsed;
+  try { parsed = parseFinancialPositionMultiYearGrid(sheet.grid, sheet.colAIndent); }
+  catch (e) { return { error: e.message, status: 400 }; }
+  if (!parsed.years.length || !parsed.rows.length) return { error: 'No importable account rows found in this sheet.', status: 400 };
+  try {
+    await persistChurchBalancesMultiYearImport(db, parsed.rows, parsed.years, new Date().toISOString());
+  } catch (e) {
+    return {
+      error: 'Could not save ' + parsed.rows.length + ' balance row(s) for FY' + parsed.years[0]
+        + (parsed.years.length > 1 ? '-FY' + parsed.years[parsed.years.length - 1] : '')
+        + ': ' + (e && e.message ? e.message : String(e)),
+      status: 500,
+    };
+  }
+  await recordImport(db, 'church_balance_multi', parsed.years.join(', '));
+  return { ok: true, years: parsed.years, basis: parsed.basis, imported: parsed.rows.length, skipped: parsed.skipped };
+}
+
 // Fetches the Budget entity + a single current-year ProfitAndLoss report and merges them into
 // one tree, via the same collision-safe mergeProfitAndLossTree() used everywhere else in this
 // file. This is the one trusted place that produces a current-year Budget+Actual merged tree —

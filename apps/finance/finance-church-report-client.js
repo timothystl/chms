@@ -134,3 +134,126 @@ export async function postConnectChurchBudgetXlsxImport(env, accessJwt, body) {
   if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
   return { ok: true, result: payload };
 }
+
+// ── Real transport for connect.finance-church-monthly-xlsx-import-relay.v1 (a write) ───────────
+// Relays an uploaded "Profit and Loss by Month" .xlsx to Connect's own contract endpoint
+// (src/api-contracts-service.js), which parses AND persists it in one call -- see
+// importChurchMonthlyXlsx's own header comment in src/api-finance.js. `body` is
+// `{ file_base64 }` -- shell.js has already read the browser's multipart upload and base64-encoded
+// the bytes before calling this; the fiscal year(s) come from the workbook's own month columns, so
+// there is no separate form field for them. Same never-throws, always-{ok,reason}-labeled shape as
+// postConnectChurchBudgetXlsxImport above.
+export async function postConnectChurchMonthlyXlsxImport(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-church-monthly-xlsx-import-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
+// ── Real transport for connect.finance-church-activity-xlsx-import-relay.v1 (a write) ──────────
+// Relays an uploaded multi-year "Statement of Activity" .xlsx to Connect's own contract endpoint,
+// which parses AND persists it in one call -- see importChurchActivityXlsx's own header comment in
+// src/api-finance.js. `body` is `{ file_base64 }`; the fiscal years come from the workbook's own
+// year columns. Same never-throws, always-{ok,reason}-labeled shape as the transports above.
+export async function postConnectChurchActivityXlsxImport(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-church-activity-xlsx-import-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
+// ── Real transport for connect.finance-church-budget-multi-year-xlsx-import-relay.v1 (a write) ─
+// Relays an uploaded multi-year "Budget by Year" .xlsx to Connect's own contract endpoint, which
+// parses AND persists it in one call -- see importChurchBudgetMultiYearXlsx's own header comment
+// in src/api-finance.js. `body` is `{ file_base64 }`; the fiscal years come from the workbook's
+// own year columns. Same never-throws, always-{ok,reason}-labeled shape as the transports above.
+export async function postConnectChurchBudgetMultiYearXlsxImport(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-church-budget-multi-year-xlsx-import-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
