@@ -1,6 +1,27 @@
 import { buildBalanceSheetView, buildLiveBalanceSheetView } from './balance-sheet-service.js';
 import { escapeHtml, formatCents, formatSignedCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
 
+// Admin-only Balance Sheet / Statement of Financial Position .xlsx import -- relayed live to
+// Connect's real finance_church_balances table (see finance-church-balances-xlsx-import-v1 in
+// src/api-contracts-service.js), never stored in Finance's own database. Same shape as
+// church-pages.js's renderChurchBudgetXlsxImportForm: a real `<input type="file">` upload
+// (multipart/form-data), a single parse-and-persist relay request (legacy's separate preview/
+// checkbox-review step is deliberately not ported -- see importChurchBalancesXlsx's header comment
+// in src/api-finance.js), and both the fiscal year AND the as-of date read from the workbook
+// itself, so there is no form field for either.
+function renderBalanceXlsxImportForm(entryStatus, entryMessage) {
+  return `<section aria-label="Import Balance Sheet from Excel">
+    ${renderSectionHeading({ eyebrow: 'Balance Sheet', heading: 'Import Statement of Financial Position (.xlsx)', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Imported into Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-church-balances-xlsx-import-write" enctype="multipart/form-data">
+      <div class="field"><label for="bbx-file">QuickBooks "Statement of Financial Position" export (.xlsx, max 15 MB)</label><input id="bbx-file" type="file" name="file" accept=".xlsx" required></div>
+      <button type="submit">Import file</button>
+    </form>
+    <p><small>Parses the uploaded workbook and writes every account row directly into Connect's own <code>finance_church_balances</code> table, tagged <code>source='import'</code> -- the same table and source the legacy in-Connect Excel import writes, replacing any prior import for that same fiscal year. Only Connect's own admin role may import; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
 export function renderBalanceRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.classification)}</td><td>${escapeHtml(row.account_name)}</td><td>${formatCents(row.own_balance_cents)}</td></tr>`).join('');
 }
@@ -26,7 +47,9 @@ export function renderBalanceTrendRows(rows) {
 // normalized to the same snake_case shape (see balance-sheet-service.js's resolveBalanceSheetTrend),
 // so renderBalanceTrendRows itself needs no live/synthetic branch -- only the badge/fallback note
 // below it does, same pattern as 'position'/'account-detail' just below.
-export function renderBalancePage(pageId, { balanceSheet, balanceTrends }) {
+export function renderBalancePage(pageId, {
+  balanceSheet, balanceTrends, canManageBalanceImport, balanceXlsxImportStatus, balanceXlsxImportMessage,
+}) {
   if (pageId === 'multi-year') {
     const isLiveTrend = balanceTrends.source === 'live';
     const trendBadge = isLiveTrend ? 'Live from Connect' : 'Synthetic staging';
@@ -77,5 +100,5 @@ export function renderBalancePage(pageId, { balanceSheet, balanceTrends }) {
     ${unclassifiedNote}
     <p>See Account detail and Multi-year position for the full breakdown behind these totals.</p>
     ${fallbackNote}
-  </section>`;
+  </section>${canManageBalanceImport ? renderBalanceXlsxImportForm(balanceXlsxImportStatus, balanceXlsxImportMessage) : ''}`;
 }

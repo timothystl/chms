@@ -89,3 +89,48 @@ export async function postConnectFinanceChurchActualOverride(env, accessJwt, bod
   if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
   return { ok: true, result: payload };
 }
+
+// ── Real transport for connect.finance-church-budget-xlsx-import-relay.v1 (a write) ────────────
+// Relays an uploaded "Budget vs. Actuals" .xlsx to Connect's own contract endpoint
+// (src/api-contracts-service.js), which parses AND persists it in one call -- see
+// importChurchBudgetXlsx's own header comment in src/api-finance.js for why this collapses
+// legacy's separate preview-then-commit steps into one request. `body` is
+// `{ fiscal_year_hint, file_base64 }` -- shell.js has already read the browser's multipart upload
+// and base64-encoded the bytes before calling this; `fiscal_year_hint` is optional and never
+// trusted over the workbook's own fiscal year (the parser derives it from the sheet itself, same
+// as legacy). Same never-throws, always-{ok,reason}-labeled shape as
+// postConnectFinanceChurchActualOverride above.
+export async function postConnectChurchBudgetXlsxImport(env, accessJwt, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+
+  const url = 'https://connect.timothystl.org/api/contracts/finance-church-budget-xlsx-import-v1';
+  let res;
+  try {
+    res = await binding.fetch(new Request(url, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { ok: false, reason: 'invalid_json' };
+  }
+
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}

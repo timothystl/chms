@@ -54,6 +54,20 @@ const ROUTES = [
   // (never writes to Finance's own database), matching the legacy in-Connect Church Report's own
   // finance/church/actual-override route exactly.
   { id: 'church-actual-override-v1', paths: ['/api/v1/connect-church-actual-override'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-actual-override-relay.v1' },
+  // Same deliberate exception as the relays above, for the two remaining legacy Excel import
+  // routes: Church Report's annual "Budget vs. Actuals" import and Balance Sheet's single-snapshot
+  // "Statement of Financial Position" import. Each relays an uploaded file to its own Connect
+  // contract endpoint (never writes to Finance's own database), matching the legacy in-Connect
+  // finance/church/import(-preview) and finance/church/balances/import(-preview) routes' own
+  // parsing/validation/persistence exactly (admin-only) -- but as ONE request that parses AND
+  // persists, not legacy's separate preview-then-checkbox-commit steps (see
+  // importChurchBudgetXlsx's/importChurchBalancesXlsx's own header comments in src/api-finance.js
+  // for why that reduction is deliberate here, matching the already-accepted Alpha.45 precedent in
+  // apps/finance's own xlsx-import-service.js for this same report-type pair). The uploaded file
+  // travels as a base64 string in the JSON relay body -- shell.js reads the browser's real
+  // multipart upload and re-encodes it before calling out.
+  { id: 'church-budget-xlsx-import-write-v1', paths: ['/api/v1/connect-church-budget-xlsx-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-budget-xlsx-import-write-relay.v1' },
+  { id: 'church-balances-xlsx-import-write-v1', paths: ['/api/v1/connect-church-balances-xlsx-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-balances-xlsx-import-write-relay.v1' },
   // Same deliberate exception as the relays above, for a single Daycare Report entry: relays to
   // Connect's own finance-daycare-entry-v1 contract endpoint (never writes to Finance's own
   // database), matching the legacy in-Connect Daycare Report's own finance/daycare route exactly
