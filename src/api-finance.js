@@ -3239,6 +3239,29 @@ export async function applyChurchActualOverride(db, year, rowsInput) {
   return { ok: true, year, saved };
 }
 
+// ── Shared Daycare entry writer ──────────────────────────────────────────────────────────────
+// Used by both the finance/daycare POST route below and its finance-daycare-entry-v1 relay
+// contract counterpart (src/api-contracts-service.js), so Finance's own Worker can forward the
+// identical entry on behalf of an identity it verified via Cloudflare Access. One implementation
+// means the two entry points can never drift. No role check here -- the legacy route itself has
+// none beyond the blanket isFinance gate wrapping the whole handler (any of the finance/budget/
+// compensation items, edit level -- see financeSegItems in src/api-chms.js), which the relay
+// contract re-derives independently via getRolePermissions/permissionsForRole rather than
+// trusting a simple role-name check.
+export async function recordDaycareEntry(db, body) {
+  const period = body?.period;
+  if (!period || !/^\d{4}(-\d{2})?$/.test(period)) return { error: 'Period must be YYYY or YYYY-MM', status: 400 };
+  const category = body?.category && String(body.category).trim();
+  if (!category) return { error: 'Category is required', status: 400 };
+  const amountCents = Math.round(Number(body?.amount_cents));
+  if (!Number.isFinite(amountCents)) return { error: 'Invalid amount', status: 400 };
+  const entryType = body?.entry_type === 'budget' ? 'budget' : 'actual';
+  const r = await db.prepare(
+    `INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,notes) VALUES (?,?,?,?,?)`
+  ).bind(period, category, entryType, amountCents, body?.notes || '').run();
+  return { ok: true, id: r.meta?.last_row_id };
+}
+
 // ── Shared Salary/Compensation Planner writer ────────────────────────────────
 // Used by both the admin/compensation/council finance/planning/salary PUT route below and the
 // finance-compensation-write-v1 relay contract (src/api-contracts-service.js) that lets Finance's
@@ -3746,15 +3769,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
 
   if (seg === 'finance/daycare' && method === 'POST') {
     let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-    if (!b.period || !/^\d{4}(-\d{2})?$/.test(b.period)) return json({ error: 'Period must be YYYY or YYYY-MM' }, 400);
-    if (!b.category || !String(b.category).trim()) return json({ error: 'Category is required' }, 400);
-    const amountCents = Math.round(Number(b.amount_cents));
-    if (!Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
-    const entryType = b.entry_type === 'budget' ? 'budget' : 'actual';
-    const r = await db.prepare(
-      `INSERT INTO finance_daycare_entries (period,category,entry_type,amount_cents,notes) VALUES (?,?,?,?,?)`
-    ).bind(b.period, String(b.category).trim(), entryType, amountCents, b.notes || '').run();
-    return json({ ok: true, id: r.meta?.last_row_id });
+    const result = await recordDaycareEntry(db, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Bulk-enter past years — a paste-in alternative to the one-row-at-a-time form above, since

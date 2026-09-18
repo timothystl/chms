@@ -14,7 +14,7 @@ import { recordQuickGivingEntry } from './api-giving.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
-  applyChurchActualOverride,
+  applyChurchActualOverride, recordDaycareEntry,
 } from './api-finance.js';
 
 export async function handleContractsServiceApi(req, env, path) {
@@ -115,6 +115,10 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-church-actual-override-v1' && req.method === 'POST') {
     return handleFinanceChurchActualOverrideContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-daycare-entry-v1' && req.method === 'POST') {
+    return handleFinanceDaycareEntryContract(req, env);
   }
 
   if (path === '/api/contracts/finance-compensation-write-v1' && req.method === 'POST') {
@@ -368,6 +372,47 @@ async function handleFinanceChurchActualOverrideContract(req, env) {
   const result = await applyChurchActualOverride(db, parseInt(body.year, 10), body.rows);
   if (result.error) return json({ error: result.error }, result.status || 400);
   return json({ ...result, savedBy: user.username });
+}
+
+// ── Daycare entry, relayed from Finance's own Daycare Report UI ─────────────────────────────
+// Same shape as handleGivingQuickEntryContract above: the X-Contract-Key check only proves the
+// call came from Finance's Worker, this proves WHO Finance says is acting, and the verified
+// identity's real Connect role/permissions decide whether the write is allowed. Unlike every
+// other write relay in this file, the legacy finance/daycare route itself has no role check
+// beyond the blanket ACCESS_GATE wrapping the whole handler (src/api-chms.js's financeSegItems
+// maps this exact segment to ['finance', 'budget', 'compensation'], granting access if ANY of
+// those three items is edit-level for this role) -- so this re-derives that same "any of the
+// three" check via getRolePermissions/permissionsForRole rather than a simple role-name check,
+// the same real-permission-matrix pattern the Giving relay above already uses.
+async function handleFinanceDaycareEntryContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+
+  const perms = await getRolePermissions(db);
+  const rolePerms = permissionsForRole(perms, user.role);
+  const canEnterDaycare = ['finance', 'budget', 'compensation'].some((item) => rolePerms[item] === 'edit');
+  if (!canEnterDaycare) return json({ error: 'Access denied' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+
+  const result = await recordDaycareEntry(db, body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+
+  await db.prepare(
+    `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value)
+     VALUES('daycare_entry_via_finance','finance_daycare_entries',?,?,'entered_by','',?)`
+  ).bind(String(result.id ?? ''), '', email).run().catch(() => {});
+
+  return json({ ok: true, id: result.id, savedBy: user.username });
 }
 
 // ── Salary/Compensation Planner write, relayed from Finance's own Compensation Planner UI ───

@@ -18,6 +18,7 @@ import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, gro
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
 import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
 import { postConnectFinanceChurchActualOverride } from './finance-church-report-client.js';
+import { postConnectFinanceDaycareEntry } from './finance-daycare-client.js';
 import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
@@ -179,6 +180,18 @@ function describeChurchOverrideError(reason, message) {
   }
 }
 
+// Same shape as describeChurchOverrideError above, for postConnectFinanceDaycareEntry() failures.
+function describeDaycareEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Daycare entry is not connected yet. Nothing was recorded.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was recorded — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as recorded.';
+    case 'http_error': return message ? String(message) : 'Connect refused the entry.';
+    default: return 'The entry was not recorded.';
+  }
+}
+
 // Same shape as describeBudgetEntryError above, for postConnectFinanceCompensationWrite() /
 // fetchConnectSalaryPlannerState() failures.
 function describeCompensationEntryError(reason, message) {
@@ -314,6 +327,7 @@ function renderSectionBody(ctx) {
     compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
     canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
     churchOverrideStatus, churchOverrideMessage,
+    daycareEntryStatus, daycareEntryMessage,
     roleResult,
   } = ctx;
   if (section.id === 'health') {
@@ -465,7 +479,13 @@ function renderSectionBody(ctx) {
     return renderBalancePage(page.id, { balanceSheet, balanceTrends });
   }
   if (section.id === 'daycare') {
-    return renderDaycarePage(page.id, { daycareReport: daycareReportLive });
+    // Any verified role that can reach this section at all may attempt an entry -- the legacy
+    // in-Connect route's own gate is edit permission on any of finance/budget/compensation, not a
+    // simple role-name check apps/finance's coarse role model can precisely replicate; the real
+    // gate is finance-daycare-entry-v1's own permission check on Connect's side (see its header
+    // comment in src/api-contracts-service.js).
+    const canRecordDaycareEntry = roleResult.ok;
+    return renderDaycarePage(page.id, { daycareReport: daycareReportLive, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage });
   }
   if (section.id === 'property') {
     return renderPropertyPage(page.id, {
@@ -952,6 +972,31 @@ export default {
         return response(null, { status: 303, headers: { Location: '/?section=church&page=income-expense&status=ok' } });
       }
       const params = new URLSearchParams({ section: 'church', page: 'income-expense', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'daycare-entry-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&status=error&reason=invalid_json' } });
+      }
+      const amount = Number(form.get('amount'));
+      const body = {
+        period: form.get('period') || '',
+        category: form.get('category') || '',
+        entry_type: form.get('entry_type') || 'actual',
+        amount_cents: Number.isFinite(amount) ? Math.round(amount * 100) : null,
+        notes: form.get('notes') || '',
+      };
+      const result = await postConnectFinanceDaycareEntry(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=daycare&page=actuals&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'daycare', page: 'actuals', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -1520,6 +1565,10 @@ export default {
         const churchOverrideMessage = churchOverrideStatus === 'error'
           ? describeChurchOverrideError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        const daycareEntryStatus = section.id === 'daycare' ? url.searchParams.get('status') : null;
+        const daycareEntryMessage = daycareEntryStatus === 'error'
+          ? describeDaycareEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
@@ -1531,6 +1580,7 @@ export default {
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
           planOpKind, planOpStatus, planOpMessage, churchOverrideStatus, churchOverrideMessage,
+          daycareEntryStatus, daycareEntryMessage,
         }), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });

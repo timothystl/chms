@@ -48,6 +48,12 @@ const ROUTES = [
   // (never writes to Finance's own database), matching the legacy in-Connect Church Report's own
   // finance/church/actual-override route exactly.
   { id: 'church-actual-override-v1', paths: ['/api/v1/connect-church-actual-override'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-actual-override-relay.v1' },
+  // Same deliberate exception as the relays above, for a single Daycare Report entry: relays to
+  // Connect's own finance-daycare-entry-v1 contract endpoint (never writes to Finance's own
+  // database), matching the legacy in-Connect Daycare Report's own finance/daycare route exactly
+  // -- gated on Connect's side by real edit permission on any of finance/budget/compensation, not
+  // a simple role-name check (see the contract handler's own comment).
+  { id: 'daycare-entry-v1', paths: ['/api/v1/connect-daycare-entry'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-entry-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no
