@@ -21,6 +21,8 @@ const WRITE_ROUTE_IDS = new Set([
   'payroll-staff-save-v1', 'payroll-staff-deactivate-v1', 'payroll-email-v1',
   'budget-generate-v1', 'budget-generate-all-v1', 'budget-commit-v1', 'budget-plan-remove-v1',
   'church-actual-override-v1', 'church-budget-xlsx-import-write-v1', 'church-balances-xlsx-import-write-v1',
+  'church-monthly-xlsx-import-write-v1', 'church-activity-xlsx-import-write-v1',
+  'church-budget-multi-year-xlsx-import-write-v1', 'church-balances-multi-year-xlsx-import-write-v1',
   'daycare-entry-v1', 'board-categories-write-v1', 'property-monthly-write-v1',
   'property-repair-write-v1', 'property-distribution-write-v1', 'property-reserve-monthly-write-v1',
   'property-reserve-disbursement-write-v1', 'property-capital-ledger-write-v1',
@@ -62,6 +64,8 @@ describe('Finance staging route manifest', () => {
       '/api/v1/connect-base-projection-write',
       '/api/v1/connect-church-actual-override',
       '/api/v1/connect-church-budget-xlsx-import-write', '/api/v1/connect-church-balances-xlsx-import-write',
+      '/api/v1/connect-church-monthly-xlsx-import-write', '/api/v1/connect-church-activity-xlsx-import-write',
+      '/api/v1/connect-church-budget-multi-year-xlsx-import-write', '/api/v1/connect-church-balances-multi-year-xlsx-import-write',
       '/api/v1/connect-daycare-entry', '/api/v1/connect-board-categories-write',
       '/api/v1/connect-purpose-tags-write',
       '/api/v1/connect-property-monthly-write', '/api/v1/connect-property-repair-write',
@@ -170,6 +174,18 @@ describe('Finance staging route manifest', () => {
     });
     expect(resolveFinanceRoute('/api/v1/connect-church-balances-xlsx-import-write')).toMatchObject({
       id: 'church-balances-xlsx-import-write-v1', contract: 'connect.finance-church-balances-xlsx-import-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-church-monthly-xlsx-import-write')).toMatchObject({
+      id: 'church-monthly-xlsx-import-write-v1', contract: 'connect.finance-church-monthly-xlsx-import-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-church-activity-xlsx-import-write')).toMatchObject({
+      id: 'church-activity-xlsx-import-write-v1', contract: 'connect.finance-church-activity-xlsx-import-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-church-budget-multi-year-xlsx-import-write')).toMatchObject({
+      id: 'church-budget-multi-year-xlsx-import-write-v1', contract: 'connect.finance-church-budget-multi-year-xlsx-import-write-relay.v1', dataSource: 'live-relay',
+    });
+    expect(resolveFinanceRoute('/api/v1/connect-church-balances-multi-year-xlsx-import-write')).toMatchObject({
+      id: 'church-balances-multi-year-xlsx-import-write-v1', contract: 'connect.finance-church-balances-multi-year-xlsx-import-write-relay.v1', dataSource: 'live-relay',
     });
     expect(resolveFinanceRoute('/api/v1/connect-daycare-entry')).toMatchObject({
       id: 'daycare-entry-v1', contract: 'connect.finance-daycare-entry-relay.v1', dataSource: 'live-relay',
