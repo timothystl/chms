@@ -39,6 +39,8 @@ import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
 import { isCompensationPlanWriteEnabled, applyCompensationWorkerPlanWrite } from './compensation-plan-write-service.js';
+import { saveRaisePlanOptions, RAISE_PLAN_WRITE_ROLES } from './compensation-raise-plan-service.js';
+import { saveCouncilDraft } from './compensation-council-draft-service.js';
 import {
   isPropertyLedgerWritesEnabled, recordPropertyReserveMonthly, recordPropertyReserveDisbursement,
   recordPropertyDistribution, recordPropertyCapitalLedgerEntry, PropertyLedgerValidationError,
@@ -67,6 +69,7 @@ import { renderPacketPage } from './packet-pages.js';
 import {
   runChurchEntriesCsvImport, runChurchBalancesCsvImport, runDaycareEntriesCsvImport, runPropertyBudgetMonthlyCsvImport,
 } from './csv-import-service.js';
+import { runChurchEntriesXlsxImport, runChurchBalancesXlsxImport } from './xlsx-import-service.js';
 
 const PRODUCT = 'finance';
 const SUMMARY_CONTRACT = FINANCE_SUMMARY_CONTRACT;
@@ -1356,6 +1359,30 @@ export default {
       });
     }
 
+    // ── .xlsx (Excel) import writes -- see xlsx-import-service.js's own header comment. A
+    // SEPARATE gate from the CSV import routes just above (`isXlsxImportWritesEnabled`, checked
+    // inside each `run*XlsxImport` call, never `isCsvImportWritesEnabled`) -- enabling CSV import
+    // must never silently enable this path. The uploaded file arrives as a `fileBase64` field on
+    // the same plain JSON body every other FINANCE_DB write route in this app already takes.
+    if (route.id === 'import-church-xlsx-v1' || route.id === 'import-church-balances-xlsx-v1') {
+      let body;
+      try { body = await request.json(); } catch { body = null; }
+      if (!body || typeof body !== 'object') {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), {
+          status: 400, headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
+      }
+      const runner = {
+        'import-church-xlsx-v1': runChurchEntriesXlsxImport,
+        'import-church-balances-xlsx-v1': runChurchBalancesXlsxImport,
+      }[route.id];
+      const result = await runner(env, env.FINANCE_DB, body);
+      const { status, ...payload } = result;
+      return response(JSON.stringify(payload), {
+        status, headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
+    }
+
     // ── COMPENSATION PLANNER WRITE ── the one route in this file that writes to Finance's own
     // FINANCE_DB rather than relaying elsewhere (see route-manifest.js's and
     // compensation-plan-write-service.js's header comments). The enablement flag is checked
@@ -1401,6 +1428,90 @@ export default {
         return response(JSON.stringify({ error: result.error }), { status: result.status || 400, headers: jsonHeaders });
       }
       return response(JSON.stringify({ ok: true, saved: result.saved }), { status: 200, headers: jsonHeaders });
+    }
+
+    // ── COMPENSATION PLANNER: GLOBAL raise-plan options -- additive to the write above, admin/
+    // compensation only (see compensation-raise-plan-service.js's header comment; council is
+    // deliberately excluded here, matching legacy's own split -- council's equivalent is its own
+    // private draft, the next route below). Reuses the SAME isCompensationPlanWriteEnabled flag
+    // and the SAME "gate before role check" ordering as compensation-plan-save-v1 above.
+    if (route.id === 'compensation-raise-plan-save-v1') {
+      const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
+      const enabled = await isCompensationPlanWriteEnabled(env, env.FINANCE_DB);
+      if (!enabled) {
+        return response(JSON.stringify({
+          error: 'not_yet_enabled',
+          message: 'Compensation Planner editing is not yet enabled in this environment.',
+        }), { status: 503, headers: jsonHeaders });
+      }
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      if (!roleResult.ok || !RAISE_PLAN_WRITE_ROLES.includes(roleResult.role)) {
+        return response(JSON.stringify({
+          error: 'Access denied: editing global raise-plan options requires a verified admin or compensation role',
+        }), { status: 403, headers: jsonHeaders });
+      }
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      const fiscalYear = Number.isInteger(payload.fiscalYear) ? payload.fiscalYear : parseInt(payload.fiscalYear, 10);
+      const updatedBy = approverEmailFromJwt(accessJwt) || '';
+      const result = await saveRaisePlanOptions(env.FINANCE_DB, {
+        fiscalYear, role: roleResult.role, updatedBy,
+        customPct: payload.customPct, scalePct: payload.scalePct, baselineRosterOnly: payload.baselineRosterOnly,
+      });
+      if (result.error) {
+        return response(JSON.stringify({ error: result.error }), { status: result.status || 400, headers: jsonHeaders });
+      }
+      return response(JSON.stringify(result), { status: 200, headers: jsonHeaders });
+    }
+
+    // ── COMPENSATION PLANNER: per-council-member PRIVATE draft save -- council only. See
+    // compensation-council-draft-service.js's header comment for exactly what identity source
+    // this uses to key the draft (an unverified JWT email claim -- Finance's role contract does
+    // not carry a verified username yet) and why that is an accepted, narrowly-scoped limitation.
+    if (route.id === 'compensation-council-draft-save-v1') {
+      const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
+      const enabled = await isCompensationPlanWriteEnabled(env, env.FINANCE_DB);
+      if (!enabled) {
+        return response(JSON.stringify({
+          error: 'not_yet_enabled',
+          message: 'Compensation Planner editing is not yet enabled in this environment.',
+        }), { status: 503, headers: jsonHeaders });
+      }
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      if (!roleResult.ok || roleResult.role !== 'council') {
+        return response(JSON.stringify({
+          error: 'Access denied: only a verified council role may save a private compensation draft',
+        }), { status: 403, headers: jsonHeaders });
+      }
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
+      }
+      const fiscalYear = Number.isInteger(payload.fiscalYear) ? payload.fiscalYear : parseInt(payload.fiscalYear, 10);
+      const councilIdentity = approverEmailFromJwt(accessJwt) || '';
+      const result = await saveCouncilDraft(env.FINANCE_DB, {
+        fiscalYear, role: roleResult.role, councilIdentity,
+        customPct: payload.customPct, scalePct: payload.scalePct, baselineRosterOnly: payload.baselineRosterOnly,
+        workerOverrides: payload.workerOverrides,
+      });
+      if (result.error) {
+        return response(JSON.stringify({ error: result.error }), { status: result.status || 400, headers: jsonHeaders });
+      }
+      return response(JSON.stringify(result), { status: 200, headers: jsonHeaders });
     }
 
     if (PROPERTY_LEDGER_WRITE_ROUTE_IDS.has(route.id)) {
