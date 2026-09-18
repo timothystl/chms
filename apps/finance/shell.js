@@ -19,6 +19,7 @@ import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-vie
 import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
 import { postConnectFinanceChurchActualOverride } from './finance-church-report-client.js';
 import { postConnectFinanceDaycareEntry } from './finance-daycare-client.js';
+import { postConnectBoardCategoriesWrite } from './finance-chart-of-accounts-client.js';
 import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
@@ -168,6 +169,15 @@ function describeBudgetPlanOpError(reason, message, verb) {
 }
 const BUDGET_PLAN_OP_VERBS = { generate: 'generation', 'generate-all': 'generation', commit: 'commit', remove: 'removal' };
 
+// Mirrors REVENUE_STREAMS/BOARD_EXPENSE_KEYS (src/api-finance.js) -- only used here to decide
+// which of applyBoardCategoryMerge's two maps (revenue vs expense) a submitted board-category key
+// belongs in, since the form (accounts-pages.js) offers one combined picker. Connect's own
+// applyBoardCategoryMerge re-validates the key against its own real allowlist regardless, so a
+// drift here could only ever misfile a save into the wrong map (a visible, immediately obvious
+// mistake), never let an invalid key through.
+const BOARD_REVENUE_KEYS = ['donor', 'earned', 'passive', 'restricted'];
+const BOARD_EXPENSE_KEYS_LOCAL = ['mdo', 'salaries', 'benefits', 'worship', 'property', 'education', 'youth_family', 'district_synod', 'programs'];
+
 // Same shape as describeBudgetEntryError above, for postConnectFinanceChurchActualOverride() failures.
 function describeChurchOverrideError(reason, message) {
   switch (reason) {
@@ -189,6 +199,18 @@ function describeDaycareEntryError(reason, message) {
     case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as recorded.';
     case 'http_error': return message ? String(message) : 'Connect refused the entry.';
     default: return 'The entry was not recorded.';
+  }
+}
+
+// Same shape as describeDaycareEntryError above, for postConnectBoardCategoriesWrite() failures.
+function describeBoardCategoryEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Chart of Accounts editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the assignment.';
+    default: return 'The assignment was not saved.';
   }
 }
 
@@ -328,6 +350,7 @@ function renderSectionBody(ctx) {
     canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
     churchOverrideStatus, churchOverrideMessage,
     daycareEntryStatus, daycareEntryMessage,
+    boardCategoryEntryStatus, boardCategoryEntryMessage,
     roleResult,
   } = ctx;
   if (section.id === 'health') {
@@ -509,7 +532,13 @@ function renderSectionBody(ctx) {
     });
   }
   if (section.id === 'accounts') {
-    return renderAccountsPage(page.id, { accountsReport });
+    // Same admin-only gate as the legacy in-Connect Chart of Accounts' own board-categories PUT
+    // route -- UI hiding is never authorization, the real gate is
+    // finance-board-categories-write-v1's own role check on Connect's side.
+    const canManageBoardCategories = roleResult.ok && roleResult.role === 'admin';
+    return renderAccountsPage(page.id, {
+      accountsReport, canManageBoardCategories, boardCategoryEntryStatus, boardCategoryEntryMessage,
+    });
   }
   if (section.id === 'compensation') {
     // viewerRole (not just the compensationRoleVerified boolean that gates the live fetch itself)
@@ -997,6 +1026,33 @@ export default {
         return response(null, { status: 303, headers: { Location: '/?section=daycare&page=actuals&status=ok' } });
       }
       const params = new URLSearchParams({ section: 'daycare', page: 'actuals', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'board-categories-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=accounts&status=error&reason=invalid_json' } });
+      }
+      const path = form.get('category_path') || '';
+      const boardCategory = form.get('board_category') || '';
+      const body = BOARD_REVENUE_KEYS.includes(boardCategory)
+        ? { revenue: { [path]: boardCategory } }
+        : BOARD_EXPENSE_KEYS_LOCAL.includes(boardCategory)
+          ? { expense: { [path]: boardCategory } }
+          // Blank/unrecognized selection clears the assignment -- sent to both maps since this
+          // form doesn't know which one (if either) currently holds this path; an empty value for
+          // a path that was never in a given map is a harmless no-op there.
+          : { revenue: { [path]: '' }, expense: { [path]: '' } };
+      const result = await postConnectBoardCategoriesWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=accounts&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'accounts', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -1569,6 +1625,10 @@ export default {
         const daycareEntryMessage = daycareEntryStatus === 'error'
           ? describeDaycareEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        const boardCategoryEntryStatus = section.id === 'accounts' ? url.searchParams.get('status') : null;
+        const boardCategoryEntryMessage = boardCategoryEntryStatus === 'error'
+          ? describeBoardCategoryEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
@@ -1580,7 +1640,7 @@ export default {
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
           planOpKind, planOpStatus, planOpMessage, churchOverrideStatus, churchOverrideMessage,
-          daycareEntryStatus, daycareEntryMessage,
+          daycareEntryStatus, daycareEntryMessage, boardCategoryEntryStatus, boardCategoryEntryMessage,
         }), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });

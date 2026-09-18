@@ -2939,6 +2939,71 @@ export async function readPlanningBoardCategories(db) {
     };
   } catch { return empty; }
 }
+
+// ── Shared Chart of Accounts board-category writer ───────────────────────────────────────────
+// Used by both the admin-only finance/planning/board-categories PUT route below and its
+// finance-board-categories-write-v1 relay contract counterpart (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical merge on behalf of an identity it verified via
+// Cloudflare Access. One implementation means the two entry points can never drift. MERGES the
+// rows/labels in `body` into whatever is already saved -- a category assignment/rename made from
+// Planning's own inline picker and a bulk move made from Chart of Accounts both land in the same
+// store without one clobbering the other's unrelated entries. An empty-string value clears that
+// one entry back to the computed default.
+export async function applyBoardCategoryMerge(db, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const current = await readPlanningBoardCategories(db);
+  const merged = {
+    revenue: { ...current.revenue }, expense: { ...current.expense },
+    revenueLabels: { ...current.revenueLabels }, expenseLabels: { ...current.expenseLabels },
+    donorWrapperLabel: current.donorWrapperLabel,
+    accountLabels: { ...current.accountLabels },
+  };
+  if (b.revenue && typeof b.revenue === 'object') {
+    for (const [path, key] of Object.entries(b.revenue)) {
+      if (!path) continue;
+      if (key === '' || key == null) { delete merged.revenue[path]; continue; }
+      if (!REVENUE_STREAMS.includes(key)) return { error: `Invalid revenue category "${key}"`, status: 400 };
+      merged.revenue[path] = key;
+    }
+  }
+  if (b.expense && typeof b.expense === 'object') {
+    for (const [path, key] of Object.entries(b.expense)) {
+      if (!path) continue;
+      if (key === '' || key == null) { delete merged.expense[path]; continue; }
+      if (!BOARD_EXPENSE_KEYS.includes(key)) return { error: `Invalid expense category "${key}"`, status: 400 };
+      merged.expense[path] = key;
+    }
+  }
+  if (b.revenueLabels && typeof b.revenueLabels === 'object') {
+    for (const [key, label] of Object.entries(b.revenueLabels)) {
+      if (!REVENUE_STREAMS.includes(key)) continue;
+      const clean = String(label || '').trim();
+      if (clean) merged.revenueLabels[key] = clean; else delete merged.revenueLabels[key];
+    }
+  }
+  if (b.expenseLabels && typeof b.expenseLabels === 'object') {
+    for (const [key, label] of Object.entries(b.expenseLabels)) {
+      if (!BOARD_EXPENSE_KEYS.includes(key)) continue;
+      const clean = String(label || '').trim();
+      if (clean) merged.expenseLabels[key] = clean; else delete merged.expenseLabels[key];
+    }
+  }
+  if (typeof b.donorWrapperLabel === 'string') {
+    merged.donorWrapperLabel = b.donorWrapperLabel.trim();
+  }
+  if (b.accountLabels && typeof b.accountLabels === 'object') {
+    for (const [path, label] of Object.entries(b.accountLabels)) {
+      if (!path) continue;
+      const clean = String(label || '').trim();
+      if (clean) merged.accountLabels[path] = clean; else delete merged.accountLabels[path];
+    }
+  }
+  await db.prepare(
+    `INSERT INTO finance_settings (key,value) VALUES ('finance_planning_board_categories',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  ).bind(JSON.stringify(merged)).run();
+  return { ok: true, ...merged };
+}
+
 // Purpose tags reader — hoisted to module scope (was a closure inside handleFinanceApi) so it can
 // be imported by api-contracts.js's connect.finance-chart-of-accounts.v1 producer without
 // duplicating this parsing/defaulting logic. Behavior is unchanged from the original nested
@@ -4695,60 +4760,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   if (seg === 'finance/planning/board-categories' && method === 'PUT') {
     if (!isAdmin) return json({ error: 'Access denied: editing the chart of accounts requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const current = await readPlanningBoardCategories(db);
-    const merged = {
-      revenue: { ...current.revenue }, expense: { ...current.expense },
-      revenueLabels: { ...current.revenueLabels }, expenseLabels: { ...current.expenseLabels },
-      donorWrapperLabel: current.donorWrapperLabel,
-      accountLabels: { ...current.accountLabels },
-    };
-    if (b.revenue && typeof b.revenue === 'object') {
-      for (const [path, key] of Object.entries(b.revenue)) {
-        if (!path) continue;
-        if (key === '' || key == null) { delete merged.revenue[path]; continue; }
-        if (!REVENUE_STREAMS.includes(key)) return json({ error: `Invalid revenue category "${key}"` }, 400);
-        merged.revenue[path] = key;
-      }
-    }
-    if (b.expense && typeof b.expense === 'object') {
-      for (const [path, key] of Object.entries(b.expense)) {
-        if (!path) continue;
-        if (key === '' || key == null) { delete merged.expense[path]; continue; }
-        if (!BOARD_EXPENSE_KEYS.includes(key)) return json({ error: `Invalid expense category "${key}"` }, 400);
-        merged.expense[path] = key;
-      }
-    }
-    if (b.revenueLabels && typeof b.revenueLabels === 'object') {
-      for (const [key, label] of Object.entries(b.revenueLabels)) {
-        if (!REVENUE_STREAMS.includes(key)) continue;
-        const clean = String(label || '').trim();
-        if (clean) merged.revenueLabels[key] = clean; else delete merged.revenueLabels[key];
-      }
-    }
-    if (b.expenseLabels && typeof b.expenseLabels === 'object') {
-      for (const [key, label] of Object.entries(b.expenseLabels)) {
-        if (!BOARD_EXPENSE_KEYS.includes(key)) continue;
-        const clean = String(label || '').trim();
-        if (clean) merged.expenseLabels[key] = clean; else delete merged.expenseLabels[key];
-      }
-    }
-    if (typeof b.donorWrapperLabel === 'string') {
-      merged.donorWrapperLabel = b.donorWrapperLabel.trim();
-    }
-    // Leaf-level renames — no fixed allowlist (any category_path is a valid key, same as
-    // revenue/expense above), so only a non-empty path is required. An empty value clears that
-    // one account back to its real QuickBooks name.
-    if (b.accountLabels && typeof b.accountLabels === 'object') {
-      for (const [path, label] of Object.entries(b.accountLabels)) {
-        if (!path) continue;
-        const clean = String(label || '').trim();
-        if (clean) merged.accountLabels[path] = clean; else delete merged.accountLabels[path];
-      }
-    }
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES ('finance_planning_board_categories',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(JSON.stringify(merged)).run();
-    return json({ ok: true, ...merged });
+    const result = await applyBoardCategoryMerge(db, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Purpose tags — a SECOND, independent axis over the same accounts and Compensation Planner

@@ -54,6 +54,11 @@ const ROUTES = [
   // -- gated on Connect's side by real edit permission on any of finance/budget/compensation, not
   // a simple role-name check (see the contract handler's own comment).
   { id: 'daycare-entry-v1', paths: ['/api/v1/connect-daycare-entry'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-entry-relay.v1' },
+  // Same deliberate exception as the relays above, for Chart of Accounts' board-category
+  // assignment: relays to Connect's own finance-board-categories-write-v1 contract endpoint
+  // (never writes to Finance's own database), matching the legacy in-Connect Chart of Accounts'
+  // own finance/planning/board-categories PUT route exactly (admin-only, a MERGE not a replace).
+  { id: 'board-categories-write-v1', paths: ['/api/v1/connect-board-categories-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-board-categories-write-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no

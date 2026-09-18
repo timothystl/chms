@@ -14,7 +14,7 @@ import { recordQuickGivingEntry } from './api-giving.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
-  applyChurchActualOverride, recordDaycareEntry,
+  applyChurchActualOverride, recordDaycareEntry, applyBoardCategoryMerge,
 } from './api-finance.js';
 
 export async function handleContractsServiceApi(req, env, path) {
@@ -119,6 +119,10 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-daycare-entry-v1' && req.method === 'POST') {
     return handleFinanceDaycareEntryContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-board-categories-write-v1' && req.method === 'POST') {
+    return handleFinanceBoardCategoriesWriteContract(req, env);
   }
 
   if (path === '/api/contracts/finance-compensation-write-v1' && req.method === 'POST') {
@@ -413,6 +417,32 @@ async function handleFinanceDaycareEntryContract(req, env) {
   ).bind(String(result.id ?? ''), '', email).run().catch(() => {});
 
   return json({ ok: true, id: result.id, savedBy: user.username });
+}
+
+// ── Chart of Accounts board-category merge, relayed from Finance's own Chart of Accounts UI ──
+// Same shape as handleFinanceBudgetWriteContract above: the X-Contract-Key check only proves the
+// call came from Finance's Worker, this proves WHO Finance says is acting, and the verified
+// identity's real Connect role decides whether the merge is allowed -- admin only, matching
+// finance/planning/board-categories's own gate exactly, since this calls the identical
+// applyBoardCategoryMerge() helper that route uses (src/api-finance.js).
+async function handleFinanceBoardCategoriesWriteContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing the chart of accounts requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await applyBoardCategoryMerge(db, body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
 }
 
 // ── Salary/Compensation Planner write, relayed from Finance's own Compensation Planner UI ───
