@@ -66,6 +66,48 @@ export async function matchPersonForPayer(db, { email, phone } = {}) {
   return null;
 }
 
+// ── Stax customer lookup/creation — also the exemption from Stax's own AVS/address requirement ──
+// Confirmed against Stax's own tokenize() field reference
+// (docs.staxpayments.com/docs/tokenize-a-card-on-your-website): address_1/address_city/
+// address_state are each documented as "Required if customer_id is not passed into details" —
+// supplying customer_id makes Stax.js skip that requirement entirely, which is the confirmed
+// (not guessed) reason childcare-portal's own Stax integration never needs address fields: every
+// family gets one persistent Stax Customer, reused on every charge. This mirrors that: reuse a
+// matched donor's existing stax_customer_id (giving_stax_customers) if one exists, otherwise
+// create a new Stax customer (no address needed for that call either) and link it once a donor
+// matches a known Connect person. An unmatched donor still gets a fresh, unlinked Stax customer
+// so their tokenize() call gets the same AVS exemption — recordStaxGift already carries
+// stax_customer_id through to giving_stax_unmatched for staff to link retroactively.
+async function getOrCreateStaxCustomerId(db, apiKey, contact) {
+  const person = await matchPersonForPayer(db, { email: contact.payerEmail, phone: contact.payerPhone });
+  if (person) {
+    const link = await db.prepare(
+      `SELECT stax_customer_id FROM giving_stax_customers WHERE person_id=?`
+    ).bind(person.id).first();
+    if (link && link.stax_customer_id) return { customerId: link.stax_customer_id, personId: person.id };
+  }
+  const created = await staxRequest(apiKey, '/customer', {
+    method: 'POST',
+    body: JSON.stringify({
+      firstname: contact.payerFirstName, lastname: contact.payerLastName,
+      email: contact.payerEmail || undefined,
+      reference: `chms-mockup-${Date.now()}`,
+    }),
+  });
+  if (!created.ok || !created.data?.id) return { error: 'Could not start payment with Stax.' };
+  const customerId = created.data.id;
+  if (person) {
+    await db.prepare(
+      `INSERT INTO giving_stax_customers (person_id, stax_customer_id) VALUES (?,?)
+       ON CONFLICT(person_id) DO UPDATE SET stax_customer_id=excluded.stax_customer_id`
+    ).bind(person.id, customerId).run().catch(() => {
+      // A concurrent request already linked this person to a different customer id — leave that
+      // link alone; the customer just created above is still perfectly usable for this one gift.
+    });
+  }
+  return { customerId, personId: person ? person.id : null };
+}
+
 // ── Shared insert path: a verified Stax gift → giving_entries ──────────────
 // Idempotent on (processor, external_txn_id) via idx_giving_external_txn — calling this twice
 // for the same Stax transaction id (a webhook redelivery, or a synchronous-success path followed
@@ -487,6 +529,21 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     return j({ token: env.STAX_SANDBOX_WEB_PAYMENTS_TOKEN });
   }
 
+  // Called by the browser BEFORE Stax.js tokenize() — hands back a Stax customer_id (reused for
+  // a returning donor, or freshly created) so tokenize() can pass customer_id + match_customer
+  // and skip Stax's own address/AVS requirement (see getOrCreateStaxCustomerId's own comment).
+  // The same customerId then rides through to /checkout or /recurring's stax_customer_id so only
+  // ONE Stax customer is created per gift, not two.
+  if (path === 'stax-customer' && method === 'POST') {
+    if (!staxMockupConfigured(env)) return j({ customerId: null });
+    let b; try { b = await req.json(); } catch { return j({ error: 'Invalid JSON' }, 400); }
+    const contact = contactFieldsFrom(b);
+    if (!requireContact(contact)) return j({ error: 'First name, last name, and email are required.' }, 400);
+    const result = await getOrCreateStaxCustomerId(db, env.STAX_SANDBOX_API_KEY, contact);
+    if (result.error) return j({ error: result.error }, 502);
+    return j({ customerId: result.customerId });
+  }
+
   if (path === 'checkout' && method === 'POST') {
     let b; try { b = await req.json(); } catch { return j({ error: 'Invalid JSON' }, 400); }
     const giftResult = await loadOpenGifts(db, b.gifts);
@@ -515,16 +572,16 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     const paymentMethodId = String(b.payment_method_id || '');
     if (!paymentMethodId) return j({ error: 'payment_method_id required (from Stax.js tokenize)' }, 400);
     const apiKey = env.STAX_SANDBOX_API_KEY;
-    const created = await staxRequest(apiKey, '/customer', {
-      method: 'POST',
-      body: JSON.stringify({
-        firstname: contact.payerFirstName, lastname: contact.payerLastName,
-        email: contact.payerEmail || undefined,
-        reference: `chms-mockup-${Date.now()}`,
-      }),
-    });
-    if (!created.ok || !created.data?.id) return j({ error: 'Could not start payment with Stax.' }, 502);
-    const staxCustomerId = created.data.id;
+    // The browser normally already has a customer_id from /stax-customer (called before
+    // tokenize() so Stax.js gets its AVS exemption) and sends it back here — reusing it instead
+    // of creating a second Stax customer for the same gift. A missing one (an older client, or a
+    // demo/test caller that skipped that step) still works: fall back to creating one inline.
+    let staxCustomerId = String(b.stax_customer_id || '').trim();
+    if (!staxCustomerId) {
+      const result = await getOrCreateStaxCustomerId(db, apiKey, contact);
+      if (result.error) return j({ error: result.error }, 502);
+      staxCustomerId = result.customerId;
+    }
 
     const idempotencyId = crypto.randomUUID();
     const charge = await staxRequest(apiKey, '/charge', {
@@ -589,17 +646,13 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     const scheduleGroup = splits.length > 1 ? crypto.randomUUID() : '';
     const payerName = `${contact.payerFirstName} ${contact.payerLastName}`.trim();
 
-    let staxCustomerId = '';
-    if (staxMockupConfigured(env) && b.payment_method_id) {
-      const created = await staxRequest(env.STAX_SANDBOX_API_KEY, '/customer', {
-        method: 'POST',
-        body: JSON.stringify({
-          firstname: contact.payerFirstName, lastname: contact.payerLastName,
-          email: contact.payerEmail || undefined,
-          reference: `chms-mockup-recurring-${Date.now()}`,
-        }),
-      });
-      if (created.ok && created.data?.id) staxCustomerId = created.data.id;
+    // Same reuse-over-recreate pattern as /checkout: the browser already has a customer_id from
+    // /stax-customer (called before tokenize()), so reuse it here rather than minting a second
+    // Stax customer for the same donor. Falls back to creating one inline if it's missing.
+    let staxCustomerId = String(b.stax_customer_id || '').trim();
+    if (!staxCustomerId && staxMockupConfigured(env) && b.payment_method_id) {
+      const result = await getOrCreateStaxCustomerId(db, env.STAX_SANDBOX_API_KEY, contact);
+      if (!result.error) staxCustomerId = result.customerId;
     }
 
     const ids = [];

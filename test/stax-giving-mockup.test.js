@@ -512,6 +512,115 @@ describe('Stax Giving mockup — public checkout API (demo mode)', () => {
   });
 });
 
+describe('Stax Giving mockup — /stax-customer (the AVS/address exemption)', () => {
+  // customer_id makes Stax.js skip address/AVS requirements entirely (confirmed against Stax's
+  // own tokenize() field reference — see getOrCreateStaxCustomerId's comment), so this endpoint
+  // is what the browser calls BEFORE tokenize() to get one.
+  const env = () => ({ STAX_SANDBOX_API_KEY: 'sk_test', STAX_SANDBOX_WEB_PAYMENTS_TOKEN: 'wpt_test' });
+
+  it('returns a null customerId in demo mode (no live Stax credentials configured)', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/stax-customer', {
+      method: 'POST',
+      body: JSON.stringify({ payer_first_name: 'X', payer_last_name: 'Y', payer_email: 'x@example.com' }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'POST', 'stax-customer');
+    expect(res.status).toBe(200);
+    expect((await res.json()).customerId).toBeNull();
+  });
+
+  it('requires first name, last name, and email', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/stax-customer', {
+      method: 'POST',
+      body: JSON.stringify({ payer_first_name: 'X' }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', 'stax-customer');
+    expect(res.status).toBe(400);
+  });
+
+  it('creates a fresh Stax customer for an unmatched donor, without linking it to any person', async () => {
+    const db = makeDb();
+    await initDb(db);
+    global.fetch = vi.fn(async (url, init) => {
+      expect(String(url)).toContain('/customer');
+      const body = JSON.parse(init.body);
+      expect(body.firstname).toBe('Stranger');
+      expect(body.email).toBe('stranger@example.com');
+      return new Response(JSON.stringify({ id: 'cus_new_1' }), { status: 200 });
+    });
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/stax-customer', {
+      method: 'POST',
+      body: JSON.stringify({ payer_first_name: 'Stranger', payer_last_name: 'Donor', payer_email: 'stranger@example.com' }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', 'stax-customer');
+    expect(res.status).toBe(200);
+    expect((await res.json()).customerId).toBe('cus_new_1');
+    const link = await db.prepare('SELECT * FROM giving_stax_customers').first();
+    expect(link).toBeUndefined();
+  });
+
+  it('creates and links a new Stax customer the first time a matched donor gives', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const pid = insertPerson(db, { first: 'Jamie', last: 'Vogel', email: 'jamie@example.com', phone: '' });
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ id: 'cus_jamie_1' }), { status: 200 }));
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/stax-customer', {
+      method: 'POST',
+      body: JSON.stringify({ payer_first_name: 'Jamie', payer_last_name: 'Vogel', payer_email: 'jamie@example.com' }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', 'stax-customer');
+    expect((await res.json()).customerId).toBe('cus_jamie_1');
+    const link = await db.prepare('SELECT * FROM giving_stax_customers WHERE person_id=?').bind(pid).first();
+    expect(link.stax_customer_id).toBe('cus_jamie_1');
+  });
+
+  it('reuses an already-linked Stax customer for a returning donor without calling Stax again', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const pid = insertPerson(db, { first: 'Rae', last: 'Okafor', email: 'rae@example.com', phone: '' });
+    await db.prepare('INSERT INTO giving_stax_customers (person_id, stax_customer_id) VALUES (?,?)').bind(pid, 'cus_rae_existing').run();
+    global.fetch = vi.fn(async () => { throw new Error('Stax should not be called — the existing customer id should be reused'); });
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/stax-customer', {
+      method: 'POST',
+      body: JSON.stringify({ payer_first_name: 'Rae', payer_last_name: 'Okafor', payer_email: 'rae@example.com' }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', 'stax-customer');
+    expect((await res.json()).customerId).toBe('cus_rae_existing');
+  });
+});
+
+describe('Stax Giving mockup — checkout reuses a client-supplied stax_customer_id', () => {
+  const env = () => ({ STAX_SANDBOX_API_KEY: 'sk_test', STAX_SANDBOX_WEB_PAYMENTS_TOKEN: 'wpt_test' });
+
+  it('does not create a second Stax customer when the browser already sent one from /stax-customer', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    global.fetch = vi.fn(async (url, init) => {
+      expect(String(url)).toContain('/charge'); // /customer must never be hit here
+      const body = JSON.parse(init.body);
+      expect(body.customer_id).toBe('cus_already_have_one');
+      return new Response(JSON.stringify({ id: 'chg_reuse_1', success: true, total_fees: '0.50', payment_method: {} }), { status: 200 });
+    });
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '15.00' }],
+        payer_first_name: 'Reuse', payer_last_name: 'Customer', payer_email: 'reuse@example.com',
+        payment_method_id: 'pm_1', stax_customer_id: 'cus_already_have_one',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', 'checkout');
+    expect(res.status).toBe(200);
+  });
+});
+
 describe('Stax Giving mockup — funds visibility (staff, src/api-giving.js)', () => {
   it('lists all active funds with their public_giving flag for staff, and only saves the flag on POST', async () => {
     const db = makeDb();
