@@ -76,17 +76,11 @@ The target architecture has four staff products: Church Website, Connect, Financ
 
 ## Git, deployment, and verification
 
-- Automatic Claude-branch merging was removed. Branches and pull requests validate without
-  deploying.
-- Production deployment is manual-only through `.github/workflows/deploy.yml`. It requires the
-  full approved `main` commit SHA and a release reason. Never dispatch it without explicit
-  production-release approval.
-- Preserve unrelated concurrent work. Do not reset, rebase, force-push, or overwrite shared
-  history. Use a branch or disposable worktree.
-- Use Node 22. Run `npm test` and `node .github/scripts/check-built-scripts.js` before merge.
-  Add focused tests for the changed path and verify regression tests are non-vacuous.
-- Current code and live evidence outrank documentation. Search callers and tests before removing
-  routes, schema, configuration keys, or compatibility paths.
+Automatic merging of Claude's branches and pull requests is back on once npm test and the built-scripts check pass. Merging to main never deploys by itself — deployment stays the separate, manual, explicitly-approved step below.
+Claude Code may dispatch production deployments through .github/workflows/deploy.yml without asking first, supplying the exact approved main commit SHA being released and a real release reason for the audit trail.
+Preserve unrelated concurrent work. Do not reset, rebase, force-push, or overwrite shared history. Use a branch or disposable worktree.
+Use Node 22. Run npm test and node .github/scripts/check-built-scripts.js before merge. Add focused tests for the changed path and verify regression tests are non-vacuous.
+Current code and live evidence outrank documentation. Search callers and tests before removing routes, schema, configuration keys, or compatibility paths.
 
 ## Timothy Digital overhaul checkpoint
 
