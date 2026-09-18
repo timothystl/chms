@@ -59,6 +59,14 @@ const ROUTES = [
   // (never writes to Finance's own database), matching the legacy in-Connect Chart of Accounts'
   // own finance/planning/board-categories PUT route exactly (admin-only, a MERGE not a replace).
   { id: 'board-categories-write-v1', paths: ['/api/v1/connect-board-categories-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-board-categories-write-relay.v1' },
+  // Same deliberate exception as the relays above, for Commercial Property's monthly financials
+  // entry: relays to Connect's own finance-property-monthly-write-v1 contract endpoint (never
+  // writes to Finance's own database), matching the legacy in-Connect Property Operating Results'
+  // own finance/property/ivanhoe/monthly POST route exactly (admin-only, one property/period
+  // upsert). Distinct from the separately-merged Finance-owned-D1 reserve/disbursement/
+  // distribution/capital-ledger routes -- this is the core monthly revenue/expense/NOI row those
+  // don't cover.
+  { id: 'property-monthly-write-v1', paths: ['/api/v1/connect-property-monthly-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-monthly-write-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no

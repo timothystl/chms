@@ -14,7 +14,7 @@ import { recordQuickGivingEntry } from './api-giving.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
-  applyChurchActualOverride, recordDaycareEntry, applyBoardCategoryMerge,
+  applyChurchActualOverride, recordDaycareEntry, applyBoardCategoryMerge, upsertPropertyMonthly,
 } from './api-finance.js';
 
 export async function handleContractsServiceApi(req, env, path) {
@@ -123,6 +123,10 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-board-categories-write-v1' && req.method === 'POST') {
     return handleFinanceBoardCategoriesWriteContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-property-monthly-write-v1' && req.method === 'POST') {
+    return handleFinancePropertyMonthlyWriteContract(req, env);
   }
 
   if (path === '/api/contracts/finance-compensation-write-v1' && req.method === 'POST') {
@@ -441,6 +445,36 @@ async function handleFinanceBoardCategoriesWriteContract(req, env) {
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
   const result = await applyBoardCategoryMerge(db, body);
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: user.username });
+}
+
+// ── Commercial Property monthly-financials write, relayed from Finance's own Property Operating
+// Results UI ──────────────────────────────────────────────────────────────────────────────────
+// Same shape as handleFinanceBudgetWriteContract above: the X-Contract-Key check only proves the
+// call came from Finance's Worker, this proves WHO Finance says is acting, and the verified
+// identity's real Connect role decides whether the write is allowed -- admin only, matching
+// finance/property/ivanhoe/monthly's own gate exactly, since this calls the identical
+// upsertPropertyMonthly() helper that route uses (src/api-finance.js). The property key is
+// hardcoded to 'ivanhoe' here, never taken from the request body, the same way the legacy route's
+// own dispatcher (handleFinanceApi) hardcodes it rather than letting a caller target an arbitrary
+// key -- see that dispatcher's own comment on why only 'ivanhoe' exists today.
+async function handleFinancePropertyMonthlyWriteContract(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return json({ error: 'Access verification not configured' }, 503);
+
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return json({ error: 'Unauthorized' }, 401);
+
+  const db = env.DB;
+  const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
+  if (user.role !== 'admin') return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
+
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await upsertPropertyMonthly(db, 'ivanhoe', body);
   if (result.error) return json({ error: result.error }, result.status || 400);
   return json({ ...result, savedBy: user.username });
 }

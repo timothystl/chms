@@ -20,6 +20,7 @@ import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchRe
 import { postConnectFinanceChurchActualOverride } from './finance-church-report-client.js';
 import { postConnectFinanceDaycareEntry } from './finance-daycare-client.js';
 import { postConnectBoardCategoriesWrite } from './finance-chart-of-accounts-client.js';
+import { postConnectPropertyMonthlyWrite } from './finance-property-operating-client.js';
 import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
@@ -214,6 +215,18 @@ function describeBoardCategoryEntryError(reason, message) {
   }
 }
 
+// Same shape as describeBoardCategoryEntryError above, for postConnectPropertyMonthlyWrite() failures.
+function describePropertyMonthlyEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the entry.';
+    default: return 'The month was not saved.';
+  }
+}
+
 // Same shape as describeBudgetEntryError above, for postConnectFinanceCompensationWrite() /
 // fetchConnectSalaryPlannerState() failures.
 function describeCompensationEntryError(reason, message) {
@@ -351,6 +364,7 @@ function renderSectionBody(ctx) {
     churchOverrideStatus, churchOverrideMessage,
     daycareEntryStatus, daycareEntryMessage,
     boardCategoryEntryStatus, boardCategoryEntryMessage,
+    propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
     roleResult,
   } = ctx;
   if (section.id === 'health') {
@@ -511,9 +525,14 @@ function renderSectionBody(ctx) {
     return renderDaycarePage(page.id, { daycareReport: daycareReportLive, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage });
   }
   if (section.id === 'property') {
+    // Same admin-only gate as the legacy in-Connect Property Operating Results' own monthly POST
+    // route -- UI hiding is never authorization, the real gate is
+    // finance-property-monthly-write-v1's own role check on Connect's side.
+    const canManagePropertyMonthly = roleResult.ok && roleResult.role === 'admin';
     return renderPropertyPage(page.id, {
       propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
       propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions,
+      canManagePropertyMonthly, propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
     });
   }
   if (section.id === 'planning') {
@@ -1053,6 +1072,36 @@ export default {
         return response(null, { status: 303, headers: { Location: '/?section=accounts&status=ok' } });
       }
       const params = new URLSearchParams({ section: 'accounts', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'property-monthly-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = {
+        period: form.get('period') || '',
+        occupancy_pct: form.get('occupancy_pct') || '',
+        total_revenue: form.get('total_revenue') || '',
+        total_expenses: form.get('total_expenses') || '',
+        net_income: form.get('net_income') || '',
+        net_operating_income: form.get('net_operating_income') || '',
+        available_for_distribution: form.get('available_for_distribution') || '',
+        reserve_balance: form.get('reserve_balance') || '',
+        loan_payment: form.get('loan_payment') || '',
+        interest_expense: form.get('interest_expense') || '',
+        source_report: 'finance-app',
+      };
+      const result = await postConnectPropertyMonthlyWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=operating-results&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'operating-results', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -1629,6 +1678,10 @@ export default {
         const boardCategoryEntryMessage = boardCategoryEntryStatus === 'error'
           ? describeBoardCategoryEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        const propertyMonthlyEntryStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyMonthlyEntryMessage = propertyMonthlyEntryStatus === 'error'
+          ? describePropertyMonthlyEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
@@ -1641,6 +1694,7 @@ export default {
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
           planOpKind, planOpStatus, planOpMessage, churchOverrideStatus, churchOverrideMessage,
           daycareEntryStatus, daycareEntryMessage, boardCategoryEntryStatus, boardCategoryEntryMessage,
+          propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
         }), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });

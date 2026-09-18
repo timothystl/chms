@@ -2594,6 +2594,45 @@ export function computePropertyAnnualSummary(monthlyRows, distributionRows, annu
     .sort((a, b) => a.year - b.year);
 }
 
+// ── Shared Commercial Property monthly-financials writer ────────────────────────────────────
+// Used by both the admin-only finance/property/:propertyKey/monthly POST route below and its
+// finance-property-monthly-write-v1 relay contract counterpart (src/api-contracts-service.js), so
+// Finance's own Worker can forward the identical upsert on behalf of an identity it verified via
+// Cloudflare Access. One implementation means the two entry points can never drift.
+export async function upsertPropertyMonthly(db, propertyKey, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  if (!b.period || !/^\d{4}-\d{2}$/.test(b.period)) return { error: 'period must be YYYY-MM', status: 400 };
+  const toCents = v => (v === '' || v === null || v === undefined) ? null : Math.round(Number(v) * 100);
+  const occ = (b.occupancy_pct === '' || b.occupancy_pct === null || b.occupancy_pct === undefined) ? null : Number(b.occupancy_pct);
+  if (occ !== null && !Number.isFinite(occ)) return { error: 'Invalid occupancy_pct', status: 400 };
+  const cents = {
+    total_revenue_cents: toCents(b.total_revenue),
+    total_expenses_cents: toCents(b.total_expenses),
+    net_income_cents: toCents(b.net_income),
+    net_operating_income_cents: toCents(b.net_operating_income),
+    available_for_distribution_cents: toCents(b.available_for_distribution),
+    reserve_balance_cents: toCents(b.reserve_balance),
+    // Real per-month loan payment + interest expense (bank rec + income statement) — lets the
+    // confirmed mortgage balance roll forward automatically instead of needing a fresh lender
+    // confirmation every time (see finComputeMortgageRemainingCents).
+    loan_payment_cents: toCents(b.loan_payment),
+    interest_expense_cents: toCents(b.interest_expense),
+  };
+  for (const [k, v] of Object.entries(cents)) { if (v !== null && !Number.isFinite(v)) return { error: `Invalid ${k}`, status: 400 }; }
+  await db.prepare(
+    `INSERT INTO finance_property_monthly
+       (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,loan_payment_cents,interest_expense_cents,source_report,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+     ON CONFLICT(property_key,period) DO UPDATE SET
+       occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
+       net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
+       available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
+       loan_payment_cents=excluded.loan_payment_cents, interest_expense_cents=excluded.interest_expense_cents,
+       source_report=excluded.source_report, updated_at=excluded.updated_at`
+  ).bind(propertyKey, b.period, occ, cents.total_revenue_cents, cents.total_expenses_cents, cents.net_income_cents, cents.net_operating_income_cents, cents.available_for_distribution_cents, cents.reserve_balance_cents, cents.loan_payment_cents, cents.interest_expense_cents, b.source_report || '').run();
+  return { ok: true };
+}
+
 async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey) {
   if (seg === `finance/property/${propertyKey}` && method === 'GET') {
     const monthly = (await db.prepare('SELECT * FROM finance_property_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
@@ -2653,36 +2692,9 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   if (seg === `finance/property/${propertyKey}/monthly` && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    if (!b.period || !/^\d{4}-\d{2}$/.test(b.period)) return json({ error: 'period must be YYYY-MM' }, 400);
-    const toCents = v => (v === '' || v === null || v === undefined) ? null : Math.round(Number(v) * 100);
-    const occ = (b.occupancy_pct === '' || b.occupancy_pct === null || b.occupancy_pct === undefined) ? null : Number(b.occupancy_pct);
-    if (occ !== null && !Number.isFinite(occ)) return json({ error: 'Invalid occupancy_pct' }, 400);
-    const cents = {
-      total_revenue_cents: toCents(b.total_revenue),
-      total_expenses_cents: toCents(b.total_expenses),
-      net_income_cents: toCents(b.net_income),
-      net_operating_income_cents: toCents(b.net_operating_income),
-      available_for_distribution_cents: toCents(b.available_for_distribution),
-      reserve_balance_cents: toCents(b.reserve_balance),
-      // Real per-month loan payment + interest expense (bank rec + income statement) — lets the
-      // confirmed mortgage balance roll forward automatically instead of needing a fresh lender
-      // confirmation every time (see finComputeMortgageRemainingCents).
-      loan_payment_cents: toCents(b.loan_payment),
-      interest_expense_cents: toCents(b.interest_expense),
-    };
-    for (const [k, v] of Object.entries(cents)) { if (v !== null && !Number.isFinite(v)) return json({ error: `Invalid ${k}` }, 400); }
-    await db.prepare(
-      `INSERT INTO finance_property_monthly
-         (property_key,period,occupancy_pct,total_revenue_cents,total_expenses_cents,net_income_cents,net_operating_income_cents,available_for_distribution_cents,reserve_balance_cents,loan_payment_cents,interest_expense_cents,source_report,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
-       ON CONFLICT(property_key,period) DO UPDATE SET
-         occupancy_pct=excluded.occupancy_pct, total_revenue_cents=excluded.total_revenue_cents, total_expenses_cents=excluded.total_expenses_cents,
-         net_income_cents=excluded.net_income_cents, net_operating_income_cents=excluded.net_operating_income_cents,
-         available_for_distribution_cents=excluded.available_for_distribution_cents, reserve_balance_cents=excluded.reserve_balance_cents,
-         loan_payment_cents=excluded.loan_payment_cents, interest_expense_cents=excluded.interest_expense_cents,
-         source_report=excluded.source_report, updated_at=excluded.updated_at`
-    ).bind(propertyKey, b.period, occ, cents.total_revenue_cents, cents.total_expenses_cents, cents.net_income_cents, cents.net_operating_income_cents, cents.available_for_distribution_cents, cents.reserve_balance_cents, cents.loan_payment_cents, cents.interest_expense_cents, b.source_report || '').run();
-    return json({ ok: true });
+    const result = await upsertPropertyMonthly(db, propertyKey, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Bulk import of one or more months from the AHRA report's own monthly-financials CSV row
