@@ -2147,6 +2147,54 @@ async function _doInitDb(db) {
     // own, or vice versa. When set, every email the Scheduler sends this person also
     // goes here; reminder_email is untouched.
     "ALTER TABLE scheduler_volunteers ADD COLUMN second_email TEXT NOT NULL DEFAULT ''",
+    // (see migrations/0053_stax_giving_mockup.sql): Stax giving mockup -- see
+    // docs/STAX_GIVING_MOCKUP.md. Gifts still land in the existing giving_entries ledger
+    // (person_id/fund_id/source/processor/external_txn_id/fee_cents/reconcile_status already
+    // existed from the 0031 deposit-reconciliation work); only genuinely new concepts are
+    // added below.
+    "ALTER TABLE funds ADD COLUMN gl_code TEXT NOT NULL DEFAULT ''",
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_giving_external_txn
+       ON giving_entries(processor, external_txn_id) WHERE external_txn_id != ''`,
+    `CREATE TABLE IF NOT EXISTS giving_stax_customers (
+       id               INTEGER PRIMARY KEY AUTOINCREMENT,
+       person_id        INTEGER NOT NULL REFERENCES people(id),
+       stax_customer_id TEXT    NOT NULL,
+       created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+     )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_stax_customers_person ON giving_stax_customers(person_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_stax_customers_stax_id ON giving_stax_customers(stax_customer_id)`,
+    `CREATE TABLE IF NOT EXISTS giving_stax_recurring_schedules (
+       id               INTEGER PRIMARY KEY AUTOINCREMENT,
+       person_id        INTEGER REFERENCES people(id),
+       fund_id          INTEGER NOT NULL REFERENCES funds(id),
+       amount_cents     INTEGER NOT NULL,
+       interval         TEXT    NOT NULL DEFAULT 'monthly',
+       stax_customer_id TEXT    NOT NULL DEFAULT '',
+       stax_schedule_id TEXT    NOT NULL DEFAULT '',
+       status           TEXT    NOT NULL DEFAULT 'active',
+       payer_name       TEXT    NOT NULL DEFAULT '',
+       payer_email      TEXT    NOT NULL DEFAULT '',
+       created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_stax_recurring_person ON giving_stax_recurring_schedules(person_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_stax_recurring_status ON giving_stax_recurring_schedules(status)`,
+    `CREATE TABLE IF NOT EXISTS giving_stax_unmatched (
+       id               INTEGER PRIMARY KEY AUTOINCREMENT,
+       giving_entry_id  INTEGER NOT NULL REFERENCES giving_entries(id),
+       payer_name       TEXT    NOT NULL DEFAULT '',
+       payer_email      TEXT    NOT NULL DEFAULT '',
+       payer_phone      TEXT    NOT NULL DEFAULT '',
+       card_brand       TEXT    NOT NULL DEFAULT '',
+       card_last4       TEXT    NOT NULL DEFAULT '',
+       stax_customer_id TEXT    NOT NULL DEFAULT '',
+       status           TEXT    NOT NULL DEFAULT 'open',
+       linked_person_id INTEGER,
+       linked_by        TEXT    NOT NULL DEFAULT '',
+       linked_at        TEXT    NOT NULL DEFAULT '',
+       created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
+     )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_stax_unmatched_entry ON giving_stax_unmatched(giving_entry_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_stax_unmatched_status ON giving_stax_unmatched(status)`,
   ];
   // Every statement here is either an idempotent CREATE ... IF NOT EXISTS, or an ALTER TABLE
   // ADD COLUMN — SQLite has no "ADD COLUMN IF NOT EXISTS", so a re-run always throws "duplicate
