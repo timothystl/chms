@@ -21,7 +21,11 @@ import { postConnectFinanceChurchActualOverride } from './finance-church-report-
 import { postConnectFinanceDaycareEntry } from './finance-daycare-client.js';
 import { postConnectBoardCategoriesWrite } from './finance-chart-of-accounts-client.js';
 import { postConnectPropertyMonthlyWrite } from './finance-property-operating-client.js';
-import { postConnectPropertyRepairWrite } from './finance-property-ledgers-client.js';
+import { postConnectPropertyRepairWrite, postConnectPropertyCapitalLedgerWrite } from './finance-property-ledgers-client.js';
+import {
+  postConnectPropertyDistributionWrite, postConnectPropertyReserveMonthlyWrite,
+  postConnectPropertyReserveDisbursementWrite,
+} from './finance-property-reserves-client.js';
 import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
@@ -243,6 +247,54 @@ function describePropertyRepairEntryError(reason, message) {
   }
 }
 
+// Same shape as describePropertyRepairEntryError above, for postConnectPropertyDistributionWrite() failures.
+function describePropertyDistributionEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the entry.';
+    default: return 'The distribution was not saved.';
+  }
+}
+
+// Same shape as describePropertyDistributionEntryError above, for postConnectPropertyReserveMonthlyWrite() failures.
+function describePropertyReserveMonthlyEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the entry.';
+    default: return 'The reserve entry was not saved.';
+  }
+}
+
+// Same shape as describePropertyReserveMonthlyEntryError above, for postConnectPropertyReserveDisbursementWrite() failures.
+function describePropertyReserveDisbursementEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the entry.';
+    default: return 'The disbursement was not saved.';
+  }
+}
+
+// Same shape as describePropertyReserveDisbursementEntryError above, for postConnectPropertyCapitalLedgerWrite() failures.
+function describePropertyCapitalLedgerEntryError(reason, message) {
+  switch (reason) {
+    case 'not_configured': return 'Property financials editing is not connected yet. Nothing was saved.';
+    case 'no_access_identity': return 'Your sign-in was not recognized by Connect. Try reloading the page.';
+    case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
+    case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
+    case 'http_error': return message ? String(message) : 'Connect refused the entry.';
+    default: return 'The entry was not saved.';
+  }
+}
+
 // Same shape as describeBudgetEntryError above, for postConnectFinanceCompensationWrite() /
 // fetchConnectSalaryPlannerState() failures.
 function describeCompensationEntryError(reason, message) {
@@ -382,6 +434,10 @@ function renderSectionBody(ctx) {
     boardCategoryEntryStatus, boardCategoryEntryMessage,
     propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
     propertyRepairEntryStatus, propertyRepairEntryMessage,
+    propertyDistributionEntryStatus, propertyDistributionEntryMessage,
+    propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage,
+    propertyReserveDisbursementEntryStatus, propertyReserveDisbursementEntryMessage,
+    propertyCapitalLedgerEntryStatus, propertyCapitalLedgerEntryMessage,
     roleResult,
   } = ctx;
   if (section.id === 'health') {
@@ -548,11 +604,20 @@ function renderSectionBody(ctx) {
     // check on Connect's side.
     const canManagePropertyMonthly = roleResult.ok && roleResult.role === 'admin';
     const canManagePropertyRepairs = roleResult.ok && roleResult.role === 'admin';
+    // Same admin-only gate as above, for Distributions/Reserve schedule & disbursement/Capital
+    // improvements' own POST routes -- UI hiding is never authorization, the real gate is each
+    // finance-property-*-write-v1 contract's own role check on Connect's side.
+    const canManagePropertyLedgers = roleResult.ok && roleResult.role === 'admin';
     return renderPropertyPage(page.id, {
       propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
       propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions,
       canManagePropertyMonthly, propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
       canManagePropertyRepairs, propertyRepairEntryStatus, propertyRepairEntryMessage,
+      canManagePropertyLedgers,
+      propertyDistributionEntryStatus, propertyDistributionEntryMessage,
+      propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage,
+      propertyReserveDisbursementEntryStatus, propertyReserveDisbursementEntryMessage,
+      propertyCapitalLedgerEntryStatus, propertyCapitalLedgerEntryMessage,
     });
   }
   if (section.id === 'planning') {
@@ -1147,6 +1212,102 @@ export default {
         return response(null, { status: 303, headers: { Location: '/?section=property&page=work-orders&status=ok' } });
       }
       const params = new URLSearchParams({ section: 'property', page: 'work-orders', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'property-distribution-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = {
+        period: form.get('period') || '',
+        amount: form.get('amount') || '',
+      };
+      const result = await postConnectPropertyDistributionWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=distributions&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'distributions', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'property-reserve-monthly-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = {
+        reserve_key: form.get('reserve_key') || '',
+        report_month: form.get('report_month') || '',
+        tax_year: form.get('tax_year') || '',
+        target_estimate: form.get('target_estimate') || '',
+        contribution: form.get('contribution') || '',
+        reserve_before: form.get('reserve_before') || '',
+        note: form.get('note') || '',
+      };
+      const result = await postConnectPropertyReserveMonthlyWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=reserve-distribution&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'reserve-distribution', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'property-reserve-disbursement-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = {
+        reserve_key: form.get('reserve_key') || '',
+        period_key: form.get('period_key') || '',
+        amount: form.get('amount') || '',
+        paid_via_report_month: form.get('paid_via_report_month') || '',
+        note: form.get('note') || '',
+      };
+      const result = await postConnectPropertyReserveDisbursementWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=reserve-distribution&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'reserve-distribution', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'property-capital-ledger-write-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try {
+        form = await request.formData();
+      } catch {
+        return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      const body = {
+        entry_date: form.get('entry_date') || '',
+        amount: form.get('amount') || '',
+        payee: form.get('payee') || '',
+        description: form.get('description') || '',
+        check_ref: form.get('check_ref') || '',
+        project: form.get('project') || '',
+      };
+      const result = await postConnectPropertyCapitalLedgerWrite(env, accessJwt, body);
+      if (result.ok) {
+        return response(null, { status: 303, headers: { Location: '/?section=property&page=capital&status=ok' } });
+      }
+      const params = new URLSearchParams({ section: 'property', page: 'capital', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -1843,6 +2004,25 @@ export default {
         const propertyRepairEntryMessage = propertyRepairEntryStatus === 'error'
           ? describePropertyRepairEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        // Same shape as the two property statuses above, for Distributions/Reserve schedule &
+        // disbursement/Capital improvements -- also reading the same shared status/reason/message
+        // query params (distinguished by `page`, each page shows only its own form).
+        const propertyDistributionEntryStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyDistributionEntryMessage = propertyDistributionEntryStatus === 'error'
+          ? describePropertyDistributionEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const propertyReserveMonthlyEntryStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyReserveMonthlyEntryMessage = propertyReserveMonthlyEntryStatus === 'error'
+          ? describePropertyReserveMonthlyEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const propertyReserveDisbursementEntryStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyReserveDisbursementEntryMessage = propertyReserveDisbursementEntryStatus === 'error'
+          ? describePropertyReserveDisbursementEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
+        const propertyCapitalLedgerEntryStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyCapitalLedgerEntryMessage = propertyCapitalLedgerEntryStatus === 'error'
+          ? describePropertyCapitalLedgerEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
+          : null;
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
@@ -1856,6 +2036,10 @@ export default {
           planOpKind, planOpStatus, planOpMessage, churchOverrideStatus, churchOverrideMessage,
           daycareEntryStatus, daycareEntryMessage, boardCategoryEntryStatus, boardCategoryEntryMessage,
           propertyMonthlyEntryStatus, propertyMonthlyEntryMessage, propertyRepairEntryStatus, propertyRepairEntryMessage,
+          propertyDistributionEntryStatus, propertyDistributionEntryMessage,
+          propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage,
+          propertyReserveDisbursementEntryStatus, propertyReserveDisbursementEntryMessage,
+          propertyCapitalLedgerEntryStatus, propertyCapitalLedgerEntryMessage,
         }), {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });

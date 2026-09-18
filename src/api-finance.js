@@ -2648,6 +2648,102 @@ export async function addPropertyRepair(db, propertyKey, body) {
   return { ok: true, id: r.meta?.last_row_id };
 }
 
+// ── Shared Commercial Property distributions writer ─────────────────────────────────────────
+// Used by both the admin-only finance/property/:propertyKey/distributions POST route below and its
+// finance-property-distribution-write-v1 relay contract counterpart (src/api-contracts-service.js),
+// so Finance's own Worker can forward the identical upsert on behalf of an identity it verified via
+// Cloudflare Access. One implementation means the two entry points can never drift.
+export async function upsertPropertyDistribution(db, propertyKey, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  if (!b.period || !/^\d{4}-\d{2}$/.test(b.period)) return { error: 'period must be YYYY-MM', status: 400 };
+  const amountCents = Math.round(Number(b.amount) * 100);
+  if (!Number.isFinite(amountCents)) return { error: 'Invalid amount', status: 400 };
+  await db.prepare(
+    `INSERT INTO finance_property_distributions (property_key,period,amount_cents) VALUES (?,?,?)
+     ON CONFLICT(property_key,period) DO UPDATE SET amount_cents=excluded.amount_cents`
+  ).bind(propertyKey, b.period, amountCents).run();
+  return { ok: true };
+}
+
+// ── Shared Commercial Property named-reserve monthly schedule writer ────────────────────────
+// Used by both the admin-only finance/property/:propertyKey/reserves/:reserveKey/monthly POST
+// route below and its finance-property-reserve-monthly-write-v1 relay contract counterpart
+// (src/api-contracts-service.js), so Finance's own Worker can forward the identical upsert on
+// behalf of an identity it verified via Cloudflare Access. One implementation means the two entry
+// points can never drift, including the running-balance rule: reserve_before defaults to the
+// latest prior month's reserve_after for this bucket (0 if none exists yet), and reserve_after is
+// always reserve_before + contribution -- matches how AHRA's own monthly schedule carries a
+// running balance.
+export async function upsertPropertyReserveMonthly(db, propertyKey, reserveKey, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  if (!reserveKey || !/^[a-z_]+$/.test(reserveKey)) return { error: 'reserve key must match [a-z_]+', status: 400 };
+  if (!b.report_month || !/^\d{4}-\d{2}$/.test(b.report_month)) return { error: 'report_month must be YYYY-MM', status: 400 };
+  const toCents = v => (v === '' || v === null || v === undefined) ? null : Math.round(Number(v) * 100);
+  const targetEstimateCents = toCents(b.target_estimate);
+  const contributionCents = toCents(b.contribution) ?? 0;
+  if (targetEstimateCents !== null && !Number.isFinite(targetEstimateCents)) return { error: 'Invalid target_estimate', status: 400 };
+  if (!Number.isFinite(contributionCents)) return { error: 'Invalid contribution', status: 400 };
+  const taxYear = (b.tax_year === '' || b.tax_year === null || b.tax_year === undefined) ? null : parseInt(b.tax_year, 10);
+  let reserveBeforeCents = toCents(b.reserve_before);
+  if (reserveBeforeCents === null) {
+    const prior = await db.prepare(
+      `SELECT reserve_after_cents FROM finance_property_reserves WHERE property_key=? AND reserve_key=? AND report_month<? ORDER BY report_month DESC LIMIT 1`
+    ).bind(propertyKey, reserveKey, b.report_month).first();
+    reserveBeforeCents = prior?.reserve_after_cents ?? 0;
+  }
+  const reserveAfterCents = reserveBeforeCents + contributionCents;
+  await db.prepare(
+    `INSERT INTO finance_property_reserves (property_key,reserve_key,report_month,tax_year,target_estimate_cents,reserve_before_cents,contribution_cents,reserve_after_cents,note)
+     VALUES (?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(property_key,reserve_key,report_month) DO UPDATE SET
+       tax_year=excluded.tax_year, target_estimate_cents=excluded.target_estimate_cents, reserve_before_cents=excluded.reserve_before_cents,
+       contribution_cents=excluded.contribution_cents, reserve_after_cents=excluded.reserve_after_cents, note=excluded.note`
+  ).bind(propertyKey, reserveKey, b.report_month, taxYear, targetEstimateCents, reserveBeforeCents, contributionCents, reserveAfterCents, b.note || '').run();
+  return { ok: true, reserve_before_cents: reserveBeforeCents, reserve_after_cents: reserveAfterCents };
+}
+
+// ── Shared Commercial Property named-reserve disbursement writer ────────────────────────────
+// Used by both the admin-only finance/property/:propertyKey/reserves/:reserveKey/disbursements
+// POST route below and its finance-property-reserve-disbursement-write-v1 relay contract
+// counterpart (src/api-contracts-service.js), so Finance's own Worker can forward the identical
+// upsert on behalf of an identity it verified via Cloudflare Access. One implementation means the
+// two entry points can never drift. As documented in apps/finance/property-ledger-write-service.js's
+// header (the Finance-owned-D1 port of this same legacy route): legacy enforces no
+// sufficient-funds/no-overdraw check against the reserve's running balance here, and this does not
+// add one either.
+export async function upsertPropertyReserveDisbursement(db, propertyKey, reserveKey, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  if (!reserveKey || !/^[a-z_]+$/.test(reserveKey)) return { error: 'reserve key must match [a-z_]+', status: 400 };
+  const periodKey = (b.period_key !== undefined && b.period_key !== null) ? String(b.period_key).trim() : '';
+  if (!periodKey) return { error: 'period_key is required', status: 400 };
+  const amountCents = (b.amount === '' || b.amount === null || b.amount === undefined) ? null : Math.round(Number(b.amount) * 100);
+  if (amountCents !== null && !Number.isFinite(amountCents)) return { error: 'Invalid amount', status: 400 };
+  await db.prepare(
+    `INSERT INTO finance_property_reserve_disbursements (property_key,reserve_key,period_key,amount_cents,paid_via_report_month,note)
+     VALUES (?,?,?,?,?,?)
+     ON CONFLICT(property_key,reserve_key,period_key) DO UPDATE SET amount_cents=excluded.amount_cents, paid_via_report_month=excluded.paid_via_report_month, note=excluded.note`
+  ).bind(propertyKey, reserveKey, periodKey, amountCents, b.paid_via_report_month || '', b.note || '').run();
+  return { ok: true };
+}
+
+// ── Shared Commercial Property capital-improvements ledger writer ───────────────────────────
+// Used by both the admin-only finance/property/:propertyKey/capital-ledger POST route below and its
+// finance-property-capital-ledger-write-v1 relay contract counterpart
+// (src/api-contracts-service.js), so Finance's own Worker can forward the identical entry on
+// behalf of an identity it verified via Cloudflare Access. One implementation means the two entry
+// points can never drift.
+export async function addPropertyCapitalLedgerEntry(db, propertyKey, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const amountCents = Math.round(Number(b.amount) * 100);
+  if (!Number.isFinite(amountCents)) return { error: 'Invalid amount', status: 400 };
+  if (b.entry_date && !/^\d{4}(-\d{2}(-\d{2})?)?$/.test(b.entry_date)) return { error: 'entry_date must be YYYY, YYYY-MM, or YYYY-MM-DD', status: 400 };
+  const maxSort = await db.prepare('SELECT COALESCE(MAX(sort_order),-1) as m FROM finance_property_capital_ledger WHERE property_key=?').bind(propertyKey).first();
+  const r = await db.prepare(
+    `INSERT INTO finance_property_capital_ledger (property_key,entry_date,amount_cents,payee,description,check_ref,project,sort_order) VALUES (?,?,?,?,?,?,?,?)`
+  ).bind(propertyKey, b.entry_date || '', amountCents, b.payee || '', b.description || '', b.check_ref || '', b.project || '', (maxSort?.m ?? -1) + 1).run();
+  return { ok: true, id: r.meta?.last_row_id };
+}
+
 async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey) {
   if (seg === `finance/property/${propertyKey}` && method === 'GET') {
     const monthly = (await db.prepare('SELECT * FROM finance_property_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
@@ -2748,14 +2844,9 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   if (seg === `finance/property/${propertyKey}/distributions` && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    if (!b.period || !/^\d{4}-\d{2}$/.test(b.period)) return json({ error: 'period must be YYYY-MM' }, 400);
-    const amountCents = Math.round(Number(b.amount) * 100);
-    if (!Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
-    await db.prepare(
-      `INSERT INTO finance_property_distributions (property_key,period,amount_cents) VALUES (?,?,?)
-       ON CONFLICT(property_key,period) DO UPDATE SET amount_cents=excluded.amount_cents`
-    ).bind(propertyKey, b.period, amountCents).run();
-    return json({ ok: true });
+    const result = await upsertPropertyDistribution(db, propertyKey, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   const distMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/distributions/(\\d{4}-\\d{2})$`));
@@ -2784,33 +2875,10 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   const reserveMonthlyMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/monthly$`));
   if (reserveMonthlyMatch && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
-    const reserveKey = reserveMonthlyMatch[1];
     const b = await req.json().catch(() => ({}));
-    if (!b.report_month || !/^\d{4}-\d{2}$/.test(b.report_month)) return json({ error: 'report_month must be YYYY-MM' }, 400);
-    const toCents = v => (v === '' || v === null || v === undefined) ? null : Math.round(Number(v) * 100);
-    const targetEstimateCents = toCents(b.target_estimate);
-    const contributionCents = toCents(b.contribution) ?? 0;
-    if (targetEstimateCents !== null && !Number.isFinite(targetEstimateCents)) return json({ error: 'Invalid target_estimate' }, 400);
-    if (!Number.isFinite(contributionCents)) return json({ error: 'Invalid contribution' }, 400);
-    const taxYear = (b.tax_year === '' || b.tax_year === null || b.tax_year === undefined) ? null : parseInt(b.tax_year, 10);
-    // reserve_before defaults to the latest prior month's reserve_after for this bucket (0 if
-    // none exists yet) — matches how AHRA's own monthly schedule carries a running balance.
-    let reserveBeforeCents = toCents(b.reserve_before);
-    if (reserveBeforeCents === null) {
-      const prior = await db.prepare(
-        `SELECT reserve_after_cents FROM finance_property_reserves WHERE property_key=? AND reserve_key=? AND report_month<? ORDER BY report_month DESC LIMIT 1`
-      ).bind(propertyKey, reserveKey, b.report_month).first();
-      reserveBeforeCents = prior?.reserve_after_cents ?? 0;
-    }
-    const reserveAfterCents = reserveBeforeCents + contributionCents;
-    await db.prepare(
-      `INSERT INTO finance_property_reserves (property_key,reserve_key,report_month,tax_year,target_estimate_cents,reserve_before_cents,contribution_cents,reserve_after_cents,note)
-       VALUES (?,?,?,?,?,?,?,?,?)
-       ON CONFLICT(property_key,reserve_key,report_month) DO UPDATE SET
-         tax_year=excluded.tax_year, target_estimate_cents=excluded.target_estimate_cents, reserve_before_cents=excluded.reserve_before_cents,
-         contribution_cents=excluded.contribution_cents, reserve_after_cents=excluded.reserve_after_cents, note=excluded.note`
-    ).bind(propertyKey, reserveKey, b.report_month, taxYear, targetEstimateCents, reserveBeforeCents, contributionCents, reserveAfterCents, b.note || '').run();
-    return json({ ok: true, reserve_before_cents: reserveBeforeCents, reserve_after_cents: reserveAfterCents });
+    const result = await upsertPropertyReserveMonthly(db, propertyKey, reserveMonthlyMatch[1], b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   const reserveMonthDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/monthly/(\\d{4}-\\d{2})$`));
@@ -2824,17 +2892,10 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   const reserveDisbursementMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/disbursements$`));
   if (reserveDisbursementMatch && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
-    const reserveKey = reserveDisbursementMatch[1];
     const b = await req.json().catch(() => ({}));
-    if (!b.period_key || !String(b.period_key).trim()) return json({ error: 'period_key is required' }, 400);
-    const amountCents = (b.amount === '' || b.amount === null || b.amount === undefined) ? null : Math.round(Number(b.amount) * 100);
-    if (amountCents !== null && !Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
-    await db.prepare(
-      `INSERT INTO finance_property_reserve_disbursements (property_key,reserve_key,period_key,amount_cents,paid_via_report_month,note)
-       VALUES (?,?,?,?,?,?)
-       ON CONFLICT(property_key,reserve_key,period_key) DO UPDATE SET amount_cents=excluded.amount_cents, paid_via_report_month=excluded.paid_via_report_month, note=excluded.note`
-    ).bind(propertyKey, reserveKey, String(b.period_key).trim(), amountCents, b.paid_via_report_month || '', b.note || '').run();
-    return json({ ok: true });
+    const result = await upsertPropertyReserveDisbursement(db, propertyKey, reserveDisbursementMatch[1], b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   const reserveDisbursementDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/reserves/([a-z_]+)/disbursements/(.+)$`));
@@ -2849,14 +2910,9 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
   if (seg === `finance/property/${propertyKey}/capital-ledger` && method === 'POST') {
     if (!isAdmin) return json({ error: 'Access denied: editing property financials requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
-    const amountCents = Math.round(Number(b.amount) * 100);
-    if (!Number.isFinite(amountCents)) return json({ error: 'Invalid amount' }, 400);
-    if (b.entry_date && !/^\d{4}(-\d{2}(-\d{2})?)?$/.test(b.entry_date)) return json({ error: 'entry_date must be YYYY, YYYY-MM, or YYYY-MM-DD' }, 400);
-    const maxSort = await db.prepare('SELECT COALESCE(MAX(sort_order),-1) as m FROM finance_property_capital_ledger WHERE property_key=?').bind(propertyKey).first();
-    const r = await db.prepare(
-      `INSERT INTO finance_property_capital_ledger (property_key,entry_date,amount_cents,payee,description,check_ref,project,sort_order) VALUES (?,?,?,?,?,?,?,?)`
-    ).bind(propertyKey, b.entry_date || '', amountCents, b.payee || '', b.description || '', b.check_ref || '', b.project || '', (maxSort?.m ?? -1) + 1).run();
-    return json({ ok: true, id: r.meta?.last_row_id });
+    const result = await addPropertyCapitalLedgerEntry(db, propertyKey, b);
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   const capitalLedgerDeleteMatch = seg.match(new RegExp(`^finance/property/${propertyKey}/capital-ledger/(\\d+)$`));

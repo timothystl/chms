@@ -72,6 +72,21 @@ const ROUTES = [
   // (never writes to Finance's own database), matching the legacy in-Connect Work orders page's
   // own finance/property/ivanhoe/repairs POST route exactly (admin-only).
   { id: 'property-repair-write-v1', paths: ['/api/v1/connect-property-repair-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-repair-write-relay.v1' },
+  // Same deliberate exception as the relays above, for Commercial Property's Distributions,
+  // Reserve schedule/disbursement, and Capital-improvements ledger: each relays to its own Connect
+  // contract endpoint (never writes to Finance's own database), matching the legacy in-Connect
+  // Property pages' own finance/property/ivanhoe/distributions, .../reserves/:reserveKey/monthly,
+  // .../reserves/:reserveKey/disbursements, and .../capital-ledger POST routes exactly
+  // (admin-only). Distinct from the separately-merged, still-OFF Finance-owned-D1
+  // property-reserve-entry-v1/property-reserve-disbursement-entry-v1/property-distribution-entry-v1/
+  // property-capital-ledger-entry-v1 routes further below, which write to Finance's OWN database
+  // instead of relaying -- these four `-write-v1` routes are the live-relay counterparts, following
+  // the same "full function, same data, same app" relay pattern as property-monthly-write-v1/
+  // property-repair-write-v1 above.
+  { id: 'property-distribution-write-v1', paths: ['/api/v1/connect-property-distribution-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-distribution-write-relay.v1' },
+  { id: 'property-reserve-monthly-write-v1', paths: ['/api/v1/connect-property-reserve-monthly-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-reserve-monthly-write-relay.v1' },
+  { id: 'property-reserve-disbursement-write-v1', paths: ['/api/v1/connect-property-reserve-disbursement-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-reserve-disbursement-write-relay.v1' },
+  { id: 'property-capital-ledger-write-v1', paths: ['/api/v1/connect-property-capital-ledger-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-property-capital-ledger-write-relay.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no
