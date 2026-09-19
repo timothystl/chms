@@ -2205,6 +2205,11 @@ async function _doInitDb(db) {
     "ALTER TABLE giving_stax_unmatched ADD COLUMN payer_state TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE giving_stax_unmatched ADD COLUMN payer_zip TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE giving_stax_recurring_schedules ADD COLUMN schedule_group TEXT NOT NULL DEFAULT ''",
+    // (see migrations/0055_stax_recurring_schedule_error.sql): the admin recurring-schedules
+    // screen only ever showed "Needs setup" with no reason why the Stax scheduled-invoices call
+    // failed. This stores what Stax actually said (or the thrown error) so staff can tell a
+    // wrong endpoint from a bad payload from an auth failure.
+    "ALTER TABLE giving_stax_recurring_schedules ADD COLUMN stax_error TEXT NOT NULL DEFAULT ''",
   ];
   // Every statement here is either an idempotent CREATE ... IF NOT EXISTS, or an ALTER TABLE
   // ADD COLUMN — SQLite has no "ADD COLUMN IF NOT EXISTS", so a re-run always throws "duplicate

@@ -953,6 +953,43 @@ describe('Stax Giving mockup — /recurring charges the first gift immediately',
     const scheduleCount = (await db.prepare('SELECT COUNT(*) AS c FROM giving_stax_recurring_schedules').first()).c;
     expect(scheduleCount).toBe(0);
   });
+
+  // Andrew hit this live: every schedule on the admin screen showed "Needs setup" with no way
+  // to tell why. This confirms Stax's actual failure response is captured and stored, not just
+  // silently swallowed into pending_manual_setup — the exact gap that made the live failure
+  // undiagnosable from the admin screen alone.
+  it('records what Stax said when the schedule call fails, without losing the already-charged gift', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    global.fetch = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.includes('/customer')) return new Response(JSON.stringify({ id: 'cus_err_1' }), { status: 200 });
+      if (u.endsWith('/charge')) return new Response(JSON.stringify({ id: 'chg_err_1', success: true, total_fees: '0.50', payment_method: {} }), { status: 200 });
+      if (u.includes('/scheduled-invoices')) return new Response(JSON.stringify({ message: 'Store not found' }), { status: 404 });
+      throw new Error('unexpected fetch ' + u);
+    });
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/recurring', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '25.00' }], interval: 'weekly',
+        payer_first_name: 'Andrew', payer_last_name: 'Dinger', payer_email: 'revdinger@example.com',
+        payment_method_id: 'pm_1',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { STAX_SANDBOX_API_KEY: 'sk_test', STAX_SANDBOX_WEB_PAYMENTS_TOKEN: 'wpt_test', DB: db }, new URL(req.url), 'POST', 'recurring');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    // The first gift still charged and recorded even though the schedule call failed.
+    expect(body.giftEntryIds.length).toBe(1);
+
+    const schedule = await db.prepare('SELECT status, stax_error FROM giving_stax_recurring_schedules WHERE id=?').bind(body.id).first();
+    expect(schedule.status).toBe('pending_manual_setup');
+    expect(schedule.stax_error).toContain('404');
+    expect(schedule.stax_error).toContain('Store not found');
+  });
 });
 
 describe('Stax Giving mockup — admin recurring-schedules screen (src/api-giving.js)', () => {
@@ -1021,6 +1058,22 @@ describe('Stax Giving mockup — admin recurring-schedules screen (src/api-givin
 
     const updated = await db.prepare('SELECT status FROM giving_stax_recurring_schedules WHERE id=?').bind(scheduleId).first();
     expect(updated.status).toBe('cancelled');
+  });
+
+  it('list includes the captured stax_error for a row needing manual setup', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    await db.prepare(
+      `INSERT INTO giving_stax_recurring_schedules (fund_id, amount_cents, interval, stax_customer_id, stax_schedule_id, status, payer_name, payer_email, stax_error)
+       VALUES (?,?,?,?,?,?,?,?,?)`
+    ).bind(fundId, 2500, 'weekly', 'cus_1', '', 'pending_manual_setup', 'Andrew Dinger', 'revdinger@example.com', 'HTTP 404: Store not found').run();
+
+    const req = new Request('https://connect.timothystl.org/admin/api/giving/stax-mockup/recurring');
+    const res = await handleGivingApi(req, { DB: db }, new URL(req.url), 'GET', 'giving/stax-mockup/recurring', db, false, true, false, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.schedules[0].stax_error).toBe('HTTP 404: Store not found');
   });
 
   it('rejects cancelling for a non-finance role', async () => {

@@ -660,9 +660,9 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
       for (const split of splits) {
         const r = await db.prepare(
           `INSERT INTO giving_stax_recurring_schedules
-             (person_id, fund_id, amount_cents, interval, stax_customer_id, stax_schedule_id, status, payer_name, payer_email, schedule_group)
-           VALUES (NULL,?,?,?,?,?,?,?,?,?)`
-        ).bind(split.fundId, split.amountCents, interval, '', '', 'pending_manual_setup', payerName, contact.payerEmail, scheduleGroup).run();
+             (person_id, fund_id, amount_cents, interval, stax_customer_id, stax_schedule_id, status, payer_name, payer_email, schedule_group, stax_error)
+           VALUES (NULL,?,?,?,?,?,?,?,?,?,?)`
+        ).bind(split.fundId, split.amountCents, interval, '', '', 'pending_manual_setup', payerName, contact.payerEmail, scheduleGroup, 'Demo mode — STAX_SANDBOX_API_KEY/STAX_SANDBOX_WEB_PAYMENTS_TOKEN not configured, no Stax call attempted').run();
         ids.push(r.meta?.last_row_id);
       }
       return j({ ok: true, demo: true, ids, id: ids[0] });
@@ -738,7 +738,7 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     // earlier in this flow now, so there's no reason not to carry it over).
     const ids = [];
     for (const split of splits) {
-      let staxScheduleId = '', status = 'pending_manual_setup';
+      let staxScheduleId = '', status = 'pending_manual_setup', staxError = '';
       // ⚠ UNVERIFIED against a live Stax sandbox — childcare-portal's integration never needed
       // recurring billing (MDO tuition schedules its own charges), so there is no proven
       // request/response shape to copy the way /customer and /charge were copied above.
@@ -759,13 +759,20 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
             meta: { fund_id: split.fundId, mockup: true },
           }),
         });
-        if (sched.ok && sched.data?.id) { staxScheduleId = String(sched.data.id); status = 'active'; }
-      } catch { /* left as pending_manual_setup below */ }
+        if (sched.ok && sched.data?.id) {
+          staxScheduleId = String(sched.data.id);
+          status = 'active';
+        } else {
+          staxError = `HTTP ${sched.status}: ${String(sched.data?.message || sched.data?.error || JSON.stringify(sched.data) || 'no response body').slice(0, 500)}`;
+        }
+      } catch (e) {
+        staxError = `Request failed: ${String(e?.message || e).slice(0, 500)}`;
+      }
       const r = await db.prepare(
         `INSERT INTO giving_stax_recurring_schedules
-           (person_id, fund_id, amount_cents, interval, stax_customer_id, stax_schedule_id, status, payer_name, payer_email, schedule_group)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`
-      ).bind(chargeResult.personId || null, split.fundId, split.amountCents, interval, staxCustomerId, staxScheduleId, status, payerName, contact.payerEmail, scheduleGroup).run();
+           (person_id, fund_id, amount_cents, interval, stax_customer_id, stax_schedule_id, status, payer_name, payer_email, schedule_group, stax_error)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(chargeResult.personId || null, split.fundId, split.amountCents, interval, staxCustomerId, staxScheduleId, status, payerName, contact.payerEmail, scheduleGroup, staxError).run();
       ids.push(r.meta?.last_row_id);
     }
     return j({ ok: true, demo: false, totalCents, giftEntryIds: chargeResult.entryIds, ids, id: ids[0] });
@@ -1040,7 +1047,7 @@ export function renderStaxGivingMockupRecurringAdminHtml() {
         '<td class="amt">' + money(r.amount_cents) + '</td>' +
         '<td>' + esc(INTERVAL_LABELS[r.interval] || r.interval) + '</td>' +
         '<td><span class="badge ' + statusInfo[0] + '">' + statusInfo[1] + '</span>' +
-          (r.status === 'pending_manual_setup' ? '<br><span class="status-msg">No Stax schedule id — set up by hand in Stax, or retry the signup.</span>' : '') +
+          (r.status === 'pending_manual_setup' ? '<br><span class="status-msg">' + esc(r.stax_error || 'No Stax schedule id — set up by hand in Stax, or retry the signup.') + '</span>' : '') +
           '</td>' +
         '<td><button class="cancel-btn"' + (cancelled ? ' disabled' : '') + '>' + (cancelled ? 'Cancelled' : 'Cancel') + '</button>' +
           '<div class="status-msg row-status"></div></td>' +

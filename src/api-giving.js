@@ -961,7 +961,7 @@ if (seg === 'giving/stax-mockup/recurring' && method === 'GET') {
   const rows = (await db.prepare(
     `SELECT s.id, s.fund_id, f.name AS fund_name, s.amount_cents, s.interval, s.status,
             s.stax_customer_id, s.stax_schedule_id, s.payer_name, s.payer_email,
-            s.person_id, p.first_name, p.last_name, s.schedule_group, s.created_at
+            s.person_id, p.first_name, p.last_name, s.schedule_group, s.created_at, s.stax_error
        FROM giving_stax_recurring_schedules s
        JOIN funds f ON f.id = s.fund_id
        LEFT JOIN people p ON p.id = s.person_id
