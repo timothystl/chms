@@ -2,7 +2,7 @@
 import { json, getAuthInfo } from './auth.js';
 import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeDepositTotals, batchDepositStatus, batchDepositStatusFromCounts } from './api-utils.js';
 import { ensureGivingYearRollups } from './giving-rollups.js';
-import { staxRequest, staxMockupConfigured } from './stax-giving-mockup.js';
+import { staxRequest, staxMockupConfigured, buildScheduleRule, cents, amountStr, todayIso } from './stax-giving-mockup.js';
 
 // Shared by the desktop `giving/quick-entry` route and the mobile Giving quick-entry screen —
 // one insert path so the two can't drift on the find-or-create-batch logic (the SW17 lesson:
@@ -1030,6 +1030,56 @@ if (staxRecurringCancelMatch && method === 'POST') {
   }
   await db.prepare(`UPDATE giving_stax_recurring_schedules SET status='cancelled' WHERE id=?`).bind(scheduleId).run();
   return json({ ok: true, stax_cancelled: staxCancelled, had_stax_schedule: !!row.stax_schedule_id });
+}
+
+// Edit an active/pending schedule's fund, amount, or interval. The fund is purely local — it was
+// never sent to Stax at signup, so changing it never needs a Stax call. Amount/interval DO need
+// one when a live stax_schedule_id exists (PUT /invoice/schedule/:id, confirmed against
+// docs.staxpayments.com/reference/edit-an-invoice-schedule): unlike cancel, a failed Stax update
+// here is NOT swallowed — the local row must never claim an amount/interval Stax doesn't actually
+// have, so on failure nothing is saved and staff see the error. Rebuilds the RRULE the same way
+// the original signup does (buildScheduleRule, starting from the next occurrence after today) —
+// this does not try to preserve whatever day the schedule was already on; an edit resets that,
+// which is the honest behavior given nothing here tracks Stax's own idea of "next charge date."
+const staxRecurringEditMatch = seg.match(/^giving\/stax-mockup\/recurring\/(\d+)$/);
+if (staxRecurringEditMatch && method === 'PUT') {
+  if (!isFinance) return json({ error: 'Access denied' }, 403);
+  const scheduleId = parseInt(staxRecurringEditMatch[1]);
+  const row = await db.prepare(
+    `SELECT id, fund_id, amount_cents, interval, stax_schedule_id, status FROM giving_stax_recurring_schedules WHERE id=?`
+  ).bind(scheduleId).first();
+  if (!row) return json({ error: 'Not found' }, 404);
+  if (row.status === 'cancelled') return json({ error: 'Cannot edit a cancelled schedule.' }, 409);
+
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const fundId = parseInt(b.fund_id);
+  if (!Number.isInteger(fundId)) return json({ error: 'fund_id required' }, 400);
+  const fund = await db.prepare('SELECT id FROM funds WHERE id=? AND active=1').bind(fundId).first();
+  if (!fund) return json({ error: 'That fund is not available.' }, 400);
+  const VALID_INTERVALS = ['weekly', 'biweekly', 'twice_monthly', 'monthly'];
+  const interval = VALID_INTERVALS.includes(b.interval) ? b.interval : row.interval;
+  const amountCents = cents(b.amount);
+  if (amountCents === null) return json({ error: 'Enter a valid amount.' }, 400);
+
+  if (row.stax_schedule_id) {
+    if (!staxMockupConfigured(env)) return json({ error: 'Stax is not configured in this environment.' }, 502);
+    let res;
+    try {
+      res = await staxRequest(env.STAX_SANDBOX_API_KEY, `/invoice/schedule/${encodeURIComponent(row.stax_schedule_id)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ total: amountStr(amountCents), rule: buildScheduleRule(interval, todayIso()) }),
+      });
+    } catch (e) {
+      return json({ error: 'Could not reach Stax: ' + String(e?.message || e) }, 502);
+    }
+    if (!res.ok) {
+      return json({ error: res.data?.message || res.data?.error || `Stax returned HTTP ${res.status}.` }, 502);
+    }
+  }
+  await db.prepare(
+    `UPDATE giving_stax_recurring_schedules SET fund_id=?, amount_cents=?, interval=? WHERE id=?`
+  ).bind(fundId, amountCents, interval, scheduleId).run();
+  return json({ ok: true });
 }
 
   return null; // not handled
