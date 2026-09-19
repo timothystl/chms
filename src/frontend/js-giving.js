@@ -581,14 +581,24 @@ function renderBatchDetail(b) {
         var nameCell = e.needs_review
           ? esc(e.person_name || '(anonymous)') + ' <a href="/admin/giving/stax-mockup" style="font-size:.72rem;color:var(--warm-gray);" title="Not yet linked to a person">(needs review)</a>'
           : esc(e.person_name || '(anonymous)');
+        // Refund/void only makes sense for a gift this mockup itself charged through Stax — a
+        // real transaction id to act on. Manual/Tithe.ly entries get refunded where they were
+        // recorded, same as always.
+        var refundCell = '';
+        if (e.processor === 'stax' && e.external_txn_id) {
+          if (e.voided_at) refundCell = '<span class="badge-closed" title="Voided ' + fmtDate(e.voided_at) + '">Voided</span>';
+          else if (e.refunded_cents >= e.amount) refundCell = '<span class="badge-closed" title="Refunded">Refunded</span>';
+          else refundCell = '<button class="del-entry" style="color:var(--color-navy);" onclick="voidOrRefundEntry(' + e.id + ')" title="Void or refund this gift through Stax">Refund</button>';
+        }
         return '<tr><td>' + nameCell + '</td>'
           + '<td>' + esc(e.fund_name) + '</td>'
           + '<td class="amt-col">' + fmtMoney(e.amount) + '</td>'
           + '<td>' + esc(e.method) + (e.check_number ? ' #'+esc(e.check_number) : '') + '</td>'
+          + '<td style="white-space:nowrap;">' + refundCell + '</td>'
           + '<td style="width:32px;padding:0 8px;">' + (isOpen ? '<button class="del-entry" onclick="deleteEntry(' + e.id + ')" title="Remove">&#215;</button>' : '') + '</td>'
           + '</tr>';
       }).join('')
-    : '<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--warm-gray);">No entries in this batch yet.</td></tr>';
+    : '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--warm-gray);">No entries in this batch yet.</td></tr>';
 
   var entryForm = isOpen ? (
     '<div class="entry-form">'
@@ -640,7 +650,7 @@ function renderBatchDetail(b) {
     + '<span style="font-size:1.15rem;font-weight:800;color:var(--color-navy);font-variant-numeric:tabular-nums;">' + fmtMoney(total) + '</span>'
     + splitLine + '</div>'
     + entryForm
-    + '<div style="overflow-x:auto;"><table class="entries-table"><thead><tr><th>Person</th><th>Fund</th><th class="amt-col">Amount</th><th>Method</th><th></th></tr></thead><tbody id="entry-tbody">' + entryRows + '</tbody></table></div>'
+    + '<div style="overflow-x:auto;"><table class="entries-table"><thead><tr><th>Person</th><th>Fund</th><th class="amt-col">Amount</th><th>Method</th><th></th><th></th></tr></thead><tbody id="entry-tbody">' + entryRows + '</tbody></table></div>'
     + '<div id="giv-dep-panel-mount"></div>';
 
   // Wire up check# toggle
@@ -857,6 +867,13 @@ function deleteEntry(id) {
   api('/admin/api/giving/entries/' + id, {method:'DELETE'}).then(function(r) {
     if (r.ok) { givOffRefresh(currentBatchId); }
     else alert(r.error || 'Cannot delete.');
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
+}
+function voidOrRefundEntry(id) {
+  if (!confirm('Void or refund this gift? Stax decides which — voids if it has not settled yet, otherwise refunds it in full. This cannot be undone from here.')) return;
+  api('/admin/api/giving/entries/' + id + '/void-or-refund', {method:'POST'}).then(function(r) {
+    if (r && r.ok) { givOffRefresh(currentBatchId); }
+    else alert((r && r.error) || 'Could not void or refund this gift.');
   }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 function closeBatch(id) {

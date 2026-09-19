@@ -1253,3 +1253,118 @@ describe('Stax Giving mockup — admin recurring-schedules screen (src/api-givin
     expect(res.status).toBe(403);
   });
 });
+
+describe('Stax Giving mockup — refund/void a gift in-app (src/api-giving.js)', () => {
+  // Andrew asked for this directly, the first time he saw a Stax gift land in the real batch
+  // view: "there should be a refund button inside the app and not have to go to stax to do it."
+  // Endpoint confirmed against docs.staxpayments.com/reference/void-or-refund-transaction:
+  // POST /transaction/:id/void-or-refund — Stax itself decides void vs refund based on whether
+  // the transaction has settled, so the route only needs to record whichever outcome comes back.
+  const env = () => ({ STAX_SANDBOX_API_KEY: 'sk_test', STAX_SANDBOX_WEB_PAYMENTS_TOKEN: 'wpt_test' });
+
+  async function makeStaxEntry(db, fundId, { amountCents = 2500 } = {}) {
+    const result = await recordStaxGift(db, {
+      externalTxnId: 'chg_refund_test_' + Math.random().toString(36).slice(2),
+      fundId, amountCents, payerName: 'Test Donor', payerEmail: 'test@example.com',
+    });
+    return result.entryId;
+  }
+
+  it('marks the entry voided when Stax reports is_voided:true', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const entryId = await makeStaxEntry(db, fundId);
+
+    global.fetch = vi.fn(async (url, init) => {
+      expect(String(url)).toContain('/void-or-refund');
+      expect(init.method).toBe('POST');
+      return new Response(JSON.stringify({ is_voided: true }), { status: 200 });
+    });
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/entries/${entryId}/void-or-refund`, { method: 'POST' });
+    const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', `giving/entries/${entryId}/void-or-refund`, db, false, true, false, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.voided).toBe(true);
+
+    const row = await db.prepare('SELECT voided_at, refunded_cents FROM giving_entries WHERE id=?').bind(entryId).first();
+    expect(row.voided_at).not.toBe('');
+    expect(row.refunded_cents).toBe(0);
+  });
+
+  it('marks the entry fully refunded when Stax refunds instead of voiding', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const entryId = await makeStaxEntry(db, fundId, { amountCents: 4200 });
+
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ is_voided: false, total_refunded: 42 }), { status: 200 }));
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/entries/${entryId}/void-or-refund`, { method: 'POST' });
+    const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', `giving/entries/${entryId}/void-or-refund`, db, false, true, false, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.voided).toBe(false);
+    expect(body.refunded_cents).toBe(4200);
+
+    const row = await db.prepare('SELECT voided_at, refunded_cents FROM giving_entries WHERE id=?').bind(entryId).first();
+    expect(row.voided_at).toBe('');
+    expect(row.refunded_cents).toBe(4200);
+  });
+
+  it('refuses to refund a manual (non-Stax) entry', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const batchId = (await db.prepare(`INSERT INTO giving_batches (batch_date, description) VALUES ('2026-09-19','Manual')`).run()).meta.last_row_id;
+    const r = await db.prepare(
+      `INSERT INTO giving_entries (batch_id, fund_id, amount, method, processor, external_txn_id)
+       VALUES (?, ?, 1000, 'cash', '', '')`
+    ).bind(batchId, fundId).run();
+    const entryId = r.meta.last_row_id;
+    global.fetch = vi.fn(async () => { throw new Error('a manual entry must never reach Stax'); });
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/entries/${entryId}/void-or-refund`, { method: 'POST' });
+    const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', `giving/entries/${entryId}/void-or-refund`, db, false, true, false, true);
+    expect(res.status).toBe(400);
+  });
+
+  it('refuses to refund an entry that was already voided', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const entryId = await makeStaxEntry(db, fundId);
+    await db.prepare("UPDATE giving_entries SET voided_at=datetime('now') WHERE id=?").bind(entryId).run();
+    global.fetch = vi.fn(async () => { throw new Error('an already-voided entry must never reach Stax again'); });
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/entries/${entryId}/void-or-refund`, { method: 'POST' });
+    const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', `giving/entries/${entryId}/void-or-refund`, db, false, true, false, true);
+    expect(res.status).toBe(409);
+  });
+
+  it('surfaces the Stax error message when the API call itself fails', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const entryId = await makeStaxEntry(db, fundId);
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ message: 'Transaction already voided' }), { status: 422 }));
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/entries/${entryId}/void-or-refund`, { method: 'POST' });
+    const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', `giving/entries/${entryId}/void-or-refund`, db, false, true, false, true);
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toBe('Transaction already voided');
+  });
+
+  it('rejects for a non-finance role', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const entryId = await makeStaxEntry(db, fundId);
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/entries/${entryId}/void-or-refund`, { method: 'POST' });
+    const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', `giving/entries/${entryId}/void-or-refund`, db, false, false, false, true);
+    expect(res.status).toBe(403);
+  });
+});
