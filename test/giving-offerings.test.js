@@ -65,7 +65,7 @@ describe('batchDepositStatus', () => {
 // ── Linking against a real database ──────────────────────────────────────────
 function makeTestDb() {
   const sqlite = new DatabaseSync(':memory:');
-  for (const f of ['0001_baseline', '0031_giving_deposits', '0032_giving_deposit_lines', '0046_giving_batch_totals']) {
+  for (const f of ['0001_baseline', '0031_giving_deposits', '0032_giving_deposit_lines', '0046_giving_batch_totals', '0053_stax_giving_mockup']) {
     sqlite.exec(readFileSync(new URL(`../migrations/${f}.sql`, import.meta.url), 'utf8'));
   }
   const sql_log = [];

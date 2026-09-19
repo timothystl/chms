@@ -575,7 +575,13 @@ function renderBatchDetail(b) {
 
   var entryRows = (b.entries||[]).length
     ? (b.entries||[]).map(function(e) {
-        return '<tr><td>' + esc(e.person_name||'(anonymous)') + '</td>'
+        // A Stax gift that couldn't be matched to a person still carries the name the donor
+        // typed (giving_stax_unmatched.payer_name) — show that instead of a bare "(anonymous)",
+        // with a link to the review queue where staff can actually link or create the person.
+        var nameCell = e.needs_review
+          ? esc(e.person_name || '(anonymous)') + ' <a href="/admin/giving/stax-mockup" style="font-size:.72rem;color:var(--warm-gray);" title="Not yet linked to a person">(needs review)</a>'
+          : esc(e.person_name || '(anonymous)');
+        return '<tr><td>' + nameCell + '</td>'
           + '<td>' + esc(e.fund_name) + '</td>'
           + '<td class="amt-col">' + fmtMoney(e.amount) + '</td>'
           + '<td>' + esc(e.method) + (e.check_number ? ' #'+esc(e.check_number) : '') + '</td>'
