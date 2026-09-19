@@ -622,6 +622,102 @@ describe('Stax Giving mockup — checkout reuses a client-supplied stax_customer
   });
 });
 
+describe('Stax Giving mockup — a "Gateway Unreachable" charge outcome is never treated as a safe-to-retry decline', () => {
+  // Confirmed against docs.staxpayments.com/docs/payment-status: this response means Stax itself
+  // never got an answer back from the card network, so the transaction is genuinely PENDING —
+  // it may still succeed on its own. Andrew hit this live; the giving page's generic error
+  // message would otherwise invite an immediate resubmit with the same card, risking a real
+  // donor being charged twice for one gift.
+  const env = () => ({ STAX_SANDBOX_API_KEY: 'sk_test', STAX_SANDBOX_WEB_PAYMENTS_TOKEN: 'wpt_test' });
+
+  it('checkout flags pending:true and warns against an immediate retry, never generic decline text', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    global.fetch = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes('/customer')) return new Response(JSON.stringify({ id: 'cus_gw_1' }), { status: 200 });
+      if (u.endsWith('/charge')) return new Response(JSON.stringify({ status: 'PENDING', message: 'Gateway Unreachable', success: false }), { status: 200 });
+      throw new Error('unexpected fetch ' + u);
+    });
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '25.00' }],
+        payer_first_name: 'Andrew', payer_last_name: 'Dinger', payer_email: 'revdinger@example.com',
+        payment_method_id: 'pm_1',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', 'checkout');
+    expect(res.status).toBe(402);
+    const body = await res.json();
+    expect(body.pending).toBe(true);
+    expect(body.error.toLowerCase()).toContain("don't submit this card again");
+    expect(body.error).not.toBe('Gateway Unreachable');
+
+    // Never recorded as a gift — its outcome is genuinely unknown, not a completed charge.
+    const entryCount = (await db.prepare('SELECT COUNT(*) AS c FROM giving_entries').first()).c;
+    expect(entryCount).toBe(0);
+  });
+
+  it('recurring flags pending:true the same way and never creates a schedule', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    global.fetch = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes('/customer')) return new Response(JSON.stringify({ id: 'cus_gw_2' }), { status: 200 });
+      if (u.endsWith('/charge')) return new Response(JSON.stringify({ status: 'PENDING', message: 'Gateway Unreachable', success: false }), { status: 200 });
+      throw new Error('unexpected fetch ' + u + ' — a pending charge must never reach /invoice/schedule/');
+    });
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/recurring', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '25.00' }], interval: 'weekly',
+        payer_first_name: 'Andrew', payer_last_name: 'Dinger', payer_email: 'revdinger@example.com',
+        payment_method_id: 'pm_1',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', 'recurring');
+    expect(res.status).toBe(402);
+    const body = await res.json();
+    expect(body.pending).toBe(true);
+    const scheduleCount = (await db.prepare('SELECT COUNT(*) AS c FROM giving_stax_recurring_schedules').first()).c;
+    expect(scheduleCount).toBe(0);
+  });
+
+  it('a normal decline (velocity limit) is NOT flagged pending, and shows Stax\'s own message', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    global.fetch = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes('/customer')) return new Response(JSON.stringify({ id: 'cus_decline_1' }), { status: 200 });
+      if (u.endsWith('/charge')) return new Response(JSON.stringify({
+        success: false,
+        message: 'This transaction exceeds the number of times the same payment method can be charged in succession. Please contact support if you would like to increase your limit.',
+      }), { status: 200 });
+      throw new Error('unexpected fetch ' + u);
+    });
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '25.00' }],
+        payer_first_name: 'Andrew', payer_last_name: 'Dinger', payer_email: 'revdinger@example.com',
+        payment_method_id: 'pm_1',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', 'checkout');
+    expect(res.status).toBe(402);
+    const body = await res.json();
+    expect(body.pending).toBe(false);
+    expect(body.error).toContain('exceeds the number of times');
+  });
+});
+
 describe('Stax Giving mockup — an unmatched gift shows its real payer name, not just "(anonymous)"', () => {
   // Real gap, reported live: a donor who didn't match a Connect person showed as a bare
   // "(anonymous)" in the batch view, with no way to tell who actually gave or link them — even
