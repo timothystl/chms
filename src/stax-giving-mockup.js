@@ -67,6 +67,25 @@ export function buildScheduleRule(interval, fromIso) {
   return `DTSTART=${nextIso.replace(/-/g, '')}T120000Z;${freqPart}`;
 }
 
+// ── Charge outcome helpers ───────────────────────────────────────────────────
+// Confirmed against docs.staxpayments.com/docs/payment-status: a "Gateway Unreachable" charge
+// response means Stax itself never got an answer back from the card network — the transaction
+// sits at status PENDING, and Stax's own guidance is NOT to prompt an immediate retry, since the
+// original attempt may still resolve to success on its own (within roughly 3 hours) — retrying
+// right away risks charging the donor twice for one gift. Every other decline (card declined,
+// velocity limit, bad expiration, etc.) is a real, final answer and safe to retry.
+function chargeOutcomeUnknown(chargeData) {
+  const status = String(chargeData?.status || '').toUpperCase();
+  const msg = String(chargeData?.message || '').toLowerCase();
+  return status === 'PENDING' || msg.includes('gateway unreachable');
+}
+function chargeFailureMessage(chargeData) {
+  if (chargeOutcomeUnknown(chargeData)) {
+    return "We couldn't confirm this payment — Stax's payment gateway didn't respond in time, so the outcome of this specific attempt is unknown (it may still complete on its own). Please don't submit this card again right now; wait a few minutes, or contact the church office to confirm before trying again.";
+  }
+  return chargeData?.message || 'The charge was not approved.';
+}
+
 export async function staxRequest(apiKey, path, init) {
   const res = await fetch(`${STAX_API_URL}${path}`, {
     ...init,
@@ -636,7 +655,7 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     });
     const chargeSuccess = charge.data?.success === true;
     if (!charge.ok || !chargeSuccess || !charge.data?.id) {
-      return j({ error: charge.data?.message || 'The charge was not approved.' }, 402);
+      return j({ error: chargeFailureMessage(charge.data), pending: chargeOutcomeUnknown(charge.data) }, 402);
     }
     // Record synchronously when Stax answers directly — recordStaxGift is idempotent on
     // external_txn_id, so if the webhook ALSO fires for this same transaction id later
@@ -743,7 +762,7 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     });
     const chargeSuccess = charge.data?.success === true;
     if (!charge.ok || !chargeSuccess || !charge.data?.id) {
-      return j({ error: charge.data?.message || 'The charge was not approved.' }, 402);
+      return j({ error: chargeFailureMessage(charge.data), pending: chargeOutcomeUnknown(charge.data) }, 402);
     }
     const chargeResult = await recordStaxGift(db, {
       externalTxnId: String(charge.data.id),
