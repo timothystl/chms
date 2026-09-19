@@ -1368,3 +1368,134 @@ describe('Stax Giving mockup — refund/void a gift in-app (src/api-giving.js)',
     expect(res.status).toBe(403);
   });
 });
+
+describe('Stax Giving mockup — edit a recurring schedule (src/api-giving.js)', () => {
+  // Andrew asked for edit alongside cancel/refund. Endpoint confirmed against
+  // docs.staxpayments.com/reference/edit-an-invoice-schedule: PUT /invoice/schedule/:id. Fund is
+  // purely local (never sent to Stax at signup), so changing it never needs a Stax call; amount/
+  // interval do when a live stax_schedule_id exists — and unlike cancel, a failed Stax call here
+  // must NOT be swallowed, since the local row would otherwise claim an amount Stax doesn't have.
+  const env = () => ({ STAX_SANDBOX_API_KEY: 'sk_test', STAX_SANDBOX_WEB_PAYMENTS_TOKEN: 'wpt_test' });
+
+  async function makeSchedule(db, fundId, overrides = {}) {
+    const r = await db.prepare(
+      `INSERT INTO giving_stax_recurring_schedules (fund_id, amount_cents, interval, stax_customer_id, stax_schedule_id, status, payer_name, payer_email)
+       VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(
+      fundId, overrides.amountCents ?? 2500, overrides.interval ?? 'monthly',
+      overrides.staxCustomerId ?? 'cus_1', overrides.staxScheduleId ?? 'sched_1',
+      overrides.status ?? 'active', 'Test Donor', 'test@example.com'
+    ).run();
+    return r.meta.last_row_id;
+  }
+
+  it('updates fund/amount/interval locally and pushes amount/interval to Stax when a live schedule exists', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const newFundId = insertFund(db, 'Building Fund');
+    const scheduleId = await makeSchedule(db, fundId);
+
+    global.fetch = vi.fn(async (url, init) => {
+      expect(String(url)).toContain('/invoice/schedule/sched_1');
+      expect(init.method).toBe('PUT');
+      const body = JSON.parse(init.body);
+      expect(body.total).toBe('40.00');
+      expect(body.rule).toMatch(/^DTSTART=\d{8}T120000Z;FREQ=WEEKLY$/);
+      return new Response(JSON.stringify({ id: 'sched_1' }), { status: 200 });
+    });
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/stax-mockup/recurring/${scheduleId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ fund_id: newFundId, amount: '40.00', interval: 'weekly' }),
+    });
+    const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'PUT', `giving/stax-mockup/recurring/${scheduleId}`, db, false, true, false, true);
+    expect(res.status).toBe(200);
+
+    const row = await db.prepare('SELECT fund_id, amount_cents, interval FROM giving_stax_recurring_schedules WHERE id=?').bind(scheduleId).first();
+    expect(row.fund_id).toBe(newFundId);
+    expect(row.amount_cents).toBe(4000);
+    expect(row.interval).toBe('weekly');
+  });
+
+  it('updates the fund locally without any Stax call when the schedule is still pending_manual_setup', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const newFundId = insertFund(db, 'Building Fund');
+    const scheduleId = await makeSchedule(db, fundId, { staxScheduleId: '', status: 'pending_manual_setup' });
+    global.fetch = vi.fn(async () => { throw new Error('a pending schedule with no stax_schedule_id must never call Stax'); });
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/stax-mockup/recurring/${scheduleId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ fund_id: newFundId, amount: '25.00', interval: 'monthly' }),
+    });
+    const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'PUT', `giving/stax-mockup/recurring/${scheduleId}`, db, false, true, false, true);
+    expect(res.status).toBe(200);
+    const row = await db.prepare('SELECT fund_id FROM giving_stax_recurring_schedules WHERE id=?').bind(scheduleId).first();
+    expect(row.fund_id).toBe(newFundId);
+  });
+
+  it('does not save anything locally when the Stax update call fails', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const scheduleId = await makeSchedule(db, fundId, { amountCents: 2500, interval: 'monthly' });
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ message: 'Invalid rule' }), { status: 422 }));
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/stax-mockup/recurring/${scheduleId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ fund_id: fundId, amount: '99.00', interval: 'weekly' }),
+    });
+    const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'PUT', `giving/stax-mockup/recurring/${scheduleId}`, db, false, true, false, true);
+    expect(res.status).toBe(502);
+    const row = await db.prepare('SELECT amount_cents, interval FROM giving_stax_recurring_schedules WHERE id=?').bind(scheduleId).first();
+    expect(row.amount_cents).toBe(2500);
+    expect(row.interval).toBe('monthly');
+  });
+
+  it('refuses to edit a cancelled schedule', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const scheduleId = await makeSchedule(db, fundId, { status: 'cancelled' });
+    global.fetch = vi.fn(async () => { throw new Error('a cancelled schedule must never reach Stax'); });
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/stax-mockup/recurring/${scheduleId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ fund_id: fundId, amount: '25.00', interval: 'monthly' }),
+    });
+    const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'PUT', `giving/stax-mockup/recurring/${scheduleId}`, db, false, true, false, true);
+    expect(res.status).toBe(409);
+  });
+
+  it('rejects an inactive fund', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const inactiveFundId = insertFund(db, 'Retired Fund', { publicGiving: false });
+    await db.prepare('UPDATE funds SET active=0 WHERE id=?').bind(inactiveFundId).run();
+    const scheduleId = await makeSchedule(db, fundId);
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/stax-mockup/recurring/${scheduleId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ fund_id: inactiveFundId, amount: '25.00', interval: 'monthly' }),
+    });
+    const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'PUT', `giving/stax-mockup/recurring/${scheduleId}`, db, false, true, false, true);
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects for a non-finance role', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const scheduleId = await makeSchedule(db, fundId);
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/stax-mockup/recurring/${scheduleId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ fund_id: fundId, amount: '25.00', interval: 'monthly' }),
+    });
+    const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'PUT', `giving/stax-mockup/recurring/${scheduleId}`, db, false, false, false, true);
+    expect(res.status).toBe(403);
+  });
+});

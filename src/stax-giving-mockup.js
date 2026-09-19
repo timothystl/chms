@@ -26,14 +26,14 @@ export function staxMockupConfigured(env) {
   return !!(env.STAX_SANDBOX_API_KEY && env.STAX_SANDBOX_WEB_PAYMENTS_TOKEN);
 }
 
-function cents(value) {
+export function cents(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
   const rounded = Math.round(n * 100);
   return Math.abs(n * 100 - rounded) <= 0.000001 ? rounded : null;
 }
-function amountStr(centsValue) { return (Math.round(centsValue) / 100).toFixed(2); }
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+export function amountStr(centsValue) { return (Math.round(centsValue) / 100).toFixed(2); }
+export function todayIso() { return new Date().toISOString().slice(0, 10); }
 
 // ── Recurring schedule rule builder ─────────────────────────────────────────
 // The FIRST occurrence of a recurring signup is already charged immediately (see the /recurring
@@ -1083,6 +1083,8 @@ export function renderStaxGivingMockupRecurringAdminHtml() {
   button:hover{background:var(--cream);}
   button:disabled{opacity:.5;cursor:default;}
   .status-msg{font-size:.75rem;color:var(--muted);margin-top:.3rem;}
+  select,input[type=number]{font-family:inherit;font-size:.85rem;padding:.35rem .5rem;border-radius:6px;border:1.5px solid rgba(30,45,74,.2);background:#fff;color:var(--navy);}
+  .action-btns{display:flex;gap:.4rem;flex-wrap:wrap;}
 </style></head><body>
   <div class="mockup-banner">MOCKUP — Stax sandbox only. These schedules never touch the Tithe.ly sync.</div>
   <h1>Recurring Stax gifts</h1>
@@ -1098,14 +1100,39 @@ export function renderStaxGivingMockupRecurringAdminHtml() {
   function money(cents){ return '$' + (Math.round(cents || 0) / 100).toFixed(2); }
   var INTERVAL_LABELS = { weekly: 'Weekly', biweekly: 'Every 2 weeks', twice_monthly: '1st & 15th', monthly: 'Monthly' };
   var STATUS_LABELS = { active: ['active', 'Active'], pending_manual_setup: ['pending', 'Needs setup'], cancelled: ['cancelled', 'Cancelled'] };
+  var lastRows = [], funds = [], editingId = null;
+
+  function fundOptionsHtml(selected){
+    return funds.map(function(f){
+      return '<option value="' + f.id + '"' + (String(f.id) === String(selected) ? ' selected' : '') + '>' + esc(f.name) + '</option>';
+    }).join('');
+  }
+  function intervalOptionsHtml(selected){
+    return Object.keys(INTERVAL_LABELS).map(function(k){
+      return '<option value="' + k + '"' + (k === selected ? ' selected' : '') + '>' + INTERVAL_LABELS[k] + '</option>';
+    }).join('');
+  }
 
   function render(rows){
+    lastRows = rows;
     var tbody = document.getElementById('rows');
     if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">No recurring Stax gifts yet.</td></tr>'; return; }
     tbody.innerHTML = rows.map(function(r){
       var statusInfo = STATUS_LABELS[r.status] || ['pending', esc(r.status)];
       var donor = (r.first_name || r.last_name) ? (r.first_name + ' ' + r.last_name).trim() : (r.payer_name || '(anonymous)');
       var cancelled = r.status === 'cancelled';
+      if (editingId === r.id) {
+        return '<tr data-id="' + r.id + '">' +
+          '<td>' + esc((r.created_at || '').slice(0, 10)) + '</td>' +
+          '<td>' + esc(donor) + '<br><span class="status-msg">' + esc(r.payer_email) + '</span></td>' +
+          '<td><select class="edit-fund">' + fundOptionsHtml(r.fund_id) + '</select></td>' +
+          '<td><input class="edit-amount" type="number" min="1" step="0.01" value="' + (r.amount_cents / 100).toFixed(2) + '" style="width:80px;"></td>' +
+          '<td><select class="edit-interval">' + intervalOptionsHtml(r.interval) + '</select></td>' +
+          '<td><span class="badge ' + statusInfo[0] + '">' + statusInfo[1] + '</span></td>' +
+          '<td><div class="action-btns"><button class="save-btn">Save</button><button class="cancel-edit-btn">Cancel</button></div>' +
+            '<div class="status-msg row-status"></div></td>' +
+        '</tr>';
+      }
       return '<tr data-id="' + r.id + '">' +
         '<td>' + esc((r.created_at || '').slice(0, 10)) + '</td>' +
         '<td>' + esc(donor) + '<br><span class="status-msg">' + esc(r.payer_email) + '</span></td>' +
@@ -1115,10 +1142,41 @@ export function renderStaxGivingMockupRecurringAdminHtml() {
         '<td><span class="badge ' + statusInfo[0] + '">' + statusInfo[1] + '</span>' +
           (r.status === 'pending_manual_setup' ? '<br><span class="status-msg">' + esc(r.stax_error || 'No Stax schedule id — set up by hand in Stax, or retry the signup.') + '</span>' : '') +
           '</td>' +
-        '<td><button class="cancel-btn"' + (cancelled ? ' disabled' : '') + '>' + (cancelled ? 'Cancelled' : 'Cancel') + '</button>' +
+        '<td><div class="action-btns">' +
+          (cancelled ? '' : '<button class="edit-btn">Edit</button>') +
+          '<button class="cancel-btn"' + (cancelled ? ' disabled' : '') + '>' + (cancelled ? 'Cancelled' : 'Cancel') + '</button></div>' +
           '<div class="status-msg row-status"></div></td>' +
       '</tr>';
     }).join('');
+
+    Array.prototype.forEach.call(tbody.querySelectorAll('.edit-btn'), function(btn){
+      btn.addEventListener('click', function(){ editingId = Number(btn.closest('tr').dataset.id); render(lastRows); });
+    });
+    Array.prototype.forEach.call(tbody.querySelectorAll('.cancel-edit-btn'), function(btn){
+      btn.addEventListener('click', function(){ editingId = null; render(lastRows); });
+    });
+    Array.prototype.forEach.call(tbody.querySelectorAll('.save-btn'), function(btn){
+      btn.addEventListener('click', function(){
+        var tr = btn.closest('tr');
+        var statusEl = tr.querySelector('.row-status');
+        var payload = {
+          fund_id: tr.querySelector('.edit-fund').value,
+          amount: tr.querySelector('.edit-amount').value,
+          interval: tr.querySelector('.edit-interval').value,
+        };
+        btn.disabled = true;
+        statusEl.textContent = 'Saving\\u2026';
+        fetch('/admin/api/giving/stax-mockup/recurring/' + tr.dataset.id, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        })
+          .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
+          .then(function(res){
+            if (!res.ok) { statusEl.textContent = res.d.error || 'Could not save.'; btn.disabled = false; return; }
+            editingId = null;
+            load();
+          }).catch(function(){ statusEl.textContent = 'Network error.'; btn.disabled = false; });
+      });
+    });
     Array.prototype.forEach.call(tbody.querySelectorAll('.cancel-btn'), function(btn){
       btn.addEventListener('click', function(){
         var tr = btn.closest('tr');
@@ -1141,8 +1199,15 @@ export function renderStaxGivingMockupRecurringAdminHtml() {
     });
   }
 
-  fetch('/admin/api/giving/stax-mockup/recurring').then(function(r){ return r.json(); }).then(function(d){ render(d.schedules || []); })
-    .catch(function(){ document.getElementById('rows').innerHTML = '<tr><td colspan="7" class="empty">Could not load recurring gifts.</td></tr>'; });
+  function load(){
+    fetch('/admin/api/giving/stax-mockup/recurring').then(function(r){ return r.json(); }).then(function(d){ render(d.schedules || []); })
+      .catch(function(){ document.getElementById('rows').innerHTML = '<tr><td colspan="7" class="empty">Could not load recurring gifts.</td></tr>'; });
+  }
+
+  fetch('/admin/api/funds').then(function(r){ return r.json(); }).then(function(d){
+    funds = (d.funds || []).filter(function(f){ return f.active; });
+    load();
+  }).catch(function(){ load(); });
 })();
 </script>
 </body></html>`);
