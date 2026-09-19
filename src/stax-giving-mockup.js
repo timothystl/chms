@@ -543,12 +543,22 @@ function contactFieldsFrom(b) {
     payerZip: String(b.payer_zip || '').trim().slice(0, 20),
   };
 }
+// Deliberately permissive, not RFC 5322: catches the actual live gap (a bare non-empty string
+// like "notanemail" passing straight through with no format check at all — reproduced live
+// against /checkout, stopped only afterward by the missing payment_method_id) without rejecting
+// real addresses this simple check might otherwise flag.
+const EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Returns an error string for the caller to return as-is, or null when the contact is usable.
+// First/last/email only — phone and address are collected (they help matching and, for address,
+// nothing else yet) but NOT required. Every extra required field measurably loses donors (see
+// docs/STAX_GIVING_MOCKUP.md's completion-rate research); this is the line Andrew drew between
+// "needed to identify who gave" and "nice to have."
 function requireContact(contact) {
-  // First/last/email only — phone and address are collected (they help matching and, for
-  // address, nothing else yet) but NOT required. Every extra required field measurably loses
-  // donors (see docs/STAX_GIVING_MOCKUP.md's completion-rate research); this is the line Andrew
-  // drew between "needed to identify who gave" and "nice to have."
-  return contact.payerFirstName && contact.payerLastName && contact.payerEmail;
+  if (!contact.payerFirstName || !contact.payerLastName || !contact.payerEmail) {
+    return 'First name, last name, and email are required.';
+  }
+  if (!EMAIL_FORMAT.test(contact.payerEmail)) return 'Enter a valid email address.';
+  return null;
 }
 
 // ── Public API: funds list, checkout, recurring signup ──────────────────────
@@ -589,7 +599,8 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     if (!staxMockupConfigured(env)) return j({ customerId: null });
     let b; try { b = await req.json(); } catch { return j({ error: 'Invalid JSON' }, 400); }
     const contact = contactFieldsFrom(b);
-    if (!requireContact(contact)) return j({ error: 'First name, last name, and email are required.' }, 400);
+    const contactError = requireContact(contact);
+    if (contactError) return j({ error: contactError }, 400);
     const result = await getOrCreateStaxCustomerId(db, env.STAX_SANDBOX_API_KEY, contact);
     if (result.error) return j({ error: result.error }, 502);
     return j({ customerId: result.customerId });
@@ -600,7 +611,8 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     const giftResult = await loadOpenGifts(db, b.gifts);
     if (giftResult.error) return j({ error: giftResult.error }, 400);
     const contact = contactFieldsFrom(b);
-    if (!requireContact(contact)) return j({ error: 'First name, last name, and email are required.' }, 400);
+    const contactError = requireContact(contact);
+    if (contactError) return j({ error: contactError }, 400);
     const memo = String(b.memo || '').trim().slice(0, 500);
     const feeCents = b.cover_fees ? estimateFeeCents(giftResult.subtotalCents) : 0;
     const totalCents = giftResult.subtotalCents + feeCents;
@@ -685,7 +697,8 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     const giftResult = await loadOpenGifts(db, b.gifts);
     if (giftResult.error) return j({ error: giftResult.error }, 400);
     const contact = contactFieldsFrom(b);
-    if (!requireContact(contact)) return j({ error: 'First name, last name, and email are required.' }, 400);
+    const contactError = requireContact(contact);
+    if (contactError) return j({ error: contactError }, 400);
     // "1st & 15th" (Tithe.ly's own term for it) maps to 'twice_monthly'. All four, plus
     // 'monthly', are Andrew's requested frequency set — 'biweekly'/'twice_monthly' are new;
     // 'weekly'/'monthly' already existed.

@@ -445,6 +445,42 @@ describe('Stax Giving mockup — public checkout API (demo mode)', () => {
     expect(res.status).toBe(400);
   });
 
+  // Stress-tested live against production: "notanemail" sailed straight through the old
+  // truthiness-only check and was stopped only by the unrelated missing payment_method_id check
+  // further down — meaning it would have silently reached a real Stax customer/charge call had
+  // one been supplied. Never validated at all before this.
+  it('rejects a malformed email address instead of silently accepting it', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '10.00' }],
+        payer_first_name: 'Test', payer_last_name: 'Case', payer_email: 'notanemail',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'POST', 'checkout');
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('Enter a valid email address.');
+  });
+
+  it('accepts a normal email address', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '10.00' }],
+        payer_first_name: 'Test', payer_last_name: 'Case', payer_email: 'test.case+gift@example.co.uk',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'POST', 'checkout');
+    expect(res.status).toBe(200);
+  });
+
   it('refuses a checkout against a fund not open for public giving', async () => {
     const db = makeDb();
     await initDb(db);
