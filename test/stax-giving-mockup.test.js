@@ -621,6 +621,53 @@ describe('Stax Giving mockup — checkout reuses a client-supplied stax_customer
   });
 });
 
+describe('Stax Giving mockup — an unmatched gift shows its real payer name, not just "(anonymous)"', () => {
+  // Real gap, reported live: a donor who didn't match a Connect person showed as a bare
+  // "(anonymous)" in the batch view, with no way to tell who actually gave or link them — even
+  // though their name was captured the whole time (giving_stax_unmatched.payer_name).
+  it('surfaces payer_name and a needs_review flag on the batch-detail entries endpoint', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const result = await recordStaxGift(db, {
+      externalTxnId: 'chg_unmatched_1', fundId, amountCents: 2500,
+      payerFirstName: 'Casey', payerLastName: 'Stranger', payerEmail: 'casey.stranger@example.com',
+    });
+    expect(result.matched).toBe(false);
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/batches/${result.entryId}`);
+    // Look up the batch id the gift actually landed in.
+    const row = await db.prepare('SELECT batch_id FROM giving_entries WHERE id=?').bind(result.entryId).first();
+    const batchReq = new Request(`https://connect.timothystl.org/admin/api/giving/batches/${row.batch_id}`);
+    const res = await handleGivingApi(batchReq, { DB: db }, new URL(batchReq.url), 'GET', `giving/batches/${row.batch_id}`, db, false, true, false, true);
+    const body = await res.json();
+    const entry = body.entries.find(e => e.id === result.entryId);
+    expect(entry.person_name).toBe('Casey Stranger');
+    expect(entry.needs_review).toBeTruthy();
+  });
+
+  it('does not flag needs_review once staff have linked the gift to a person', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const pid = insertPerson(db, { first: 'Jamie', last: 'Vogel', email: 'jamie@example.com', phone: '' });
+    const result = await recordStaxGift(db, {
+      externalTxnId: 'chg_matched_1', fundId, amountCents: 2500,
+      payerFirstName: 'Jamie', payerLastName: 'Vogel', payerEmail: 'jamie@example.com',
+    });
+    expect(result.matched).toBe(true);
+
+    const row = await db.prepare('SELECT batch_id FROM giving_entries WHERE id=?').bind(result.entryId).first();
+    const batchReq = new Request(`https://connect.timothystl.org/admin/api/giving/batches/${row.batch_id}`);
+    const res = await handleGivingApi(batchReq, { DB: db }, new URL(batchReq.url), 'GET', `giving/batches/${row.batch_id}`, db, false, true, false, true);
+    const body = await res.json();
+    const entry = body.entries.find(e => e.id === result.entryId);
+    expect(entry.person_name).toBe('Jamie Vogel');
+    expect(entry.needs_review).toBeFalsy();
+    expect(pid).toBeTruthy();
+  });
+});
+
 describe('Stax Giving mockup — funds visibility (staff, src/api-giving.js)', () => {
   it('lists all active funds with their public_giving flag for staff, and only saves the flag on POST', async () => {
     const db = makeDb();

@@ -230,10 +230,12 @@ if (batchMatch) {
     if (!batch) return json({ error: 'Not found' }, 404);
     const entries = (await db.prepare(
       `SELECT ge.*, f.name as fund_name,
-       COALESCE(p.first_name||' '||p.last_name,'(anonymous)') as person_name
+       COALESCE(p.first_name||' '||p.last_name, u.payer_name, '(anonymous)') as person_name,
+       (u.id IS NOT NULL AND u.status='open') as needs_review
        FROM giving_entries ge
        JOIN funds f ON ge.fund_id=f.id
        LEFT JOIN people p ON ge.person_id=p.id
+       LEFT JOIN giving_stax_unmatched u ON u.giving_entry_id=ge.id
        WHERE ge.batch_id=? ORDER BY ge.id`
     ).bind(bid).all()).results || [];
     // Bank deposits this batch is part of, plus — for each one — the OTHER batches sharing it,
@@ -291,10 +293,12 @@ if (entriesMatch) {
   if (method === 'GET') {
     const entries = (await db.prepare(
       `SELECT ge.*, f.name as fund_name,
-       COALESCE(p.first_name||' '||p.last_name,'(anonymous)') as person_name
+       COALESCE(p.first_name||' '||p.last_name, u.payer_name, '(anonymous)') as person_name,
+       (u.id IS NOT NULL AND u.status='open') as needs_review
        FROM giving_entries ge
        JOIN funds f ON ge.fund_id=f.id
        LEFT JOIN people p ON ge.person_id=p.id
+       LEFT JOIN giving_stax_unmatched u ON u.giving_entry_id=ge.id
        WHERE ge.batch_id=? ORDER BY ge.id`
     ).bind(bid).all()).results || [];
     return json({ entries });
