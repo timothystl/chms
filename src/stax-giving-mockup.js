@@ -35,6 +35,38 @@ function cents(value) {
 function amountStr(centsValue) { return (Math.round(centsValue) / 100).toFixed(2); }
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 
+// ── Recurring schedule rule builder ─────────────────────────────────────────
+// The FIRST occurrence of a recurring signup is already charged immediately (see the /recurring
+// handler), so the standing Stax schedule below must start on the NEXT occurrence, not today —
+// otherwise the donor would be double-charged on day one.
+function addDaysIso(iso, days) {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+function addMonthsIso(iso, months) {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+// Next 1st-or-15th strictly after the given date.
+function nextMonthlyDayIso(iso) {
+  const d = new Date(iso + 'T00:00:00Z');
+  if (d.getUTCDate() < 15) { d.setUTCDate(15); } else { d.setUTCMonth(d.getUTCMonth() + 1, 1); }
+  return d.toISOString().slice(0, 10);
+}
+// iCalendar RRULE string per docs.staxpayments.com/reference/create-a-scheduled-invoice
+// (e.g. "DTSTART=20261101T120000Z;FREQ=MONTHLY"). Noon UTC avoids the DTSTART falling on the
+// wrong calendar day for a merchant west of UTC.
+export function buildScheduleRule(interval, fromIso) {
+  let nextIso, freqPart;
+  if (interval === 'weekly') { nextIso = addDaysIso(fromIso, 7); freqPart = 'FREQ=WEEKLY'; }
+  else if (interval === 'biweekly') { nextIso = addDaysIso(fromIso, 14); freqPart = 'FREQ=WEEKLY;INTERVAL=2'; }
+  else if (interval === 'twice_monthly') { nextIso = nextMonthlyDayIso(fromIso); freqPart = 'FREQ=MONTHLY;BYMONTHDAY=1,15'; }
+  else { nextIso = addMonthsIso(fromIso, 1); freqPart = 'FREQ=MONTHLY'; }
+  return `DTSTART=${nextIso.replace(/-/g, '')}T120000Z;${freqPart}`;
+}
+
 export async function staxRequest(apiKey, path, init) {
   const res = await fetch(`${STAX_API_URL}${path}`, {
     ...init,
@@ -732,31 +764,33 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     }
 
     // With the first gift charged and recorded, set up the STANDING schedule for future
-    // occurrences. Unchanged in shape from before — still best-effort (see the comment below):
-    // Stax's documented endpoint for this couldn't be confirmed live. Links each schedule row to
-    // the person the charge above just matched (was always NULL before — that match happens
-    // earlier in this flow now, so there's no reason not to carry it over).
+    // occurrences. Links each schedule row to the person the charge above just matched (was
+    // always NULL before — that match happens earlier in this flow now, so there's no reason
+    // not to carry it over).
+    //
+    // Endpoint confirmed against docs.staxpayments.com/reference/create-a-scheduled-invoice:
+    // POST /invoice/schedule/ (the earlier guess, POST /scheduled-invoices, was live-tested and
+    // came back "HTTP 404: route_not_found" — that ruled it out, not a guess). `url` is a fixed
+    // literal the docs say to pass verbatim (it's Stax's own hosted-invoice base URL, not
+    // anything specific to this donor); `rule` is an iCalendar RRULE starting on the NEXT
+    // occurrence after today, since today's gift was already charged directly above and the
+    // schedule must not also bill it. Still genuinely unexercised against a live call — the
+    // request shape is sourced from Stax's documented schema, not a working prior request/
+    // response the way /customer and /charge were — so the pending_manual_setup fallback and
+    // captured stax_error stay in place either way.
+    const scheduleRule = buildScheduleRule(interval, todayIso());
     const ids = [];
     for (const split of splits) {
       let staxScheduleId = '', status = 'pending_manual_setup', staxError = '';
-      // ⚠ UNVERIFIED against a live Stax sandbox — childcare-portal's integration never needed
-      // recurring billing (MDO tuition schedules its own charges), so there is no proven
-      // request/response shape to copy the way /customer and /charge were copied above.
-      // Stax's own docs disagree with themselves on the path (docs.staxpayments.com currently
-      // names POST /scheduled-invoices; an older reference names POST /invoice/schedule/) —
-      // /scheduled-invoices is tried first as the more likely current one. Failure here no longer
-      // means the donor's gift itself is lost (that's already charged and recorded above) — only
-      // that FUTURE occurrences need staff to hand-create the schedule in the Stax dashboard,
-      // which the pending_manual_setup status and the admin recurring-schedules screen surface.
       try {
-        const sched = await staxRequest(apiKey, '/scheduled-invoices', {
+        const sched = await staxRequest(apiKey, '/invoice/schedule/', {
           method: 'POST',
           body: JSON.stringify({
+            url: 'https://app.staxpayments.com/#/bill/',
+            total: amountStr(split.amountCents),
+            rule: scheduleRule,
             customer_id: staxCustomerId,
             payment_method_id: paymentMethodId,
-            total: amountStr(split.amountCents),
-            frequency: interval,
-            meta: { fund_id: split.fundId, mockup: true },
           }),
         });
         if (sched.ok && sched.data?.id) {
@@ -986,7 +1020,7 @@ export function renderStaxGivingMockupFundsAdminHtml() {
 // Andrew asked directly: where do we see a donor's recurring signup, and how do we cancel one.
 // Every occurrence past the first (which /checkout-equivalent-charges immediately at signup —
 // see the recurring handler's own comment) depends on the stax_schedule_id Stax's own
-// /scheduled-invoices call returned, so a 'pending_manual_setup' row here means staff need to
+// /invoice/schedule/ call returned, so a 'pending_manual_setup' row here means staff need to
 // either retry it or set the standing charge up by hand in the Stax dashboard — this screen is
 // what makes that visible instead of silent.
 export function renderStaxGivingMockupRecurringAdminHtml() {
