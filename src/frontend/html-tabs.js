@@ -175,6 +175,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <button class="pill active" data-gop="batches" onclick="givOffSetPane('batches')">Batches &amp; deposits</button>
       <button class="pill" data-gop="transactions" onclick="givOffSetPane('transactions')">All gifts</button>
       <button class="pill require-finance" data-gop="deposits" onclick="givOffSetPane('deposits')">Deposits</button>
+      <button class="pill require-finance" data-gop="recurring" onclick="givOffSetPane('recurring')">Recurring</button>
     </div>
 
     <div class="giv-off-layout" id="giv-pane-batches">
@@ -235,6 +236,24 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
           <svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
           <div style="font-size:.9rem;">Select a deposit, or click <strong>+ New</strong> to reconcile a bank deposit.</div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recurring gifts — the STANDING schedule of future occurrences. The first gift of every
+       signup is charged immediately and lands in Batches/All gifts like any other gift; this
+       pane is only for what happens after that. Previously its own page at
+       /admin/giving/stax-mockup/recurring (now redirected here). -->
+  <div id="giv-pane-recurring" class="require-finance" style="display:none;">
+    <div class="dash-card" style="padding:14px;">
+      <div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;line-height:1.45;">
+        The first gift of every recurring signup is charged immediately and appears above like any other gift &mdash; this list is only the STANDING schedule of future occurrences.
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="entries-table">
+          <thead><tr><th>Started</th><th>Donor</th><th>Fund</th><th class="amt-col">Amount</th><th>Interval</th><th>Status</th><th></th></tr></thead>
+          <tbody id="giv-recurring-tbody"><tr><td colspan="7" style="padding:24px;text-align:center;color:var(--warm-gray);">Loading&hellip;</td></tr></tbody>
+        </table>
       </div>
     </div>
   </div>

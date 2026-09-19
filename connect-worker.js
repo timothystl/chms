@@ -23,7 +23,6 @@ import { handleIntakeApi } from './src/api-intake.js';
 import {
   handleStaxGivingMockupPublicApi, handleStaxGivingWebhook,
   renderStaxGivingMockupReviewHtml, renderStaxGivingMockupFundsAdminHtml,
-  renderStaxGivingMockupRecurringAdminHtml,
 } from './src/stax-giving-mockup.js';
 import { handleContractsServiceApi } from './src/api-contracts-service.js';
 import { handleMemberSetup } from './src/api-people.js';
@@ -480,9 +479,12 @@ async function _fetchRouted(req, env, url, path, method) {
       if (!await isAuthed(req, env)) return html(LOGIN_HTML);
       return renderStaxGivingMockupFundsAdminHtml();
     }
+    // Recurring gifts moved into the main Giving page as a pane (Offerings → Recurring) instead
+    // of living on its own disconnected URL — see src/frontend/js-giving.js's givRecurring*
+    // functions and js-core.js's ?pane=recurring landing hook. This keeps the old bookmark/link
+    // working rather than 404ing it.
     if (path === '/admin/giving/stax-mockup/recurring' && method === 'GET') {
-      if (!await isAuthed(req, env)) return html(LOGIN_HTML);
-      return renderStaxGivingMockupRecurringAdminHtml();
+      return new Response(null, { status: 301, headers: { 'Location': '/?pane=recurring#giving' } });
     }
     // Old chms.timothystl.org hostname → 301 to connect.timothystl.org (page views only,
     // same treatment volunteer.timothystl.org→serve.timothystl.org would have gotten had

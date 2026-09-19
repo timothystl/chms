@@ -743,6 +743,12 @@ window.addEventListener('load', function() {
     // Replace initial state so back button from first tab exits the app cleanly
     history.replaceState({ tab: hashTab || defaultTab }, '', location.href);
     showTab(hashTab || defaultTab);
+    // The old standalone /admin/giving/stax-mockup/recurring page now redirects to
+    // /?pane=recurring#giving (see connect-worker.js) — land straight on the Recurring pane
+    // instead of Offerings' default Batches pane, so the redirect isn't a functional downgrade.
+    if (hashTab === 'giving' && /(?:^|[?&])pane=recurring(?:&|$)/.test(location.search)) {
+      givOffSetPane('recurring');
+    }
   });
 });
 // ── ROLE UI ──────────────────────────────────────────────────────────────
