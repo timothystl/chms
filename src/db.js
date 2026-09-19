@@ -2210,6 +2210,11 @@ async function _doInitDb(db) {
     // failed. This stores what Stax actually said (or the thrown error) so staff can tell a
     // wrong endpoint from a bad payload from an auth failure.
     "ALTER TABLE giving_stax_recurring_schedules ADD COLUMN stax_error TEXT NOT NULL DEFAULT ''",
+    // (see migrations/0056_giving_entry_void_refund.sql): Andrew asked directly for an in-app
+    // refund button on a Stax gift instead of having to go to the Stax dashboard. These track
+    // the outcome locally; they do not change any batch/deposit/statement total calculation.
+    "ALTER TABLE giving_entries ADD COLUMN refunded_cents INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE giving_entries ADD COLUMN voided_at TEXT NOT NULL DEFAULT ''",
   ];
   // Every statement here is either an idempotent CREATE ... IF NOT EXISTS, or an ALTER TABLE
   // ADD COLUMN — SQLite has no "ADD COLUMN IF NOT EXISTS", so a re-run always throws "duplicate

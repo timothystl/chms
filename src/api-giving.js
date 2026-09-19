@@ -347,6 +347,49 @@ if (entryDelMatch && method === 'DELETE') {
   return json({ ok: true });
 }
 
+// ── Refund/void a Stax gift, in-app ─────────────────────────────────────────
+// Andrew asked for this directly, the first time he saw a Stax gift land in the real batch view:
+// "there should be a refund button inside the app and not have to go to stax to do it." Endpoint
+// confirmed against docs.staxpayments.com/reference/void-or-refund-transaction: POST
+// /transaction/:id/void-or-refund lets Stax itself decide whether the transaction is still
+// voidable (not yet batched/settled) or must be refunded (already settled) — response carries
+// is_voided so we record the right outcome without having to track Stax's own settlement timing
+// ourselves. Always a FULL void/refund (no partial `total` sent) — partial refunds are a real
+// future ask, not this one. Only ever touches a gift this mockup itself created (processor='stax'
+// with a real external_txn_id); Tithe.ly and manual entries are untouched — refund those where
+// they were recorded.
+const entryVoidRefundMatch = seg.match(/^giving\/entries\/(\d+)\/void-or-refund$/);
+if (entryVoidRefundMatch && method === 'POST') {
+  const eid = parseInt(entryVoidRefundMatch[1]);
+  const entry = await db.prepare(
+    `SELECT id, amount, processor, external_txn_id, refunded_cents, voided_at FROM giving_entries WHERE id=?`
+  ).bind(eid).first();
+  if (!entry) return json({ error: 'Not found' }, 404);
+  if (entry.processor !== 'stax' || !entry.external_txn_id) {
+    return json({ error: 'Only Stax gifts can be refunded from here — refund this one where it was recorded.' }, 400);
+  }
+  if (entry.voided_at) return json({ error: 'This gift was already voided.' }, 409);
+  if (entry.refunded_cents >= entry.amount) return json({ error: 'This gift was already refunded.' }, 409);
+  if (!staxMockupConfigured(env)) return json({ error: 'Stax is not configured in this environment.' }, 502);
+  let res;
+  try {
+    res = await staxRequest(env.STAX_SANDBOX_API_KEY, `/transaction/${encodeURIComponent(entry.external_txn_id)}/void-or-refund`, { method: 'POST' });
+  } catch (e) {
+    return json({ error: 'Could not reach Stax: ' + String(e?.message || e) }, 502);
+  }
+  if (!res.ok) {
+    return json({ error: res.data?.message || res.data?.error || `Stax returned HTTP ${res.status}.` }, 502);
+  }
+  if (res.data?.is_voided === true) {
+    await db.prepare(`UPDATE giving_entries SET voided_at=datetime('now') WHERE id=?`).bind(eid).run();
+    return json({ ok: true, voided: true });
+  }
+  // Refund path — we issued a full void-or-refund (no partial `total`), so the entry's own
+  // amount is what was refunded regardless of exactly how Stax's response shapes total_refunded.
+  await db.prepare(`UPDATE giving_entries SET refunded_cents=? WHERE id=?`).bind(entry.amount, eid).run();
+  return json({ ok: true, voided: false, refunded_cents: entry.amount });
+}
+
 // ── Quick Gift Entry (auto-creates open batch for the month) ─────
 if (seg === 'giving/quick-entry' && method === 'POST') {
   let b = {}; try { b = await req.json(); } catch {}
