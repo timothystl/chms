@@ -76,7 +76,7 @@ function givSetView(view) {
 var _givOffPane = 'batches';
 // The display value each pane is restored to. '' lets the CSS class decide (.giv-off-layout is
 // already display:grid); .giv-txn-view only sets flex-* properties, so it needs the flex itself.
-var _GIV_OFF_PANES = { batches: '', transactions: 'flex', deposits: '' };
+var _GIV_OFF_PANES = { batches: '', transactions: 'flex', deposits: '', recurring: '' };
 // permView lives in js-core.js, which is concatenated ahead of this module; the typeof guard
 // covers a non-browser harness that loads this file on its own.
 function givCanSeeFinance() {
@@ -92,7 +92,7 @@ function givViewNamesDonors(view) { return view === 'offerings' || view === 'com
 
 function givOffSetPane(pane) {
   if (!(pane in _GIV_OFF_PANES)) pane = 'batches';
-  if (pane === 'deposits' && !givCanSeeFinance()) pane = 'batches';
+  if ((pane === 'deposits' || pane === 'recurring') && !givCanSeeFinance()) pane = 'batches';
   _givOffPane = pane;
   Object.keys(_GIV_OFF_PANES).forEach(function(p) {
     var el = document.getElementById('giv-pane-' + p);
@@ -104,6 +104,93 @@ function givOffSetPane(pane) {
   if (pane === 'batches') loadBatches();
   if (pane === 'transactions') { givTxnPopulateFundOptions(); loadGivingTransactions(); }
   if (pane === 'deposits') loadDeposits();
+  if (pane === 'recurring') givRecurringLoad();
+}
+
+// ── Recurring gifts — the STANDING schedule of future occurrences ──────────
+// Was its own page at /admin/giving/stax-mockup/recurring (now redirected here — see
+// connect-worker.js). Same backend routes as before (/admin/api/giving/stax-mockup/recurring),
+// just native to this tab now instead of a separate URL disconnected from the rest of Giving.
+var GIV_RECURRING_INTERVAL_LABELS = { weekly: 'Weekly', biweekly: 'Every 2 weeks', twice_monthly: '1st & 15th', monthly: 'Monthly' };
+var _givRecurringRows = [], _givRecurringEditingId = null;
+
+function givRecurringLoad() {
+  api('/admin/api/giving/stax-mockup/recurring').then(function(d) {
+    _givRecurringRows = d.schedules || [];
+    givRecurringRender();
+  }).catch(function(err) {
+    if (err.message === 'Unauthorized') return;
+    document.getElementById('giv-recurring-tbody').innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--warm-gray);">Could not load recurring gifts.</td></tr>';
+  });
+}
+// allFunds is populated once on app load (see loadFunds in js-people.js) — reused here the same
+// way the batch-detail entry form already reuses it, rather than fetching funds a second time.
+function givRecurringFundOptionsHtml(selected) {
+  return (allFunds || []).filter(function(f){ return f.active; }).map(function(f) {
+    return '<option value="' + f.id + '"' + (String(f.id) === String(selected) ? ' selected' : '') + '>' + esc(f.name) + '</option>';
+  }).join('');
+}
+function givRecurringIntervalOptionsHtml(selected) {
+  return Object.keys(GIV_RECURRING_INTERVAL_LABELS).map(function(k) {
+    return '<option value="' + k + '"' + (k === selected ? ' selected' : '') + '>' + GIV_RECURRING_INTERVAL_LABELS[k] + '</option>';
+  }).join('');
+}
+function givRecurringRender() {
+  var tbody = document.getElementById('giv-recurring-tbody');
+  var rows = _givRecurringRows;
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--warm-gray);">No recurring gifts yet.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(function(r) {
+    var cancelled = r.status === 'cancelled';
+    var active = r.status === 'active';
+    var badgeClass = cancelled ? 'badge-closed' : (active ? 'badge-open' : 'badge-warn');
+    var badgeLabel = cancelled ? 'Cancelled' : (active ? 'Active' : 'Needs setup');
+    var donor = (r.first_name || r.last_name) ? (r.first_name + ' ' + r.last_name).trim() : (r.payer_name || '(anonymous)');
+    if (_givRecurringEditingId === r.id) {
+      return '<tr data-id="' + r.id + '">' +
+        '<td>' + esc((r.created_at || '').slice(0, 10)) + '</td>' +
+        '<td>' + esc(donor) + '</td>' +
+        '<td><select class="giv-rec-fund">' + givRecurringFundOptionsHtml(r.fund_id) + '</select></td>' +
+        '<td><input class="giv-rec-amount" type="number" min="1" step="0.01" value="' + (r.amount_cents / 100).toFixed(2) + '" style="width:80px;"></td>' +
+        '<td><select class="giv-rec-interval">' + givRecurringIntervalOptionsHtml(r.interval) + '</select></td>' +
+        '<td><span class="' + badgeClass + '">' + badgeLabel + '</span></td>' +
+        '<td><button class="btn-secondary" style="font-size:.78rem;padding:4px 8px;" onclick="givRecurringSave(' + r.id + ')">Save</button> ' +
+          '<button class="btn-secondary" style="font-size:.78rem;padding:4px 8px;" onclick="givRecurringCancelEdit()">Cancel</button></td>' +
+      '</tr>';
+    }
+    return '<tr data-id="' + r.id + '">' +
+      '<td>' + esc((r.created_at || '').slice(0, 10)) + '</td>' +
+      '<td>' + esc(donor) + '<br><span style="font-size:.72rem;color:var(--warm-gray);">' + esc(r.payer_email) + '</span></td>' +
+      '<td>' + esc(r.fund_name) + '</td>' +
+      '<td class="amt-col">' + fmtMoney(r.amount_cents) + '</td>' +
+      '<td>' + esc(GIV_RECURRING_INTERVAL_LABELS[r.interval] || r.interval) + '</td>' +
+      '<td><span class="' + badgeClass + '">' + badgeLabel + '</span>' +
+        (r.status === 'pending_manual_setup' ? '<br><span style="font-size:.72rem;color:var(--warm-gray);">' + esc(r.stax_error || 'No Stax schedule id.') + '</span>' : '') +
+        '</td>' +
+      '<td>' +
+        (cancelled ? '' : '<button class="btn-secondary" style="font-size:.78rem;padding:4px 8px;" onclick="givRecurringEdit(' + r.id + ')">Edit</button> ') +
+        '<button class="btn-secondary" style="font-size:.78rem;padding:4px 8px;"' + (cancelled ? ' disabled' : (' onclick="givRecurringCancel(' + r.id + ')"')) + '>' + (cancelled ? 'Cancelled' : 'Cancel') + '</button>' +
+        '</td>' +
+    '</tr>';
+  }).join('');
+}
+function givRecurringEdit(id) { _givRecurringEditingId = id; givRecurringRender(); }
+function givRecurringCancelEdit() { _givRecurringEditingId = null; givRecurringRender(); }
+function givRecurringSave(id) {
+  var tr = document.querySelector('#giv-recurring-tbody tr[data-id="' + id + '"]');
+  var payload = {
+    fund_id: tr.querySelector('.giv-rec-fund').value,
+    amount: tr.querySelector('.giv-rec-amount').value,
+    interval: tr.querySelector('.giv-rec-interval').value,
+  };
+  api('/admin/api/giving/stax-mockup/recurring/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    .then(function() { _givRecurringEditingId = null; givRecurringLoad(); })
+    .catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
+}
+function givRecurringCancel(id) {
+  if (!confirm('Cancel this recurring gift? This stops future charges.')) return;
+  api('/admin/api/giving/stax-mockup/recurring/' + id + '/cancel', { method: 'POST' })
+    .then(function() { givRecurringLoad(); })
+    .catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
 
 var _givCommsPane = 'letters';

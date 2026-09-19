@@ -6,6 +6,7 @@ import {
   renderStaxGivingMockupReviewHtml, buildScheduleRule,
 } from '../src/stax-giving-mockup.js';
 import { handleGivingApi } from '../src/api-giving.js';
+import worker from '../connect-worker.js';
 
 // Same real-schema-via-real-initDb approach as test/engagement-tasks-race.test.js: this runs
 // the actual migration 0053 additions (see src/db.js), not a hand-copied subset of them.
@@ -1497,5 +1498,20 @@ describe('Stax Giving mockup — edit a recurring schedule (src/api-giving.js)',
     });
     const res = await handleGivingApi(req, { ...env(), DB: db }, new URL(req.url), 'PUT', `giving/stax-mockup/recurring/${scheduleId}`, db, false, false, false, true);
     expect(res.status).toBe(403);
+  });
+});
+
+describe('Stax Giving mockup — recurring gifts moved into the main Giving page (connect-worker.js)', () => {
+  // The standalone screen at /admin/giving/stax-mockup/recurring is gone — it's now the
+  // Recurring pane inside Giving > Offerings (src/frontend/js-giving.js's givRecurring*
+  // functions), reusing the exact same /admin/api/giving/stax-mockup/recurring routes tested
+  // above. The old URL 301s here rather than 404ing, so an existing bookmark/link still works.
+  it('301s the old standalone recurring page to the new pane, without requiring auth', async () => {
+    const req = new Request('https://connect.timothystl.org/admin/giving/stax-mockup/recurring');
+    const stmt = { bind: () => stmt, first: async () => null, all: async () => ({ results: [] }), run: async () => ({ meta: {} }) };
+    const env = { ADMIN_PASSWORD: 'x', SESSION_SECRET: 'x', DB: { prepare: () => stmt, batch: async () => [] } };
+    const res = await worker.fetch(req, env);
+    expect(res.status).toBe(301);
+    expect(res.headers.get('Location')).toBe('/?pane=recurring#giving');
   });
 });
