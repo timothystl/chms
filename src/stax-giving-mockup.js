@@ -736,6 +736,18 @@ export function renderStaxGivingMockupReviewHtml() {
 (function(){
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function money(cents){ return '$' + (Math.round(cents || 0) / 100).toFixed(2); }
+  // Lower is better — an exact "first last" match beats a name that only starts with what was
+  // typed, which beats one that merely contains it somewhere (an email/phone/envelope hit, or a
+  // mid-name match). Used only to re-order this page's own datalist; never touches the shared
+  // /admin/api/people endpoint or any other screen using it.
+  function matchScore(p, needle){
+    var full = ((p.first_name || '') + ' ' + (p.last_name || '')).trim().toLowerCase();
+    var first = (p.first_name || '').toLowerCase();
+    var last = (p.last_name || '').toLowerCase();
+    if (full === needle) return 0;
+    if (first.indexOf(needle) === 0 || last.indexOf(needle) === 0 || full.indexOf(needle) === 0) return 1;
+    return 2;
+  }
 
   function render(rows){
     var tbody = document.getElementById('rows');
@@ -767,10 +779,16 @@ export function renderStaxGivingMockupReviewHtml() {
         if (q.length < 2) { datalist.innerHTML = ''; return; }
         debounceTimer = setTimeout(function(){
           fetch('/admin/api/people?limit=8&q=' + encodeURIComponent(q)).then(function(r){ return r.json(); }).then(function(d){
-            datalist.innerHTML = (d.people || []).map(function(p){
+            // The shared /admin/api/people endpoint sorts alphabetically by last name (it's
+            // reused by several other screens that want that, not relevance) — re-rank here,
+            // just for this datalist, so the closest match to what was typed shows first
+            // instead of wherever it happens to fall alphabetically among the other 7 results.
+            var needle = q.toLowerCase();
+            var people = (d.people || []).slice().sort(function(a, b){ return matchScore(a, needle) - matchScore(b, needle); });
+            datalist.innerHTML = people.map(function(p){
               return '<option data-id="' + p.id + '" value="' + esc((p.first_name || '') + ' ' + (p.last_name || '')) + '">';
             }).join('');
-            input.dataset.matches = JSON.stringify((d.people || []).map(function(p){ return { id: p.id, name: (p.first_name || '') + ' ' + (p.last_name || '') }; }));
+            input.dataset.matches = JSON.stringify(people.map(function(p){ return { id: p.id, name: (p.first_name || '') + ' ' + (p.last_name || '') }; }));
           }).catch(function(){});
         }, 250);
       });

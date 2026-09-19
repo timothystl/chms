@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { initDb, _resetInitForTests } from '../src/db.js';
 import {
   matchPersonForPayer, recordStaxGift, handleStaxGivingWebhook, handleStaxGivingMockupPublicApi,
+  renderStaxGivingMockupReviewHtml,
 } from '../src/stax-giving-mockup.js';
 import { handleGivingApi } from '../src/api-giving.js';
 
@@ -808,5 +809,42 @@ describe('Stax Giving mockup — staff review queue (src/api-giving.js)', () => 
     expect(updatedQueue.status).toBe('ignored');
     const entry = await db.prepare('SELECT person_id FROM giving_entries WHERE id=?').bind(gift.entryId).first();
     expect(entry.person_id).toBeNull();
+  });
+});
+
+describe('Stax Giving mockup — the queue\'s person-search shows the best match first', () => {
+  // Real ask, reported live: the shared /admin/api/people endpoint sorts alphabetically by last
+  // name (other screens reusing it want that), so searching "Dinger" could bury Andrew Dinger
+  // behind unrelated, alphabetically-earlier results. matchScore() re-ranks this page's own
+  // datalist only — an exact "first last" match first, then a name that starts with what was
+  // typed, everything else keeping its original (alphabetical) order.
+  function extractMatchScore(html) {
+    const m = html.match(/function matchScore\(p, needle\)\{[\s\S]*?\n  \}/);
+    expect(m).toBeTruthy();
+    // eslint-disable-next-line no-eval
+    return eval('(' + m[0].replace('function matchScore', 'function') + ')');
+  }
+
+  it('ranks an exact or prefix name match ahead of alphabetically-earlier non-matches', async () => {
+    const res = renderStaxGivingMockupReviewHtml();
+    const html = await res.text();
+    const matchScore = extractMatchScore(html);
+    const people = [
+      { id: 1, first_name: 'Aaron', last_name: 'Abbott' },
+      { id: 2, first_name: 'Andrew', last_name: 'Dinger' },
+      { id: 3, first_name: 'Bev', last_name: 'Zinger' },
+    ];
+    const needle = 'dinger';
+    const sorted = people.slice().sort((a, b) => matchScore(a, needle) - matchScore(b, needle));
+    expect(sorted.map(p => p.id)).toEqual([2, 1, 3]);
+  });
+
+  it('ranks a full "first last" exact match above a mere prefix match', async () => {
+    const res = renderStaxGivingMockupReviewHtml();
+    const html = await res.text();
+    const matchScore = extractMatchScore(html);
+    const exact = { first_name: 'Andrew', last_name: 'Dinger' };
+    const prefixOnly = { first_name: 'Andrea', last_name: 'Dingerson' };
+    expect(matchScore(exact, 'andrew dinger')).toBeLessThan(matchScore(prefixOnly, 'andrew dinger'));
   });
 });
