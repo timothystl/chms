@@ -35,7 +35,7 @@ function cents(value) {
 function amountStr(centsValue) { return (Math.round(centsValue) / 100).toFixed(2); }
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 
-async function staxRequest(apiKey, path, init) {
+export async function staxRequest(apiKey, path, init) {
   const res = await fetch(`${STAX_API_URL}${path}`, {
     ...init,
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Accept': 'application/json', ...(init?.headers || {}) },
@@ -640,55 +640,135 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     // 'weekly'/'monthly' already existed.
     const VALID_INTERVALS = ['weekly', 'biweekly', 'twice_monthly', 'monthly'];
     const interval = VALID_INTERVALS.includes(b.interval) ? b.interval : 'monthly';
-    const splits = giftResult.splits;
+    const memo = String(b.memo || '').trim().slice(0, 500);
+    const feeCents = b.cover_fees ? estimateFeeCents(giftResult.subtotalCents) : 0;
+    const totalCents = giftResult.subtotalCents + feeCents;
+    // Fee coverage (if any) rides on the first split — matches /checkout's own convention.
+    const splits = giftResult.splits.map((s, i) => i === 0 ? { ...s, amountCents: s.amountCents + feeCents } : s);
     // Only set when a submission actually has more than one fund, so every pre-existing
     // single-fund schedule (and every one this mockup already wrote) keeps reading as ''.
     const scheduleGroup = splits.length > 1 ? crypto.randomUUID() : '';
     const payerName = `${contact.payerFirstName} ${contact.payerLastName}`.trim();
 
+    if (!staxMockupConfigured(env)) {
+      // DEMO MODE — no live Stax credentials. Records the schedule locally (status
+      // pending_manual_setup, the same status a real Stax scheduling failure would leave) without
+      // attempting any Stax call, and does not record a first gift — demo mode's /checkout branch
+      // doesn't charge real money either, and simulating one here would need its own synthetic
+      // transaction id machinery /checkout's demo branch already owns, not duplicated here.
+      const ids = [];
+      for (const split of splits) {
+        const r = await db.prepare(
+          `INSERT INTO giving_stax_recurring_schedules
+             (person_id, fund_id, amount_cents, interval, stax_customer_id, stax_schedule_id, status, payer_name, payer_email, schedule_group)
+           VALUES (NULL,?,?,?,?,?,?,?,?,?)`
+        ).bind(split.fundId, split.amountCents, interval, '', '', 'pending_manual_setup', payerName, contact.payerEmail, scheduleGroup).run();
+        ids.push(r.meta?.last_row_id);
+      }
+      return j({ ok: true, demo: true, ids, id: ids[0] });
+    }
+
+    const paymentMethodId = String(b.payment_method_id || '');
+    if (!paymentMethodId) return j({ error: 'payment_method_id required (from Stax.js tokenize)' }, 400);
+    const apiKey = env.STAX_SANDBOX_API_KEY;
     // Same reuse-over-recreate pattern as /checkout: the browser already has a customer_id from
     // /stax-customer (called before tokenize()), so reuse it here rather than minting a second
     // Stax customer for the same donor. Falls back to creating one inline if it's missing.
     let staxCustomerId = String(b.stax_customer_id || '').trim();
-    if (!staxCustomerId && staxMockupConfigured(env) && b.payment_method_id) {
-      const result = await getOrCreateStaxCustomerId(db, env.STAX_SANDBOX_API_KEY, contact);
-      if (!result.error) staxCustomerId = result.customerId;
+    if (!staxCustomerId) {
+      const result = await getOrCreateStaxCustomerId(db, apiKey, contact);
+      if (result.error) return j({ error: result.error }, 502);
+      staxCustomerId = result.customerId;
     }
 
+    // The first gift of a recurring series is charged immediately, exactly like a one-time
+    // /checkout gift — Andrew's own ask: "if someone sets up a recurring gift there should be a
+    // gift made." Before this, the endpoint only ever created a *schedule* record and asked Stax
+    // to bill the FUTURE occurrences — a donor could see "Thank you" with no money moved, no
+    // ledger entry, and no receipt if that scheduling call silently failed (which it's allowed
+    // to; see the pending_manual_setup fallback below). Charging the first occurrence the same
+    // way /checkout does means a recurring signup is never worse than a one-time gift: there's
+    // always a real charge, ledger entry, and receipt for what the donor just did, independent
+    // of whether Stax's own recurring-schedule API call (further down) succeeds.
+    const idempotencyId = crypto.randomUUID();
+    const charge = await staxRequest(apiKey, '/charge', {
+      method: 'POST',
+      body: JSON.stringify({
+        payment_method_id: paymentMethodId,
+        customer_id: staxCustomerId,
+        total: amountStr(totalCents),
+        pre_auth: false,
+        idempotency_id: idempotencyId,
+        meta: {
+          memo: memo || 'Timothy Lutheran Church — Giving (mockup, recurring)',
+          splits: JSON.stringify(splits.map(s => ({ f: s.fundId, a: s.amountCents }))),
+          payer_first_name: contact.payerFirstName, payer_last_name: contact.payerLastName,
+          payer_email: contact.payerEmail, payer_phone: contact.payerPhone,
+          payer_address_line1: contact.payerAddressLine1, payer_city: contact.payerCity,
+          payer_state: contact.payerState, payer_zip: contact.payerZip,
+        },
+      }),
+    });
+    const chargeSuccess = charge.data?.success === true;
+    if (!charge.ok || !chargeSuccess || !charge.data?.id) {
+      return j({ error: charge.data?.message || 'The charge was not approved.' }, 402);
+    }
+    const chargeResult = await recordStaxGift(db, {
+      externalTxnId: String(charge.data.id),
+      splits,
+      feeCents: cents(charge.data?.total_fees) || 0,
+      method: charge.data?.payment_method?.method_type === 'ach' ? 'ach' : 'card',
+      note: memo, ...contact,
+      cardBrand: charge.data?.payment_method?.card_type || '',
+      cardLast4: charge.data?.payment_method?.card_last_four || '',
+      staxCustomerId,
+    });
+    if (chargeResult.error) return j({ error: chargeResult.error }, 422);
+    if (!chargeResult.alreadyRecorded) {
+      await sendGiftReceiptEmail(db, env, {
+        splits, payerFirstName: contact.payerFirstName, payerLastName: contact.payerLastName,
+        payerEmail: contact.payerEmail, note: memo, contributionDate: todayIso(),
+      });
+    }
+
+    // With the first gift charged and recorded, set up the STANDING schedule for future
+    // occurrences. Unchanged in shape from before — still best-effort (see the comment below):
+    // Stax's documented endpoint for this couldn't be confirmed live. Links each schedule row to
+    // the person the charge above just matched (was always NULL before — that match happens
+    // earlier in this flow now, so there's no reason not to carry it over).
     const ids = [];
     for (const split of splits) {
       let staxScheduleId = '', status = 'pending_manual_setup';
-      if (staxCustomerId && b.payment_method_id) {
-        // ⚠ UNVERIFIED against a live Stax sandbox — childcare-portal's integration never needed
-        // recurring billing (MDO tuition schedules its own charges), so there is no proven
-        // request/response shape to copy the way /customer and /charge were copied above.
-        // Stax's own docs disagree with themselves on the path (docs.staxpayments.com currently
-        // names POST /scheduled-invoices; an older reference names POST /invoice/schedule/) —
-        // /scheduled-invoices is tried first as the more likely current one. Failure here is not
-        // fatal to the mockup — the schedule still exists locally with status
-        // 'pending_manual_setup' so staff can see and hand-create it in the Stax dashboard.
-        try {
-          const sched = await staxRequest(env.STAX_SANDBOX_API_KEY, '/scheduled-invoices', {
-            method: 'POST',
-            body: JSON.stringify({
-              customer_id: staxCustomerId,
-              payment_method_id: b.payment_method_id,
-              total: amountStr(split.amountCents),
-              frequency: interval,
-              meta: { fund_id: split.fundId, mockup: true },
-            }),
-          });
-          if (sched.ok && sched.data?.id) { staxScheduleId = String(sched.data.id); status = 'active'; }
-        } catch { /* left as pending_manual_setup below */ }
-      }
+      // ⚠ UNVERIFIED against a live Stax sandbox — childcare-portal's integration never needed
+      // recurring billing (MDO tuition schedules its own charges), so there is no proven
+      // request/response shape to copy the way /customer and /charge were copied above.
+      // Stax's own docs disagree with themselves on the path (docs.staxpayments.com currently
+      // names POST /scheduled-invoices; an older reference names POST /invoice/schedule/) —
+      // /scheduled-invoices is tried first as the more likely current one. Failure here no longer
+      // means the donor's gift itself is lost (that's already charged and recorded above) — only
+      // that FUTURE occurrences need staff to hand-create the schedule in the Stax dashboard,
+      // which the pending_manual_setup status and the admin recurring-schedules screen surface.
+      try {
+        const sched = await staxRequest(apiKey, '/scheduled-invoices', {
+          method: 'POST',
+          body: JSON.stringify({
+            customer_id: staxCustomerId,
+            payment_method_id: paymentMethodId,
+            total: amountStr(split.amountCents),
+            frequency: interval,
+            meta: { fund_id: split.fundId, mockup: true },
+          }),
+        });
+        if (sched.ok && sched.data?.id) { staxScheduleId = String(sched.data.id); status = 'active'; }
+      } catch { /* left as pending_manual_setup below */ }
       const r = await db.prepare(
         `INSERT INTO giving_stax_recurring_schedules
            (person_id, fund_id, amount_cents, interval, stax_customer_id, stax_schedule_id, status, payer_name, payer_email, schedule_group)
-         VALUES (NULL,?,?,?,?,?,?,?,?,?)`
-      ).bind(split.fundId, split.amountCents, interval, staxCustomerId, staxScheduleId, status, payerName, contact.payerEmail, scheduleGroup).run();
+         VALUES (?,?,?,?,?,?,?,?,?,?)`
+      ).bind(chargeResult.personId || null, split.fundId, split.amountCents, interval, staxCustomerId, staxScheduleId, status, payerName, contact.payerEmail, scheduleGroup).run();
       ids.push(r.meta?.last_row_id);
     }
-    return j({ ok: true, ids, id: ids[0] });
+    return j({ ok: true, demo: false, totalCents, giftEntryIds: chargeResult.entryIds, ids, id: ids[0] });
   }
 
   return j({ error: 'Not found' }, 404);
@@ -727,7 +807,8 @@ export function renderStaxGivingMockupReviewHtml() {
   <div class="mockup-banner">MOCKUP — Stax sandbox only. These gifts never touch the Tithe.ly sync.</div>
   <h1>Unmatched Stax gifts</h1>
   <div class="sub">A Stax webhook gift that couldn't be matched to an existing person by email or phone lands here. Link it to a person, or leave it unmatched.
-    &middot; <a href="/admin/giving/stax-mockup/funds" style="color:var(--teal);">Manage which funds are on the public form &rarr;</a></div>
+    &middot; <a href="/admin/giving/stax-mockup/funds" style="color:var(--teal);">Manage which funds are on the public form &rarr;</a>
+    &middot; <a href="/admin/giving/stax-mockup/recurring" style="color:var(--teal);">Recurring gifts &rarr;</a></div>
   <div class="wrap"><table>
     <thead><tr><th>Date</th><th>Fund</th><th>Amount</th><th>Payer</th><th>Card</th><th>Action</th></tr></thead>
     <tbody id="rows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
@@ -889,6 +970,106 @@ export function renderStaxGivingMockupFundsAdminHtml() {
       .then(function(res){ status.textContent = res.ok ? 'Saved.' : (res.d.error || 'Failed.'); })
       .catch(function(){ status.textContent = 'Network error.'; });
   });
+})();
+</script>
+</body></html>`);
+}
+
+// ── Staff screen: recurring Stax gift schedules — see and cancel (MOCKUP) ──
+// Andrew asked directly: where do we see a donor's recurring signup, and how do we cancel one.
+// Every occurrence past the first (which /checkout-equivalent-charges immediately at signup —
+// see the recurring handler's own comment) depends on the stax_schedule_id Stax's own
+// /scheduled-invoices call returned, so a 'pending_manual_setup' row here means staff need to
+// either retry it or set the standing charge up by hand in the Stax dashboard — this screen is
+// what makes that visible instead of silent.
+export function renderStaxGivingMockupRecurringAdminHtml() {
+  return html(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Recurring Stax Gifts (mockup) — Connect</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--navy:#1E2D4A;--teal:#2E7EA6;--gold:#C9973A;--cream:#F8F4EE;--muted:#8A8898;--warn:#A33B26;--ok:#3A6B2E;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:var(--cream);padding:1.5rem;color:var(--navy);}
+  .mockup-banner{max-width:960px;margin:0 auto 1rem;background:#3D2B00;color:#F5D98A;border-radius:10px;
+    padding:.7rem 1rem;font-size:.82rem;text-align:center;font-weight:600;}
+  h1{max-width:960px;margin:0 auto .25rem;font-size:1.3rem;}
+  .sub{max-width:960px;margin:0 auto 1.25rem;color:var(--muted);font-size:.85rem;}
+  .wrap{max-width:960px;margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(30,45,74,.08);overflow:hidden;}
+  table{width:100%;border-collapse:collapse;font-size:.88rem;}
+  th{text-align:left;padding:.7rem .9rem;background:#F5F0E4;color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;}
+  td{padding:.7rem .9rem;border-top:1px solid #F0EADA;vertical-align:top;}
+  .empty{padding:2rem;text-align:center;color:var(--muted);}
+  .amt{font-weight:700;}
+  .badge{display:inline-block;font-size:.72rem;font-weight:700;padding:.15rem .5rem;border-radius:999px;}
+  .badge.active{background:#E9F3E4;color:var(--ok);}
+  .badge.pending{background:#FBEAE7;color:var(--warn);}
+  .badge.cancelled{background:#F0EADA;color:var(--muted);}
+  button{font-family:inherit;font-size:.85rem;padding:.4rem .7rem;border-radius:6px;border:1.5px solid rgba(30,45,74,.2);
+    background:#fff;color:var(--navy);cursor:pointer;}
+  button:hover{background:var(--cream);}
+  button:disabled{opacity:.5;cursor:default;}
+  .status-msg{font-size:.75rem;color:var(--muted);margin-top:.3rem;}
+</style></head><body>
+  <div class="mockup-banner">MOCKUP — Stax sandbox only. These schedules never touch the Tithe.ly sync.</div>
+  <h1>Recurring Stax gifts</h1>
+  <div class="sub">The first gift of every recurring signup is charged immediately and appears in the normal Giving ledger like any other gift — this screen is only for the STANDING schedule of future occurrences.
+    &middot; <a href="/admin/giving/stax-mockup" style="color:var(--teal);">Unmatched Stax gifts &rarr;</a></div>
+  <div class="wrap"><table>
+    <thead><tr><th>Started</th><th>Donor</th><th>Fund</th><th>Amount</th><th>Interval</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+  </table></div>
+<script>
+(function(){
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function money(cents){ return '$' + (Math.round(cents || 0) / 100).toFixed(2); }
+  var INTERVAL_LABELS = { weekly: 'Weekly', biweekly: 'Every 2 weeks', twice_monthly: '1st & 15th', monthly: 'Monthly' };
+  var STATUS_LABELS = { active: ['active', 'Active'], pending_manual_setup: ['pending', 'Needs setup'], cancelled: ['cancelled', 'Cancelled'] };
+
+  function render(rows){
+    var tbody = document.getElementById('rows');
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">No recurring Stax gifts yet.</td></tr>'; return; }
+    tbody.innerHTML = rows.map(function(r){
+      var statusInfo = STATUS_LABELS[r.status] || ['pending', esc(r.status)];
+      var donor = (r.first_name || r.last_name) ? (r.first_name + ' ' + r.last_name).trim() : (r.payer_name || '(anonymous)');
+      var cancelled = r.status === 'cancelled';
+      return '<tr data-id="' + r.id + '">' +
+        '<td>' + esc((r.created_at || '').slice(0, 10)) + '</td>' +
+        '<td>' + esc(donor) + '<br><span class="status-msg">' + esc(r.payer_email) + '</span></td>' +
+        '<td>' + esc(r.fund_name) + '</td>' +
+        '<td class="amt">' + money(r.amount_cents) + '</td>' +
+        '<td>' + esc(INTERVAL_LABELS[r.interval] || r.interval) + '</td>' +
+        '<td><span class="badge ' + statusInfo[0] + '">' + statusInfo[1] + '</span>' +
+          (r.status === 'pending_manual_setup' ? '<br><span class="status-msg">No Stax schedule id — set up by hand in Stax, or retry the signup.</span>' : '') +
+          '</td>' +
+        '<td><button class="cancel-btn"' + (cancelled ? ' disabled' : '') + '>' + (cancelled ? 'Cancelled' : 'Cancel') + '</button>' +
+          '<div class="status-msg row-status"></div></td>' +
+      '</tr>';
+    }).join('');
+    Array.prototype.forEach.call(tbody.querySelectorAll('.cancel-btn'), function(btn){
+      btn.addEventListener('click', function(){
+        var tr = btn.closest('tr');
+        var statusEl = tr.querySelector('.row-status');
+        if (!window.confirm('Cancel this recurring gift? This stops future charges.')) return;
+        btn.disabled = true;
+        statusEl.textContent = 'Cancelling\\u2026';
+        fetch('/admin/api/giving/stax-mockup/recurring/' + tr.dataset.id + '/cancel', { method: 'POST' })
+          .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
+          .then(function(res){
+            if (!res.ok) { statusEl.textContent = res.d.error || 'Failed.'; btn.disabled = false; return; }
+            btn.textContent = 'Cancelled';
+            var badge = tr.querySelector('.badge');
+            badge.className = 'badge cancelled'; badge.textContent = 'Cancelled';
+            statusEl.textContent = res.d.had_stax_schedule && !res.d.stax_cancelled
+              ? 'Cancelled here — could not confirm Stax also stopped it; check the Stax dashboard.'
+              : '';
+          }).catch(function(){ statusEl.textContent = 'Network error.'; btn.disabled = false; });
+      });
+    });
+  }
+
+  fetch('/admin/api/giving/stax-mockup/recurring').then(function(r){ return r.json(); }).then(function(d){ render(d.schedules || []); })
+    .catch(function(){ document.getElementById('rows').innerHTML = '<tr><td colspan="7" class="empty">Could not load recurring gifts.</td></tr>'; });
 })();
 </script>
 </body></html>`);

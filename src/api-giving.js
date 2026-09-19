@@ -2,6 +2,7 @@
 import { json, getAuthInfo } from './auth.js';
 import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeDepositTotals, batchDepositStatus, batchDepositStatusFromCounts } from './api-utils.js';
 import { ensureGivingYearRollups } from './giving-rollups.js';
+import { staxRequest, staxMockupConfigured } from './stax-giving-mockup.js';
 
 // Shared by the desktop `giving/quick-entry` route and the mobile Giving quick-entry screen —
 // one insert path so the two can't drift on the find-or-create-batch logic (the SW17 lesson:
@@ -945,6 +946,46 @@ if (staxQueueIgnoreMatch && method === 'POST') {
     `UPDATE giving_stax_unmatched SET status='ignored', linked_by=?, linked_at=datetime('now') WHERE id=?`
   ).bind(auth?.username || '', queueId).run();
   return json({ ok: true });
+}
+
+// ── Stax Giving MOCKUP: recurring schedules — list and cancel ──────────────
+// Andrew asked directly: where do we see these, and how do we cancel one. Listing joins people
+// for a name when linked (a recurring signup can land unmatched, same as a one-time gift).
+// Cancel best-effort calls Stax to actually stop future billing (DELETE /scheduled-invoices/:id
+// — inferred from the same naming Stax's own webhook event list uses, "delete_scheduled_invoice";
+// unverified live, same honesty as src/stax-giving-mockup.js's own creation call) and always
+// marks the LOCAL row cancelled regardless of whether that call succeeds, so staff are never
+// blocked from marking something cancelled on their end by a Stax API hiccup — matching the
+// ignore/link pattern the unmatched-gifts queue above already uses.
+if (seg === 'giving/stax-mockup/recurring' && method === 'GET') {
+  const rows = (await db.prepare(
+    `SELECT s.id, s.fund_id, f.name AS fund_name, s.amount_cents, s.interval, s.status,
+            s.stax_customer_id, s.stax_schedule_id, s.payer_name, s.payer_email,
+            s.person_id, p.first_name, p.last_name, s.schedule_group, s.created_at
+       FROM giving_stax_recurring_schedules s
+       JOIN funds f ON f.id = s.fund_id
+       LEFT JOIN people p ON p.id = s.person_id
+      ORDER BY s.created_at DESC, s.id DESC
+      LIMIT 200`
+  ).all()).results || [];
+  return json({ schedules: rows });
+}
+const staxRecurringCancelMatch = seg.match(/^giving\/stax-mockup\/recurring\/(\d+)\/cancel$/);
+if (staxRecurringCancelMatch && method === 'POST') {
+  if (!isFinance) return json({ error: 'Access denied' }, 403);
+  const scheduleId = parseInt(staxRecurringCancelMatch[1]);
+  const row = await db.prepare(`SELECT id, status, stax_schedule_id FROM giving_stax_recurring_schedules WHERE id=?`).bind(scheduleId).first();
+  if (!row) return json({ error: 'Not found' }, 404);
+  if (row.status === 'cancelled') return json({ ok: true, already_cancelled: true });
+  let staxCancelled = false;
+  if (row.stax_schedule_id && staxMockupConfigured(env)) {
+    try {
+      const del = await staxRequest(env.STAX_SANDBOX_API_KEY, `/scheduled-invoices/${encodeURIComponent(row.stax_schedule_id)}`, { method: 'DELETE' });
+      staxCancelled = del.ok;
+    } catch { /* stays false — reported to staff below, local row still gets cancelled */ }
+  }
+  await db.prepare(`UPDATE giving_stax_recurring_schedules SET status='cancelled' WHERE id=?`).bind(scheduleId).run();
+  return json({ ok: true, stax_cancelled: staxCancelled, had_stax_schedule: !!row.stax_schedule_id });
 }
 
   return null; // not handled

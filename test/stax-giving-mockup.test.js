@@ -848,3 +848,193 @@ describe('Stax Giving mockup — the queue\'s person-search shows the best match
     expect(matchScore(exact, 'andrew dinger')).toBeLessThan(matchScore(prefixOnly, 'andrew dinger'));
   });
 });
+
+describe('Stax Giving mockup — /recurring charges the first gift immediately', () => {
+  // Andrew's own ask: "if someone sets up recurring gift there should be a gift made." Before
+  // this, a recurring signup only ever created a schedule row and relied on a separate,
+  // unverified Stax API call to bill FUTURE occurrences — a donor could see "Thank you" with no
+  // money moved, no ledger entry, and no receipt if that call silently failed.
+  const env = () => ({ STAX_SANDBOX_API_KEY: 'sk_test', STAX_SANDBOX_WEB_PAYMENTS_TOKEN: 'wpt_test', BREVO_API_KEY: 'brevo_test' });
+
+  it('demo mode creates a schedule row but records no gift and sends no receipt', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    global.fetch = vi.fn(async () => { throw new Error('demo mode should never call Stax or Brevo'); });
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/recurring', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '25.00' }], interval: 'monthly',
+        payer_first_name: 'Demo', payer_last_name: 'Donor', payer_email: 'demo@example.com',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'POST', 'recurring');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.demo).toBe(true);
+    const schedule = await db.prepare('SELECT status FROM giving_stax_recurring_schedules WHERE id=?').bind(body.id).first();
+    expect(schedule.status).toBe('pending_manual_setup');
+    const entryCount = (await db.prepare('SELECT COUNT(*) AS c FROM giving_entries').first()).c;
+    expect(entryCount).toBe(0);
+  });
+
+  it('charges the first gift, records it, emails a receipt, and links the schedule to the matched person', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const pid = insertPerson(db, { first: 'Jamie', last: 'Vogel', email: 'jamie@example.com', phone: '' });
+    db._raw.prepare("INSERT INTO chms_config (key, value) VALUES ('church_from_email', 'giving@timothystl.org')").run();
+
+    let brevoCalled = false;
+    global.fetch = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.includes('api.brevo.com')) { brevoCalled = true; return new Response(JSON.stringify({ messageId: 'x' }), { status: 200 }); }
+      if (u.includes('/customer')) return new Response(JSON.stringify({ id: 'cus_recur_1' }), { status: 200 });
+      if (u.endsWith('/charge')) {
+        const body = JSON.parse(init.body);
+        expect(body.customer_id).toBe('cus_recur_1');
+        expect(body.total).toBe('25.00');
+        return new Response(JSON.stringify({ id: 'chg_recur_1', success: true, total_fees: '0.50', payment_method: {} }), { status: 200 });
+      }
+      if (u.includes('/scheduled-invoices')) return new Response(JSON.stringify({ id: 'sched_recur_1' }), { status: 200 });
+      throw new Error('unexpected fetch ' + u);
+    });
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/recurring', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '25.00' }], interval: 'weekly',
+        payer_first_name: 'Jamie', payer_last_name: 'Vogel', payer_email: 'jamie@example.com',
+        payment_method_id: 'pm_1',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { ...env(), DB: db }, new URL(req.url), 'POST', 'recurring');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.demo).toBe(false);
+    expect(body.giftEntryIds.length).toBe(1);
+
+    // The first gift landed as a real ledger entry, matched to the person.
+    const entry = await db.prepare('SELECT person_id, amount, external_txn_id FROM giving_entries WHERE id=?').bind(body.giftEntryIds[0]).first();
+    expect(entry.person_id).toBe(pid);
+    expect(entry.amount).toBe(2500);
+    expect(entry.external_txn_id).toBe('chg_recur_1');
+    expect(brevoCalled).toBe(true);
+
+    // The standing schedule for future occurrences is linked to that same matched person.
+    const schedule = await db.prepare('SELECT person_id, status, stax_schedule_id FROM giving_stax_recurring_schedules WHERE id=?').bind(body.id).first();
+    expect(schedule.person_id).toBe(pid);
+    expect(schedule.status).toBe('active');
+    expect(schedule.stax_schedule_id).toBe('sched_recur_1');
+  });
+
+  it('never creates a schedule if the first charge fails', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    global.fetch = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes('/customer')) return new Response(JSON.stringify({ id: 'cus_fail_1' }), { status: 200 });
+      if (u.endsWith('/charge')) return new Response(JSON.stringify({ message: 'Card declined', success: false }), { status: 200 });
+      throw new Error('unexpected fetch ' + u + ' — a failed charge must never reach /scheduled-invoices');
+    });
+
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/recurring', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '25.00' }], interval: 'monthly',
+        payer_first_name: 'Fail', payer_last_name: 'Case', payer_email: 'fail@example.com',
+        payment_method_id: 'pm_1',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { STAX_SANDBOX_API_KEY: 'sk_test', STAX_SANDBOX_WEB_PAYMENTS_TOKEN: 'wpt_test', DB: db }, new URL(req.url), 'POST', 'recurring');
+    expect(res.status).toBe(402);
+    const scheduleCount = (await db.prepare('SELECT COUNT(*) AS c FROM giving_stax_recurring_schedules').first()).c;
+    expect(scheduleCount).toBe(0);
+  });
+});
+
+describe('Stax Giving mockup — admin recurring-schedules screen (src/api-giving.js)', () => {
+  it('lists schedules with the matched person\'s name when linked', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const pid = insertPerson(db, { first: 'Jamie', last: 'Vogel', email: 'jamie@example.com', phone: '' });
+    await db.prepare(
+      `INSERT INTO giving_stax_recurring_schedules (person_id, fund_id, amount_cents, interval, stax_customer_id, stax_schedule_id, status, payer_name, payer_email)
+       VALUES (?,?,?,?,?,?,?,?,?)`
+    ).bind(pid, fundId, 2500, 'monthly', 'cus_1', 'sched_1', 'active', 'Jamie Vogel', 'jamie@example.com').run();
+
+    const req = new Request('https://connect.timothystl.org/admin/api/giving/stax-mockup/recurring');
+    const res = await handleGivingApi(req, { DB: db }, new URL(req.url), 'GET', 'giving/stax-mockup/recurring', db, false, true, false, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.schedules.length).toBe(1);
+    expect(body.schedules[0].first_name).toBe('Jamie');
+    expect(body.schedules[0].fund_name).toBe('General Fund');
+  });
+
+  it('cancelling calls Stax to stop future billing and always marks the local row cancelled', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const r = await db.prepare(
+      `INSERT INTO giving_stax_recurring_schedules (fund_id, amount_cents, interval, stax_customer_id, stax_schedule_id, status, payer_name, payer_email)
+       VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(fundId, 2500, 'monthly', 'cus_1', 'sched_cancel_1', 'active', 'Test Donor', 'test@example.com').run();
+    const scheduleId = r.meta.last_row_id;
+
+    global.fetch = vi.fn(async (url, init) => {
+      expect(String(url)).toContain('/scheduled-invoices/sched_cancel_1');
+      expect(init.method).toBe('DELETE');
+      return new Response('{}', { status: 200 });
+    });
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/stax-mockup/recurring/${scheduleId}/cancel`, { method: 'POST' });
+    const res = await handleGivingApi(req, { STAX_SANDBOX_API_KEY: 'sk_test', STAX_SANDBOX_WEB_PAYMENTS_TOKEN: 'wpt_test', DB: db }, new URL(req.url), 'POST', `giving/stax-mockup/recurring/${scheduleId}/cancel`, db, false, true, false, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.stax_cancelled).toBe(true);
+
+    const updated = await db.prepare('SELECT status FROM giving_stax_recurring_schedules WHERE id=?').bind(scheduleId).first();
+    expect(updated.status).toBe('cancelled');
+  });
+
+  it('still cancels the local row even if the Stax call fails, but reports it was not confirmed', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const r = await db.prepare(
+      `INSERT INTO giving_stax_recurring_schedules (fund_id, amount_cents, interval, stax_customer_id, stax_schedule_id, status, payer_name, payer_email)
+       VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(fundId, 2500, 'monthly', 'cus_1', 'sched_down_1', 'active', 'Test Donor', 'test@example.com').run();
+    const scheduleId = r.meta.last_row_id;
+    global.fetch = vi.fn(async () => { throw new Error('Stax is down'); });
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/stax-mockup/recurring/${scheduleId}/cancel`, { method: 'POST' });
+    const res = await handleGivingApi(req, { STAX_SANDBOX_API_KEY: 'sk_test', STAX_SANDBOX_WEB_PAYMENTS_TOKEN: 'wpt_test', DB: db }, new URL(req.url), 'POST', `giving/stax-mockup/recurring/${scheduleId}/cancel`, db, false, true, false, true);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.stax_cancelled).toBe(false);
+    expect(body.had_stax_schedule).toBe(true);
+
+    const updated = await db.prepare('SELECT status FROM giving_stax_recurring_schedules WHERE id=?').bind(scheduleId).first();
+    expect(updated.status).toBe('cancelled');
+  });
+
+  it('rejects cancelling for a non-finance role', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const fundId = insertFund(db, 'General Fund');
+    const r = await db.prepare(
+      `INSERT INTO giving_stax_recurring_schedules (fund_id, amount_cents, interval, stax_customer_id, stax_schedule_id, status, payer_name, payer_email)
+       VALUES (?,?,?,?,?,?,?,?)`
+    ).bind(fundId, 2500, 'monthly', '', '', 'pending_manual_setup', 'Test Donor', 'test@example.com').run();
+    const scheduleId = r.meta.last_row_id;
+
+    const req = new Request(`https://connect.timothystl.org/admin/api/giving/stax-mockup/recurring/${scheduleId}/cancel`, { method: 'POST' });
+    const res = await handleGivingApi(req, { DB: db }, new URL(req.url), 'POST', `giving/stax-mockup/recurring/${scheduleId}/cancel`, db, false, false, false, true);
+    expect(res.status).toBe(403);
+  });
+});
