@@ -951,12 +951,13 @@ if (staxQueueIgnoreMatch && method === 'POST') {
 // ── Stax Giving MOCKUP: recurring schedules — list and cancel ──────────────
 // Andrew asked directly: where do we see these, and how do we cancel one. Listing joins people
 // for a name when linked (a recurring signup can land unmatched, same as a one-time gift).
-// Cancel best-effort calls Stax to actually stop future billing (DELETE /scheduled-invoices/:id
-// — inferred from the same naming Stax's own webhook event list uses, "delete_scheduled_invoice";
-// unverified live, same honesty as src/stax-giving-mockup.js's own creation call) and always
-// marks the LOCAL row cancelled regardless of whether that call succeeds, so staff are never
-// blocked from marking something cancelled on their end by a Stax API hiccup — matching the
-// ignore/link pattern the unmatched-gifts queue above already uses.
+// Cancel best-effort calls Stax to actually stop future billing (DELETE /invoice/schedule/:id,
+// confirmed against docs.staxpayments.com/reference/delete-invoice-schedule — the earlier
+// /scheduled-invoices/:id guess was ruled out by a live 404 the same way the creation call's
+// wrong path was; see src/stax-giving-mockup.js's own comment) and always marks the LOCAL row
+// cancelled regardless of whether that call succeeds, so staff are never blocked from marking
+// something cancelled on their end by a Stax API hiccup — matching the ignore/link pattern the
+// unmatched-gifts queue above already uses.
 if (seg === 'giving/stax-mockup/recurring' && method === 'GET') {
   const rows = (await db.prepare(
     `SELECT s.id, s.fund_id, f.name AS fund_name, s.amount_cents, s.interval, s.status,
@@ -980,7 +981,7 @@ if (staxRecurringCancelMatch && method === 'POST') {
   let staxCancelled = false;
   if (row.stax_schedule_id && staxMockupConfigured(env)) {
     try {
-      const del = await staxRequest(env.STAX_SANDBOX_API_KEY, `/scheduled-invoices/${encodeURIComponent(row.stax_schedule_id)}`, { method: 'DELETE' });
+      const del = await staxRequest(env.STAX_SANDBOX_API_KEY, `/invoice/schedule/${encodeURIComponent(row.stax_schedule_id)}`, { method: 'DELETE' });
       staxCancelled = del.ok;
     } catch { /* stays false — reported to staff below, local row still gets cancelled */ }
   }

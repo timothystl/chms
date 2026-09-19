@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { initDb, _resetInitForTests } from '../src/db.js';
 import {
   matchPersonForPayer, recordStaxGift, handleStaxGivingWebhook, handleStaxGivingMockupPublicApi,
-  renderStaxGivingMockupReviewHtml,
+  renderStaxGivingMockupReviewHtml, buildScheduleRule,
 } from '../src/stax-giving-mockup.js';
 import { handleGivingApi } from '../src/api-giving.js';
 
@@ -849,6 +849,26 @@ describe('Stax Giving mockup — the queue\'s person-search shows the best match
   });
 });
 
+describe('Stax Giving mockup — buildScheduleRule', () => {
+  // The standing schedule must start on the NEXT occurrence, never today — today's gift is
+  // already charged directly by /recurring. A wrong DTSTART here would double-charge day one.
+  it('weekly starts 7 days out', () => {
+    expect(buildScheduleRule('weekly', '2026-09-19')).toBe('DTSTART=20260926T120000Z;FREQ=WEEKLY');
+  });
+  it('biweekly starts 14 days out', () => {
+    expect(buildScheduleRule('biweekly', '2026-09-19')).toBe('DTSTART=20261003T120000Z;FREQ=WEEKLY;INTERVAL=2');
+  });
+  it('twice_monthly jumps to the 15th when starting before it', () => {
+    expect(buildScheduleRule('twice_monthly', '2026-09-05')).toBe('DTSTART=20260915T120000Z;FREQ=MONTHLY;BYMONTHDAY=1,15');
+  });
+  it('twice_monthly jumps to next month\'s 1st when starting on/after the 15th', () => {
+    expect(buildScheduleRule('twice_monthly', '2026-09-19')).toBe('DTSTART=20261001T120000Z;FREQ=MONTHLY;BYMONTHDAY=1,15');
+  });
+  it('monthly starts on the same day next month', () => {
+    expect(buildScheduleRule('monthly', '2026-09-19')).toBe('DTSTART=20261019T120000Z;FREQ=MONTHLY');
+  });
+});
+
 describe('Stax Giving mockup — /recurring charges the first gift immediately', () => {
   // Andrew's own ask: "if someone sets up recurring gift there should be a gift made." Before
   // this, a recurring signup only ever created a schedule row and relied on a separate,
@@ -897,7 +917,17 @@ describe('Stax Giving mockup — /recurring charges the first gift immediately',
         expect(body.total).toBe('25.00');
         return new Response(JSON.stringify({ id: 'chg_recur_1', success: true, total_fees: '0.50', payment_method: {} }), { status: 200 });
       }
-      if (u.includes('/scheduled-invoices')) return new Response(JSON.stringify({ id: 'sched_recur_1' }), { status: 200 });
+      if (u.includes('/invoice/schedule/')) {
+        const body = JSON.parse(init.body);
+        expect(body.customer_id).toBe('cus_recur_1');
+        expect(body.payment_method_id).toBe('pm_1');
+        expect(body.total).toBe('25.00');
+        expect(body.url).toBe('https://app.staxpayments.com/#/bill/');
+        // Weekly interval — the schedule must start on the NEXT occurrence (7 days out), never
+        // today, since today's gift was already charged directly above.
+        expect(body.rule).toMatch(/^DTSTART=\d{8}T120000Z;FREQ=WEEKLY$/);
+        return new Response(JSON.stringify({ id: 'sched_recur_1' }), { status: 200 });
+      }
       throw new Error('unexpected fetch ' + u);
     });
 
@@ -937,7 +967,7 @@ describe('Stax Giving mockup — /recurring charges the first gift immediately',
       const u = String(url);
       if (u.includes('/customer')) return new Response(JSON.stringify({ id: 'cus_fail_1' }), { status: 200 });
       if (u.endsWith('/charge')) return new Response(JSON.stringify({ message: 'Card declined', success: false }), { status: 200 });
-      throw new Error('unexpected fetch ' + u + ' — a failed charge must never reach /scheduled-invoices');
+      throw new Error('unexpected fetch ' + u + ' — a failed charge must never reach /invoice/schedule/');
     });
 
     const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/recurring', {
@@ -966,7 +996,7 @@ describe('Stax Giving mockup — /recurring charges the first gift immediately',
       const u = String(url);
       if (u.includes('/customer')) return new Response(JSON.stringify({ id: 'cus_err_1' }), { status: 200 });
       if (u.endsWith('/charge')) return new Response(JSON.stringify({ id: 'chg_err_1', success: true, total_fees: '0.50', payment_method: {} }), { status: 200 });
-      if (u.includes('/scheduled-invoices')) return new Response(JSON.stringify({ message: 'Store not found' }), { status: 404 });
+      if (u.includes('/invoice/schedule/')) return new Response(JSON.stringify({ message: 'route_not_found' }), { status: 404 });
       throw new Error('unexpected fetch ' + u);
     });
 
@@ -988,7 +1018,7 @@ describe('Stax Giving mockup — /recurring charges the first gift immediately',
     const schedule = await db.prepare('SELECT status, stax_error FROM giving_stax_recurring_schedules WHERE id=?').bind(body.id).first();
     expect(schedule.status).toBe('pending_manual_setup');
     expect(schedule.stax_error).toContain('404');
-    expect(schedule.stax_error).toContain('Store not found');
+    expect(schedule.stax_error).toContain('route_not_found');
   });
 });
 
@@ -1023,7 +1053,7 @@ describe('Stax Giving mockup — admin recurring-schedules screen (src/api-givin
     const scheduleId = r.meta.last_row_id;
 
     global.fetch = vi.fn(async (url, init) => {
-      expect(String(url)).toContain('/scheduled-invoices/sched_cancel_1');
+      expect(String(url)).toContain('/invoice/schedule/sched_cancel_1');
       expect(init.method).toBe('DELETE');
       return new Response('{}', { status: 200 });
     });
