@@ -197,8 +197,20 @@ as the reference bar) plus explicit research asks. What changed:
 - ~~What domain hosts the real giving portal~~ — **resolved**: the main website
   (`give.timothystl.org`), not `connect.timothystl.org`. Still decides where the Apple Pay
   verification file goes (Website repo).
-- Whether the Stax merchant account/sub-account here should be distinct from myMDO's, for
-  tuition/giving accounting separation.
+- ~~Whether the Stax merchant account/sub-account here should be distinct from myMDO's, for
+  tuition/giving accounting separation~~ — **resolved, against**: Andrew checked — a separate
+  Stax sub-account/store means a second monthly platform fee just to get separate settlement,
+  and isn't worth it. myMDO and Giving stay on the one shared Stax merchant account. Practical
+  effect: Stax will settle both as **one blended bank deposit** per payout, not two — the bank
+  line alone can't be split into "tuition" vs. "giving." The bookkeeper reconciles it the same
+  way `giving_deposits` was already built to handle a blended source (`source='mixed'`, migration
+  0031/0032): take the Stax payout/settlement report for that date, cross-reference it against
+  myMDO's own transaction list (childcare-portal) and this repo's `giving_entries` for the same
+  date to get the tuition-portion and giving-portion subtotals, confirm they sum to the bank
+  deposit total, and record the one bank deposit as `mixed` with a `giving_deposit_lines` entry
+  covering only the giving portion (the tuition portion isn't this repo's ledger at all — it's
+  matched and booked on myMDO's own side). No schema change needed; this is a reconciliation
+  habit, not a missing feature.
 - What funds should exist at launch, and who owns adding/retiring one.
 - Review cadence for the unmatched-gift queue (same-day vs. a weekly batch like the current
   Tithe.ly sync habit).
