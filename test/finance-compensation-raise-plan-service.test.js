@@ -107,11 +107,12 @@ describe('saveRaisePlanOptions / readRaisePlanOptions -- GLOBAL raise-plan row',
   });
 });
 
-describe('councilDraftKey -- same lower-case/sanitize shape as legacy councilPlannerKey', () => {
+describe('councilDraftKey -- normalized identity without punctuation collisions', () => {
   it('lower-cases and strips characters outside a-z0-9_-', () => {
-    expect(councilDraftKey('Jane.Doe@Example.com')).toBe('janedoeexamplecom');
+    expect(councilDraftKey('Jane.Doe@Example.com')).toBe('jane.doe@example.com');
     expect(councilDraftKey('  ')).toBe('');
     expect(councilDraftKey(undefined)).toBe('');
+    expect(councilDraftKey('a.b@example.com')).not.toBe(councilDraftKey('ab@example.com'));
   });
 });
 

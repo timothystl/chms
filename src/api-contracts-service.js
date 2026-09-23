@@ -7,6 +7,7 @@
 // This stays a distinct, narrower grant from the human role/permission matrix in
 // api-chms.js: it reaches nothing but the contracts named below.
 import { json, timingSafeEqual } from './auth.js';
+import { financeStorageDb } from './finance-storage.js';
 import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, respondWithFinanceChartOfAccountsV1, respondWithFinanceBudgetV1, respondWithFinanceChurchReportV1, respondWithFinanceChurchReportTrendV1, respondWithFinanceBalanceSheetV1, respondWithFinanceBalanceSheetTrendV1, respondWithFinanceDaycareReportV1, respondWithFinancePropertyValuationV1, respondWithFinanceCompensationV1, respondWithFinancePropertyOperatingV1, respondWithFinancePropertyReservesV1, respondWithFinancePropertyLedgersV1, respondWithFinancePropertyForecastV1 } from './api-contracts.js';
 import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
@@ -33,6 +34,8 @@ export async function handleContractsServiceApi(req, env, path) {
   if (!expectedKey) return json({ error: 'Contract service not configured' }, 503);
   const key = req.headers.get('X-Contract-Key') || '';
   if (!(await timingSafeEqual(key, expectedKey))) return json({ error: 'Unauthorized' }, 401);
+  if (env.FINANCE_STORAGE_MODE === 'copying' && path.startsWith('/api/contracts/finance-') && !['GET','HEAD'].includes(req.method)) return json({error:'Accounting maintenance: please retry shortly.'},503);
+  env = { ...env, DB: financeStorageDb(env) };
 
   if (path === '/api/contracts/connect-giving-summary-v1' && req.method === 'GET') {
     return respondWithConnectGivingSummaryV1(new URL(req.url), env.DB);
@@ -290,10 +293,9 @@ export async function handleContractsServiceApi(req, env, path) {
 // ── Verified staff role, relayed from Finance's own shell ───────────────────
 // The X-Contract-Key check above only proves the CALL came from Finance's Worker. This proves
 // WHO Finance says is acting -- same Cf-Access-Jwt-Assertion forwarding + independent signature
-// verification as handleGivingQuickEntryContract above -- and hands back ONLY the caller's role
-// (never username, email, or anything else from app_users), the minimum Finance needs to enforce
-// its own per-section access (see apps/finance/parity-manifest.js's `permission` field) without
-// Finance re-implementing session verification or holding its own copy of app_users.
+// verification as handleGivingQuickEntryContract above. The verified role and normalized
+// identity let Finance enforce section access and isolate private drafts without trusting
+// unsigned claims or copying the Connect user directory.
 async function handleStaffRoleContract(req, env) {
   const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
   const audience = env.FINANCE_ACCESS_AUD || '';
@@ -307,7 +309,7 @@ async function handleStaffRoleContract(req, env) {
   ).bind(email).first();
   if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
 
-  return json({ role: user.role });
+  return json({ role: user.role, identity: email });
 }
 
 // ── Giving quick-entry, relayed from Finance's own UI ───────────────────────

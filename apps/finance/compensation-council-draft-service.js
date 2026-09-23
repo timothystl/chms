@@ -13,32 +13,11 @@
 // `finance_compensation_worker_plan` or `finance_compensation_raise_plan_options`.
 //
 // ── Identity: what "per-council-member" is keyed by ─────────────────────────────────────────────
-// Legacy keys its overlay by a USERNAME that Connect's own already-verified admin session
-// provides directly. Finance's own role contract (`connect-role-client.js`'s `fetchVerifiedRole`)
-// does not carry a verified username today -- see chms/apps/finance/README.md's "Access and data
-// safety" note on this exact gap, and `budget-plan-write-service.js`'s own header comment making
-// the identical point about why IT also could not port council's overlay fork. The best identity
-// source this app has today is the SAME unverified JWT email claim `payroll-section.js`'s
-// `approverEmailFromJwt` already reads and uses -- there, only for an audit-trail display label;
-// here, additionally as the key that partitions one council viewer's private draft from another's.
-//
-// This is a real, bounded trust difference from that precedent, stated plainly rather than
-// glossed over: `approverEmailFromJwt`'s existing use is safe because Website's own
-// `resolvePayrollContractCaller()` independently re-verifies the SAME token's signature before any
-// RPC runs, so a tampered token can never reach a real write with a false claimed identity. This
-// draft table has no such downstream re-verification -- the ROLE check (`fetchVerifiedRole`,
-// which DOES verify the token's signature via Connect) is real and is what gates access to this
-// endpoint at all, but the EMAIL used only to choose which draft ROW to read or write is read
-// unverified from the same request's JWT. The bounded consequence: a request that already carries
-// a genuinely Access-signed token with a verified 'council' role could, if the email claim inside
-// that same token were somehow different from the identity Access actually authenticated (not
-// possible without breaking the JWT's own signature, which this app does not itself check), read
-// or write a differently-named council member's private draft rather than its own -- never any
-// row on the SHARED worker-plan table, never a privilege above council's own compensation-editing
-// access, and never anyone's private draft while presenting an UNVERIFIED role. This is accepted
-// as a narrowly-scoped limitation of what this app's role contract offers today, not a new
-// authentication mechanism -- closing it for real means giving `connect.staff-role-v1` a verified
-// username, a follow-up outside this change's scope (see the README changelog entry).
+// Connect returns the normalized email only after Access signature verification and an active
+// account lookup. The caller must pass that verified identity, never decode an unsigned claim.
+// Keys retain the complete normalized identity so punctuation cannot merge two people's drafts.
+// No native private drafts were enabled before this cutover; existing legacy overlays stay in
+// Connect until their lossless migration is verified.
 //
 // ── Per-worker override keying: worker_key, not roster index ────────────────────────────────────
 // Legacy's overlay carries `compPerWorkerMethod`/`compOverrides` keyed by ROSTER ARRAY INDEX,
@@ -59,11 +38,9 @@ function err(message, status = 400) {
   return { error: message, status };
 }
 
-// Same lower-case/sanitize shape as legacy's `councilPlannerKey` (src/api-finance.js) -- collapses
-// case and strips anything that isn't a-z/0-9/underscore/hyphen, so the same person's differently-
-// cased email claim across two requests still resolves to the same draft row.
+// Retain punctuation: a.b@example.org and ab@example.org are distinct identities.
 export function councilDraftKey(identity) {
-  return String(identity || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  return typeof identity === 'string' ? identity.trim().toLowerCase() : '';
 }
 
 function safeParseWorkerOverrides(raw) {

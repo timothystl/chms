@@ -51,7 +51,7 @@ function roleEnv(role, env = baseEnv(), email = 'someone@timothystl.org') {
     ...env,
     CONNECT_SERVICE: { async fetch(req) {
       const url = new URL(req.url);
-      if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role }), { status: 200 });
+      if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role, identity: email }), { status: 200 });
       return new Response('not found', { status: 404 });
     } },
     FINANCE_CONTRACT_API_KEY: 'test-secret',
@@ -157,11 +157,26 @@ describe('POST /api/v1/compensation-council-draft-save -- route wiring', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, fiscalYear: 2027 });
     const draftRow = env.FINANCE_DB._raw.prepare('SELECT * FROM finance_compensation_council_draft').get();
-    expect(draftRow.council_identity).toBe('alicetimothystlorg');
+    expect(draftRow.council_identity).toBe('alice@timothystl.org');
     expect(env.FINANCE_DB._raw.prepare('SELECT COUNT(*) AS n FROM finance_compensation_worker_plan').get().n).toBe(0);
   });
 
-  it('two different council members end to end get two isolated draft rows, keyed by their own JWT email claim', async () => {
+  it('uses only the verified identity even when the forwarded token claims another email', async () => {
+    const env=roleEnv('council',baseEnv(),'verified@example.com'); enableFlag(env.FINANCE_DB);
+    env.__accessJwt=fakeJwt('other@example.com');
+    const res=await postJson('/api/v1/compensation-council-draft-save',env,{fiscalYear:2027,customPct:1});
+    expect(res.status).toBe(200);
+    expect(env.FINANCE_DB._raw.prepare('SELECT council_identity FROM finance_compensation_council_draft').get().council_identity).toBe('verified@example.com');
+  });
+
+  it('rejects an older role-only contract rather than deriving a private identity from the token', async () => {
+    const env=roleEnv('council'); enableFlag(env.FINANCE_DB);
+    env.CONNECT_SERVICE.fetch=async()=>new Response(JSON.stringify({role:'council'}));
+    expect((await postJson('/api/v1/compensation-council-draft-save',env,{fiscalYear:2027})).status).toBe(403);
+    expect(env.FINANCE_DB._raw.prepare('SELECT COUNT(*) AS n FROM finance_compensation_council_draft').get().n).toBe(0);
+  });
+
+  it('two different council members end to end get two isolated draft rows, keyed by their verified contract identity', async () => {
     const sharedDb = makeFinanceDb();
     enableFlag(sharedDb);
     const aliceEnv = roleEnv('council', { ENVIRONMENT: 'staging', FINANCE_DB: sharedDb }, 'alice@timothystl.org');
@@ -172,8 +187,8 @@ describe('POST /api/v1/compensation-council-draft-save -- route wiring', () => {
 
     const rows = sharedDb._raw.prepare('SELECT council_identity, custom_pct FROM finance_compensation_council_draft ORDER BY council_identity').all();
     expect(rows).toEqual([
-      { council_identity: 'alicetimothystlorg', custom_pct: 1 },
-      { council_identity: 'bobtimothystlorg', custom_pct: 2 },
+      { council_identity: 'alice@timothystl.org', custom_pct: 1 },
+      { council_identity: 'bob@timothystl.org', custom_pct: 2 },
     ]);
   });
 

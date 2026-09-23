@@ -381,6 +381,11 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       }
     });
 
+    it('denies production when role verification is not configured', async () => {
+      const res=await worker.fetch(new Request('https://finance.test/?section=church'), {ENVIRONMENT:'production'});
+      expect(res.status).toBe(403);
+    });
+
     it('still leaves not_configured (no CONNECT_SERVICE binding/key at all) failing open, unchanged', async () => {
       // Same request shape as the 'discloses that role verification is unconfigured/unreachable'
       // test above, confirmed again here so the two behaviors are visibly contrasted in one place.

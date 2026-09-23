@@ -1,42 +1,35 @@
 # Timothy Finance
 
-## Current scope — September 18, 2026
+## Current scope — September 23, 2026
 
-Production and staging each have their own Worker and D1. The
-[September 18 production release](https://github.com/timothystl/chms/actions/runs/35351838490)
-deployed `582c72a8f`, including Excel imports and compensation raise/private-draft code.
-Legacy Finance remains in Connect; authoritative accounting data/user cutover is unfinished.
+The Website-wide editor rollout is independent of this application. Finance's accounting
+storage cutover now preserves the existing tables and settings byte-for-byte, including the
+full compensation planner model, rather than translating it into a reduced draft schema.
+`src/finance-storage.js` selects one owner for all 14 accounting tables. Connect's existing
+contracts and permission-checked handlers remain compatibility APIs; Giving, identities,
+QuickBooks credential storage, and Website payroll keep their existing owners.
 
-Real Connect report contracts now cover Giving, source status, accounts, budget, church/trend,
-balance/trend, daycare, property/ledgers/forecast, and compensation. Financial Health, Charts,
-and Board packet use more of those live results. Giving writes relay to Connect; payroll relays
-to Website. Additional legacy edit workflows relay to Connect (#1032). Relays do not move ownership.
+`FINANCE_STORAGE_MODE=copying` briefly pauses accounting writes while source reads remain
+available. `finance` selects Finance's database for both reads and writes, and refuses to fall
+back if the binding is absent. The old source tables are retained for recovery, not independently
+written after activation. `scripts/finance-accounting-copy.mjs` prepares an insert-only copy
+from verified backups and checks all columns, all rows, counts, and full-row SHA-256 digests.
+Deployment and migration results are recorded in `docs/FINANCE_PRODUCTION_CUTOVER.md`.
 
-Finance-owned budget, CSV/Excel imports, compensation/shared raise/private draft, and property
-ledger writes exist but are off by default. Reviewed production environment vars do not enable
-them; live database flags were not inspected in this review. Current source is not proof of
-enabled production writing. New QuickBooks OAuth/sync code and migration 0008 are unwired and
-have not been exercised against the real account.
+The role contract now provides a verified identity for private drafts; punctuation remains in
+the key to prevent collisions. Production refuses access if role verification is unconfigured.
+Existing accounts and permissions remain in Connect, avoiding a second user directory.
 
-### Remaining work and corrected findings
+The established imports, budget, compensation, and property edit relays stay active. Alternate
+native planning writers remain disabled because they use an incomplete parallel model; they
+are not needed to edit the authoritative records through the existing handlers. QuickBooks
+continues using its single existing connection, with no competing token refresh process.
 
-- Safe synthetic-read guards now avoid the old whole-page missing-fixture 503 in the page shell.
-  Fixture fallback and unavailable sections still exist; the synthetic summary APIs remain.
-  Compensation benchmark/benefit detail has no real backing source. Do not seed fake production data.
-- Runtime role-verification failures now deny section access. The `not_configured` mode still
-  permits the shell, and the coarse section matrix is not full legacy authorization parity.
-- The off-by-default council-draft path keys storage with an unverified JWT email claim.
-  Return/use a verified per-user identity before enabling sensitive private drafts.
-- Excel Church/Balance import is single-request parse-and-write, not legacy's preview/select/
-  commit flow. Other Excel report families and compensation dollar overrides remain incomplete.
-- Migration tooling copies/verifies 13 non-settings tables and translates some settings.
-  Compensation translation is incomplete. The September 17 inventory queried the retained
-  old Connect database after the September 16 cutover; recount current `timothy-connect-db`.
-  No completed authoritative data copy or reader/writer cutover is established.
-- Destination migrations 0001–0006 and empty sampled tables were recorded September 17.
-  Verify live schema/flags/data before applying newer migrations or enabling writers.
-- Production Access exists; branding/provider/session parity and authenticated workflow
-  acceptance are not established by deployment success.
+Remaining product gaps are distinct from storage cutover: some overview cards still use
+explicitly labeled fixture/unavailable fallbacks; compensation benchmark/benefit detail lacks a
+real source; standalone native Excel preview/select/commit parity is incomplete. Legacy Finance
+screens are retained for functionality that the new UI has not yet replaced. No production
+fixture seeding or removal of working workflows is part of this cutover.
 
 See [the current overhaul plan](https://github.com/timothystl/digital-architecture/blob/main/architecture/11-overhaul-readiness-and-execution-plan.md)
 and [production runbook](../../docs/FINANCE_PRODUCTION_CUTOVER.md).

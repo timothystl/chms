@@ -11,6 +11,7 @@ main = "connect-worker.js"
 compatibility_date = "2024-01-01"
 
 [vars]
+FINANCE_STORAGE_MODE = "copying"
 EMAIL_FROM     = "Connect <noreply@notify.timothystl.org>"
 REPLY_TO_EMAIL = "dinger@timothystl.org"
 
@@ -107,3 +108,10 @@ bucket_name = "timothy-connect-photos"
 
 [triggers]
 crons = ["0 14 * * *"]
+
+# Accounting cutover destination; people, Giving, and QuickBooks credentials retain DB.
+[[d1_databases]]
+binding = "FINANCE_DB"
+database_name = "timothy-finance-db"
+database_id = "04988828-94b7-43bc-9689-ff570951f1c7"
+migrations_dir = "apps/finance/migrations"

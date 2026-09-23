@@ -1,5 +1,6 @@
 // ── ChMS (People & Giving) API handler ────────────────────────────────────────
 import { json } from './auth.js';
+import { financeStorageDb } from './finance-storage.js';
 import { isoWeekKey, handleUtilsApi, getRolePermissions, permissionsForRole, isAnonSafeGivingSeg } from './api-utils.js';
 import { handleHouseholdsApi } from './api-households.js';
 import { handleImportApi } from './api-import.js';
@@ -73,7 +74,8 @@ export const DASHBOARD_FIRST_GIVERS_SQL = `
    LIMIT 20`;
 
 export async function handleChmsApi(req, env, url, method, seg, role = 'admin') {
-  const db = env.DB;
+  if (env.FINANCE_STORAGE_MODE === 'copying' && seg.startsWith('finance/') && !['GET','HEAD'].includes(method)) return json({error:'Accounting maintenance: please retry shortly.'},503);
+  const db = financeStorageDb(env);
 
   // ── Role-based access control ────────────────────────────────────
   // Roles: admin | finance | staff | council | member | volunteer | compensation

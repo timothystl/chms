@@ -97,23 +97,23 @@ describe('GET /api/contracts/staff-role-v1', () => {
     return handleContractsServiceApi(req, env, PATH);
   }
 
-  it('returns only the role for a verified identity with a matching active account', async () => {
+  it('returns role and verified identity with a matching active account', async () => {
     const db = makeTestDb();
     insertUser(db, { username: 'grace', email: 'grace@timothystl.org', role: 'compensation' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('grace@timothystl.org'));
     const res = await get({ env: baseEnv(db), token });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ role: 'compensation' });
+    expect(body).toEqual({ role: 'compensation', identity: 'grace@timothystl.org' });
   });
 
-  it('never returns username or email, only role', async () => {
+  it('returns only the role and verified identity, without a user-directory record', async () => {
     const db = makeTestDb();
     insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const res = await get({ env: baseEnv(db), token });
     const body = await res.json();
-    expect(Object.keys(body)).toEqual(['role']);
+    expect(body).toEqual({role:'finance',identity:'sarah@timothystl.org'});
   });
 
   it('rejects when the shared X-Contract-Key is wrong, before ever looking at identity', async () => {

@@ -1,5 +1,32 @@
 # Finance production cutover runbook
 
+## September 23 cutover execution
+
+The live destination inspection found migrations **0001–0004**, not the 0001–0006 recorded in
+the older checkpoint. Private source/destination exports were restored locally and passed
+SQLite integrity checks before applying the additive 0005–0009 migrations. The source is the
+current `timothy-connect-db`, not the retained `tlc-volunteer-db`.
+
+The cutover preserves 13 accounting tables plus the complete legacy `finance_settings` rows.
+This avoids losing salary planner inputs, private overlays, and source-specific settings through
+a partial translation. Existing handlers and contracts route these tables through
+`financeStorageDb`; identity, Giving, and QuickBooks token tables stay in Connect. Website
+continues to own payroll. Parallel native writer flags are not enabled.
+
+Release procedure:
+1. Deploy the tested Connect compatibility adapter with `FINANCE_STORAGE_MODE=copying`.
+2. Export the frozen source and destination; restore both locally and verify integrity.
+3. Prepare the exact copy with `scripts/finance-accounting-copy.mjs`; it refuses a nonempty
+   destination or a missing/different column. Import only its allowlisted accounting tables.
+4. Export the destination again and verify every row and column against the frozen source.
+5. Deploy the tested main revision with `FINANCE_STORAGE_MODE=finance`, then deploy Finance.
+6. Confirm production release revisions, authenticated reads, and the selected data owner.
+
+Do not reverse the owner flag after accepting new writes without reconciling the newer data
+back first. The retained source is a recovery snapshot, not an automatic failover database.
+No backup, compensation record, or token belongs in Git. Actual execution results follow here
+when each step has completed.
+
 ## Current checkpoint — September 18, 2026
 
 Infrastructure setup Steps 1–6 below completed September 15. They are a historical record;

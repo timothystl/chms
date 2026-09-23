@@ -101,6 +101,15 @@ describe('handleContractsServiceApi finance-church-report-v1', () => {
     expect(body.accounts[0]).toMatchObject({ categoryPath: 'Income:40000 Contributions', actualCents: 1300000, budgetCents: 1250000 });
   });
 
+  it('reads the selected Finance database after cutover, preserving the contract shape', async () => {
+    const DB=makeTestDb(),FINANCE_DB=makeTestDb();
+    FINANCE_DB._raw.prepare(`INSERT INTO finance_church_entries (fiscal_year,classification,category_path,account_name,own_actual_cents,own_budget_cents,source) VALUES(?,?,?,?,?,?,?)`).run(2026,'Income','Income:Test','Test',123,456,'import');
+    const req=new Request(`https://connect.example${PATH}?fiscal_year=2026`,{headers:{'X-Contract-Key':'right-secret'}});
+    const response=await handleContractsServiceApi(req,{DB,FINANCE_DB,FINANCE_STORAGE_MODE:'finance',FINANCE_CONTRACT_API_KEY:'right-secret'},PATH);
+    expect(response.status).toBe(200);expect((await response.json()).accounts[0].actualCents).toBe(123);
+    expect(DB._raw.prepare('SELECT COUNT(*) AS n FROM finance_church_entries').get().n).toBe(0);
+  });
+
   it('answers 404 for any other path once authenticated', async () => {
     const env = { DB: makeTestDb(), FINANCE_CONTRACT_API_KEY: 'right-secret' };
     const req = new Request('https://connect.example/api/contracts/something-else', {
