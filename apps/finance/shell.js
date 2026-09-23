@@ -2673,9 +2673,8 @@ export default {
     }
 
     // ── COMPENSATION PLANNER: per-council-member PRIVATE draft save -- council only. See
-    // compensation-council-draft-service.js's header comment for exactly what identity source
-    // this uses to key the draft (an unverified JWT email claim -- Finance's role contract does
-    // not carry a verified username yet) and why that is an accepted, narrowly-scoped limitation.
+    // The identity comes only from Connect's verified role contract; a role-only older
+    // response cannot authorize selecting a private draft row.
     if (route.id === 'compensation-council-draft-save-v1') {
       const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
       const enabled = await isCompensationPlanWriteEnabled(env, env.FINANCE_DB);
@@ -2702,7 +2701,8 @@ export default {
         return response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: jsonHeaders });
       }
       const fiscalYear = Number.isInteger(payload.fiscalYear) ? payload.fiscalYear : parseInt(payload.fiscalYear, 10);
-      const councilIdentity = approverEmailFromJwt(accessJwt) || '';
+      const councilIdentity = roleResult.identity || '';
+      if (!councilIdentity) return response(JSON.stringify({error:'Verified identity unavailable'}), {status:403,headers:jsonHeaders});
       const result = await saveCouncilDraft(env.FINANCE_DB, {
         fiscalYear, role: roleResult.role, councilIdentity,
         customPct: payload.customPct, scalePct: payload.scalePct, baselineRosterOnly: payload.baselineRosterOnly,
@@ -2797,7 +2797,7 @@ export default {
         // structurally different: it is staging's normal, permanent, disclosed state (no
         // CONNECT_SERVICE binding/key exists there at all), not a runtime failure of a real check,
         // so it alone keeps failing open exactly as before.
-        const roleVerificationBrokenUnsafely = !roleResult.ok && roleResult.reason !== 'not_configured';
+        const roleVerificationBrokenUnsafely = !roleResult.ok && (env.ENVIRONMENT !== 'staging' || roleResult.reason !== 'not_configured');
         if (roleVerificationBrokenUnsafely || (roleResult.ok && !roleCanAccessSection(roleResult.role, section))) {
           // Not just "/" -- the default section (Financial Health) is itself off-limits to a
           // role this narrow, so that would only bounce straight back into another denial. There

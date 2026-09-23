@@ -39,7 +39,7 @@ export async function fetchVerifiedRole(env, accessJwt) {
     return { ok: false, reason: 'invalid_json' };
   }
   if (!payload || typeof payload.role !== 'string' || !payload.role) return { ok: false, reason: 'invalid_role' };
-  return { ok: true, role: payload.role };
+  return { ok: true, role: payload.role, ...(typeof payload.identity === 'string' && payload.identity.trim() ? { identity: payload.identity.trim().toLowerCase() } : {}) };
 }
 
 // Roles that have zero Finance access in the real (legacy) system -- api-chms.js routes every
