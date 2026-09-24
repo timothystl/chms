@@ -11,7 +11,7 @@ main = "connect-worker.js"
 compatibility_date = "2024-01-01"
 
 [vars]
-FINANCE_STORAGE_MODE = "copying"
+FINANCE_STORAGE_MODE = "finance"
 EMAIL_FROM     = "Connect <noreply@notify.timothystl.org>"
 REPLY_TO_EMAIL = "dinger@timothystl.org"
 

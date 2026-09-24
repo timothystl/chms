@@ -1108,6 +1108,7 @@ function renderShell(ctx) {
   const { metadata, section, pageId, givingSource, councilPreview, roleResult } = ctx;
   const page = resolveFinancePage(section, pageId);
   const release = `${metadata.version} · ${metadata.releaseChannel}`;
+  const production = metadata.environment === 'production';
   // renderSectionBody() (and the *-pages.js render functions it delegates to) can still throw --
   // e.g. a page that unconditionally builds a view from a companion synthetic read shell.js could
   // only degrade to SYNTHETIC_UNAVAILABLE, not repair (see synthetic-read-guard.js). This is the
@@ -1131,7 +1132,7 @@ function renderShell(ctx) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Timothy Finance — Staging</title>
+  <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <style>
     :root { color-scheme: light; font-family: "DM Sans", "Source Sans 3", Arial, sans-serif; --navy:#1e2d4a; --teal:#2e7ea6; --gold:#c9973a; --charcoal:#1a1a2a; --warm-gray:#8a8377; --warm-meta:#8a7a5c; --warm-label:#5c4b2e; --border:#e5d9be; --divider:#f1e7d2; --page:#fbf8f1; --header:#fbf3e1; --card:#fffdf9; --sage:#6b8f71; }
     * { box-sizing: border-box; }
@@ -1248,13 +1249,13 @@ function renderShell(ctx) {
     <aside class="app-sidebar">
       <div class="sidebar-brand"><span class="mark" aria-hidden="true">T</span><div>Timothy Finance<small>Standalone · alpha</small></div></div>
       <nav aria-label="Finance workspace">${renderSectionNav(section, page)}</nav>
-      <div class="sidebar-foot">Synthetic staging data<br>No production writers attached</div>
+      <div class="sidebar-foot">${production ? 'Production · Timothy Lutheran<br>Access verified through Connect' : 'Isolated staging environment<br>Test data may be present'}</div>
     </aside>
     <main>
-      <div class="eyebrow">Isolated staging environment</div>
+      <div class="eyebrow">${production ? 'Production' : 'Isolated staging environment'}</div>
       <h1>Timothy Finance</h1>
-      <p>The rebuilt Finance application boundary is running. Business data and production workflows are not connected in this alpha release.</p>
-      <div class="status">Environment ready · no production writers attached</div>
+      <p>${production ? 'Church financial reports, planning, and approved workflows. Each report identifies its data source and availability.' : 'Testing environment. Data sources and unavailable features are identified within each report.'}</p>
+      <div class="status">${production ? 'Production workspace' : 'Staging workspace'}</div>
       <div class="council-banner">
         <span class="council-pill">Role check</span>
         ${!roleResult || !roleResult.ok
@@ -1266,12 +1267,12 @@ function renderShell(ctx) {
       <div class="council-banner">
         <span class="council-pill">Council view</span>
         ${councilPreview
-          ? `<span>Previewing what a view-only council/auditor login would see. Editing controls are hidden. Everything shown is already aggregate/role-only synthetic data, so there is nothing further to redact here.</span><a class="council-toggle" href="/?section=${section.id}&amp;page=${page.id}">Exit preview</a>`
-          : `<span>Not a real access boundary yet -- Finance has no verified staff-identity/role check of its own (that is the still-unbuilt shared-login piece of the overhaul). This only previews what a future council view’s chrome would hide.</span><a class="council-toggle" href="/?section=${section.id}&amp;page=${page.id}&amp;council=1">Preview council view</a>`}
+          ? `<span>Editing controls are hidden for this preview. Your actual verified permissions still apply; this does not impersonate a council account or change data visibility.</span><a class="council-toggle" href="/?section=${section.id}&amp;page=${page.id}">Exit preview</a>`
+          : `<span>Your verified role controls access. This preview only hides editing controls; it does not change your permissions.</span><a class="council-toggle" href="/?section=${section.id}&amp;page=${page.id}&amp;council=1">Preview council view</a>`}
       </div>
       ${sectionBody}
-      <p><small>Every value besides Giving shown here comes from deterministic synthetic staging fixtures. Giving is ${givingSource === 'live' ? 'fetched live from Connect’s real, aggregate-only contract endpoint' : 'the committed Connect contract example (the live endpoint is not configured or did not answer), validated locally with no network call'}.</small></p>
-      <footer>Timothy Lutheran Church · ${release}</footer>
+      <p><small>Report labels identify live data, test fixtures, and unavailable sections. Unavailable data is never a zero balance. Giving remains in Connect; payroll remains in Website.</small></p>
+      <footer>Timothy Lutheran Church · ${release}${production ? ' · <a href="https://connect.timothystl.org/#finance">Advanced accounting tools</a>' : ''}</footer>
     </main>
   </div>
 </body>

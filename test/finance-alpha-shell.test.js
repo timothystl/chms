@@ -121,7 +121,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.44');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.53');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -164,10 +164,19 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.44',
+      version: '1.0.0-alpha.53',
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
+  });
+
+  it('labels an authenticated production workspace accurately', async () => {
+    const productionEnv={...env,ENVIRONMENT:'production',FINANCE_CONTRACT_API_KEY:'test',CONNECT_SERVICE:{fetch:async request=>new URL(request.url).pathname==='/api/contracts/staff-role-v1'?new Response(JSON.stringify({role:'admin',identity:'office@example.com'})):new Response('{}',{status:503})}};
+    const res=await worker.fetch(new Request('https://finance.test/',{headers:{'Cf-Access-Jwt-Assertion':'test'}}),productionEnv);
+    const html=await res.text();expect(res.status).toBe(200);
+    expect(html).toContain('<title>Timothy Finance</title>');expect(html).toContain('Production workspace');
+    expect(html).not.toContain('No production writers attached');expect(html).not.toContain('Every value besides Giving');
+    expect(html).toContain('Advanced accounting tools');
   });
 
   it('renders a clearly labeled shell with no production connection claim', async () => {
@@ -176,8 +185,8 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
-    expect(html).toContain('no production writers attached');
-    expect(html).toContain('1.0.0-alpha.44 · alpha');
+    expect(html).toContain('Staging workspace');
+    expect(html).toContain('1.0.0-alpha.53 · alpha');
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="sidebar-brand"');
@@ -222,8 +231,8 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(html).toContain('2 · Expenses');
     expect(html).toContain('3 · Surplus');
     expect(html).toContain('not donor-to-expense tracing');
-    expect(html).toContain('validated locally with no network call');
-    expect(html).toContain('deterministic synthetic staging fixtures');
+    expect(html).toContain('Unavailable data is never a zero balance');
+    expect(html).toContain('Report labels identify live data');
     expect(html).toContain('class="sidebar-brand"');
     expect(html).toContain('Are we okay?');
     expect(html).toContain("Source data hasn't been reviewed in over 30 days");
@@ -262,13 +271,13 @@ describe('Finance 1.0.0 alpha staging shell', () => {
   it('offers a clearly-labeled, non-authoritative council-view preview that hides write forms', async () => {
     const off = await (await worker.fetch(new Request('https://finance.test/?section=giving'), env)).text();
     expect(off).not.toContain('class="council-preview"');
-    expect(off).toContain('Not a real access boundary yet');
+    expect(off).toContain('Your verified role controls access');
     expect(off).toContain('href="/?section=giving&amp;page=quick-entry&amp;council=1"');
     expect(off).toContain('<form method="POST" action="/api/v1/connect-giving-quick-entry">');
 
     const on = await (await worker.fetch(new Request('https://finance.test/?section=giving&council=1'), env)).text();
     expect(on).toContain('<body class="council-preview">');
-    expect(on).toContain('Previewing what a view-only council/auditor login would see');
+    expect(on).toContain('Your actual verified permissions still apply');
     expect(on).toContain('Editing controls are hidden');
     expect(on).toContain('Exit preview');
     // The form itself still renders (its fields are real content); council-preview.css hides it.
@@ -1436,7 +1445,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.44',
+        product: 'finance', environment: 'staging', version: '1.0.0-alpha.53',
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -1533,7 +1542,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       dataClassification: 'synthetic',
       scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
       duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
-      release: { version: '1.0.0-alpha.44', releaseSha: 'test-sha' },
+      release: { version: '1.0.0-alpha.53', releaseSha: 'test-sha' },
     });
     expect(body.scenario.totals.netCents).toBe(145000);
     expect(body.scenario.reconciliation.totalsMatch).toBe(true);

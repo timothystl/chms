@@ -371,6 +371,13 @@ function finNavGo(id) {
   showTab('finance', item.finSection);
 }
 
+// Finance has its own production workspace. Retain bookmarked advanced tools
+// until their individual workflows have moved; staging stays isolated.
+function openFinanceWorkspace() {
+  if (location.hostname !== 'connect.timothystl.org') { showTab('finance'); return; }
+  location.assign('https://finance.timothystl.org/' + (_userRole === 'compensation' ? '?section=compensation' : ''));
+}
+
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
 var _tabFromPopState = false;
 // finSection is only used when name === 'finance' (which of Financial Health/Church Report/

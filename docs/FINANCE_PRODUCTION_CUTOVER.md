@@ -24,8 +24,20 @@ Release procedure:
 
 Do not reverse the owner flag after accepting new writes without reconciling the newer data
 back first. The retained source is a recovery snapshot, not an automatic failover database.
-No backup, compensation record, or token belongs in Git. Actual execution results follow here
-when each step has completed.
+No backup, compensation record, or token belongs in Git.
+
+Completed execution: Connect write-pause release `7995827500749be8f86cdfe5ec1cf165f402e409`
+passed [deployment](https://github.com/timothystl/chms/actions/runs/35936148954).
+The frozen source contained **13,411 rows across 14 tables**. The production destination copy
+passed SQLite integrity checks, every full-row SHA-256 comparison, and all **13 accounting report
+contract comparisons**. The activation release sets `FINANCE_STORAGE_MODE=finance`, restores
+accounting writes onto the selected destination, and makes the standalone app the main Finance
+entry from Connect. Advanced tools remain reachable and use the same selected accounting data.
+Finance `1.0.0-alpha.53` also corrects production/staging labels and records its deployment SHA.
+
+Alternate native draft/import writers are intentionally not enabled alongside the established
+handlers. Their incomplete parallel schemas would create conflicting records. Production uses
+the existing validated edit workflows against the migrated accounting tables instead.
 
 ## Current checkpoint — September 18, 2026
 
