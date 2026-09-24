@@ -193,14 +193,14 @@ describe('service worker — lifecycle and scope', () => {
     await new Promise((r) => setTimeout(r, 0));
     const apiNames = (await sw.caches.keys()).filter((k) => k.startsWith('chms-api-'));
     expect(apiNames).toHaveLength(1);
-    expect(apiNames[0]).toMatch(/^chms-api-\d+\.\d+\.\d+$/);
+    expect(apiNames[0]).toMatch(/^chms-api-\d+\.\d+\.\d+(?:-(?:alpha|beta)\.\d+)?$/);
   });
 
   it('versions its static cache by the current DEPLOY_VERSION', async () => {
     const sw = loadWorker();
     await sw.fire('install', {});
     await new Promise((r) => setTimeout(r, 0));
-    expect((await sw.caches.keys()).some((k) => /^chms-static-\d+\.\d+\.\d+$/.test(k))).toBe(true);
+    expect((await sw.caches.keys()).some((k) => /^chms-static-\d+\.\d+\.\d+(?:-(?:alpha|beta)\.\d+)?$/.test(k))).toBe(true);
   });
 
   it('ignores cross-origin requests entirely', async () => {
