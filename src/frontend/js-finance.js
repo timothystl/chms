@@ -2394,7 +2394,13 @@ function finConfirmClearData() {
     document.getElementById('fin-clear-data-panel').innerHTML = '<p style="font-size:.8rem;color:var(--sage);">Cleared. Sync QuickBooks or import a report to repopulate.</p>';
     finToast('Church budget/actuals data cleared.');
     loadFinance(true);
-  }).catch(function(err) { if (err.message !== 'Unauthorized') finToast('Error: ' + err.message); });
+  }).catch(function(err) {
+    if (err.message !== 'Unauthorized') {
+      finToast('Error: ' + err.message);
+      _finClearDataCounts = null;
+      finLoadClearDataPreview();
+    }
+  });
 }
 
 // ── Budget vs Actual — generic renderer for QuickBooks' Columns/Rows report shape ──
