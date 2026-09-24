@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '1.243.0';
+export const DEPLOY_VERSION = '1.244.0';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -371,11 +371,11 @@ function finNavGo(id) {
   showTab('finance', item.finSection);
 }
 
-// Finance has its own production workspace. Retain bookmarked advanced tools
-// until their individual workflows have moved; staging stays isolated.
+// Reverted 2026-09-24 at Andrew's request: the standalone finance.timothystl.org workspace
+// isn't ready to replace this tab's formatting/layout for daily use yet. Opens the same
+// in-Connect Finance tab on every host, including production.
 function openFinanceWorkspace() {
-  if (location.hostname !== 'connect.timothystl.org') { showTab('finance'); return; }
-  location.assign('https://finance.timothystl.org/' + (_userRole === 'compensation' ? '?section=compensation' : ''));
+  showTab('finance');
 }
 
 // ── TAB SWITCHING ─────────────────────────────────────────────────────
