@@ -25,7 +25,7 @@ function fail(msg) {
 // asset-cache and service-worker tests failed on a branch whose own diff was
 // fine. (The `var` form does appear in this file, but inside the JS_CORE
 // template literal, which is a different line and never the conflicted one.)
-const VERSION_LINE = /^([ \t]*(?:export[ \t]+)?(?:const|let|var)[ \t]+DEPLOY_VERSION[ \t]*=[ \t]*)'([\d.]+)'([ \t]*;[ \t]*)$/;
+const VERSION_LINE = /^([ \t]*(?:export[ \t]+)?(?:const|let|var)[ \t]+DEPLOY_VERSION[ \t]*=[ \t]*)'(\d+\.\d+\.\d+(?:-(?:alpha|beta)\.\d+)?)'([ \t]*;[ \t]*)$/;
 
 function parseVersionSide(text) {
   const lines = text.split('\n').filter(l => l.trim());
@@ -48,7 +48,7 @@ function resolveVersionFile(path) {
   }
   // Checks the property that matters — it is still a named export — without
   // pinning the exact spacing, so reformatting that line is not a merge failure.
-  if (!/^\s*export\s+const\s+DEPLOY_VERSION\s*=\s*'[\d.]+'\s*;/m.test(out)) {
+  if (!/^\s*export\s+const\s+DEPLOY_VERSION\s*=\s*'\d+\.\d+\.\d+(?:-(?:alpha|beta)\.\d+)?'\s*;/m.test(out)) {
     fail(`${path}: the resolved file no longer exports DEPLOY_VERSION — refusing to push a build that imports undefined.`);
   }
   fs.writeFileSync(path, out);
@@ -56,13 +56,25 @@ function resolveVersionFile(path) {
 }
 
 function maxVersion(a, b) {
-  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+  const prerelease = /^(\d+\.\d+\.\d+)-(alpha|beta)\.(\d+)$/;
+  const aa = prerelease.exec(a), bb = prerelease.exec(b);
+  // The reset deliberately starts a new lineage. A stale pre-reset stable
+  // number must never win an alpha collision and restore the old scheme.
+  if (!!aa !== !!bb) return aa ? a : b;
+  const pa = (aa ? aa[1] : a).split('.').map(Number);
+  const pb = (bb ? bb[1] : b).split('.').map(Number);
   for (let i = 0; i < 3; i++) {
     if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0) ? a : b;
+  }
+  if (aa && bb) {
+    if (aa[2] !== bb[2]) return aa[2] === 'beta' ? a : b;
+    return Number(aa[3]) >= Number(bb[3]) ? a : b;
   }
   return a;
 }
 function bumpPatch(v) {
+  const pre = /^(\d+\.\d+\.\d+)-(alpha|beta)\.(\d+)$/.exec(v);
+  if (pre) return `${pre[1]}-${pre[2]}.${Number(pre[3]) + 1}`;
   const p = v.split('.').map(Number);
   p[2] = (p[2] || 0) + 1;
   return p.join('.');
