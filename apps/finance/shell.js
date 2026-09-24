@@ -1347,6 +1347,10 @@ export default {
     }
 
     if (route.id === 'giving-preview-v1') {
+      const roleResult = await fetchVerifiedRole(env, request.headers.get('Cf-Access-Jwt-Assertion') || '');
+      if (!roleResult.ok || !roleCanAccessSection(roleResult.role, { id: 'giving', permission: 'giving' }, roleResult.permissions)) {
+        return response(JSON.stringify({ error: 'Giving access required' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+      }
       const { giving, source } = await resolveGivingSummary(env);
       const body = request.method === 'HEAD' ? null : JSON.stringify(giving);
       return response(body, { headers: {
@@ -2782,30 +2786,16 @@ export default {
         const councilPreview = url.searchParams.get('council') === '1';
         const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
         const roleResult = await fetchVerifiedRole(env, accessJwt);
-        // Only tightens what this pass has real, verified evidence for -- member/volunteer get
-        // nothing, compensation gets only the compensation-tagged section -- and only when a
-        // role was actually verified. See connect-role-client.js's own comment for why this
-        // deliberately stops short of replicating the full legacy permission matrix, and the
-        // council-banner markup below for how the sole remaining fail-open case (verification
-        // genuinely not configured -- staging's permanent, intentional state) is disclosed rather
-        // than silently treated as fully open.
-        //
-        // Every OTHER verification failure -- no Access identity reached this deep, a network
-        // error, a non-200 from Connect, malformed JSON, or a malformed role payload -- must fail
-        // CLOSED, not open: those are exactly the conditions under which a real production
-        // member/volunteer/compensation-only identity could otherwise see every section simply
-        // because the verification call happened to fail at that moment. 'not_configured' is
-        // structurally different: it is staging's normal, permanent, disclosed state (no
-        // CONNECT_SERVICE binding/key exists there at all), not a runtime failure of a real check,
-        // so it alone keeps failing open exactly as before.
+        // Production reads require the current Connect permission matrix. Only
+        // unconfigured staging may show fixtures without a verified identity.
         const roleVerificationBrokenUnsafely = !roleResult.ok && (env.ENVIRONMENT !== 'staging' || roleResult.reason !== 'not_configured');
-        if (roleVerificationBrokenUnsafely || (roleResult.ok && !roleCanAccessSection(roleResult.role, section))) {
+        if (roleVerificationBrokenUnsafely || (roleResult.ok && !roleCanAccessSection(roleResult.role, section, roleResult.permissions))) {
           // Not just "/" -- the default section (Financial Health) is itself off-limits to a
           // role this narrow, so that would only bounce straight back into another denial. There
           // is no available-section link to offer when verification itself is broken -- there is
           // no verified role to compute one from.
           const availableSection = roleResult.ok
-            ? FINANCE_PARITY_SECTIONS.find((s) => roleCanAccessSection(roleResult.role, s))
+            ? FINANCE_PARITY_SECTIONS.find((s) => roleCanAccessSection(roleResult.role, s, roleResult.permissions))
             : null;
           const returnLink = availableSection
             ? `<p><a href="/?section=${escapeHtml(availableSection.id)}">Return to your available section</a></p>` : '';

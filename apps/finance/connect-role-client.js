@@ -10,7 +10,6 @@
 // incoming request, a network error, a non-200 response (no matching/active account, or Access
 // verification not configured on Connect's side), or malformed JSON -- resolves to
 // { ok: false, reason }. Only a genuinely verified identity resolves to { ok: true, role }.
-import { COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
 
 const REQUEST_TIMEOUT_MS = 4000;
 
@@ -39,34 +38,29 @@ export async function fetchVerifiedRole(env, accessJwt) {
     return { ok: false, reason: 'invalid_json' };
   }
   if (!payload || typeof payload.role !== 'string' || !payload.role) return { ok: false, reason: 'invalid_role' };
-  return { ok: true, role: payload.role, ...(typeof payload.identity === 'string' && payload.identity.trim() ? { identity: payload.identity.trim().toLowerCase() } : {}) };
+  return {
+    ok: true,
+    role: payload.role,
+    ...(payload.permissions && typeof payload.permissions === 'object' && !Array.isArray(payload.permissions)
+      ? { permissions: payload.permissions } : {}),
+    ...(typeof payload.identity === 'string' && payload.identity.trim()
+      ? { identity: payload.identity.trim().toLowerCase() } : {}),
+  };
 }
 
-// Roles that have zero Finance access in the real (legacy) system -- api-chms.js routes every
-// other role either into handleFinanceApi or its own narrow non-Finance branch, but 'member' and
-// 'volunteer' have no route into Finance at all. Kept separate from the 'compensation'-only
-// restriction below since this is a total denial, not a narrowing to one section.
+// Current Connect permissions are part of the verified role response. Missing
+// or unknown permissions deny; the narrow compensation role is not configurable.
 export const NO_FINANCE_ACCESS_ROLES = Object.freeze(['member', 'volunteer']);
-
-// Whether a verified role may see the given parity-manifest section. Deliberately conservative:
-// only tightens the cases this pass has real, verified evidence for (member/volunteer get
-// nothing; compensation gets only the compensation-tagged section; and, as of the
-// connect.finance-compensation.v1 contract, the compensation-tagged section itself is narrowed to
-// admin/council/compensation) -- it does NOT attempt to replicate the legacy per-item
-// admin/finance/staff/council permission matrix inside apps/finance's coarser 4-tag permission
-// model for every other section, which is separate, larger work.
-export function roleCanAccessSection(role, section) {
-  if (NO_FINANCE_ACCESS_ROLES.includes(role)) return false;
+export function roleCanAccessSection(role, section, permissions = {}) {
+  if (role === 'admin') return true;
   if (role === 'compensation') return section.permission === 'compensation';
-  // The Compensation section now carries real, individually-identifiable compensation data (see
-  // finance-compensation-consumer.js), not the harmless synthetic figures it held before that
-  // contract existed. Andrew's explicit decision (2026-09-14) and production's own
-  // finance/planning/salary gate both restrict this to admin/council/compensation only -- a plain
-  // finance or staff role, which still gets the blanket 'true' below for every other section, may
-  // no longer even open this one. (The live fetch itself has its own independent gate --
-  // compensation-report-service.js's resolveCompensationReport -- this is defense in depth so a
-  // disallowed role sees a real "access denied" instead of a page that silently shows synthetic
-  // data.)
-  if (section.permission === 'compensation') return COMPENSATION_LIVE_ALLOWED_ROLES.includes(role);
+  if (!['finance', 'staff', 'council'].includes(role)) return false;
+  if (section.permission === 'admin') return false;
+  if (section.permission === 'compensation' && role !== 'council') return false;
+  const item = ['giving', 'giving-analytics'].includes(section.id) ? 'giving' : section.permission;
+  const canRead = key => (key === 'giving' ? ['anon', 'view', 'edit'] : ['view', 'edit']).includes(permissions[key]);
+  if (!canRead(item)) return false;
+  // These composite reports include the Giving summary as well as accounting.
+  if (['health', 'charts', 'packet'].includes(section.id) && !canRead('giving')) return false;
   return true;
 }

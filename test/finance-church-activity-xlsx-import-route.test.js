@@ -1,3 +1,4 @@
+import { DEFAULT_ROLE_PERMISSIONS } from '../src/api-utils.js';
 import { describe, expect, it } from 'vitest';
 import worker from '../apps/finance/shell.js';
 
@@ -27,10 +28,10 @@ const VALID_LIVE_TREND = {
 
 // Answers staff-role-v1 (so canImportChurchMultiYear resolves) and finance-church-report-trend-v1
 // (so the 'trend' page renders live instead of falling back to the synthetic DB reader).
-function roleEnv(role, writeFetchImpl) {
+function roleEnv(role, writeFetchImpl, granted = {}) {
   return liveEnv(async (req) => {
     const url = new URL(req.url);
-    if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role }), { status: 200 });
+    if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role, permissions: { ...DEFAULT_ROLE_PERMISSIONS[role], ...granted } }), { status: 200 });
     if (url.pathname === '/api/contracts/finance-church-report-trend-v1') return new Response(JSON.stringify(VALID_LIVE_TREND), { status: 200 });
     return writeFetchImpl(req);
   });
@@ -88,8 +89,8 @@ describe('Church Report — Statement of Activity multi-year .xlsx import form a
     expect(overviewHtml).not.toContain('/api/v1/connect-church-activity-xlsx-import-write');
   });
 
-  it('shows the import form for a council viewer too -- the looser any-verified-role gate, unlike the admin-only Budget vs. Actuals form', async () => {
-    const env = roleEnv('council', async () => new Response('not found', { status: 404 }));
+  it('shows the import form for a council viewer explicitly granted finance edit access', async () => {
+    const env = roleEnv('council', async () => new Response('not found', { status: 404 }), { finance: 'edit' });
     const res = await worker.fetch(new Request('https://finance.test/?section=church&page=trend', {
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);

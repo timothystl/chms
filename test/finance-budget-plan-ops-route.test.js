@@ -1,3 +1,4 @@
+import { DEFAULT_ROLE_PERMISSIONS } from '../src/api-utils.js';
 import { describe, expect, it } from 'vitest';
 import worker from '../apps/finance/shell.js';
 
@@ -21,10 +22,10 @@ const LIVE_BUDGET_PAYLOAD = {
 // Answers both staff-role-v1 (so canManageBudgetPlan resolves) and finance-budget-v1 (so the
 // planning section renders live) -- the same two calls a real page load makes. Any other path
 // (the operation's own write, which each test mocks individually) goes to `opFetchImpl`.
-function roleEnv(role, opFetchImpl) {
+function roleEnv(role, opFetchImpl, granted = {}) {
   return liveEnv(async (req) => {
     const url = new URL(req.url);
-    if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role }), { status: 200 });
+    if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role, permissions: { ...DEFAULT_ROLE_PERMISSIONS[role], ...granted } }), { status: 200 });
     if (url.pathname === '/api/contracts/finance-budget-v1') return new Response(JSON.stringify(LIVE_BUDGET_PAYLOAD), { status: 200 });
     return opFetchImpl(req);
   });
@@ -55,7 +56,7 @@ describe('Budget Plan generate/generate-all/commit/remove routes', () => {
   }
 
   it('does not show the generate/commit forms or the per-row remove action for a council viewer -- these stay admin-only', async () => {
-    const env = roleEnv('council', async () => new Response('not found', { status: 404 }));
+    const env = roleEnv('council', async () => new Response('not found', { status: 404 }), { budget: 'edit' });
     const res = await worker.fetch(new Request('https://finance.test/?section=planning', {
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
