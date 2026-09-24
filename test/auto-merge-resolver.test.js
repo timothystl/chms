@@ -88,8 +88,16 @@ describe('DEPLOY_VERSION conflict resolution', () => {
     // If js-core.js ever changes how it declares this, the resolver's guard
     // must change with it — this is what couples the two.
     const real = fs.readFileSync(new URL('../src/frontend/js-core.js', import.meta.url), 'utf8');
-    expect(real).toMatch(/^export const DEPLOY_VERSION = '[\d.]+';$/m);
-    expect(DEPLOY_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(real).toMatch(/^export const DEPLOY_VERSION = '\d+\.\d+\.\d+(?:-(?:alpha|beta)\.\d+)?';$/m);
+    expect(DEPLOY_VERSION).toMatch(/^\d+\.\d+\.\d+(?:-(?:alpha|beta)\.\d+)?$/);
+  });
+  it('increments the alpha suffix and keeps the reset lineage over a stale legacy side', () => {
+    const p = write('js-core.js', conflict(
+      "export const DEPLOY_VERSION = '0.1.0-alpha.2';",
+      "export const DEPLOY_VERSION = '1.244.2';"));
+    resolver.resolveVersionFile(p);
+    expect(fs.readFileSync(p, 'utf8')).toContain("export const DEPLOY_VERSION = '0.1.0-alpha.3';");
+    expect(resolver.maxVersion('0.1.0-alpha.2', '0.1.0-alpha.4')).toBe('0.1.0-alpha.4');
   });
 });
 
