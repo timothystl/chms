@@ -2,7 +2,7 @@
 import { json, getAuthInfo } from './auth.js';
 import { isoWeekKey, LETTER_TYPES, mergeLetterRecipients, computeReceiptQueue, computeGivingPlateaus, fetchGivingPlateauRows, plateauWeeksElapsed, computeDepositTotals, batchDepositStatus, batchDepositStatusFromCounts } from './api-utils.js';
 import { ensureGivingYearRollups } from './giving-rollups.js';
-import { staxRequest, staxMockupConfigured, buildScheduleRule, cents, amountStr, todayIso } from './stax-giving-mockup.js';
+import { staxRequest, staxMockupConfigured, buildScheduleRule, cents, amountStr, todayIso, loadEstimatedFeeRate, validFeeRate, FEE_RATE_SETTING_KEY, MAX_FEE_RATE } from './stax-giving-mockup.js';
 
 // Shared by the desktop `giving/quick-entry` route and the mobile Giving quick-entry screen —
 // one insert path so the two can't drift on the find-or-create-batch logic (the SW17 lesson:
@@ -953,6 +953,24 @@ if (seg === 'giving/stax-mockup/funds' && method === 'POST') {
   if (!stmts.length) return json({ error: 'No valid fund rows' }, 400);
   await db.batch(stmts);
   return json({ ok: true, count: stmts.length });
+}
+// ── Stax Giving MOCKUP: suggested "cover the processing fee" percentage ─────
+// The public form reads this through /api/mockup/stax-giving/funds, and checkout/recurring
+// use the same value, so a change here takes effect on the next page load without a deploy.
+// Percent in the API (2.5 = 2.5%); stored as a rate (0.025) in giving_settings.
+const feePercent = (rate) => Math.round(rate * 10000) / 100;
+if (seg === 'giving/stax-mockup/fee-rate' && method === 'GET') {
+  return json({ percent: feePercent(await loadEstimatedFeeRate(db)) });
+}
+if (seg === 'giving/stax-mockup/fee-rate' && method === 'PUT') {
+  if (!isFinance) return json({ error: 'Access denied' }, 403);
+  let b; try { b = await req.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const pct = String(b?.percent ?? '').trim() === '' ? NaN : Number(b.percent);
+  const rate = validFeeRate(Math.round(pct * 100) / 10000);
+  if (rate === null) return json({ error: `Enter a percentage greater than 0 and no more than ${MAX_FEE_RATE * 100}.` }, 400);
+  await db.prepare("INSERT INTO giving_settings(key,value,updated_at) VALUES(?,?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
+    .bind(FEE_RATE_SETTING_KEY, String(rate)).run();
+  return json({ ok: true, percent: feePercent(rate) });
 }
 const staxQueueLinkMatch = seg.match(/^giving\/stax-mockup\/queue\/(\d+)\/link$/);
 if (staxQueueLinkMatch && method === 'POST') {

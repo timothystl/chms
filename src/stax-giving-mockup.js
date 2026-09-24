@@ -500,9 +500,25 @@ function corsHeadersFor(req) {
 // method if ACH is ever added here (it's typically much cheaper than card). The AUTHORITATIVE
 // fee, once a card is actually charged, is whatever Stax's own `total_fees` on the transaction
 // says — recordStaxGift always stores that, never this estimate.
-const ESTIMATED_FEE_RATE = 0.02;
-function estimateFeeCents(subtotalCents) {
-  return Math.round(subtotalCents * ESTIMATED_FEE_RATE);
+// Staff can change the rate on the Public Giving Funds admin page (stored in giving_settings);
+// 2% is only the fallback when nothing valid has been saved there yet.
+export const DEFAULT_FEE_RATE = 0.02;
+export const FEE_RATE_SETTING_KEY = 'stax_cover_fee_rate';
+export const MAX_FEE_RATE = 0.1;
+export function validFeeRate(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 && n <= MAX_FEE_RATE ? n : null;
+}
+export async function loadEstimatedFeeRate(db) {
+  try {
+    const row = await db.prepare('SELECT value FROM giving_settings WHERE key=?').bind(FEE_RATE_SETTING_KEY).first();
+    return validFeeRate(row?.value) ?? DEFAULT_FEE_RATE;
+  } catch {
+    return DEFAULT_FEE_RATE;
+  }
+}
+function estimateFeeCents(subtotalCents, feeRate) {
+  return Math.round(subtotalCents * feeRate);
 }
 
 // Validates a `gifts: [{fund_id, amount}, ...]` submission (the "multiple gifts" rows) against
@@ -578,7 +594,7 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     const rows = (await db.prepare(
       "SELECT id, name FROM funds WHERE active=1 AND public_giving=1 ORDER BY sort_order, name"
     ).all()).results || [];
-    return j({ funds: rows, configured: staxMockupConfigured(env), estimatedFeeRate: ESTIMATED_FEE_RATE });
+    return j({ funds: rows, configured: staxMockupConfigured(env), estimatedFeeRate: await loadEstimatedFeeRate(db) });
   }
 
   // The web payments token is a merchant-level, publishable-style token (not a secret) that
@@ -614,7 +630,7 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     const contactError = requireContact(contact);
     if (contactError) return j({ error: contactError }, 400);
     const memo = String(b.memo || '').trim().slice(0, 500);
-    const feeCents = b.cover_fees ? estimateFeeCents(giftResult.subtotalCents) : 0;
+    const feeCents = b.cover_fees ? estimateFeeCents(giftResult.subtotalCents, await loadEstimatedFeeRate(db)) : 0;
     const totalCents = giftResult.subtotalCents + feeCents;
     // Fee coverage (if any) rides on the first split — see recordStaxGift's own note on why.
     const splits = giftResult.splits.map((s, i) => i === 0 ? { ...s, amountCents: s.amountCents + feeCents } : s);
@@ -705,7 +721,7 @@ export async function handleStaxGivingMockupPublicApi(req, env, url, method, pat
     const VALID_INTERVALS = ['weekly', 'biweekly', 'twice_monthly', 'monthly'];
     const interval = VALID_INTERVALS.includes(b.interval) ? b.interval : 'monthly';
     const memo = String(b.memo || '').trim().slice(0, 500);
-    const feeCents = b.cover_fees ? estimateFeeCents(giftResult.subtotalCents) : 0;
+    const feeCents = b.cover_fees ? estimateFeeCents(giftResult.subtotalCents, await loadEstimatedFeeRate(db)) : 0;
     const totalCents = giftResult.subtotalCents + feeCents;
     // Fee coverage (if any) rides on the first split — matches /checkout's own convention.
     const splits = giftResult.splits.map((s, i) => i === 0 ? { ...s, amountCents: s.amountCents + feeCents } : s);
@@ -1013,13 +1029,23 @@ export function renderStaxGivingMockupFundsAdminHtml() {
   .actions{max-width:640px;margin:1rem auto 0;text-align:right;}
   button{font-family:inherit;font-size:.9rem;padding:.6rem 1.2rem;border-radius:8px;border:none;background:var(--navy);color:#fff;cursor:pointer;}
   button:hover{background:var(--teal);}
-  #saveStatus{font-size:.8rem;color:var(--muted);margin-right:.8rem;}
+  #saveStatus,#feeStatus{font-size:.8rem;color:var(--muted);margin-right:.8rem;}
+  .fee{margin-bottom:0;}
+  .fee input[type=number]{width:6rem;font-family:inherit;font-size:.92rem;padding:.35rem .5rem;border:1px solid #DDD6C6;border-radius:6px;text-align:right;}
+  .note{padding:0 1rem .9rem;color:var(--muted);font-size:.8rem;}
+  .actions + .wrap{margin-top:1.5rem;}
 </style></head><body>
   <div class="mockup-banner">MOCKUP — controls what the give.timothystl.org/stax-mockup form offers, not the real Tithe.ly page.</div>
   <h1>Public giving funds</h1>
-  <div class="sub">Only checked funds show on the public Stax mockup form. Everything else in Manage Funds stays hidden from donors, even though it's still active for internal use.</div>
+  <div class="sub">Set the suggested processing-fee percentage, then choose which funds appear. Only checked funds show on the public Stax mockup form. Everything else in Manage Funds stays hidden from donors, even though it's still active for internal use.</div>
+  <div class="wrap fee">
+    <div class="row"><label for="feePct">Suggested &ldquo;cover the fee&rdquo; percentage</label>
+      <span><input type="number" id="feePct" min="0.1" max="10" step="0.01" inputmode="decimal"> %</span></div>
+    <div class="note">Donors who choose to cover the processing fee are asked to add this percentage to their gift. Changes apply to the public form right away. Stax still records the actual fee on each charge.</div>
+  </div>
+  <div class="actions"><span id="feeStatus"></span><button id="feeSaveBtn">Save percentage</button></div>
   <div class="wrap" id="rows"><div class="empty">Loading&hellip;</div></div>
-  <div class="actions"><span id="saveStatus"></span><button id="saveBtn">Save</button></div>
+  <div class="actions"><span id="saveStatus"></span><button id="saveBtn">Save funds</button></div>
 <script>
 (function(){
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -1031,6 +1057,23 @@ export function renderStaxGivingMockupFundsAdminHtml() {
       return '<div class="row"><label><input type="checkbox" data-id="' + f.id + '"' + (f.public_giving ? ' checked' : '') + '> ' + esc(f.name) + '</label></div>';
     }).join('');
   }).catch(function(){ document.getElementById('rows').innerHTML = '<div class="empty">Could not load funds.</div>'; });
+
+  var feeInput = document.getElementById('feePct');
+  var feeStatus = document.getElementById('feeStatus');
+  fetch('/admin/api/giving/stax-mockup/fee-rate').then(function(r){ return r.json(); }).then(function(d){
+    if (typeof d.percent === 'number') feeInput.value = d.percent;
+  }).catch(function(){ feeStatus.textContent = 'Could not load the current percentage.'; });
+  document.getElementById('feeSaveBtn').addEventListener('click', function(){
+    feeStatus.textContent = 'Saving\u2026';
+    fetch('/admin/api/giving/stax-mockup/fee-rate', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ percent: feeInput.value })
+    }).then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
+      .then(function(res){
+        if (res.ok) { feeInput.value = res.d.percent; feeStatus.textContent = 'Saved.'; }
+        else feeStatus.textContent = res.d.error || 'Failed.';
+      })
+      .catch(function(){ feeStatus.textContent = 'Network error.'; });
+  });
 
   document.getElementById('saveBtn').addEventListener('click', function(){
     var checks = document.querySelectorAll('#rows input[type=checkbox]');
