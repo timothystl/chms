@@ -5,6 +5,7 @@
 // QBO amounts are kept as QBO returns them (decimal dollars) rather than converted to this
 // app's integer-cents convention — they're display-only, never combined arithmetically with
 // giving_entries/tuition figures.
+import { clearChurchReport, CHURCH_CLEAR_TABLES } from './finance-clear.js';
 import { json, getAuthInfo } from './auth.js';
 import { resolveGeneralFundIds, resolveGeneralFundBudget, parseCsvRows } from './api-utils.js';
 import { getAuthorizeUrl, exchangeCodeForTokens, refreshTokens, revokeToken, makeQboClient, qboConfigured, buildQboTransactionUrl } from './quickbooks.js';
@@ -4821,7 +4822,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // clear. Same confirm-count safety pattern as giving/force-remove-orphans: preview returns
   // exact row counts, the clear call must echo them back exactly, so a stale page (data changed
   // between preview and click) is refused rather than blindly wiping.
-  const CLEAR_TABLES = ['finance_church_entries', 'finance_qb_snapshot'];
+  const CLEAR_TABLES = CHURCH_CLEAR_TABLES;
   if (seg === 'finance/church/clear-all-preview' && method === 'GET') {
     if (!isAdmin) return json({ error: 'Access denied: clearing financial report data requires admin access' }, 403);
     const counts = {};
@@ -4835,17 +4836,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     if (!isAdmin) return json({ error: 'Access denied: clearing financial report data requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
     const confirmCounts = b.confirm_counts || {};
-    const actualCounts = {};
-    for (const t of CLEAR_TABLES) {
-      const r = await db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first();
-      actualCounts[t] = r?.n || 0;
-    }
-    const mismatch = CLEAR_TABLES.some(t => confirmCounts[t] !== actualCounts[t]);
-    if (mismatch) {
-      return json({ error: 'Confirmation mismatch — data has changed since the preview ran. Re-load and try again.', expected: confirmCounts, actual: actualCounts }, 409);
-    }
-    const ops = CLEAR_TABLES.map(t => db.prepare(`DELETE FROM ${t}`));
-    await db.batch(ops);
+    const result = await clearChurchReport(db, confirmCounts);
+    if (result.error) return json(result, result.status);
+    const actualCounts = result.cleared;
     try {
       await db.prepare(
         `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value) VALUES(?,?,?,?,?,?,?)`

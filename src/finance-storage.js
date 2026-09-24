@@ -40,11 +40,15 @@ export function financeStorageDb(env) {
     } });
     statements.set(value, {statement,owner}); return value;
   }
+  const counter = env.DB.__attributionCounter;
   const db = {
+    get __attributionCounter() { return counter; },
     prepare(sql) {
       const query = accountingQuery(sql);
       if (mode === 'copying' && query.finance && query.writes) throw new Error('Accounting maintenance: writes temporarily paused for verified migration');
       const owner = query.finance && mode === 'finance' ? env.FINANCE_DB : env.DB;
+      // Connect already counts its own prepares. Attribute Finance to that same request.
+      if (counter && owner !== env.DB && owner.__attributionCounter !== counter) counter.queries += 1;
       return wrap(owner.prepare(sql), owner);
     },
     batch(items) {
