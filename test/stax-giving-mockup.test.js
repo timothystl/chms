@@ -1515,3 +1515,56 @@ describe('Stax Giving mockup — recurring gifts moved into the main Giving page
     expect(res.headers.get('Location')).toBe('/?pane=recurring#giving');
   });
 });
+
+describe('Stax Giving mockup — adjustable cover-the-fee percentage', () => {
+  const feeReq = (method, body) => new Request('https://connect.timothystl.org/admin/api/giving/stax-mockup/fee-rate', {
+    method, ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const callFee = (db, method, body, isFinance = true) => {
+    const req = feeReq(method, body);
+    return handleGivingApi(req, { DB: db }, new URL(req.url), method, 'giving/stax-mockup/fee-rate', db, false, isFinance, false, true);
+  };
+
+  it('defaults to 2% until staff saves a value', async () => {
+    const db = makeDb();
+    await initDb(db);
+    expect(await (await callFee(db, 'GET')).json()).toEqual({ percent: 2 });
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/funds');
+    const body = await (await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'GET', 'funds')).json();
+    expect(body.estimatedFeeRate).toBe(0.02);
+  });
+
+  it('saves a new percentage that the public form and checkout both use', async () => {
+    const db = makeDb();
+    await initDb(db);
+    const saved = await callFee(db, 'PUT', { percent: '2.9' });
+    expect(saved.status).toBe(200);
+    expect((await saved.json()).percent).toBe(2.9);
+    expect(await (await callFee(db, 'GET')).json()).toEqual({ percent: 2.9 });
+
+    const fundsReq = new Request('https://connect.timothystl.org/api/mockup/stax-giving/funds');
+    const funds = await (await handleStaxGivingMockupPublicApi(fundsReq, { DB: db }, new URL(fundsReq.url), 'GET', 'funds')).json();
+    expect(funds.estimatedFeeRate).toBe(0.029);
+
+    const fundId = insertFund(db, 'Fee Test Fund');
+    const req = new Request('https://connect.timothystl.org/api/mockup/stax-giving/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        gifts: [{ fund_id: fundId, amount: '100.00' }], cover_fees: true,
+        payer_first_name: 'Pat', payer_last_name: 'Fee', payer_email: 'pat-fee@example.com',
+      }),
+    });
+    const res = await handleStaxGivingMockupPublicApi(req, { DB: db }, new URL(req.url), 'POST', 'checkout');
+    expect((await res.json()).totalCents).toBe(10290);
+  });
+
+  it('rejects out-of-range values and non-finance users', async () => {
+    const db = makeDb();
+    await initDb(db);
+    for (const percent of ['', 'abc', 0, -1, 10.5]) {
+      expect((await callFee(db, 'PUT', { percent })).status).toBe(400);
+    }
+    expect((await callFee(db, 'PUT', { percent: 3 }, false)).status).toBe(403);
+    expect(await (await callFee(db, 'GET')).json()).toEqual({ percent: 2 });
+  });
+});

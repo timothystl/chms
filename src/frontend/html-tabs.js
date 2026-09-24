@@ -248,6 +248,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div class="dash-card" style="padding:14px;">
       <div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;line-height:1.45;">
         The first gift of every recurring signup is charged immediately and appears above like any other gift &mdash; this list is only the STANDING schedule of future occurrences.
+        <a href="/admin/giving/stax-mockup/funds" style="color:var(--teal);white-space:nowrap;">Online form settings (funds &amp; fee %) &rarr;</a>
       </div>
       <div style="overflow-x:auto;">
         <table class="entries-table">
