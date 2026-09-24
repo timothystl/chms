@@ -134,9 +134,19 @@ describe('POST /api/contracts/finance-budget-write-v1', () => {
     });
   });
 
+  it('denies a council budget write when budget permission is not granted', async () => {
+    const db = makeTestDb();
+    insertUser(db, { username: 'boardmember', email: 'board@timothystl.org', role: 'council' });
+    const token = await signToken(keyPair.privateKey, kid, accessPayload('board@timothystl.org'));
+    const res = await post({ env: baseEnv(db), token, body: { rows: [ROW] } });
+    expect(res.status).toBe(403);
+    expect(db._raw.prepare('SELECT * FROM finance_budget_plan').all()).toHaveLength(0);
+  });
+
   it('forks council into their own overlay, never touching the shared table -- same as the legacy route', async () => {
     const db = makeTestDb();
     insertUser(db, { username: 'boardmember', email: 'board@timothystl.org', role: 'council' });
+    db._raw.prepare("INSERT INTO chms_config(key,value) VALUES('role_permissions_json',?)").run(JSON.stringify({ council: { budget: 'edit' } }));
     const token = await signToken(keyPair.privateKey, kid, accessPayload('board@timothystl.org'));
 
     const res = await post({ env: baseEnv(db), token, body: { rows: [ROW] } });

@@ -1,3 +1,4 @@
+import { DEFAULT_ROLE_PERMISSIONS } from '../src/api-utils.js';
 import { describe, expect, it } from 'vitest';
 import worker from '../apps/finance/shell.js';
 
@@ -28,7 +29,7 @@ const LIVE_DAYCARE_REPORT = {
 function roleEnv(role, writeFetchImpl) {
   return liveEnv(async (req) => {
     const url = new URL(req.url);
-    if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role }), { status: 200 });
+    if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role, permissions: DEFAULT_ROLE_PERMISSIONS[role] }), { status: 200 });
     if (url.pathname === '/api/contracts/finance-daycare-report-v1') return new Response(JSON.stringify(LIVE_DAYCARE_REPORT), { status: 200 });
     return writeFetchImpl(req);
   });

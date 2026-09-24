@@ -309,7 +309,8 @@ async function handleStaffRoleContract(req, env) {
   ).bind(email).first();
   if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
 
-  return json({ role: user.role, identity: email });
+  const permissions = permissionsForRole(await getRolePermissions(env.DB), user.role);
+  return json({ role: user.role, identity: email, permissions });
 }
 
 // ── Giving quick-entry, relayed from Finance's own UI ───────────────────────
@@ -386,6 +387,13 @@ async function handleFinanceBudgetWriteContract(req, env) {
 
   if (user.role !== 'admin' && user.role !== 'council') {
     return json({ error: 'Access denied: editing budget plans requires admin access' }, 403);
+  }
+
+  if (user.role === 'council') {
+    const permissions = permissionsForRole(await getRolePermissions(db), user.role);
+    if (permissions.budget !== 'edit') {
+      return json({ error: 'Access denied: budget permission required' }, 403);
+    }
   }
 
   let body;
@@ -1628,6 +1636,13 @@ async function handleFinanceCompensationWriteContract(req, env) {
     return json({ error: 'Access denied: editing the salary planner requires admin access' }, 403);
   }
 
+  if (user.role === 'council') {
+    const permissions = permissionsForRole(await getRolePermissions(db), user.role);
+    if (permissions.compensation !== 'edit') {
+      return json({ error: 'Access denied: compensation permission required' }, 403);
+    }
+  }
+
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
 
@@ -1672,6 +1687,13 @@ async function handleFinanceCompensationPlanContract(req, env) {
 
   if (user.role !== 'admin' && user.role !== 'compensation' && user.role !== 'council') {
     return json({ error: 'Access denied: the salary planner requires admin, compensation, or council access' }, 403);
+  }
+
+  if (user.role === 'council') {
+    const permissions = permissionsForRole(await getRolePermissions(db), user.role);
+    if (!['view', 'edit'].includes(permissions.compensation)) {
+      return json({ error: 'Access denied: compensation permission required' }, 403);
+    }
   }
 
   const data = await resolveSalaryPlannerState(db, user.role, user.username);

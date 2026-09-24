@@ -1,3 +1,4 @@
+import { DEFAULT_ROLE_PERMISSIONS } from '../src/api-utils.js';
 import { describe, expect, it } from 'vitest';
 import worker from '../apps/finance/shell.js';
 
@@ -21,10 +22,10 @@ const LIVE_BUDGET_PAYLOAD = {
 // Answers both staff-role-v1 (so canEditBudget resolves) and finance-budget-v1 (so the planning
 // section renders live instead of falling back to a synthetic reader that needs a FINANCE_DB
 // binding this test suite doesn't set up) -- the same two calls a real page load makes.
-function roleEnv(role, writeFetchImpl) {
+function roleEnv(role, writeFetchImpl, granted = {}) {
   return liveEnv(async (req) => {
     const url = new URL(req.url);
-    if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role }), { status: 200 });
+    if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role, permissions: { ...DEFAULT_ROLE_PERMISSIONS[role], ...granted } }), { status: 200 });
     if (url.pathname === '/api/contracts/finance-budget-v1') return new Response(JSON.stringify(LIVE_BUDGET_PAYLOAD), { status: 200 });
     return writeFetchImpl(req);
   });
@@ -80,8 +81,8 @@ describe('Finance Budget Planner — edit form and relay route', () => {
     expect(html).toContain('name="planned_amount"');
   });
 
-  it('shows the edit form for a verified council viewer too', async () => {
-    const env = roleEnv('council', async () => new Response('not found', { status: 404 }));
+  it('shows the edit form for a council viewer explicitly granted budget edit access', async () => {
+    const env = roleEnv('council', async () => new Response('not found', { status: 404 }), { budget: 'edit' });
     const res = await worker.fetch(new Request('https://finance.test/?section=planning', {
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);

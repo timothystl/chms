@@ -85,11 +85,19 @@ describe('roleCanAccessSection', () => {
     expect(roleCanAccessSection('compensation', payrollSection)).toBe(false);
   });
 
-  it('leaves every non-compensation section unrestricted by this pass for admin/finance/staff/council', () => {
-    for (const role of ['admin', 'finance', 'staff', 'council']) {
-      expect(roleCanAccessSection(role, financeSection)).toBe(true);
-      expect(roleCanAccessSection(role, payrollSection)).toBe(true);
+  it('uses current per-item permissions and fails closed when they are absent', () => {
+    for (const role of ['finance', 'staff', 'council']) {
+      expect(roleCanAccessSection(role, financeSection)).toBe(false);
+      expect(roleCanAccessSection(role, financeSection, { finance: 'none' })).toBe(false);
+      expect(roleCanAccessSection(role, financeSection, { finance: 'view' })).toBe(true);
+      expect(roleCanAccessSection(role, payrollSection, { finance: 'edit' })).toBe(false);
     }
+    expect(roleCanAccessSection('admin', payrollSection)).toBe(true);
+    expect(roleCanAccessSection('unknown', financeSection, { finance: 'edit' })).toBe(false);
+  });
+  it('requires giving permission for giving and composite reports', () => {
+    expect(roleCanAccessSection('council', { id: 'giving', permission: 'finance' }, { giving: 'anon' })).toBe(true);
+    expect(roleCanAccessSection('finance', { id: 'health', permission: 'finance' }, { finance: 'edit', giving: 'none' })).toBe(false);
   });
 
   // As of the connect.finance-compensation.v1 contract, the Compensation section itself carries
@@ -100,7 +108,7 @@ describe('roleCanAccessSection', () => {
   // else.
   it('restricts the Compensation section itself to admin/council/compensation, denying plain finance and staff', () => {
     expect(roleCanAccessSection('admin', compensationSection)).toBe(true);
-    expect(roleCanAccessSection('council', compensationSection)).toBe(true);
+    expect(roleCanAccessSection('council', compensationSection, { compensation: 'view' })).toBe(true);
     expect(roleCanAccessSection('compensation', compensationSection)).toBe(true);
     expect(roleCanAccessSection('finance', compensationSection)).toBe(false);
     expect(roleCanAccessSection('staff', compensationSection)).toBe(false);

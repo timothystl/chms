@@ -1,3 +1,4 @@
+import { DEFAULT_ROLE_PERMISSIONS } from '../src/api-utils.js';
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -121,7 +122,7 @@ const env = {
 
 describe('Finance 1.0.0 alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.53');
+    expect(FINANCE_VERSION).toBe('1.0.0-alpha.54');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
@@ -164,7 +165,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       status: 'ok',
       product: 'finance',
       environment: 'staging',
-      version: '1.0.0-alpha.53',
+      version: FINANCE_VERSION,
       releaseChannel: 'alpha',
       releaseSha: 'test-sha',
     });
@@ -186,7 +187,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
     expect(html).toContain('Staging workspace');
-    expect(html).toContain('1.0.0-alpha.53 · alpha');
+    expect(html).toContain(`${FINANCE_VERSION} · alpha`);
     expect(html).toContain('Timothy Lutheran Church');
     expect(html).toContain('Finance workspace');
     expect(html).toContain('class="sidebar-brand"');
@@ -312,7 +313,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
 
   it('denies member and volunteer roles every Finance section', async () => {
     for (const role of ['member', 'volunteer']) {
-      const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role }), { status: 200 }));
+      const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role, permissions: DEFAULT_ROLE_PERMISSIONS[role] }), { status: 200 }));
       const res = await worker.fetch(new Request('https://finance.test/?section=health', {
         headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
       }), roleEnv);
@@ -320,12 +321,13 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     }
   });
 
-  it('leaves admin/finance/staff/council unrestricted and discloses the verified role', async () => {
+  it('permits the dashboard only with both accounting and giving access', async () => {
     for (const role of ['admin', 'finance', 'staff', 'council']) {
-      const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role }), { status: 200 }));
+      const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role, permissions: DEFAULT_ROLE_PERMISSIONS[role] }), { status: 200 }));
       const res = await worker.fetch(new Request('https://finance.test/?section=health', {
         headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
       }), roleEnv);
+      if (['staff', 'council'].includes(role)) { expect(res.status, role).toBe(403); continue; }
       expect(res.status, role).toBe(200);
       const html = await res.text();
       expect(html, role).toContain(`Verified via Connect as role “${role}”.`);
@@ -471,7 +473,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     const liveEnv = envWithRoleService(async (request) => {
       const url = new URL(request instanceof Request ? request.url : request);
       if (url.pathname === '/api/contracts/staff-role-v1') {
-        return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+        return new Response(JSON.stringify({ role: 'finance', permissions: DEFAULT_ROLE_PERMISSIONS.finance }), { status: 200 });
       }
       if (url.pathname === '/api/contracts/finance-church-report-trend-v1') {
         return new Response(JSON.stringify(VALID_LIVE_TREND), { status: 200 });
@@ -564,7 +566,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
         async fetch(request) {
           const url = new URL(request instanceof Request ? request.url : request);
           if (url.pathname === '/api/contracts/staff-role-v1') {
-            return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+            return new Response(JSON.stringify({ role: 'finance', permissions: DEFAULT_ROLE_PERMISSIONS.finance }), { status: 200 });
           }
           if (url.pathname === '/api/contracts/finance-church-report-v1') {
             return new Response(JSON.stringify(LIVE_PACKET_CHURCH_REPORT), { status: 200 });
@@ -712,7 +714,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
           async fetch(request) {
             const url = new URL(request instanceof Request ? request.url : request);
             if (url.pathname === '/api/contracts/staff-role-v1') {
-              return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+              return new Response(JSON.stringify({ role: 'finance', permissions: DEFAULT_ROLE_PERMISSIONS.finance }), { status: 200 });
             }
             if (url.pathname === '/api/contracts/finance-church-report-v1') {
               return church ? new Response(JSON.stringify(church), { status: 200 }) : new Response('not found', { status: 404 });
@@ -971,7 +973,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
         async fetch(req) {
           const url = new URL(req.url);
           if (url.pathname === '/api/contracts/staff-role-v1') {
-            return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+            return new Response(JSON.stringify({ role: 'finance', permissions: DEFAULT_ROLE_PERMISSIONS.finance }), { status: 200 });
           }
           if (url.pathname === '/api/contracts/finance-property-reserves-v1') {
             return new Response(JSON.stringify(livePayload), { status: 200 });
@@ -1042,7 +1044,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     it('prefers both live resolvers when each is configured and answers, labeling every KPI by its own source', async () => {
       const liveEnv = envWithRoleService(async (request) => {
         const url = new URL(request instanceof Request ? request.url : request);
-        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role: 'finance', permissions: DEFAULT_ROLE_PERMISSIONS.finance }), { status: 200 });
         if (url.pathname === '/api/contracts/finance-church-report-v1') return new Response(JSON.stringify(VALID_LIVE_CHURCH_REPORT), { status: 200 });
         if (url.pathname === '/api/contracts/finance-property-reserves-v1') return new Response(JSON.stringify(VALID_LIVE_PROPERTY_RESERVES), { status: 200 });
         return new Response('not found', { status: 404 });
@@ -1107,7 +1109,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     it('labels each KPI by its own independent source when only one live resolver answers (partial availability)', async () => {
       const churchOnlyEnv = envWithRoleService(async (request) => {
         const url = new URL(request instanceof Request ? request.url : request);
-        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role: 'finance', permissions: DEFAULT_ROLE_PERMISSIONS.finance }), { status: 200 });
         if (url.pathname === '/api/contracts/finance-church-report-v1') return new Response(JSON.stringify(VALID_LIVE_CHURCH_REPORT), { status: 200 });
         // Property Reserves contract answers with an error here, so only the church-report-derived
         // figures go live while the reserve KPI independently falls back to its own synthetic fixture.
@@ -1125,7 +1127,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
 
       const reserveOnlyEnv = envWithRoleService(async (request) => {
         const url = new URL(request instanceof Request ? request.url : request);
-        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role: 'finance', permissions: DEFAULT_ROLE_PERMISSIONS.finance }), { status: 200 });
         if (url.pathname === '/api/contracts/finance-property-reserves-v1') return new Response(JSON.stringify(VALID_LIVE_PROPERTY_RESERVES), { status: 200 });
         // Church Report contract answers with an error here, so the reserve KPI goes live while
         // revenue mix independently falls back to its own synthetic fixture.
@@ -1158,7 +1160,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     const liveEnv = envWithRoleService(async (request) => {
       const url = new URL(request instanceof Request ? request.url : request);
       if (url.pathname === '/api/contracts/staff-role-v1') {
-        return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+        return new Response(JSON.stringify({ role: 'finance', permissions: DEFAULT_ROLE_PERMISSIONS.finance }), { status: 200 });
       }
       if (url.pathname === '/api/contracts/finance-property-forecast-v1') {
         return new Response(JSON.stringify(VALID_LIVE_FORECAST), { status: 200 });
@@ -1196,7 +1198,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     const liveEnv = envWithRoleService(async (request) => {
       const url = new URL(request instanceof Request ? request.url : request);
       if (url.pathname === '/api/contracts/staff-role-v1') {
-        return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+        return new Response(JSON.stringify({ role: 'finance', permissions: DEFAULT_ROLE_PERMISSIONS.finance }), { status: 200 });
       }
       if (url.pathname === '/api/contracts/finance-property-forecast-v1') {
         return new Response(JSON.stringify(PARTIAL_YEAR_FORECAST), { status: 200 });
@@ -1353,7 +1355,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       };
       return envWithRoleService(async (req) => {
         const url = new URL(req.url);
-        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role }), { status: 200 });
+        if (url.pathname === '/api/contracts/staff-role-v1') return new Response(JSON.stringify({ role, permissions: DEFAULT_ROLE_PERMISSIONS[role] }), { status: 200 });
         if (url.pathname === '/api/contracts/finance-compensation-v1') return new Response(JSON.stringify(payload), { status: 200 });
         return new Response('not found', { status: 404 });
       });
@@ -1445,7 +1447,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       contract: 'finance.summary.v1',
       dataClassification: 'synthetic',
       release: {
-        product: 'finance', environment: 'staging', version: '1.0.0-alpha.53',
+        product: 'finance', environment: 'staging', version: FINANCE_VERSION,
         releaseChannel: 'alpha', releaseSha: 'test-sha',
       },
       summary: {
@@ -1468,21 +1470,10 @@ describe('Finance 1.0.0 alpha staging shell', () => {
     expect(res.headers.get('link')).toBe('</api/v1/summary>; rel="successor-version"');
   });
 
-  it('falls back to the validated static Connect Giving fixture when the live endpoint is not configured', async () => {
-    // This env (see the top of the file) has no CONNECT_SERVICE binding and no
-    // FINANCE_CONTRACT_API_KEY -- the real, intended state until both are deliberately
-    // provisioned -- so the live attempt short-circuits to not_configured and this falls back,
-    // exactly as it did before the live connect-giving-client.js existed.
+  it('denies the Giving API when no identity is available, including staging', async () => {
     statements.length = 0;
     const res = await worker.fetch(new Request('https://finance.test/api/v1/connect-giving-preview'), env);
-    expect(res.status).toBe(200);
-    expect(res.headers.get('x-finance-contract')).toBe('connect.giving-summary.v1');
-    expect(res.headers.get('x-giving-source')).toBe('synthetic-fallback');
-    const body = await res.json();
-    expect(body.contract).toBe('connect.giving-summary.v1');
-    expect(body.dataClassification).toBe('aggregate');
-    expect(body.totals).toEqual({ grossCents: 150000, refundCents: 5000, netCents: 145000 });
-    expect(body.reconciliation).toEqual({ sourceRecordCount: 6, fundCount: 2, totalsMatch: true });
+    expect(res.status).toBe(403);
     expect(statements).toHaveLength(0);
   });
 
@@ -1498,7 +1489,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
         async fetch(request) {
           const url = new URL(request instanceof Request ? request.url : request);
           if (url.pathname === '/api/contracts/staff-role-v1') {
-            return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+            return new Response(JSON.stringify({ role: 'finance', permissions: DEFAULT_ROLE_PERMISSIONS.finance }), { status: 200 });
           }
           return new Response(JSON.stringify({
             contract: 'connect.giving-summary.v1', dataClassification: 'aggregate',
@@ -1514,7 +1505,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       },
       FINANCE_CONTRACT_API_KEY: 'test-secret',
     };
-    const res = await worker.fetch(new Request('https://finance.test/api/v1/connect-giving-preview'), liveEnv);
+    const res = await worker.fetch(new Request('https://finance.test/api/v1/connect-giving-preview', { headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' } }), liveEnv);
     expect(res.status).toBe(200);
     expect(res.headers.get('x-giving-source')).toBe('live');
     const body = await res.json();
@@ -1542,7 +1533,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       dataClassification: 'synthetic',
       scenario: { status: 'accepted', attemptsUsed: 2, maxAttempts: 3, receiptAction: 'record_once' },
       duplicateReplay: { status: 'duplicate_ignored', attemptsUsed: 0, receiptAction: 'retain_existing' },
-      release: { version: '1.0.0-alpha.53', releaseSha: 'test-sha' },
+      release: { version: FINANCE_VERSION, releaseSha: 'test-sha' },
     });
     expect(body.scenario.totals.netCents).toBe(145000);
     expect(body.scenario.reconciliation.totalsMatch).toBe(true);
@@ -1604,7 +1595,7 @@ describe('Finance 1.0.0 alpha staging shell', () => {
       const liveEnv = envWithRoleService(async (request) => {
         const url = new URL(request instanceof Request ? request.url : request);
         if (url.pathname === '/api/contracts/staff-role-v1') {
-          return new Response(JSON.stringify({ role: 'finance' }), { status: 200 });
+          return new Response(JSON.stringify({ role: 'finance', permissions: DEFAULT_ROLE_PERMISSIONS.finance }), { status: 200 });
         }
         if (url.pathname === '/api/contracts/finance-church-report-v1') {
           return new Response(JSON.stringify(VALID_LIVE_CHURCH_REPORT), { status: 200 });

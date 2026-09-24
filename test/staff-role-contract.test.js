@@ -1,3 +1,4 @@
+import { DEFAULT_ROLE_PERMISSIONS, permissionsForRole } from '../src/api-utils.js';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
@@ -104,16 +105,26 @@ describe('GET /api/contracts/staff-role-v1', () => {
     const res = await get({ env: baseEnv(db), token });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ role: 'compensation', identity: 'grace@timothystl.org' });
+    expect(body).toEqual({ role: 'compensation', identity: 'grace@timothystl.org', permissions: permissionsForRole(DEFAULT_ROLE_PERMISSIONS, 'compensation') });
   });
 
-  it('returns only the role and verified identity, without a user-directory record', async () => {
+  it('returns current permissions and verified identity without a user-directory record', async () => {
     const db = makeTestDb();
     insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const res = await get({ env: baseEnv(db), token });
     const body = await res.json();
-    expect(body).toEqual({role:'finance',identity:'sarah@timothystl.org'});
+    expect(body).toEqual({role:'finance',identity:'sarah@timothystl.org',permissions:DEFAULT_ROLE_PERMISSIONS.finance});
+  });
+
+  it('reflects revoked and granted permissions on the next request', async () => {
+    const db = makeTestDb();
+    insertUser(db, { username: 'council', email: 'council@example.test', role: 'council' });
+    const token = await signToken(keyPair.privateKey, kid, accessPayload('council@example.test'));
+    db._raw.prepare("INSERT INTO chms_config(key,value) VALUES('role_permissions_json',?)").run(JSON.stringify({ council: { finance: 'view', compensation: 'none' } }));
+    const body = await (await get({ env: baseEnv(db), token })).json();
+    expect(body.permissions.finance).toBe('view');
+    expect(body.permissions.compensation).toBe('none');
   });
 
   it('rejects when the shared X-Contract-Key is wrong, before ever looking at identity', async () => {
