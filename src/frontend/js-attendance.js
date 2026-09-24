@@ -288,25 +288,46 @@ function attRenderHeatGrid() {
   var curYear = new Date().getFullYear();
   var years = [];
   for (var i = ATT_LOOKBACK_YEARS - 1; i >= 0; i--) years.push(curYear - i);
-  var rows = years.map(function(yr) {
-    var sundays = [];
+  // Column k = the year's (k+1)th Sunday. A year has 52 or 53 Sundays, so every row gets
+  // 53 columns (a trailing blank when absent) to keep weeks and month labels aligned.
+  var HEAT_COLS = 53;
+  function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function sundaysOf(yr) {
+    var out = [];
     var d = new Date(yr, 0, 1);
     d.setDate(d.getDate() + ((7 - d.getDay()) % 7));
-    while (d.getFullYear() === yr) { sundays.push(d.toISOString().slice(0, 10)); d.setDate(d.getDate() + 7); }
-    sundays = sundays.slice(0, 52);
-    var cells = sundays.map(function(ds) {
+    while (d.getFullYear() === yr) { out.push(new Date(d.getTime())); d.setDate(d.getDate() + 7); }
+    return out;
+  }
+  function heatRow(label, cellsHtml, avgHtml, extraCls) {
+    return '<div class="att-heat-row' + (extraCls ? ' ' + extraCls : '') + '"><div class="att-heat-year">' + label + '</div><div class="att-heat-cells">' + cellsHtml + '</div><div class="att-heat-avg">' + avgHtml + '</div></div>';
+  }
+  var rows = years.map(function(yr) {
+    var sundays = sundaysOf(yr).map(ymd);
+    var cells = '';
+    for (var c = 0; c < HEAT_COLS; c++) {
+      var ds = sundays[c];
+      if (!ds) { cells += '<div class="att-heat-cell heat-none"></div>'; continue; }
       var v = byDate[ds] || 0;
       var cls = v > 0 ? attHeatLevelClass(v, q1, q2, q3) : 'empty';
-      return '<div class="att-heat-cell heat-' + cls + '" title="' + ds + ': ' + (v || 'no data') + '"></div>';
-    }).join('');
+      cells += '<div class="att-heat-cell heat-' + cls + '" title="' + ds + ': ' + (v || 'no data') + '"></div>';
+    }
     var yrVals = sundays.map(function(ds) { return byDate[ds] || 0; }).filter(function(v) { return v > 0; });
     var avg = yrVals.length ? Math.round(yrVals.reduce(function(a, b) { return a + b; }, 0) / yrVals.length) : 0;
-    return '<div class="att-heat-row"><div class="att-heat-year">' + yr + '</div><div class="att-heat-cells">' + cells + '</div><div class="att-heat-avg">' + (avg || '&#8212;') + '</div></div>';
+    return heatRow(yr, cells, avg || '&#8212;');
   }).join('');
-  wrap.innerHTML = rows;
-  var monthTicks = MONTH_NAMES.map(function(m) { return '<span style="flex:1;text-align:center;">' + m + '</span>'; }).join('');
-  footEl.innerHTML = '<div style="display:flex;flex:1;">' + monthTicks + '</div>'
-    + '<div class="att-heat-legend">fewer '
+  // Month labels: each month's name sits over the column of its first Sunday (current year;
+  // other years differ by at most one column).
+  var monthAt = {};
+  sundaysOf(curYear).forEach(function(d, idx) { if (!(d.getMonth() in monthAt)) monthAt[d.getMonth()] = idx; });
+  var labelAt = {};
+  Object.keys(monthAt).forEach(function(m) { labelAt[monthAt[m]] = MONTH_NAMES[m]; });
+  var monthCells = '';
+  for (var mc = 0; mc < HEAT_COLS; mc++) {
+    monthCells += '<div class="att-heat-month">' + (labelAt[mc] ? '<span>' + labelAt[mc] + '</span>' : '') + '</div>';
+  }
+  wrap.innerHTML = rows + heatRow('', monthCells, '', 'att-heat-months');
+  footEl.innerHTML = '<div class="att-heat-legend">fewer '
     + '<span class="att-heat-legend-cell heat-1"></span><span class="att-heat-legend-cell heat-2"></span>'
     + '<span class="att-heat-legend-cell heat-3"></span><span class="att-heat-legend-cell heat-4"></span> fuller</div>';
 }

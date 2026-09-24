@@ -564,12 +564,17 @@ a.s-item{text-decoration:none;color:inherit;}
 .att-heat-cells{display:flex;gap:3px;flex:1;min-width:0;overflow-x:auto;}
 .att-heat-cell{height:22px;border-radius:3px;flex:1;min-width:6px;}
 .att-heat-cell.heat-empty,.att-heat-legend-cell.heat-empty{background:var(--att-heat-empty);}
+.att-heat-cell.heat-none{background:transparent;}
+.att-heat-months{margin-top:4px;}
+.att-heat-months .att-heat-cells{overflow:visible;}
+.att-heat-month{flex:1;min-width:6px;position:relative;height:14px;}
+.att-heat-month span{position:absolute;left:0;top:0;font-size:.72rem;color:var(--att-text-2);white-space:nowrap;}
 .att-heat-cell.heat-1,.att-heat-legend-cell.heat-1{background:var(--att-heat-1);}
 .att-heat-cell.heat-2,.att-heat-legend-cell.heat-2{background:var(--att-heat-2);}
 .att-heat-cell.heat-3,.att-heat-legend-cell.heat-3{background:var(--att-heat-3);}
 .att-heat-cell.heat-4,.att-heat-legend-cell.heat-4{background:var(--att-heat-4);}
 .att-heat-avg{font-size:.82rem;font-weight:700;color:var(--color-navy);width:44px;text-align:right;flex-shrink:0;}
-.att-heat-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding-left:46px;padding-right:44px;font-size:.72rem;color:var(--att-text-2);flex-wrap:wrap;gap:8px;}
+.att-heat-foot{display:flex;justify-content:flex-end;align-items:center;margin-top:6px;padding-left:46px;padding-right:52px;font-size:.72rem;color:var(--att-text-2);flex-wrap:wrap;gap:8px;}
 .att-heat-legend{display:flex;align-items:center;gap:4px;color:var(--att-text-3);}
 .att-heat-legend-cell{width:12px;height:12px;border-radius:2px;display:inline-block;}
 /* -- Recent Sundays -- */
