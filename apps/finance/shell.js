@@ -15,6 +15,7 @@ import { decodeJwtClaimsUnsafe } from './jwt-decode-unsafe.js';
 import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from './summary-service.js';
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage } from './parity-manifest.js';
+import { HEALTH_STYLES, renderHealthByEntity, renderHealthSummary, renderHealthViewToggle, resolveHealthView } from './health-pages.js';
 import { SHELL_STYLES, collapseDuplicateHeading, identityInitials, renderSectionNav, renderViewingAs } from './shell-layout.js';
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
 import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
@@ -712,6 +713,22 @@ function describeIncomingAccessJwt(accessJwt) {
   return claims ? { present: true, ...claims } : { present: true, malformed: true };
 }
 
+// Church income actual vs budget for the Summary's "Income vs. budget" card, from whichever
+// source Church Report itself resolved (live contract totals, or the labeled fixture rows). Null
+// when no budget is on file, so the card says unavailable instead of dividing by zero.
+function resolveIncomeVsBudget(churchReportLive) {
+  if (!churchReportLive || isSyntheticUnavailable(churchReportLive)) return null;
+  if (churchReportLive.source === 'live') {
+    const t = churchReportLive.totals || {};
+    return t.hasBudgetData && Number.isInteger(t.incomeBudgetCents) && t.incomeBudgetCents > 0 && Number.isInteger(t.incomeActualCents)
+      ? { actualCents: t.incomeActualCents, budgetCents: t.incomeBudgetCents } : null;
+  }
+  const income = (churchReportLive.rows || []).filter((row) => row.classification === 'Income');
+  const budgetCents = income.reduce((sum, row) => sum + (Number.isInteger(row.own_budget_cents) ? row.own_budget_cents : 0), 0);
+  const actualCents = income.reduce((sum, row) => sum + (Number.isInteger(row.own_actual_cents) ? row.own_actual_cents : 0), 0);
+  return budgetCents > 0 ? { actualCents, budgetCents } : null;
+}
+
 function renderEntityCards(entities) {
   return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)}</span></div>`).join('');
 }
@@ -848,6 +865,11 @@ function renderSectionBody(ctx) {
     if (!health.giving.reconciled) attentionItems.push('Giving totals do not reconcile yet — review before relying on them.');
     if (health.operating && health.operating.varianceCents < 0) attentionItems.push(`Operating result is ${formatSignedCents(health.operating.varianceCents)} behind budget.`);
     const unavailableNote = (what) => `<p class="status status-pending">${escapeHtml(what)} could not be read for this request. Nothing shown here is a real $0 or blank figure — see Data &amp; Imports.</p>`;
+    const healthView = resolveHealthView(ctx.healthView);
+    if (healthView === 'summary') {
+      return renderHealthSummary({ health, runway, mix, entities, incomeVsBudget: resolveIncomeVsBudget(churchReportLive), attentionItems });
+    }
+    if (healthView === 'entity') return renderHealthByEntity({ health, runway, entities });
     return `<section aria-label="Synthetic financial health">
       <div class="dashboard-intro"><div class="eyebrow">Dashboard</div><h2 class="dashboard-title">Are we okay?</h2><p>Four questions the council asks first — each one links to the report it came from.</p></div>
       <div class="section-heading"><div><div class="eyebrow">Needs your attention</div><h2>${attentionItems.length ? `${attentionItems.length} item${attentionItems.length === 1 ? '' : 's'} flagged` : 'Nothing flagged right now'}</h2></div><span class="badge">${attentionItems.length ? 'Review' : 'Clear'}</span></div>
@@ -1115,7 +1137,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/tlc-logo.png">
-  <style>${SHELL_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -1134,7 +1156,7 @@ function renderShell(ctx) {
       <div class="sidebar-foot">${production ? 'Production · Timothy Lutheran<br>Access verified through Connect' : 'Isolated staging environment<br>Test data may be present'}</div>
     </aside>
     <main>
-      <div class="page-head"><div><div class="eyebrow">${escapeHtml(group)}</div><h1 class="page-title">${escapeHtml(pageTitle)}</h1></div></div>
+      <div class="page-head"><div><div class="eyebrow">${escapeHtml(group)}</div><h1 class="page-title">${escapeHtml(pageTitle)}</h1></div>${section.id === 'health' ? renderHealthViewToggle(resolveHealthView(ctx.healthView), { councilPreview }) : ''}</div>
       ${roleNotice}
       ${councilNotice}
       ${sectionBody}
@@ -3051,6 +3073,7 @@ export default {
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
         return response(renderShell({
+          healthView: url.searchParams.get('view'),
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,

@@ -183,7 +183,7 @@ describe('Finance alpha staging shell', () => {
 
   it('renders a clearly labeled shell with no production connection claim', async () => {
     statements.length = 0;
-    const res = await worker.fetch(new Request('https://finance.test/'), env);
+    const res = await worker.fetch(new Request('https://finance.test/?view=detail'), env);
     const html = await res.text();
     expect(res.status).toBe(200);
     expect(html).toContain('Timothy Finance');
@@ -261,7 +261,7 @@ describe('Finance alpha staging shell', () => {
     // Only the active group is expanded.
     expect(html).not.toContain('Income &amp; expense detail');
     expect(html).toContain('<div class="eyebrow">Financial Health</div><h1 class="page-title">Financial Health</h1>');
-    expect(html).toContain('Synthetic financial health');
+    expect(html).toContain('aria-label="Financial health summary"');
 
     const church = await (await worker.fetch(new Request('https://finance.test/?section=church&page=trend'), env)).text();
     expect(church).toContain('<div class="nav-group is-open"><a class="nav-item is-active" href="/?section=church&amp;page=overview">Church<span class="nav-count">4</span></a>');
@@ -276,6 +276,37 @@ describe('Finance alpha staging shell', () => {
     // New v3 areas render honest unavailable pages until their storage ships.
     const facilities = await (await worker.fetch(new Request('https://finance.test/?section=facilities&page=assets'), env)).text();
     expect(facilities).toContain('no asset register');
+  });
+
+  it('offers the v3 Financial Health layouts: Summary by default, By entity, and Full detail', async () => {
+    const summary = await (await worker.fetch(new Request('https://finance.test/'), env)).text();
+    expect(summary).toContain('<span class="is-on" aria-current="true"><i>1a</i>Summary</span>');
+    expect(summary).toContain('<a href="/?section=health&amp;view=entity"><i>1b</i>By entity</a>');
+    expect(summary).toContain('Church surplus, year to date');
+    expect(summary).toMatch(/Church surplus, year to date<\/small><strong>\+\$[\d,]+<\/strong>/);
+    expect(summary).toContain('Operating cash runway');
+    expect(summary).toContain('45.0 mo');
+    expect(summary).toContain('Income vs. budget');
+    expect(summary).toContain('Net assets');
+    expect(summary).toContain('Where church income comes from');
+    expect(summary).toContain('Where church money goes');
+    expect(summary).toContain('href="/?section=daycare"');
+    expect(summary).toContain("Source data hasn't been reviewed in over 30 days");
+    expect(summary).not.toContain('Synthetic financial health');
+
+    const entity = await (await worker.fetch(new Request('https://finance.test/?section=health&view=entity'), env)).text();
+    expect(entity).toContain('aria-label="Financial health by entity"');
+    expect(entity).toContain('they sit side by side instead of being added together');
+    expect(entity).toContain('<div class="entity-band"><h2>Church</h2><span>FY2026</span></div>');
+    expect(entity).toContain('Open Commercial Property overview');
+    expect(entity).toContain('Total liabilities');
+
+    const detail = await (await worker.fetch(new Request('https://finance.test/?section=health&view=detail&council=1'), env)).text();
+    expect(detail).toContain('aria-label="Synthetic financial health"');
+    expect(detail).toContain('<a href="/?section=health&amp;view=summary&amp;council=1"><i>1a</i>Summary</a>');
+
+    const unknown = await (await worker.fetch(new Request('https://finance.test/?view=bogus'), env)).text();
+    expect(unknown).toContain('aria-label="Financial health summary"');
   });
 
   it('serves the self-hosted logo and fonts with a same-origin-only CSP', async () => {
@@ -320,7 +351,7 @@ describe('Finance alpha staging shell', () => {
   });
 
   it('discloses that role verification is unconfigured/unreachable rather than pretending to enforce it', async () => {
-    const html = await (await worker.fetch(new Request('https://finance.test/?section=health'), env)).text();
+    const html = await (await worker.fetch(new Request('https://finance.test/?section=health&view=detail'), env)).text();
     expect(html).toContain('Role verification unavailable in this environment (reason: not_configured)');
   });
 
@@ -332,7 +363,7 @@ describe('Finance alpha staging shell', () => {
     const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role: 'compensation' }), { status: 200 }));
     const req = (url) => new Request(url, { headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' } });
 
-    const denied = await worker.fetch(req('https://finance.test/?section=health'), roleEnv);
+    const denied = await worker.fetch(req('https://finance.test/?section=health&view=detail'), roleEnv);
     expect(denied.status).toBe(403);
     const deniedHtml = await denied.text();
     expect(deniedHtml).toContain('Access denied');
@@ -348,7 +379,7 @@ describe('Finance alpha staging shell', () => {
   it('denies member and volunteer roles every Finance section', async () => {
     for (const role of ['member', 'volunteer']) {
       const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role, permissions: DEFAULT_ROLE_PERMISSIONS[role] }), { status: 200 }));
-      const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+      const res = await worker.fetch(new Request('https://finance.test/?section=health&view=detail', {
         headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
       }), roleEnv);
       expect(res.status, role).toBe(403);
@@ -358,7 +389,7 @@ describe('Finance alpha staging shell', () => {
   it('permits the dashboard only with both accounting and giving access', async () => {
     for (const role of ['admin', 'finance', 'staff', 'council']) {
       const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role, permissions: DEFAULT_ROLE_PERMISSIONS[role] }), { status: 200 }));
-      const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+      const res = await worker.fetch(new Request('https://finance.test/?section=health&view=detail', {
         headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
       }), roleEnv);
       if (['staff', 'council'].includes(role)) { expect(res.status, role).toBe(403); continue; }
@@ -379,7 +410,7 @@ describe('Finance alpha staging shell', () => {
   describe('fails closed (403) on every role-verification failure except not_configured', () => {
     it('no_access_identity: CONNECT_SERVICE is configured but no Cf-Access-Jwt-Assertion header reached this deep', async () => {
       const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role: 'admin' }), { status: 200 }));
-      const res = await worker.fetch(new Request('https://finance.test/?section=health'), roleEnv);
+      const res = await worker.fetch(new Request('https://finance.test/?section=health&view=detail'), roleEnv);
       expect(res.status).toBe(403);
       const html = await res.text();
       expect(html).toContain('Access denied');
@@ -391,7 +422,7 @@ describe('Finance alpha staging shell', () => {
 
     it('network_error: the CONNECT_SERVICE fetch throws', async () => {
       const roleEnv = envWithRoleService(async () => { throw new Error('simulated network failure'); });
-      const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+      const res = await worker.fetch(new Request('https://finance.test/?section=health&view=detail', {
         headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
       }), roleEnv);
       expect(res.status).toBe(403);
@@ -400,7 +431,7 @@ describe('Finance alpha staging shell', () => {
 
     it('http_error: Connect answers with a non-200 status', async () => {
       const roleEnv = envWithRoleService(async () => new Response('server error', { status: 500 }));
-      const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+      const res = await worker.fetch(new Request('https://finance.test/?section=health&view=detail', {
         headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
       }), roleEnv);
       expect(res.status).toBe(403);
@@ -409,7 +440,7 @@ describe('Finance alpha staging shell', () => {
 
     it('invalid_json: Connect answers 200 with a body that is not valid JSON', async () => {
       const roleEnv = envWithRoleService(async () => new Response('not json at all', { status: 200 }));
-      const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+      const res = await worker.fetch(new Request('https://finance.test/?section=health&view=detail', {
         headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
       }), roleEnv);
       expect(res.status).toBe(403);
@@ -419,7 +450,7 @@ describe('Finance alpha staging shell', () => {
     it('invalid_role: Connect answers 200 with JSON that has no usable role string', async () => {
       for (const payload of [{ role: 123 }, {}, { role: '' }]) {
         const roleEnv = envWithRoleService(async () => new Response(JSON.stringify(payload), { status: 200 }));
-        const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+        const res = await worker.fetch(new Request('https://finance.test/?section=health&view=detail', {
           headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
         }), roleEnv);
         expect(res.status, JSON.stringify(payload)).toBe(403);
@@ -435,7 +466,7 @@ describe('Finance alpha staging shell', () => {
     it('still leaves not_configured (no CONNECT_SERVICE binding/key at all) failing open, unchanged', async () => {
       // Same request shape as the 'discloses that role verification is unconfigured/unreachable'
       // test above, confirmed again here so the two behaviors are visibly contrasted in one place.
-      const res = await worker.fetch(new Request('https://finance.test/?section=health'), env);
+      const res = await worker.fetch(new Request('https://finance.test/?section=health&view=detail'), env);
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain('Role verification unavailable in this environment (reason: not_configured)');
@@ -767,7 +798,7 @@ describe('Finance alpha staging shell', () => {
     }
 
     async function fetchHealth(testEnv) {
-      const res = await worker.fetch(new Request('https://finance.test/?section=health', {
+      const res = await worker.fetch(new Request('https://finance.test/?section=health&view=detail', {
         headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
       }), testEnv);
       return { res, html: await res.text() };
@@ -1550,7 +1581,7 @@ describe('Finance alpha staging shell', () => {
     // The Financial Health section renders from the same resolver and says so. A verified,
     // allowed role (Access JWT header + the role mock above) is required now that role
     // verification failing for any reason other than 'not_configured' fails closed.
-    const shellRes = await worker.fetch(new Request('https://finance.test/?section=health', {
+    const shellRes = await worker.fetch(new Request('https://finance.test/?section=health&view=detail', {
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), liveEnv);
     const html = await shellRes.text();
@@ -1655,7 +1686,7 @@ describe('Finance alpha staging shell', () => {
 
     it('renders a genuinely synthetic-only section (Financial Health) as 200 with honest "unavailable" panels, never a blank/zero or a 503', async () => {
       const emptyEnv = { ...env, FINANCE_DB: emptyFinanceDb };
-      const res = await worker.fetch(new Request('https://finance.test/?section=health'), emptyEnv);
+      const res = await worker.fetch(new Request('https://finance.test/?section=health&view=detail'), emptyEnv);
       // Before the fix: this 503'd with the generic "Synthetic staging data unavailable" -- every
       // one of Financial Health's several unconditional synthetic reads throws against this empty
       // database, and the single outer try/catch turned the first one into a full-page 503.
