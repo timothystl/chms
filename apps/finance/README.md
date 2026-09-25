@@ -38,9 +38,10 @@ projection (proposed salaries per method) is not yet ported, so the editor sets 
 showing their dollar effect.
 
 Remaining product gaps are distinct from storage cutover: some overview cards still use
-explicitly labeled fixture/unavailable fallbacks; compensation benchmark/benefit detail lacks a
-real source; standalone native Excel preview/select/commit parity is now complete for the annual
-and multi-period Church report and balance-sheet imports. Legacy Finance
+explicitly labeled fixture/unavailable fallbacks; the Commercial Property overview now reuses its
+reconciled live annual summary instead of re-summing nullable monthly rows; compensation
+benchmark/benefit detail lacks a real source; standalone native Excel preview/select/commit parity
+is now complete for the annual and multi-period Church report and balance-sheet imports. Legacy Finance
 screens are retained for functionality that the new UI has not yet replaced. No production
 fixture seeding or removal of working workflows is part of this cutover.
 
