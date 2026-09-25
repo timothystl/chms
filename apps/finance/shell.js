@@ -14,7 +14,8 @@ import { missingHours as payrollMissingHours } from './payroll-calc.js';
 import { decodeJwtClaimsUnsafe } from './jwt-decode-unsafe.js';
 import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from './summary-service.js';
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
-import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage, groupFinanceSections } from './parity-manifest.js';
+import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage } from './parity-manifest.js';
+import { SHELL_STYLES, collapseDuplicateHeading, identityInitials, renderSectionNav, renderViewingAs } from './shell-layout.js';
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
 import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
 import {
@@ -74,6 +75,7 @@ import { readSyntheticPropertyForecast, resolvePropertyForecast } from './proper
 import { readSyntheticCompensationBenchmarks } from './compensation-benchmark-service.js';
 import { readSyntheticCompensationBenefits } from './compensation-benefits-service.js';
 import { readSyntheticPropertyDistributions } from './property-distributions-service.js';
+import { BRAND_ASSETS, brandAssetBytes } from './brand-assets.js';
 import { escapeHtml, formatCents, formatSignedCents, renderDataUnavailablePage, renderUnavailableCard, renderUnavailablePage } from './render-helpers.js';
 import { isSyntheticUnavailable, safeSyntheticRead } from './synthetic-read-guard.js';
 import { renderChurchPage } from './church-pages.js';
@@ -130,7 +132,9 @@ const SECURITY_HEADERS = Object.freeze({
   // (see the 'giving' section below) has to submit somewhere. It still can't target any other
   // origin. Nothing else here changed -- still no script-src of any kind, so no inline or
   // external JS can run on this page regardless.
-  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+  // img-src/font-src 'self' only admit the logo and fonts served by this Worker itself
+  // (brand-assets.js) -- still no third-party origins and no script of any kind.
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff',
@@ -138,9 +142,11 @@ const SECURITY_HEADERS = Object.freeze({
   'X-Robots-Tag': 'noindex, nofollow',
 });
 
-function response(body, init = {}) {
+function response(body, init = {}, { cacheControl } = {}) {
   const headers = new Headers(init.headers);
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
+  // Static brand assets (logo, fonts) are the only responses allowed to be cached.
+  if (cacheControl) headers.set('Cache-Control', cacheControl);
   return new Response(body, { ...init, headers });
 }
 
@@ -706,43 +712,6 @@ function describeIncomingAccessJwt(accessJwt) {
   return claims ? { present: true, ...claims } : { present: true, malformed: true };
 }
 
-function renderSectionNav(activeSection, activePage) {
-  const renderPages = (section, isActiveSection) => `<div class="nav-pages">${section.pages.map((page) =>
-    `<a href="/?section=${section.id}&amp;page=${page.id}"${isActiveSection && page.id === activePage.id ? ' aria-current="page"' : ''}>${escapeHtml(page.label)}</a>`
-  ).join('')}</div>`;
-
-  return groupFinanceSections(FINANCE_PARITY_SECTIONS).map(({ group, sections }) => {
-    // Most groups wrap exactly one section, so labeling both the group ("Church") and the
-    // section ("Church Report") would just repeat the same idea -- only Accounts & Data
-    // actually bundles more than one distinct section under one label, so only there does the
-    // section get its own sub-label beneath the group's.
-    if (sections.length === 1) {
-      const [section] = sections;
-      const isActiveSection = section.id === activeSection.id;
-      const body = section.pages.length <= 1
-        ? `<a href="/?section=${section.id}"${isActiveSection ? ' aria-current="page"' : ''}>${section.label}</a>`
-        : renderPages(section, isActiveSection);
-      return `<div class="nav-group">
-        <div class="nav-group-label">${escapeHtml(group)}</div>
-        ${body}
-      </div>`;
-    }
-    return `<div class="nav-group">
-      <div class="nav-group-label">${escapeHtml(group)}</div>
-      ${sections.map((section) => {
-        const isActiveSection = section.id === activeSection.id;
-        if (section.pages.length <= 1) {
-          return `<a href="/?section=${section.id}"${isActiveSection ? ' aria-current="page"' : ''}>${section.label}</a>`;
-        }
-        return `<div class="nav-section">
-          <div class="nav-section-label${isActiveSection ? ' is-active' : ''}">${section.label}</div>
-          ${renderPages(section, isActiveSection)}
-        </div>`;
-      }).join('')}
-    </div>`;
-  }).join('');
-}
-
 function renderEntityCards(entities) {
   return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)}</span></div>`).join('');
 }
@@ -1127,152 +1096,52 @@ function renderShell(ctx) {
       reason: 'This section could not be rendered because required data was unavailable for this request. Nothing else on this page was affected.',
     });
   }
+  const group = section.group || section.label;
+  const pageTitle = section.pages.length <= 1 ? section.label : page.label;
+  sectionBody = collapseDuplicateHeading(sectionBody, pageTitle);
+  const initials = roleResult && roleResult.ok ? identityInitials(roleResult.identity) : '';
+  const roleNotice = !roleResult || !roleResult.ok
+    ? `<div class="notice"><b>Role check</b><span>Role verification unavailable in this environment${roleResult && roleResult.reason ? ` (reason: ${escapeHtml(roleResult.reason)})` : ''} -- section access is not currently restricted by verified role for this request.</span></div>`
+    : roleResult.role === 'compensation'
+      ? '<div class="notice"><b>Role check</b><span>Verified via Connect as role “compensation” -- restricted to the Compensation Planner section only.</span></div>'
+      : '';
+  const councilNotice = councilPreview
+    ? `<div class="notice"><b>Council view</b><span>Editing controls are hidden for this preview. Your actual verified permissions still apply; this does not impersonate a council account or change data visibility.</span><a href="/?section=${section.id}&amp;page=${page.id}">Exit preview</a></div>`
+    : '';
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
-  <style>
-    :root { color-scheme: light; font-family: "DM Sans", "Source Sans 3", Arial, sans-serif; --navy:#1e2d4a; --teal:#2e7ea6; --gold:#c9973a; --charcoal:#1a1a2a; --warm-gray:#8a8377; --warm-meta:#8a7a5c; --warm-label:#5c4b2e; --border:#e5d9be; --divider:#f1e7d2; --page:#fbf8f1; --header:#fbf3e1; --card:#fffdf9; --sage:#6b8f71; }
-    * { box-sizing: border-box; }
-    body { min-height: 100vh; margin: 0; background: var(--page); color: var(--charcoal); }
-    .app-shell { display:grid; grid-template-columns:15.5rem minmax(0,1fr); min-height:100vh; }
-    .app-sidebar { background:var(--navy); color:#fff; display:flex; flex-direction:column; position:sticky; top:0; height:100vh; overflow-y:auto; }
-    .sidebar-brand { min-height:4.5rem; display:flex; align-items:center; gap:.75rem; padding:.9rem 1.1rem; border-bottom:1px solid rgba(255,255,255,.12); font-family:Georgia,serif; font-size:1.02rem; font-weight:700; }
-    .sidebar-brand small { display:block; color:rgba(255,255,255,.65); font-family:Arial,sans-serif; font-size:.66rem; letter-spacing:.12em; text-transform:uppercase; margin-top:.12rem; }
-    .mark { width:2.2rem; height:2.2rem; flex:0 0 auto; display:grid; place-items:center; border:1px solid rgba(255,255,255,.45); border-radius:50%; color:#f5e0b0; font-size:1.2rem; }
-    .sidebar-foot { margin-top:auto; padding:.85rem 1.1rem; border-top:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.55); font-size:.68rem; line-height:1.5; }
-    main { width:min(72rem,calc(100% - 2rem)); margin:0 auto; padding:2.3rem 0 3rem; }
-    .eyebrow { color:var(--warm-meta); font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
-    h1 { margin:.35rem 0 .55rem; color:var(--navy); font-family:Georgia,serif; font-size:clamp(2.1rem,6vw,3.2rem); line-height:1; }
-    p { color:var(--warm-gray); line-height:1.6; }
-    .status { margin-top:1.2rem; padding:.75rem 1rem; border-left:4px solid var(--sage); border-radius:.55rem; background:#edf3ee; color:#4a6e52; font-size:.84rem; font-weight:700; }
-    .status-error { border-left-color:#b23b3b; background:#fbeceb; color:#8a2f2f; }
-    form { margin-top:1.25rem; }
-    .form-grid { margin-top:0; }
-    .field { display:flex; flex-direction:column; gap:.3rem; margin-top:1rem; }
-    .field:first-child { margin-top:0; }
-    label { color:var(--warm-label); font-size:.72rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
-    input, select { padding:.6rem .75rem; border:1px solid var(--border); border-radius:.55rem; background:var(--card); color:var(--charcoal); font-size:.9rem; font-family:inherit; }
-    button { margin-top:1.4rem; padding:.75rem 1.4rem; border:none; border-radius:.6rem; background:var(--navy); color:#fff; font-size:.85rem; font-weight:700; cursor:pointer; }
-    button:hover { background:#16233b; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(12rem,1fr)); gap:1rem; margin-top:1.25rem; }
-    .card { padding:1.15rem 1.25rem; border-top:4px solid var(--teal); border-radius:1.1rem; background:var(--card); box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05); }
-    .card small { display:block; color:var(--warm-meta); margin-bottom:.4rem; font-size:.7rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
-    .card strong { color:var(--charcoal); font-size:1.65rem; font-variant-numeric:tabular-nums; }
-    .card span, .decision span { display:block; margin-top:.45rem; color:var(--warm-gray); font-size:.76rem; line-height:1.45; }
-    .section-heading { display:flex; justify-content:space-between; gap:1rem; align-items:end; margin-top:1.4rem; }
-    .section-heading h2 { margin:.25rem 0 0; color:var(--navy); font-family:Georgia,serif; font-size:1.75rem; }
-    .badge { padding:.35rem .7rem; border-radius:999px; background:#eaf4fa; color:var(--teal); font-size:.72rem; font-weight:700; }
-    .decision-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:.75rem; margin-top:.75rem; }
-    .decision { padding:1rem; border:1px solid var(--border); border-left:4px solid var(--gold); background:var(--card); border-radius:.75rem; }
-    .decision small, .decision b { display:block; }
-    .decision small { color:var(--warm-meta); text-transform:uppercase; font-size:.68rem; font-weight:700; }
-    .decision b { color:var(--navy); margin-top:.25rem; }
-    .table-wrap { overflow-x:auto; margin-top:1rem; border:1px solid var(--border); border-radius:.85rem; background:var(--card); }
-    table { width:100%; border-collapse:collapse; font-size:.82rem; }
-    th, td { padding:.75rem .85rem; border-bottom:1px solid var(--divider); text-align:left; }
-    th:nth-child(n+3), td:nth-child(n+3) { text-align:right; font-variant-numeric:tabular-nums; }
-    th { color:var(--warm-label); background:var(--header); font-size:.68rem; letter-spacing:.05em; text-transform:uppercase; }
-    nav { flex:1; overflow-y:auto; padding:.6rem .55rem 1rem; }
-    .nav-group { margin-bottom:.35rem; }
-    .nav-group-label { padding:.5rem .65rem .3rem; color:rgba(255,255,255,.5); font-size:.66rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
-    .nav-section { margin-top:.15rem; }
-    .nav-section-label { padding:.3rem .65rem; color:rgba(255,255,255,.65); font-size:.76rem; font-weight:700; }
-    .nav-section-label.is-active { color:#fff; }
-    .nav-pages { display:flex; flex-direction:column; }
-    nav a { display:block; padding:.55rem .65rem; margin:1px 0; border-radius:.5rem; color:rgba(255,255,255,.78); text-decoration:none; font-size:.82rem; font-weight:600; }
-    .nav-pages a { padding:.4rem .65rem .4rem 1.2rem; font-size:.78rem; font-weight:500; }
-    nav a[aria-current="page"] { background:rgba(255,255,255,.14); color:#fff; }
-    .dashboard-intro { margin-bottom:.25rem; }
-    .dashboard-title { margin:.25rem 0 0; color:var(--navy); font-family:Georgia,serif; font-size:clamp(1.8rem,5vw,2.6rem); line-height:1.1; }
-    .attention-list { margin:.75rem 0 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:.5rem; }
-    .attention-list li { padding:.75rem 1rem; border:1px solid var(--border); border-left:4px solid var(--gold); border-radius:.55rem; background:var(--card); color:var(--warm-label); font-size:.84rem; }
-    .status-pending { border-left-color:var(--warm-gray); background:var(--header); color:var(--warm-label); }
-    .council-banner { display:flex; align-items:center; gap:.6rem; margin-top:1.1rem; padding:.75rem 1rem; border:1px solid var(--gold); border-radius:.6rem; background:#fdf8ec; color:#5c4b2e; font-size:.82rem; }
-    .council-pill { padding:.2rem .55rem; border-radius:99px; background:var(--gold); color:#241a05; font-size:.66rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
-    .council-toggle { margin-left:auto; padding:.4rem .7rem; border:1px solid var(--border); border-radius:.5rem; background:var(--card); color:var(--navy); font-size:.76rem; font-weight:700; text-decoration:none; }
-    body.council-preview form[method="POST"] { display:none; }
-    .parity { margin-top:1.25rem; padding:1.25rem; border:1px solid var(--border); border-radius:.85rem; background:var(--card); }
-    .parity h2 { margin:0 0 .5rem; }
-    .parity ul { columns:2; color:var(--warm-gray); line-height:1.8; }
-    footer { margin-top:2rem; padding-top:1rem; border-top:1px solid var(--border); color:var(--warm-meta); font-size:.75rem; }
-    @media(max-width:767px){.app-shell{grid-template-columns:1fr}.app-sidebar{position:static;height:auto}nav{display:flex;flex-wrap:wrap;gap:.25rem;padding:.6rem}.nav-group,.nav-section,.nav-pages{display:contents}.nav-group-label,.nav-section-label{display:none}main{width:min(100% - 1.2rem,72rem);padding-top:1.4rem}.section-heading{align-items:start;flex-direction:column}.grid{grid-template-columns:1fr}.parity ul{columns:1}}
-    /* ── Payroll ── */
-    .pay-toolbar { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:1rem; }
-    .pay-toolbar select { min-width:14rem; }
-    .pay-tab { padding:.55rem .9rem; border:1px solid var(--border); border-radius:.6rem; background:var(--card); color:var(--warm-label); font-size:.78rem; font-weight:700; text-decoration:none; }
-    .pay-tab.is-on { border-color:var(--teal); background:#e4eef4; color:var(--navy); }
-    .pay-note { display:block; color:var(--warm-meta); font-size:.76rem; margin-top:.2rem; }
-    .pay-pill { display:inline-block; padding:.2rem .6rem; border-radius:999px; font-size:.68rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
-    .pay-pill-good { background:#eaf1e5; color:#3b4c2e; }
-    .pay-pill-warn { background:#fbf1dc; color:#7a5b18; }
-    .pay-pill-plain { background:#f1efea; color:#6a6858; }
-    .pay-in { width:5.5rem; padding:.4rem .5rem; text-align:right; font-size:.85rem; }
-    .pay-in[readonly] { background:var(--header); }
-    .pay-group { margin:1.4rem 0 .6rem; color:var(--warm-meta); font-size:.7rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
-    .pay-card { border:1px solid var(--border); border-radius:.85rem; overflow:hidden; background:var(--card); margin-top:.85rem; }
-    .pay-card-bar { padding:.65rem 1rem; background:var(--header); color:var(--warm-label); font-size:.7rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; caption-side:top; text-align:left; }
-    .pay-li { display:flex; justify-content:space-between; gap:1rem; padding:.55rem 1rem; border-bottom:1px solid var(--divider); font-size:.85rem; }
-    .pay-li:last-child { border-bottom:0; }
-    .pay-li.muted { color:var(--warm-meta); }
-    .pay-li.neg { color:#8a4a4a; }
-    .pay-li.total { background:var(--header); font-weight:700; }
-    .pay-combined { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:1rem; padding:1rem 1.2rem; border:1px solid var(--gold); border-radius:.85rem; background:#fdf8ec; }
-    .pay-combined b { margin-left:auto; font-size:1.5rem; color:var(--navy); }
-    .pay-warn { margin-top:1rem; padding:.85rem 1rem; border:1px solid #e4c8c8; border-radius:.6rem; background:#faefef; color:#8a4a4a; font-size:.85rem; }
-    .pay-foot { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-top:1rem; padding-top:1rem; border-top:1px solid var(--border); }
-    .pay-approve { background:var(--gold); color:#1b1608; }
-    .pay-approve.is-done { background:var(--card); color:var(--navy); border:1px solid var(--border); }
-    #pay-print { display:none; }
-    .pt-header h2 { margin:0; font-size:1.05rem; color:var(--navy); }
-    .pt-period { color:var(--warm-meta); font-size:.75rem; }
-    .pt-section { margin:.85rem 0; }
-    .pt-section-label { font-size:.68rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--warm-meta); border-bottom:1.5px solid var(--border); padding-bottom:.15rem; margin-bottom:.25rem; }
-    .pt-table { width:100%; border-collapse:collapse; font-size:.78rem; }
-    .pt-table th { text-align:left; padding:.2rem .5rem; background:var(--header); font-size:.65rem; text-transform:uppercase; }
-    .pt-table td { padding:.2rem .5rem; }
-    .pt-table .pt-num { text-align:right; font-variant-numeric:tabular-nums; }
-    .pt-table .pt-sub td { font-weight:700; background:var(--header); }
-    .pt-total { display:flex; justify-content:space-between; margin-top:.6rem; padding:.55rem .75rem; border-radius:.5rem; background:var(--navy); color:#fff; font-weight:700; }
-    .pt-warn { margin:0 0 .75rem; padding:.55rem .75rem; border:1px solid #e4c8c8; border-radius:.5rem; background:#faefef; color:#8a4a4a; font-size:.78rem; }
-    @media print {
-      .app-sidebar, nav, .pay-toolbar, form, .status, footer, h1, .eyebrow, main > p:first-of-type { display:none !important; }
-      .app-shell { display:block; }
-      #pay-print { display:block !important; }
-    }
-  </style>
+  <link rel="icon" href="/assets/tlc-logo.png">
+  <style>${SHELL_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
+  <header class="app-header">
+    <div class="app-header-row">
+      <a class="sidebar-brand" href="/"><img src="/assets/tlc-logo.png" alt="Timothy Lutheran Church" width="40" height="40"><span class="brand-text"><span class="brand-name">Timothy Finance</span><span class="brand-sub">Timothy Lutheran · St. Louis</span></span></a>
+      ${production ? '' : '<span class="env-pill" title="Isolated staging environment. Test data may be present.">Staging workspace</span>'}
+      <div class="header-right">
+        ${renderViewingAs(section, page, { roleResult, councilPreview })}
+        ${initials ? `<span class="avatar" title="${escapeHtml(roleResult.identity)}">${escapeHtml(initials)}</span>` : ''}
+      </div>
+    </div>
+  </header>
   <div class="app-shell">
     <aside class="app-sidebar">
-      <div class="sidebar-brand"><span class="mark" aria-hidden="true">T</span><div>Timothy Finance<small>Standalone · alpha</small></div></div>
-      <nav aria-label="Finance workspace">${renderSectionNav(section, page)}</nav>
+      <nav aria-label="Finance workspace">${renderSectionNav(section, page, { roleResult, councilPreview })}</nav>
       <div class="sidebar-foot">${production ? 'Production · Timothy Lutheran<br>Access verified through Connect' : 'Isolated staging environment<br>Test data may be present'}</div>
     </aside>
     <main>
-      <div class="eyebrow">${production ? 'Production' : 'Isolated staging environment'}</div>
-      <h1>Timothy Finance</h1>
-      <p>${production ? 'Church financial reports, planning, and approved workflows. Each report identifies its data source and availability.' : 'Testing environment. Data sources and unavailable features are identified within each report.'}</p>
-      <div class="status">${production ? 'Production workspace' : 'Staging workspace'}</div>
-      <div class="council-banner">
-        <span class="council-pill">Role check</span>
-        ${!roleResult || !roleResult.ok
-          ? `<span>Role verification unavailable in this environment${roleResult && roleResult.reason ? ` (reason: ${escapeHtml(roleResult.reason)})` : ''} -- section access is not currently restricted by verified role for this request.</span>`
-          : roleResult.role === 'compensation'
-            ? `<span>Verified via Connect as role “compensation” -- restricted to the Compensation Planner section only.</span>`
-            : `<span>Verified via Connect as role “${escapeHtml(roleResult.role)}”.</span>`}
-      </div>
-      <div class="council-banner">
-        <span class="council-pill">Council view</span>
-        ${councilPreview
-          ? `<span>Editing controls are hidden for this preview. Your actual verified permissions still apply; this does not impersonate a council account or change data visibility.</span><a class="council-toggle" href="/?section=${section.id}&amp;page=${page.id}">Exit preview</a>`
-          : `<span>Your verified role controls access. This preview only hides editing controls; it does not change your permissions.</span><a class="council-toggle" href="/?section=${section.id}&amp;page=${page.id}&amp;council=1">Preview council view</a>`}
-      </div>
+      <div class="page-head"><div><div class="eyebrow">${escapeHtml(group)}</div><h1 class="page-title">${escapeHtml(pageTitle)}</h1></div></div>
+      ${roleNotice}
+      ${councilNotice}
       ${sectionBody}
-      <p><small>Report labels identify live data, test fixtures, and unavailable sections. Unavailable data is never a zero balance. Giving remains in Connect; payroll remains in Website.</small></p>
-      <footer>Timothy Lutheran Church · ${release}${production ? ' · <a href="https://connect.timothystl.org/#finance">Advanced accounting tools</a>' : ''}</footer>
+      <div class="page-foot">
+        <p>Report labels identify live data, test fixtures, and unavailable sections. Unavailable data is never a zero balance. Giving remains in Connect; payroll remains in Website.</p>
+        <div>Timothy Lutheran Church · ${release}${production ? ' · <a href="https://connect.timothystl.org/#finance">Advanced accounting tools</a>' : ''}</div>
+      </div>
     </main>
   </div>
 </body>
@@ -1323,6 +1192,13 @@ export default {
         status: 405,
         headers: { 'Content-Type': 'application/json; charset=utf-8', Allow: route.methods.join(', ') },
       });
+    }
+
+    if (route.id === 'brand-asset') {
+      const asset = BRAND_ASSETS[url.pathname];
+      return response(request.method === 'HEAD' ? null : brandAssetBytes(asset), {
+        headers: { 'Content-Type': asset.contentType },
+      }, { cacheControl: 'public, max-age=86400' });
     }
 
     if (route.id === 'health') {

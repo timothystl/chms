@@ -12,6 +12,7 @@ describe('Finance interface parity manifest', () => {
       { id: 'balance', label: 'Balance Sheet', permission: 'finance' },
       { id: 'daycare', label: 'Daycare Report', permission: 'finance' },
       { id: 'property', label: 'Commercial Property', permission: 'finance' },
+      { id: 'facilities', label: 'Facilities', permission: 'finance' },
       { id: 'planning', label: 'Budget', permission: 'budget' },
       { id: 'compensation', label: 'Compensation', permission: 'compensation' },
       { id: 'quickbooks', label: 'QuickBooks', permission: 'finance' },
@@ -19,6 +20,7 @@ describe('Finance interface parity manifest', () => {
       { id: 'accounts', label: 'Chart of Accounts', permission: 'finance' },
       { id: 'data', label: 'Data & Imports', permission: 'finance' },
       { id: 'payroll', label: 'Payroll', permission: 'admin' },
+      { id: 'hr', label: 'HR & Staff', permission: 'admin' },
     ]);
   });
 
@@ -30,7 +32,7 @@ describe('Finance interface parity manifest', () => {
 
   it('groups sidebar sections into the Finance App redesign categories, in a fixed order', () => {
     expect(groupFinanceSections().map(({ group, sections }) => ({ group, ids: sections.map((s) => s.id) }))).toEqual([
-      { group: 'Dashboard', ids: ['health'] },
+      { group: 'Financial Health', ids: ['health'] },
       { group: 'Gift Entry', ids: ['giving'] },
       { group: 'Giving', ids: ['giving-analytics'] },
       { group: 'Charts', ids: ['charts'] },
@@ -38,9 +40,11 @@ describe('Finance interface parity manifest', () => {
       { group: 'Balance Sheet', ids: ['balance'] },
       { group: 'Daycare', ids: ['daycare'] },
       { group: 'Commercial Property', ids: ['property'] },
+      { group: 'Facilities', ids: ['facilities'] },
       { group: 'Planning', ids: ['planning'] },
       { group: 'Compensation', ids: ['compensation'] },
       { group: 'Payroll', ids: ['payroll'] },
+      { group: 'HR & Staff', ids: ['hr'] },
       { group: 'QuickBooks', ids: ['quickbooks'] },
       { group: 'Board packet', ids: ['packet'] },
       { group: 'Accounts & Data', ids: ['accounts', 'data'] },

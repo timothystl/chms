@@ -175,7 +175,8 @@ describe('Finance alpha staging shell', () => {
     const productionEnv={...env,ENVIRONMENT:'production',FINANCE_CONTRACT_API_KEY:'test',CONNECT_SERVICE:{fetch:async request=>new URL(request.url).pathname==='/api/contracts/staff-role-v1'?new Response(JSON.stringify({role:'admin',identity:'office@example.com'})):new Response('{}',{status:503})}};
     const res=await worker.fetch(new Request('https://finance.test/',{headers:{'Cf-Access-Jwt-Assertion':'test'}}),productionEnv);
     const html=await res.text();expect(res.status).toBe(200);
-    expect(html).toContain('<title>Timothy Finance</title>');expect(html).toContain('Production workspace');
+    expect(html).toContain('<title>Timothy Finance</title>');expect(html).toContain('Production · Timothy Lutheran');expect(html).not.toContain('Staging workspace');
+    expect(html).toContain('<span class="avatar" title="office@example.com">OF</span>');
     expect(html).not.toContain('No production writers attached');expect(html).not.toContain('Every value besides Giving');
     expect(html).toContain('Advanced accounting tools');
   });
@@ -246,33 +247,64 @@ describe('Finance alpha staging shell', () => {
     expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
   });
 
-  it('renders the familiar Finance navigation grouped by sidebar section and safely falls back to Financial Health', async () => {
+  it('renders the v3 sidebar, one entry per design group, and safely falls back to Financial Health', async () => {
     const res = await worker.fetch(new Request('https://finance.test/?section=missing'), env);
     const html = await res.text();
-    // Financial Health kept its flat single-page link (only Dashboard/Payroll/Board packet do);
-    // every other former flat-tab section is now a page picker under its own group label.
-    expect(html).toContain('Financial Health');
-    expect(html).toContain('Data & Imports');
     for (const group of [
-      'Dashboard', 'Gift Entry', 'Giving', 'Charts', 'Church', 'Balance Sheet', 'Daycare',
-      'Commercial Property', 'Planning', 'Compensation', 'Payroll', 'QuickBooks', 'Board packet',
-      'Accounts &amp; Data',
-    ]) {
-      expect(html).toContain(`class="nav-group-label">${group}<`);
-    }
-    // A representative page link from each of those groups actually renders under it.
-    for (const pageLabel of [
-      'Overview', 'Income &amp; expense detail', 'Position', 'Actuals detail', 'Rent roll',
-      'Budget builder', 'Plan', 'Sync status', 'Chart of accounts',
-    ]) expect(html).toContain(pageLabel);
-    expect(html).toContain('href="/?section=health" aria-current="page"');
+      'Gift Entry', 'Giving', 'Charts', 'Church', 'Balance Sheet', 'Daycare', 'Commercial Property',
+      'Facilities', 'Planning', 'Compensation', 'HR &amp; Staff', 'QuickBooks', 'Accounts &amp; Data',
+    ]) expect(html).toMatch(new RegExp(`class="nav-item" href="[^"]+">${group}<span class="nav-count">\\d+</span>`));
+    // Single-page groups are plain links; the active one is marked current.
+    expect(html).toContain('<a class="nav-item is-active" href="/?section=health" aria-current="page">Financial Health</a>');
+    expect(html).toContain('<a class="nav-item" href="/?section=payroll">Payroll</a>');
+    expect(html).toContain('<a class="nav-item" href="/?section=packet">Board packet</a>');
+    // Only the active group is expanded.
+    expect(html).not.toContain('Income &amp; expense detail');
+    expect(html).toContain('<div class="eyebrow">Financial Health</div><h1 class="page-title">Financial Health</h1>');
     expect(html).toContain('Synthetic financial health');
+
+    const church = await (await worker.fetch(new Request('https://finance.test/?section=church&page=trend'), env)).text();
+    expect(church).toContain('<div class="nav-group is-open"><a class="nav-item is-active" href="/?section=church&amp;page=overview">Church<span class="nav-count">4</span></a>');
+    expect(church).toContain('<a href="/?section=church&amp;page=trend" aria-current="page">Multi-year trend</a>');
+    expect(church).toContain('<h1 class="page-title">Multi-year trend</h1>');
+
+    // Accounts & Data folds two sections under one entry, listing both.
+    const data = await (await worker.fetch(new Request('https://finance.test/?section=data'), env)).text();
+    expect(data).toContain('<a href="/?section=accounts&amp;page=chart">Chart of accounts</a>');
+    expect(data).toContain('<a href="/?section=data" aria-current="page">Data &amp; Imports</a>');
+
+    // New v3 areas render honest unavailable pages until their storage ships.
+    const facilities = await (await worker.fetch(new Request('https://finance.test/?section=facilities&page=assets'), env)).text();
+    expect(facilities).toContain('no asset register');
+  });
+
+  it('serves the self-hosted logo and fonts with a same-origin-only CSP', async () => {
+    const page = await worker.fetch(new Request('https://finance.test/'), env);
+    expect(page.headers.get('Content-Security-Policy')).toContain("img-src 'self'; font-src 'self'");
+    expect(page.headers.get('Content-Security-Policy')).not.toMatch(/script-src|https?:/);
+    expect(page.headers.get('Cache-Control')).toBe('no-store');
+    for (const [path, type] of [['/assets/tlc-logo.png', 'image/png'], ['/assets/fonts/outfit.woff2', 'font/woff2'], ['/assets/fonts/figtree.woff2', 'font/woff2']]) {
+      const res = await worker.fetch(new Request(`https://finance.test${path}`), env);
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('Content-Type')).toBe(type);
+      expect(res.headers.get('Cache-Control')).toBe('public, max-age=86400');
+      expect((await res.arrayBuffer()).byteLength).toBeGreaterThan(1000);
+    }
+    expect((await worker.fetch(new Request('https://finance.test/assets/other.png'), env)).status).toBe(404);
+  });
+
+  it('hides sections a verified role cannot open from the sidebar', async () => {
+    const roleEnv = envWithRoleService(async () => new Response(JSON.stringify({ role: 'finance', permissions: DEFAULT_ROLE_PERMISSIONS.finance }), { status: 200 }));
+    const html = await (await worker.fetch(new Request('https://finance.test/?section=church', { headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' } }), roleEnv)).text();
+    expect(html).toContain('>Church<span class="nav-count">');
+    expect(html).not.toContain('>HR &amp; Staff<');
+    expect(html).not.toContain('href="/?section=payroll"');
   });
 
   it('offers a clearly-labeled, non-authoritative council-view preview that hides write forms', async () => {
     const off = await (await worker.fetch(new Request('https://finance.test/?section=giving'), env)).text();
     expect(off).not.toContain('class="council-preview"');
-    expect(off).toContain('Your verified role controls access');
+    expect(off).toContain('title="Preview council view: hides editing controls without changing permissions">Council</a>');
     expect(off).toContain('href="/?section=giving&amp;page=quick-entry&amp;council=1"');
     expect(off).toContain('<form method="POST" action="/api/v1/connect-giving-quick-entry">');
 
@@ -281,6 +313,8 @@ describe('Finance alpha staging shell', () => {
     expect(on).toContain('Your actual verified permissions still apply');
     expect(on).toContain('Editing controls are hidden');
     expect(on).toContain('Exit preview');
+    // Navigating while previewing keeps the preview on.
+    expect(on).toContain('href="/?section=church&amp;page=overview&amp;council=1"');
     // The form itself still renders (its fields are real content); council-preview.css hides it.
     expect(on).toContain('body.council-preview form[method="POST"] { display:none; }');
   });
@@ -330,7 +364,8 @@ describe('Finance alpha staging shell', () => {
       if (['staff', 'council'].includes(role)) { expect(res.status, role).toBe(403); continue; }
       expect(res.status, role).toBe(200);
       const html = await res.text();
-      expect(html, role).toContain(`Verified via Connect as role “${role}”.`);
+      expect(html, role).toContain(`<span class="viewing-label">Viewing as</span><div class="segmented"><span class="is-on" aria-current="true">${role === 'admin' ? 'Admin' : 'Finance'}</span>`);
+      expect(html, role).not.toContain('Role verification unavailable');
     }
   });
 
