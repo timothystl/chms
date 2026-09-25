@@ -1421,33 +1421,27 @@ export const HTML_TABS_2 = String.raw`
 <!-- ═══ HOUSEHOLD VIEW ═══ -->
 <div id="household-view">
   <div class="topbar">
-    <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-    <span class="topbar-back" onclick="closeHouseholdView()">&#8592; Households</span>
-    <span id="hv-topbar-name" style="font-size:15px;font-weight:500;color:var(--charcoal);margin-left:8px;"></span>
-    <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
-      <button class="btn-outline-cream require-edit" id="hv-edit-btn">Edit</button>
-    </div>
+    <button class="hamburger" onclick="openSidebar()" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg><span>Menu</span></button>
+    <a href="#" class="topbar-back" onclick="event.preventDefault();closeHouseholdView()"><svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>Households</a>
+    <span id="hv-topbar-name" class="pv-topbar-name"></span>
   </div>
   <div class="pv-body">
     <div id="hv-info"></div>
   </div>
-  <div class="pv2-toast" id="hv-toast"><span class="ck">&#10003;</span> Changes saved</div>
+  <div class="pv2-toast" id="hv-toast" role="status" aria-live="polite">Saved</div>
 </div>
 
 <!-- ═══ ORGANIZATION VIEW (full page, mirrors Household View) ═══ -->
 <div id="organization-view">
   <div class="topbar">
-    <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-    <span class="topbar-back" onclick="closeOrganizationView()">&#8592; Organizations</span>
-    <span id="ov-topbar-name" style="font-size:15px;font-weight:500;color:var(--charcoal);margin-left:8px;"></span>
-    <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
-      <button class="btn-outline-cream require-edit" id="ov-edit-btn">Edit</button>
-    </div>
+    <button class="hamburger" onclick="openSidebar()" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg><span>Menu</span></button>
+    <a href="#" class="topbar-back" onclick="event.preventDefault();closeOrganizationView()"><svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>Organizations</a>
+    <span id="ov-topbar-name" class="pv-topbar-name"></span>
   </div>
   <div class="pv-body">
     <div id="ov-info"></div>
   </div>
-  <div class="pv2-toast" id="ov-toast"><span class="ck">&#10003;</span> Changes saved</div>
+  <div class="pv2-toast" id="ov-toast" role="status" aria-live="polite">Saved</div>
 </div>
 
 <!-- ═══ TUITION AID PLANNER TAB ═══ -->
