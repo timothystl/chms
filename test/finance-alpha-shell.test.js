@@ -304,7 +304,9 @@ describe('Finance alpha staging shell', () => {
     expect(entity).toContain('Total liabilities');
 
     const detail = await (await worker.fetch(new Request('https://finance.test/?section=health&view=detail&council=1'), env)).text();
-    expect(detail).toContain('aria-label="Synthetic financial health"');
+    expect(detail).toContain('aria-label="Financial health detail"');
+    expect(detail).toContain('these source reports may not share one reporting window');
+    expect(detail).not.toContain('these synthetic sources');
     expect(detail).toContain('<a href="/?section=health&amp;view=summary&amp;council=1"><i>1a</i>Summary</a>');
 
     const unknown = await (await worker.fetch(new Request('https://finance.test/?view=bogus'), env)).text();
@@ -848,6 +850,10 @@ describe('Finance alpha staging shell', () => {
     it('shows real live figures with a "live from Connect" indicator on both cards when both live resolvers succeed', async () => {
       const { res, html } = await fetchHealth(connectServiceEnv({ church: LIVE_CHURCH_REPORT, balance: LIVE_BALANCE_SHEET }));
       expect(res.status).toBe(200);
+      expect(html).toContain('aria-label="Financial health detail"');
+      expect(html).toContain('these source reports may not share one reporting window');
+      expect(html).not.toContain('Synthetic financial health');
+      expect(html).not.toContain('these synthetic sources');
       expect(html).toContain('Live from Connect'); // the Financial Health section-heading badge
       // Operating result: income $175,000 - expense $95,000 = $80,000 actual net; budget $70,000;
       // variance +$10,000. None of these figures exist in the synthetic fixture.
