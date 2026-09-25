@@ -103,17 +103,12 @@ describe('council / anonymous giving gate', () => {
     expect(r.status).toBe(403);
   });
 
-  it('does not let council write Finance without a resolvable username', async () => {
-    // Council's `compensation` item defaults to 'edit' (see role-permissions.test.js), and
-    // finance/planning/salary PUT is gated by 'compensation' alone (financeSegItems in
-    // api-chms.js) — but this suite's `call()` never sets a real auth cookie, so getAuthInfo(req,
-    // env) inside the council save branch (api-finance.js) can never resolve a username here,
-    // and the save is refused rather than silently attributed to nobody. A real login always
-    // carries one; see council-compensation-role.test.js for the full read/write/per-user-
-    // isolation behavior with a real cookie.
+  it('does not let council write the salary planner in Connect: council drafts are saved in Finance', async () => {
+    // Council's `compensation` item defaults to 'edit', so the request reaches api-finance.js, whose
+    // council branch now refuses every save (Finance's own writer owns council drafts).
     const r = await call('finance/planning/salary', { method: 'PUT' });
-    expect(r.status).toBe(403);
-    expect(r.body.error).toMatch(/no username/);
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatch(/saved in Finance/);
   });
 
   it('still refuses a council write to a Budget-only Finance segment by default', async () => {

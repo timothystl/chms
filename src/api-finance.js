@@ -4261,16 +4261,10 @@ export async function applySalaryPlannerWrite(db, role, username, body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'Invalid payload', status: 400 };
   if (body.roster !== undefined && !Array.isArray(body.roster)) return { error: 'roster must be an array', status: 400 };
   if (role === 'council') {
-    if (!username) return { error: 'Access denied: this account has no username to save under', status: 403 };
-    // Only the raise-plan fields survive — the roster itself, reference figures, hand-typed
-    // overrides, target category and health-plan settings are silently dropped even if the
-    // caller sent them, so a modified request body can never smuggle a seed-data edit through.
-    const overlay = {};
-    for (const f of COUNCIL_EDITABLE_FIELDS) if (body[f] !== undefined) overlay[f] = body[f];
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(councilPlannerKey(username), JSON.stringify(overlay)).run();
-    return { ok: true };
+    // Council drafts have their own writer in Finance now (Andrew, 2026-09-25):
+    // apps/finance/compensation-council-overlay.js saves the same finance_settings overlay row, and
+    // resolveSalaryPlannerState above still reads it. Refusing here keeps a single writer.
+    return { error: 'Council raise-plan drafts are now saved in Finance: open finance.timothystl.org, then Compensation → Plan.', status: 409 };
   }
   const key = role === 'compensation' ? SALARY_PLANNER_COMPENSATION_KEY : SALARY_PLANNER_KEY;
   await db.prepare(

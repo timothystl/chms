@@ -149,20 +149,14 @@ describe('POST /api/contracts/finance-compensation-write-v1', () => {
     expect(JSON.parse(forked.value).roster[0].name).toBe('Compensation Draft Worker');
   });
 
-  it('only lets council steer the raise-plan fields into their own overlay, dropping everything else even if sent', async () => {
+  it('refuses council: council drafts are saved by Finance\'s own writer now, so nothing is written here', async () => {
     const db = makeTestDb();
     insertUser(db, { username: 'boardmember', email: 'board@timothystl.org', role: 'council' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('board@timothystl.org'));
-
-    const res = await post({
-      env: baseEnv(db), token,
-      body: { compMethod: 'scale', compScalePct: 0.03, roster: [{ name: 'Smuggled Seed Data Edit' }], currentPayCents: 999999 },
-    });
-    expect(res.status).toBe(200);
-
-    expect(db._raw.prepare("SELECT * FROM finance_settings WHERE key IN ('finance_salary_planner','finance_salary_planner_compensation')").all()).toHaveLength(0);
-    const overlay = db._raw.prepare("SELECT value FROM finance_settings WHERE key='finance_salary_planner_council_boardmember'").get();
-    expect(JSON.parse(overlay.value)).toEqual({ compMethod: 'scale', compScalePct: 0.03 });
+    const res = await post({ env: baseEnv(db), token, body: { compMethod: 'custom', compCustomPct: 3 } });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/saved in Finance/);
+    expect(db._raw.prepare('SELECT * FROM finance_settings').all()).toHaveLength(0);
   });
 
   it('rejects a finance-role user -- only admin, compensation, or council may write, same as the legacy route', async () => {

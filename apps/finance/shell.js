@@ -69,6 +69,7 @@ import {
 } from './finance-budget-client.js';
 import { isBudgetPlanWritesEnabled, validateBudgetPlanRows, saveBudgetPlanRows } from './budget-plan-write-service.js';
 import { fetchConnectSalaryPlannerState, postConnectFinanceCompensationWrite } from './finance-compensation-client.js';
+import { buildCouncilOverlayFromForm, saveCouncilOverlay } from './compensation-council-overlay.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
@@ -1114,6 +1115,7 @@ function renderSectionBody(ctx) {
       viewerRole: roleResult && roleResult.ok ? roleResult.role : null,
       compensationPlanRaw, canEditCompensation, editIndex: compensationEditIndex,
       entryStatus: compensationEntryStatus, entryMessage: compensationEntryMessage,
+      canEditCouncilOverlay: roleResult.ok && roleResult.role === 'council' && roleResult.permissions?.compensation === 'edit',
     });
   }
   if (section.id === 'quickbooks') {
@@ -2764,6 +2766,29 @@ export default {
     // ── COMPENSATION PLANNER: per-council-member PRIVATE draft save -- council only. See
     // The identity comes only from Connect's verified role contract; a role-only older
     // response cannot authorize selecting a private draft row.
+    // Council's own raise-plan writer. The role, permission and username all come from Connect's
+    // verified staff-role contract; the visible roster comes from the same plan contract the page
+    // reads, so a per-worker index can only name a staff member council can actually see.
+    if (route.id === 'compensation-council-overlay-save-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const back = (params) => response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ section: 'compensation', page: 'plan', ...params }).toString()}` } });
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      if (!roleResult.ok || roleResult.role !== 'council' || roleResult.permissions?.compensation !== 'edit' || !roleResult.username) {
+        return back({ status: 'error', reason: 'access_denied', message: 'Only council members with compensation edit access can save a raise-plan draft' });
+      }
+      let form;
+      try { form = await request.formData(); } catch { return back({ status: 'error', reason: 'invalid_input' }); }
+      const plan = await fetchConnectSalaryPlannerState(env, accessJwt);
+      if (!plan.ok || !plan.data || !Array.isArray(plan.data.roster)) {
+        return back({ status: 'error', reason: plan.reason || 'plan_unavailable', message: 'The current plan could not be read, so nothing was saved' });
+      }
+      const built = buildCouncilOverlayFromForm(form, plan.data.roster.length);
+      if (built.error) return back({ status: 'error', reason: 'invalid_input', message: built.error });
+      const saved = await saveCouncilOverlay(env.FINANCE_DB, roleResult.username, built.overlay);
+      if (!saved.ok) return back({ status: 'error', reason: 'save_failed', message: saved.error });
+      return back({ status: 'ok' });
+    }
+
     if (route.id === 'compensation-council-draft-save-v1') {
       const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
       const enabled = await isCompensationPlanWriteEnabled(env, env.FINANCE_DB);
@@ -3070,7 +3095,8 @@ export default {
         // save route resubmits against -- it never throws, so no safeSyntheticRead wrapper is
         // needed here (unlike the resolvers above, which can).
         const canEditCompensation = roleResult.ok && (roleResult.role === 'admin' || roleResult.role === 'compensation');
-        const compensationPlanRaw = (section.id === 'compensation' && effectivePageId === 'plan' && canEditCompensation)
+        const canEditCouncilOverlay = roleResult.ok && roleResult.role === 'council' && roleResult.permissions?.compensation === 'edit';
+        const compensationPlanRaw = (section.id === 'compensation' && effectivePageId === 'plan' && (canEditCompensation || canEditCouncilOverlay))
           ? await fetchConnectSalaryPlannerState(env, request.headers.get('Cf-Access-Jwt-Assertion') || '') : null;
         const compensationEditIndex = (section.id === 'compensation' && effectivePageId === 'plan') ? (() => {
           const raw = url.searchParams.get('edit');

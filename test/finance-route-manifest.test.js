@@ -57,7 +57,7 @@ const D1_WRITE_ROUTE_IDS = new Set([
 const DB_WRITE_ROUTE_IDS = new Set([
   'compensation-plan-save-v1', 'property-reserve-entry-v1', 'property-reserve-disbursement-entry-v1',
   'property-distribution-entry-v1', 'property-capital-ledger-entry-v1',
-  'compensation-raise-plan-save-v1', 'compensation-council-draft-save-v1',
+  'compensation-raise-plan-save-v1', 'compensation-council-draft-save-v1', 'compensation-council-overlay-save-v1',
   'facilities-asset-save-v1', 'facilities-service-log-v1', 'facilities-service-remove-v1',
   'facilities-pm-save-v1', 'facilities-pm-done-v1', 'facilities-project-save-v1',
 ]);
@@ -106,7 +106,7 @@ describe('Finance staging route manifest', () => {
       '/api/v1/compensation-plan-save', '/api/v1/property-reserve-entry',
       '/api/v1/property-reserve-disbursement-entry', '/api/v1/property-distribution-entry',
       '/api/v1/property-capital-ledger-entry',
-      '/api/v1/compensation-raise-plan-save', '/api/v1/compensation-council-draft-save',
+      '/api/v1/compensation-raise-plan-save', '/api/v1/compensation-council-draft-save', '/api/v1/compensation-council-overlay-save',
     ]);
     for (const route of FINANCE_ROUTE_MANIFEST) {
       if (WRITE_ROUTE_IDS.has(route.id)) {

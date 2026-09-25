@@ -105,7 +105,7 @@ describe('GET /api/contracts/staff-role-v1', () => {
     const res = await get({ env: baseEnv(db), token });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ role: 'compensation', identity: 'grace@timothystl.org', permissions: permissionsForRole(DEFAULT_ROLE_PERMISSIONS, 'compensation') });
+    expect(body).toEqual({ role: 'compensation', identity: 'grace@timothystl.org', username: 'grace', permissions: permissionsForRole(DEFAULT_ROLE_PERMISSIONS, 'compensation') });
   });
 
   it('returns current permissions and verified identity without a user-directory record', async () => {
@@ -114,7 +114,7 @@ describe('GET /api/contracts/staff-role-v1', () => {
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const res = await get({ env: baseEnv(db), token });
     const body = await res.json();
-    expect(body).toEqual({role:'finance',identity:'sarah@timothystl.org',permissions:DEFAULT_ROLE_PERMISSIONS.finance});
+    expect(body).toEqual({role:'finance',identity:'sarah@timothystl.org',username:'sarah',permissions:DEFAULT_ROLE_PERMISSIONS.finance});
   });
 
   it('reflects revoked and granted permissions on the next request', async () => {

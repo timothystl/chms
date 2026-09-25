@@ -2,6 +2,7 @@ import { buildCompensationCouncilSnapshot, buildCompensationReportView, buildLiv
 import { buildCompensationBenchmarkView } from './compensation-benchmark-service.js';
 import { buildCompensationBenefitsView } from './compensation-benefits-service.js';
 import { escapeHtml, formatCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
+import { COUNCIL_COMP_METHODS, COUNCIL_COMP_METHOD_LABELS } from './compensation-council-overlay.js';
 import { renderCompensationPlanEditor } from './compensation-editor-pages.js';
 
 export function renderCompensationRows(rows) {
@@ -25,9 +26,39 @@ export function renderLiveCompensationWorkerRows(workers) {
   return workers.map((w) => `<tr><td>${escapeHtml(w.name || '(unnamed)')}</td><td>${escapeHtml(w.position || 'Role not set')}</td><td>${w.currentPayCents != null ? formatCents(w.currentPayCents) : '—'}</td><td>${escapeHtml(CURRENT_PAY_SOURCE_LABELS[w.currentPaySource] || w.currentPaySource)}</td></tr>`).join('');
 }
 
+// Council's own raise-plan editor (Andrew, 2026-09-25): the legacy Salary Planner fields council may
+// steer, saved as that member's private draft by compensation-council-overlay-save-v1. `plan` is
+// Connect's plan contract as resolved for this council member -- workers hidden from council are
+// already removed and their own saved draft is already laid over the shared plan.
+export function renderCouncilOverlayEditor(plan, entryStatus, entryMessage) {
+  const roster = Array.isArray(plan && plan.roster) ? plan.roster : [];
+  const perWorker = (plan && plan.compPerWorkerMethod) || {};
+  const planMethod = COUNCIL_COMP_METHODS.includes(plan && plan.compMethod) ? plan.compMethod : 'cola';
+  const option = (value, label, selected) => `<option value="${value}"${selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  const methodOptions = (selected) => COUNCIL_COMP_METHODS.map((m) => option(m, COUNCIL_COMP_METHOD_LABELS[m], m === selected)).join('');
+  const rows = roster.map((w, i) => `<tr><td>${escapeHtml((w && (w.name || w.position)) || `Staff member ${i + 1}`)}</td><td><select name="worker_method_${i}" aria-label="Raise method for ${escapeHtml((w && w.name) || `staff member ${i + 1}`)}">${option('default', 'Plan-wide method', !perWorker[i])}${methodOptions(perWorker[i])}</select></td></tr>`).join('');
+  const num = (value) => (value === undefined || value === null || value === '' ? '' : escapeHtml(String(value)));
+  return `<section aria-label="Your raise-plan draft">
+    ${renderSectionHeading({ eyebrow: 'Compensation', heading: 'Your raise-plan draft', badge: 'Private to you' })}
+    ${entryStatus === 'ok' ? '<p class="status">Draft saved.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <p>Try raise methods without changing the shared plan. Only you see this draft; the staff roster and pay figures are not editable here.</p>
+    <form method="POST" action="/api/v1/compensation-council-overlay-save">
+      <div class="grid form-grid">
+        <div class="field"><label for="cc-method">Plan-wide raise method</label><select id="cc-method" name="comp_method">${methodOptions(planMethod)}</select></div>
+        <div class="field"><label for="cc-custom">Custom raise (%)</label><input id="cc-custom" type="number" name="comp_custom_pct" min="0" max="100" step="0.1" value="${num(plan && plan.compCustomPct)}"></div>
+        <div class="field"><label for="cc-scale">Share of District Scale (%)</label><input id="cc-scale" type="number" name="comp_scale_pct" min="0" max="100" step="1" value="${num(plan && plan.compScalePct)}"></div>
+        <div class="field"><label><input type="checkbox" name="comp_baseline_roster_only" value="1"${plan && plan.compBaselineRosterOnly ? ' checked' : ''}> Compare against the roster baseline only</label></div>
+      </div>
+      ${roster.length ? renderTable({ head: ['Staff member', 'Raise method'], rows }) : '<p>No staff members are shown to council.</p>'}
+      <button type="submit">Save my draft</button>
+    </form>
+  </section>`;
+}
+
 export function renderCompensationPage(pageId, {
   compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, viewerRole,
-  compensationPlanRaw, canEditCompensation, editIndex, entryStatus, entryMessage,
+  compensationPlanRaw, canEditCompensation, editIndex, entryStatus, entryMessage, canEditCouncilOverlay = false,
 }) {
   // The real roster editor (compensation-editor-pages.js) takes over the Plan page entirely for
   // the admin/compensation roles it's built for, whenever shell.js's own fetch-edit-resubmit
@@ -43,7 +74,11 @@ export function renderCompensationPage(pageId, {
   const editUnavailableNote = (pageId === 'plan' && canEditCompensation && compensationPlanRaw && !compensationPlanRaw.ok)
     ? `<p class="status status-pending">Editing is unavailable right now: ${escapeHtml(compensationPlanRaw.message || compensationPlanRaw.reason || 'unknown error')}.</p>`
     : '';
-  const report = buildCompensationReportView(compensationReport);
+  const councilEditor = pageId === 'plan' && canEditCouncilOverlay && compensationPlanRaw
+    ? (compensationPlanRaw.ok
+      ? renderCouncilOverlayEditor(compensationPlanRaw.data, entryStatus, entryMessage)
+      : `<p class="status status-pending">Your raise-plan draft is unavailable right now: ${escapeHtml(compensationPlanRaw.message || compensationPlanRaw.reason || 'unknown error')}.</p>`)
+    : '';
 
   // Benchmarks and Benefits stay synthetic for every role, unconditionally -- unlike Plan and
   // Council below, no honest live version of either exists to switch to. Benchmarks needs a real
@@ -62,7 +97,7 @@ export function renderCompensationPage(pageId, {
   // be exactly the kind of invented number this codebase's every other contract avoids, so both
   // pages keep reading the same synthetic role-level fixture regardless of viewer role.
   if (pageId === 'benchmarks') {
-    const benchmark = buildCompensationBenchmarkView(report, compensationBenchmarks);
+    const benchmark = buildCompensationBenchmarkView(buildCompensationReportView(compensationReport), compensationBenchmarks);
     return `<section class="report" aria-label="Synthetic Compensation Report benchmarks">
       ${renderSectionHeading({ eyebrow: 'Benchmark comparison', heading: 'Salary against synthetic district-style reference', badge: 'Synthetic · not published guidance' })}
       ${renderKpiCards([
@@ -74,7 +109,7 @@ export function renderCompensationPage(pageId, {
     </section>`;
   }
   if (pageId === 'benefits') {
-    const benefits = buildCompensationBenefitsView(report, compensationBenefits);
+    const benefits = buildCompensationBenefitsView(buildCompensationReportView(compensationReport), compensationBenefits);
     return `<section class="report" aria-label="Synthetic Compensation Report benefits and taxes">
       ${renderSectionHeading({ eyebrow: 'Benefits &amp; taxes', heading: 'What the benefits plan contains', badge: `${benefits.reconciled ? 'Reconciled' : 'Review required'} · role-only` })}
       ${renderTable({ head: ['Component', 'Amount', 'Share of benefits', 'Roles covered'], rows: renderCompensationBenefitRows(benefits.rows, benefits.totalCents) })}
@@ -99,7 +134,7 @@ export function renderCompensationPage(pageId, {
         <p>Real, aggregate roster facts only -- restricted to the admin, council, and compensation roles who already see this same data, per person, on the Plan page. No benefits-share or weighted-adjustment figure is shown here: those are planning assumptions Connect does not store per worker, so this page never estimates or reconstructs them.</p>
       </section>`;
     }
-    const council = buildCompensationCouncilSnapshot(report);
+    const council = buildCompensationCouncilSnapshot(buildCompensationReportView(compensationReport));
     return `<section class="report" aria-label="Synthetic Compensation Report council snapshot">
       ${renderSectionHeading({ eyebrow: 'Council review snapshot', heading: 'Plan-level decision context', badge: 'Role-only · review-only · not approved' })}
       ${renderKpiCards([
@@ -137,8 +172,11 @@ export function renderCompensationPage(pageId, {
       ${renderTable({ head: ['Name', 'Position', 'Current pay', 'Source'], rows: renderLiveCompensationWorkerRows(workers) })}
       <p>Real, individually-identifiable compensation data -- restricted to the admin, council, and compensation roles. See Council snapshot for a real aggregate view, and Benefits &amp; taxes / Benchmarks for the still-synthetic, role-level rest of the compensation picture.</p>
       ${editUnavailableNote}
-    </section>`;
+    </section>${councilEditor}`;
   }
+  // Built only here, for the synthetic fallback: production Finance carries no fixture, so building
+  // it earlier made the whole Plan page "unavailable" even when the live roster had loaded.
+  const report = buildCompensationReportView(compensationReport);
   const fallbackNote = compensationReportLive
     ? `<p><small>The committed synthetic fixture (the live endpoint is not configured or did not answer: ${escapeHtml(compensationReportLive.fallbackReason || 'unknown')}).</small></p>`
     : '';

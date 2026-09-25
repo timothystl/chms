@@ -289,6 +289,10 @@ const ROUTES = [
   // one Compensation Planner write rollout decision, not a second flag to keep in sync.
   { id: 'compensation-raise-plan-save-v1', paths: ['/api/v1/compensation-raise-plan-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
   { id: 'compensation-council-draft-save-v1', paths: ['/api/v1/compensation-council-draft-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true },
+  // Council's own writer (Andrew, 2026-09-25): saves a council member's private raise-plan overlay
+  // straight into Finance's own database, the finance_settings row legacy Connect used to write.
+  // Live, not flag-gated; Connect's council write paths are retired in the same change.
+  { id: 'compensation-council-overlay-save-v1', paths: ['/api/v1/compensation-council-overlay-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.compensation-council-overlay-save.v1' },
 ];
 
 export const FINANCE_ROUTE_MANIFEST = Object.freeze(ROUTES.map((route) => Object.freeze({
