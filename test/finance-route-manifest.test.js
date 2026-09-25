@@ -21,7 +21,7 @@ const WRITE_ROUTE_IDS = new Set([
   'payroll-staff-save-v1', 'payroll-staff-deactivate-v1', 'payroll-email-v1',
   'budget-generate-v1', 'budget-generate-all-v1', 'budget-commit-v1', 'budget-plan-remove-v1',
   'church-actual-override-v1', 'church-budget-xlsx-import-write-v1', 'church-balances-xlsx-import-write-v1',
-  'church-budget-xlsx-commit-v1',
+  'church-budget-xlsx-commit-v1', 'church-balances-xlsx-commit-v1',
   'church-monthly-xlsx-import-write-v1', 'church-activity-xlsx-import-write-v1',
   'church-budget-multi-year-xlsx-import-write-v1', 'church-balances-multi-year-xlsx-import-write-v1',
   'daycare-entry-v1', 'board-categories-write-v1', 'property-monthly-write-v1',
@@ -37,7 +37,7 @@ const WRITE_ROUTE_IDS = new Set([
 ]);
 const OWN_DB_WRITE_ROUTE_IDS = new Set(['budget-plan-save-v1']);
 const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1']);
-const LIVE_POST_READ_ROUTE_IDS = new Set(['church-budget-xlsx-preview-v1']);
+const LIVE_POST_READ_ROUTE_IDS = new Set(['church-budget-xlsx-preview-v1', 'church-balances-xlsx-preview-v1']);
 // The routes in this manifest that write to Finance's OWN database (FINANCE_DB) rather than
 // relaying a write to Connect/Website — see csv-import-service.js's and
 // compensation-plan-write-service.js's header comments. Every one is gated off by default inside
@@ -66,7 +66,7 @@ describe('Finance staging route manifest', () => {
       '/api/v1/connect-base-projection-write',
       '/api/v1/connect-church-actual-override',
       '/api/v1/connect-church-budget-xlsx-import-write', '/api/v1/connect-church-budget-xlsx-preview', '/api/v1/connect-church-budget-xlsx-commit',
-      '/api/v1/connect-church-balances-xlsx-import-write',
+      '/api/v1/connect-church-balances-xlsx-import-write', '/api/v1/connect-church-balances-xlsx-preview', '/api/v1/connect-church-balances-xlsx-commit',
       '/api/v1/connect-church-monthly-xlsx-import-write', '/api/v1/connect-church-activity-xlsx-import-write',
       '/api/v1/connect-church-budget-multi-year-xlsx-import-write', '/api/v1/connect-church-balances-multi-year-xlsx-import-write',
       '/api/v1/connect-daycare-entry', '/api/v1/connect-board-categories-write',
