@@ -71,6 +71,7 @@ describe('Balance Sheet — Statement of Financial Position multi-year .xlsx imp
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).not.toContain('/api/v1/connect-church-balances-multi-year-xlsx-import-write');
+    expect(html).not.toContain('/api/v1/connect-church-balances-multi-year-xlsx-preview');
   });
 
   it('shows the import form for a verified finance-role viewer -- not admin-only, unlike the single-snapshot Statement of Financial Position import', async () => {
@@ -79,7 +80,7 @@ describe('Balance Sheet — Statement of Financial Position multi-year .xlsx imp
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
     const html = await res.text();
-    expect(html).toContain('<form method="POST" action="/api/v1/connect-church-balances-multi-year-xlsx-import-write" enctype="multipart/form-data">');
+    expect(html).toContain('<form method="POST" action="/api/v1/connect-church-balances-multi-year-xlsx-preview" enctype="multipart/form-data">');
     expect(html).toContain('type="file"');
     expect(html).toContain('name="file"');
 
@@ -96,7 +97,7 @@ describe('Balance Sheet — Statement of Financial Position multi-year .xlsx imp
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
     const html = await res.text();
-    expect(html).toContain('/api/v1/connect-church-balances-multi-year-xlsx-import-write');
+    expect(html).toContain('/api/v1/connect-church-balances-multi-year-xlsx-preview');
   });
 
   it('redirects to a no_file error when no file was attached', async () => {

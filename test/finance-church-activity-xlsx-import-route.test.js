@@ -70,6 +70,7 @@ describe('Church Report — Statement of Activity multi-year .xlsx import form a
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).not.toContain('/api/v1/connect-church-activity-xlsx-import-write');
+    expect(html).not.toContain('/api/v1/connect-church-activity-xlsx-preview');
   });
 
   it('shows the import form for a verified finance-role viewer -- not admin-only, unlike the annual Budget vs. Actuals import', async () => {
@@ -78,7 +79,7 @@ describe('Church Report — Statement of Activity multi-year .xlsx import form a
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
     const html = await res.text();
-    expect(html).toContain('<form method="POST" action="/api/v1/connect-church-activity-xlsx-import-write" enctype="multipart/form-data">');
+    expect(html).toContain('<form method="POST" action="/api/v1/connect-church-activity-xlsx-preview" enctype="multipart/form-data">');
     expect(html).toContain('type="file"');
     expect(html).toContain('name="file"');
 
@@ -95,7 +96,45 @@ describe('Church Report — Statement of Activity multi-year .xlsx import form a
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
     const html = await res.text();
-    expect(html).toContain('/api/v1/connect-church-activity-xlsx-import-write');
+    expect(html).toContain('/api/v1/connect-church-activity-xlsx-preview');
+  });
+
+  it('renders a no-write checkbox review from the protected preview relay', async () => {
+    let captured;
+    const env = liveEnv(async (request) => {
+      captured = request;
+      return new Response(JSON.stringify({ ok: true, sheetName: 'Statement of Activity', years: [2026, 2027], rows: [
+        { classification: 'Income', category_path: 'Income:Offerings', account_name: 'Offerings', depth: 1, has_children: false, fiscal_year: 2027, own_actual_cents: 110000 },
+      ] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    const form = new FormData();
+    form.set('file', fakeXlsxFile());
+    const res = await worker.fetch(new Request('https://finance.test/api/v1/connect-church-activity-xlsx-preview', {
+      method: 'POST', headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' }, body: form,
+    }), env);
+    expect(res.status).toBe(200);
+    expect(new URL(captured.url).pathname).toBe('/api/contracts/finance-church-activity-xlsx-preview-v1');
+    const html = await res.text();
+    expect(html).toContain('No data has been changed.');
+    expect(html).toContain('Income:Offerings');
+    expect(html).toContain('/api/v1/connect-church-activity-xlsx-commit');
+  });
+
+  it('commits only checked rows and preserves the workbook years', async () => {
+    let captured;
+    const env = liveEnv(async (request) => {
+      captured = { path: new URL(request.url).pathname, body: await request.json() };
+      return new Response(JSON.stringify({ ok: true, imported: 1 }), { status: 200 });
+    });
+    const selected = { classification: 'Income', category_path: 'Income:Offerings', account_name: 'Offerings', depth: 1, has_children: false, fiscal_year: 2027, own_actual_cents: 110000 };
+    const form = new FormData();
+    form.append('year', '2026'); form.append('year', '2027'); form.append('row', JSON.stringify(selected));
+    const res = await worker.fetch(new Request('https://finance.test/api/v1/connect-church-activity-xlsx-commit', {
+      method: 'POST', headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' }, body: form,
+    }), env);
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/?section=church&page=trend&status=ok');
+    expect(captured).toEqual({ path: '/api/contracts/finance-church-activity-xlsx-commit-v1', body: { years: ['2026', '2027'], rows: [selected] } });
   });
 
   it('redirects to a no_file error when no file was attached', async () => {

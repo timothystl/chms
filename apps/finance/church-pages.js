@@ -65,11 +65,11 @@ function renderChurchActivityXlsxImportForm(entryStatus, entryMessage) {
     ${renderSectionHeading({ eyebrow: 'Church Report', heading: 'Import Statement of Activity, multi-year (.xlsx)', badge: 'Relayed live to Connect' })}
     ${entryStatus === 'ok' ? '<p class="status">Imported into Connect.</p>' : ''}
     ${entryStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
-    <form method="POST" action="/api/v1/connect-church-activity-xlsx-import-write" enctype="multipart/form-data">
+    <form method="POST" action="/api/v1/connect-church-activity-xlsx-preview" enctype="multipart/form-data">
       <div class="field"><label for="cax-file">QuickBooks "Statement of Activity" multi-year export (.xlsx, max 15 MB)</label><input id="cax-file" type="file" name="file" accept=".xlsx" required></div>
-      <button type="submit">Import file</button>
+      <button type="submit">Review file</button>
     </form>
-    <p><small>Parses the uploaded workbook (one column per fiscal year) and writes every account row directly into Connect's own <code>finance_church_entries</code> table, tagged <code>source='import_activity'</code> -- the same table and source the legacy in-Connect Excel import writes, for exactly the fiscal years present in the file. A separately-uploaded "Budget by Year" file combines with this one into complete rows rather than overwriting it. Connect independently re-verifies your identity and real finance edit permission for every request.</small></p>
+    <p><small>Parses without changing data, then lets you select the fiscal-year account rows to commit through Connect's existing permission-checked importer. A separately uploaded "Budget by Year" file combines with this one into complete rows.</small></p>
   </section>`;
 }
 
@@ -81,11 +81,24 @@ function renderChurchBudgetMultiYearXlsxImportForm(entryStatus, entryMessage) {
     ${renderSectionHeading({ eyebrow: 'Church Report', heading: 'Import Budget by Year, multi-year (.xlsx)', badge: 'Relayed live to Connect' })}
     ${entryStatus === 'ok' ? '<p class="status">Imported into Connect.</p>' : ''}
     ${entryStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
-    <form method="POST" action="/api/v1/connect-church-budget-multi-year-xlsx-import-write" enctype="multipart/form-data">
+    <form method="POST" action="/api/v1/connect-church-budget-multi-year-xlsx-preview" enctype="multipart/form-data">
       <div class="field"><label for="cbmy-file">QuickBooks "Budget by Year" multi-year export (.xlsx, max 15 MB)</label><input id="cbmy-file" type="file" name="file" accept=".xlsx" required></div>
-      <button type="submit">Import file</button>
+      <button type="submit">Review file</button>
     </form>
-    <p><small>Parses the uploaded workbook (one column per fiscal year) and writes every account row directly into Connect's own <code>finance_church_entries</code> table, tagged <code>source='import_activity'</code> -- combining field-by-field with a separately-uploaded "Statement of Activity" file rather than overwriting it. Connect independently re-verifies your identity and real finance edit permission for every request.</small></p>
+    <p><small>Parses without changing data, then lets you select the fiscal-year budget rows to commit through Connect's existing permission-checked importer. Selected budget values combine with Statement of Activity values rather than overwriting them.</small></p>
+  </section>`;
+}
+
+function renderChurchMonthlyXlsxImportForm(entryStatus, entryMessage) {
+  return `<section aria-label="Import monthly Profit and Loss from Excel">
+    ${renderSectionHeading({ eyebrow: 'Church Report', heading: 'Import Profit and Loss by Month (.xlsx)', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Imported into Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-church-monthly-xlsx-preview" enctype="multipart/form-data">
+      <div class="field"><label for="cmx-file">QuickBooks "Profit and Loss by Month" export (.xlsx, max 15 MB)</label><input id="cmx-file" type="file" name="file" accept=".xlsx" required></div>
+      <button type="submit">Review file</button>
+    </form>
+    <p><small>Parses without changing data, then lets you select the monthly account rows to commit through Connect's existing permission-checked importer.</small></p>
   </section>`;
 }
 
@@ -150,7 +163,7 @@ export function renderChurchPage(pageId, {
       ${renderSectionHeading({ eyebrow: 'Church Report', heading: 'Multi-year operating trend', badge })}
       ${renderTable({ head: ['Fiscal year', 'Income', 'Expenses', 'Net result'], rows })}
       ${fallbackNote}
-    </section>${canImportChurchMultiYear ? renderChurchActivityXlsxImportForm(churchActivityXlsxImportStatus, churchActivityXlsxImportMessage) : ''}${canImportChurchMultiYear ? renderChurchBudgetMultiYearXlsxImportForm(churchBudgetMultiYearXlsxImportStatus, churchBudgetMultiYearXlsxImportMessage) : ''}`;
+    </section>${canImportChurchMultiYear ? renderChurchMonthlyXlsxImportForm(churchActivityXlsxImportStatus, churchActivityXlsxImportMessage) : ''}${canImportChurchMultiYear ? renderChurchActivityXlsxImportForm(churchActivityXlsxImportStatus, churchActivityXlsxImportMessage) : ''}${canImportChurchMultiYear ? renderChurchBudgetMultiYearXlsxImportForm(churchBudgetMultiYearXlsxImportStatus, churchBudgetMultiYearXlsxImportMessage) : ''}`;
   }
 
   const isLive = churchReport.source === 'live';

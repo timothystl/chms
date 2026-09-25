@@ -70,6 +70,7 @@ describe('Church Report — Budget by Year multi-year .xlsx import form and rela
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).not.toContain('/api/v1/connect-church-budget-multi-year-xlsx-import-write');
+    expect(html).not.toContain('/api/v1/connect-church-budget-multi-year-xlsx-preview');
   });
 
   it('shows the import form for a verified finance-role viewer -- not admin-only, unlike the annual Budget vs. Actuals import', async () => {
@@ -78,7 +79,7 @@ describe('Church Report — Budget by Year multi-year .xlsx import form and rela
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
     const html = await res.text();
-    expect(html).toContain('<form method="POST" action="/api/v1/connect-church-budget-multi-year-xlsx-import-write" enctype="multipart/form-data">');
+    expect(html).toContain('<form method="POST" action="/api/v1/connect-church-budget-multi-year-xlsx-preview" enctype="multipart/form-data">');
     expect(html).toContain('type="file"');
     expect(html).toContain('name="file"');
 
@@ -95,7 +96,7 @@ describe('Church Report — Budget by Year multi-year .xlsx import form and rela
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
     const html = await res.text();
-    expect(html).toContain('/api/v1/connect-church-budget-multi-year-xlsx-import-write');
+    expect(html).toContain('/api/v1/connect-church-budget-multi-year-xlsx-preview');
   });
 
   it('redirects to a no_file error when no file was attached', async () => {

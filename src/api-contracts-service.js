@@ -25,6 +25,7 @@ import {
   importChurchBudgetXlsx, previewChurchBudgetXlsx, commitChurchBudgetXlsxRows,
   importChurchBalancesXlsx, previewChurchBalancesXlsx, commitChurchBalancesXlsxRows,
   importChurchMonthlyXlsx, importChurchActivityXlsx, importChurchBudgetMultiYearXlsx, importChurchBalancesMultiYearXlsx,
+  previewChurchMultiPeriodXlsx, commitChurchMultiPeriodXlsxRows,
   removePropertyMonthlyEntry, removePropertyDistribution, removePropertyReserveMonthly,
   removePropertyReserveDisbursement, removePropertyCapitalLedgerEntry, removePropertyRepair,
   savePropertyMeta, importPropertyBudgetRows, importPropertyMonthlyCsv,
@@ -291,6 +292,22 @@ export async function handleContractsServiceApi(req, env, path) {
   if (path === '/api/contracts/finance-church-balances-multi-year-xlsx-import-v1' && req.method === 'POST') {
     return handleFinanceChurchBalancesMultiYearXlsxImportContract(req, env);
   }
+
+  const multiPeriodPreviewKind = {
+    '/api/contracts/finance-church-monthly-xlsx-preview-v1': 'monthly',
+    '/api/contracts/finance-church-activity-xlsx-preview-v1': 'activity',
+    '/api/contracts/finance-church-budget-multi-year-xlsx-preview-v1': 'budget',
+    '/api/contracts/finance-church-balances-multi-year-xlsx-preview-v1': 'balances',
+  }[path];
+  if (multiPeriodPreviewKind && req.method === 'POST') return handleFinanceMultiPeriodXlsxPreviewContract(req, env, multiPeriodPreviewKind);
+
+  const multiPeriodCommitKind = {
+    '/api/contracts/finance-church-monthly-xlsx-commit-v1': 'monthly',
+    '/api/contracts/finance-church-activity-xlsx-commit-v1': 'activity',
+    '/api/contracts/finance-church-budget-multi-year-xlsx-commit-v1': 'budget',
+    '/api/contracts/finance-church-balances-multi-year-xlsx-commit-v1': 'balances',
+  }[path];
+  if (multiPeriodCommitKind && req.method === 'POST') return handleFinanceMultiPeriodXlsxCommitContract(req, env, multiPeriodCommitKind);
 
   if (path === '/api/contracts/finance-compensation-write-v1' && req.method === 'POST') {
     return handleFinanceCompensationWriteContract(req, env);
@@ -1281,6 +1298,41 @@ async function handleFinanceChurchBalancesXlsxCommitContract(req, env) {
     asOfDate: body && body.as_of_date,
     rows: body && body.rows,
   });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: auth.user.username });
+}
+
+async function authorizeFinanceEditImport(req, env) {
+  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.FINANCE_ACCESS_AUD || '';
+  if (!teamDomain || !audience) return { response: json({ error: 'Access verification not configured' }, 503) };
+  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
+  if (!email) return { response: json({ error: 'Unauthorized' }, 401) };
+  const user = await env.DB.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
+  if (!user) return { response: json({ error: 'No matching active Connect account for this identity' }, 403) };
+  const perms = await getRolePermissions(env.DB);
+  if (permissionsForRole(perms, user.role).finance !== 'edit') return { response: json({ error: 'Access denied' }, 403) };
+  return { user };
+}
+
+async function handleFinanceMultiPeriodXlsxPreviewContract(req, env, kind) {
+  const auth = await authorizeFinanceEditImport(req, env);
+  if (auth.response) return auth.response;
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const decoded = decodeBase64XlsxUpload(body && body.file_base64);
+  if (decoded.error) return json({ error: decoded.error }, decoded.status || 400);
+  const result = await previewChurchMultiPeriodXlsx(kind, { fileBytes: decoded.bytes });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json(result);
+}
+
+async function handleFinanceMultiPeriodXlsxCommitContract(req, env, kind) {
+  const auth = await authorizeFinanceEditImport(req, env);
+  if (auth.response) return auth.response;
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await commitChurchMultiPeriodXlsxRows(env.DB, kind, { years: body?.years, rows: body?.rows });
   if (result.error) return json({ error: result.error }, result.status || 400);
   return json({ ...result, savedBy: auth.user.username });
 }

@@ -20,6 +20,7 @@ import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchRe
 import {
   postConnectFinanceChurchActualOverride, postConnectChurchBudgetXlsxImport,
   postConnectChurchBudgetXlsxPreview, postConnectChurchBudgetXlsxCommit,
+  postConnectChurchMultiPeriodXlsxPreview, postConnectChurchMultiPeriodXlsxCommit,
   postConnectChurchMonthlyXlsxImport, postConnectChurchActivityXlsxImport, postConnectChurchBudgetMultiYearXlsxImport,
 } from './finance-church-report-client.js';
 import {
@@ -47,6 +48,7 @@ import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-s
 import {
   postConnectChurchBalancesXlsxImport, postConnectChurchBalancesXlsxPreview,
   postConnectChurchBalancesXlsxCommit, postConnectChurchBalancesMultiYearXlsxImport,
+  postConnectChurchBalancesMultiYearXlsxPreview, postConnectChurchBalancesMultiYearXlsxCommit,
 } from './finance-balance-sheet-client.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
 import {
@@ -265,6 +267,24 @@ function renderChurchBalancesImportPreview(preview) {
   <form method="POST" action="/api/v1/connect-church-balances-xlsx-commit"><input type="hidden" name="fiscal_year" value="${escapeHtml(String(preview.fiscalYear))}"><input type="hidden" name="as_of_date" value="${escapeHtml(preview.asOfDate || '')}">
   <table><thead><tr><th>Include</th><th>Classification</th><th>Account</th><th>Balance</th></tr></thead><tbody>${body}</tbody></table>
   <button type="submit">Import selected rows</button> <a href="/?section=balance&amp;page=position">Cancel without importing</a></form></body></html>`;
+}
+
+function renderChurchMultiPeriodImportPreview(kind, preview) {
+  const settings = {
+    monthly: { title: 'Profit and Loss by Month', returnTo: 'church&amp;page=trend', commit: 'church-monthly-xlsx-commit' },
+    activity: { title: 'Statement of Activity', returnTo: 'church&amp;page=trend', commit: 'church-activity-xlsx-commit' },
+    budget: { title: 'Budget by Year', returnTo: 'church&amp;page=trend', commit: 'church-budget-multi-year-xlsx-commit' },
+    balances: { title: 'Statement of Financial Position', returnTo: 'balance&amp;page=multi-year', commit: 'church-balances-multi-year-xlsx-commit' },
+  }[kind];
+  const rows = Array.isArray(preview.rows) ? preview.rows : [];
+  const yearInputs = (preview.years || []).map(year => `<input type="hidden" name="year" value="${escapeHtml(String(year))}">`).join('');
+  const body = rows.map((row, index) => {
+    const amount = kind === 'balances' ? row.own_balance_cents
+      : kind === 'budget' ? row.own_budget_cents : row.own_actual_cents;
+    const period = kind === 'monthly' ? `FY${row.fiscal_year} · month ${row.period_month}` : `FY${row.fiscal_year}`;
+    return `<tr><td><input type="checkbox" name="row" value="${escapeHtml(JSON.stringify(row))}" checked aria-label="Include ${escapeHtml(row.account_name || `row ${index + 1}`)}"></td><td>${escapeHtml(period)}</td><td>${escapeHtml(row.classification || '')}</td><td>${escapeHtml(row.category_path || '')}</td><td>${formatCents(amount)}</td></tr>`;
+  }).join('');
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review ${settings.title} import · Timothy Finance</title><style>body{font:16px system-ui;margin:2rem auto;max-width:76rem;padding:0 1rem;color:#172019}table{border-collapse:collapse;width:100%;margin:1rem 0}th,td{border-bottom:1px solid #d9dfda;padding:.55rem;text-align:left}button{background:#1f6b45;color:white;border:0;border-radius:.45rem;padding:.7rem 1rem;font-weight:700}a{color:#1f6b45}.note{background:#f4f7f4;padding:1rem;border-radius:.5rem}</style></head><body><h1>Review ${settings.title} import</h1><p class="note"><strong>No data has been changed.</strong> Review ${(preview.years || []).map(year => `FY${escapeHtml(String(year))}`).join(', ')} from “${escapeHtml(preview.sheetName || 'uploaded workbook')}”. Uncheck anything that should not be imported.</p><form method="POST" action="/api/v1/connect-${settings.commit}">${yearInputs}<table><thead><tr><th>Include</th><th>Period</th><th>Classification</th><th>Account</th><th>Amount</th></tr></thead><tbody>${body}</tbody></table><button type="submit">Import selected rows</button> <a href="/?section=${settings.returnTo}">Cancel without importing</a></form></body></html>`;
 }
 
 // Same shape as describeChurchOverrideError above, for postConnectChurchBudgetXlsxImport() /
@@ -1666,6 +1686,58 @@ export default {
       });
       if (result.ok) return response(null, { status: 303, headers: { Location: '/?section=balance&page=position&status=ok' } });
       const params = new URLSearchParams({ section: 'balance', page: 'position', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    const multiPeriodPreviewKind = {
+      'church-monthly-xlsx-preview-v1': 'monthly',
+      'church-activity-xlsx-preview-v1': 'activity',
+      'church-budget-multi-year-xlsx-preview-v1': 'budget',
+      'church-balances-multi-year-xlsx-preview-v1': 'balances',
+    }[route.id];
+    if (multiPeriodPreviewKind) {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try { form = await request.formData(); }
+      catch { return response('Invalid upload', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }); }
+      const file = form.get('file');
+      if (!file || typeof file.arrayBuffer !== 'function') return response('No file uploaded', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      if (file.size > MAX_XLSX_UPLOAD_BYTES) return response('File too large (max 15 MB)', { status: 413, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      const body = { file_base64: bytesToBase64(new Uint8Array(await file.arrayBuffer())) };
+      const result = multiPeriodPreviewKind === 'balances'
+        ? await postConnectChurchBalancesMultiYearXlsxPreview(env, accessJwt, body)
+        : await postConnectChurchMultiPeriodXlsxPreview(env, accessJwt, multiPeriodPreviewKind, body);
+      const redirectBase = multiPeriodPreviewKind === 'balances' ? { section: 'balance', page: 'multi-year' } : { section: 'church', page: 'trend' };
+      if (!result.ok) {
+        const params = new URLSearchParams({ ...redirectBase, status: 'error', reason: result.reason || 'unknown' });
+        if (result.message) params.set('message', String(result.message).slice(0, 200));
+        return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+      }
+      return response(renderChurchMultiPeriodImportPreview(multiPeriodPreviewKind, result.result), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+
+    const multiPeriodCommitKind = {
+      'church-monthly-xlsx-commit-v1': 'monthly',
+      'church-activity-xlsx-commit-v1': 'activity',
+      'church-budget-multi-year-xlsx-commit-v1': 'budget',
+      'church-balances-multi-year-xlsx-commit-v1': 'balances',
+    }[route.id];
+    if (multiPeriodCommitKind) {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try { form = await request.formData(); }
+      catch { return response('Invalid selection', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }); }
+      const rows = [];
+      try { for (const value of form.getAll('row')) rows.push(JSON.parse(String(value))); }
+      catch { return response('Invalid selected row', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }); }
+      const body = { years: form.getAll('year'), rows };
+      const result = multiPeriodCommitKind === 'balances'
+        ? await postConnectChurchBalancesMultiYearXlsxCommit(env, accessJwt, body)
+        : await postConnectChurchMultiPeriodXlsxCommit(env, accessJwt, multiPeriodCommitKind, body);
+      const redirectBase = multiPeriodCommitKind === 'balances' ? { section: 'balance', page: 'multi-year' } : { section: 'church', page: 'trend' };
+      if (result.ok) return response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ ...redirectBase, status: 'ok' }).toString()}` } });
+      const params = new URLSearchParams({ ...redirectBase, status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }

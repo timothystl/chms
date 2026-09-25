@@ -37,11 +37,11 @@ function renderBalanceMultiYearXlsxImportForm(entryStatus, entryMessage) {
     ${renderSectionHeading({ eyebrow: 'Balance Sheet', heading: 'Import Statement of Financial Position, multi-year (.xlsx)', badge: 'Relayed live to Connect' })}
     ${entryStatus === 'ok' ? '<p class="status">Imported into Connect.</p>' : ''}
     ${entryStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
-    <form method="POST" action="/api/v1/connect-church-balances-multi-year-xlsx-import-write" enctype="multipart/form-data">
+    <form method="POST" action="/api/v1/connect-church-balances-multi-year-xlsx-preview" enctype="multipart/form-data">
       <div class="field"><label for="bbmy-file">QuickBooks "Statement of Financial Position" multi-year export (.xlsx, max 15 MB)</label><input id="bbmy-file" type="file" name="file" accept=".xlsx" required></div>
-      <button type="submit">Import file</button>
+      <button type="submit">Review file</button>
     </form>
-    <p><small>Parses the uploaded workbook (one column per fiscal year) and writes every account row directly into Connect's own <code>finance_church_balances</code> table, tagged <code>source='import'</code>, replacing any prior import for each fiscal year present in the file. Connect independently re-verifies your identity and real finance edit permission for every request.</small></p>
+    <p><small>Parses without changing data, then lets you select the fiscal-year balance rows to commit through Connect's existing permission-checked importer.</small></p>
   </section>`;
 }
 
