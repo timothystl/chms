@@ -17,6 +17,9 @@ import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.j
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage } from './parity-manifest.js';
 import { HEALTH_STYLES, renderHealthByEntity, renderHealthSummary, renderHealthViewToggle, resolveHealthView } from './health-pages.js';
 import { ensureFinanceOwnedSchema } from './finance-owned-schema.js';
+import { HR_WRITERS, buildHrView, readHr } from './hr-service.js';
+import { canEditHr, describeHrStatus, handleHrWrite } from './hr-routes.js';
+import { HR_STYLES, renderHrPage } from './hr-pages.js';
 import { FACILITIES_WRITERS, buildFacilitiesView, isoDay, readFacilities } from './facilities-service.js';
 import { canEditFacilities, describeFacilitiesStatus, handleFacilitiesWrite } from './facilities-routes.js';
 import { FACILITIES_STYLES, renderFacilitiesPage } from './facilities-pages.js';
@@ -959,6 +962,21 @@ function renderSectionBody(ctx) {
   if (page.status === 'unavailable') {
     return renderUnavailablePage({ eyebrow: section.label, heading: page.label, reason: page.reason });
   }
+  if (section.id === 'hr') {
+    if (!ctx.hr || isSyntheticUnavailable(ctx.hr)) {
+      return renderDataUnavailablePage({ eyebrow: section.label, heading: page.label, reason: 'HR records could not be read for this request. Nothing shown here is an empty roster.' });
+    }
+    const today = isoDay(new Date());
+    const requestedYear = Number(ctx.searchParams.get('review_year'));
+    const reviewYear = Number.isInteger(requestedYear) && requestedYear >= 2000 && requestedYear <= 2200 ? requestedYear : Number(today.slice(0, 4));
+    return renderHrPage(page.id, {
+      view: buildHrView(ctx.hr, today, reviewYear),
+      data: ctx.hr,
+      params: ctx.searchParams,
+      canEdit: canEditHr(roleResult),
+      status: describeHrStatus(ctx.searchParams),
+    });
+  }
   if (section.id === 'facilities') {
     if (!ctx.facilities || isSyntheticUnavailable(ctx.facilities)) {
       return renderDataUnavailablePage({ eyebrow: section.label, heading: page.label, reason: 'Facilities records could not be read for this request. Nothing shown here is an empty register.' });
@@ -1198,7 +1216,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/tlc-logo.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -2886,6 +2904,10 @@ export default {
       return QB_ROUTE_HANDLERS[route.id](request, url, env, env.FINANCE_DB, { isAdmin: roleResult.ok && roleResult.role === 'admin' });
     }
 
+    if (HR_WRITERS[route.id]) {
+      return handleHrWrite(request, env, route.id, url);
+    }
+
     if (FACILITIES_WRITERS[route.id]) {
       return handleFacilitiesWrite(request, env, route.id, url);
     }
@@ -3319,6 +3341,11 @@ export default {
         const propertyMonthlyImportCsvMessage = propertyMonthlyImportCsvStatus === 'error'
           ? describePropertyMonthlyImportCsvError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        const hr = section.id === 'hr'
+          ? await safeSyntheticRead(async () => {
+            await ensureFinanceOwnedSchema(env.FINANCE_DB, 'hr');
+            return readHr(env.FINANCE_DB);
+          }) : null;
         const facilities = section.id === 'facilities'
           ? await safeSyntheticRead(async () => {
             await ensureFinanceOwnedSchema(env.FINANCE_DB, 'facilities');
@@ -3328,7 +3355,7 @@ export default {
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
         return response(renderShell({
-          healthView: url.searchParams.get('view'), facilities, searchParams: url.searchParams,
+          healthView: url.searchParams.get('view'), facilities, hr, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,

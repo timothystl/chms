@@ -60,6 +60,8 @@ const DB_WRITE_ROUTE_IDS = new Set([
   'compensation-raise-plan-save-v1', 'compensation-council-draft-save-v1', 'compensation-council-overlay-save-v1',
   'facilities-asset-save-v1', 'facilities-service-log-v1', 'facilities-service-remove-v1',
   'facilities-pm-save-v1', 'facilities-pm-done-v1', 'facilities-project-save-v1',
+  'hr-person-save-v1', 'hr-credential-save-v1', 'hr-review-save-v1', 'hr-goal-save-v1',
+  'hr-position-save-v1', 'hr-policy-save-v1', 'hr-signature-save-v1', 'hr-benefit-change-save-v1',
   'qb-disconnect-v1', 'qb-sync-v1', 'qb-sync-years-v1', 'qb-budget-select-v1',
 ]);
 // The two browser GETs of Finance's QuickBooks OAuth handshake: they store the CSRF state and the
@@ -101,6 +103,8 @@ describe('Finance staging route manifest', () => {
       '/api/v1/connect-daycare-sync', '/api/v1/connect-daycare-rooms-sync',
       '/api/v1/facilities/asset-save', '/api/v1/facilities/service-log', '/api/v1/facilities/service-remove',
       '/api/v1/facilities/pm-save', '/api/v1/facilities/pm-done', '/api/v1/facilities/project-save',
+      '/api/v1/hr/person-save', '/api/v1/hr/credential-save', '/api/v1/hr/review-save', '/api/v1/hr/goal-save',
+      '/api/v1/hr/position-save', '/api/v1/hr/policy-save', '/api/v1/hr/signature-save', '/api/v1/hr/benefit-change-save',
       '/api/summary', '/api/v1/payroll-relay-diagnostic',
       '/api/v1/payroll-hours-save', '/api/v1/payroll-period-approve',
       '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
@@ -168,7 +172,7 @@ describe('Finance staging route manifest', () => {
     expect(resolveFinanceRoute('/api/v1/summary')).toMatchObject({
       id: 'summary-v1', contract: 'finance.summary.v1', dataSource: 'synthetic-d1',
     });
-    expect(resolveFinanceRoute('/').optionalQueryBudgets).toEqual(['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'compensationPlanRaw', 'cashRunway', 'facilities']);
+    expect(resolveFinanceRoute('/').optionalQueryBudgets).toEqual(['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'compensationPlanRaw', 'cashRunway', 'facilities', 'hr']);
     expect(resolveFinanceRoute('/api/v1/connect-giving-transport-evidence')).toMatchObject({
       id: 'giving-transport-evidence-v1', contract: 'finance.connect-giving-transport-evidence.v1', dataSource: 'synthetic-static',
     });

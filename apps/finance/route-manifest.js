@@ -2,7 +2,7 @@ const READ_METHODS = Object.freeze(['GET', 'HEAD']);
 const WRITE_METHODS = Object.freeze(['POST']);
 
 const ROUTES = [
-  { id: 'shell', paths: ['/', '/index.html'], dataSource: 'synthetic-d1', queryBudget: 'summary', optionalQueryBudgets: ['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'compensationPlanRaw', 'cashRunway', 'facilities'] },
+  { id: 'shell', paths: ['/', '/index.html'], dataSource: 'synthetic-d1', queryBudget: 'summary', optionalQueryBudgets: ['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'compensationPlanRaw', 'cashRunway', 'facilities', 'hr'] },
   { id: 'health', paths: ['/health'], dataSource: 'none' },
   // Self-hosted logo and fonts for the v3 design (see brand-assets.js); static bytes, no data.
   { id: 'brand-asset', paths: ['/assets/tlc-logo.png', '/assets/fonts/outfit.woff2', '/assets/fonts/figtree.woff2'], dataSource: 'none' },
@@ -220,6 +220,16 @@ const ROUTES = [
   { id: 'facilities-pm-save-v1', paths: ['/api/v1/facilities/pm-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-pm-save.v1' },
   { id: 'facilities-pm-done-v1', paths: ['/api/v1/facilities/pm-done'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-pm-done.v1' },
   { id: 'facilities-project-save-v1', paths: ['/api/v1/facilities/project-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-project-save.v1' },
+  // HR & Staff (v3 design): admin-only personnel records in Finance's own tables (migration 0011,
+  // hr-service.js). Form posts that redirect back.
+  { id: 'hr-person-save-v1', paths: ['/api/v1/hr/person-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-person-save.v1' },
+  { id: 'hr-credential-save-v1', paths: ['/api/v1/hr/credential-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-credential-save.v1' },
+  { id: 'hr-review-save-v1', paths: ['/api/v1/hr/review-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-review-save.v1' },
+  { id: 'hr-goal-save-v1', paths: ['/api/v1/hr/goal-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-goal-save.v1' },
+  { id: 'hr-position-save-v1', paths: ['/api/v1/hr/position-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-position-save.v1' },
+  { id: 'hr-policy-save-v1', paths: ['/api/v1/hr/policy-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-policy-save.v1' },
+  { id: 'hr-signature-save-v1', paths: ['/api/v1/hr/signature-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-signature-save.v1' },
+  { id: 'hr-benefit-change-save-v1', paths: ['/api/v1/hr/benefit-change-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-benefit-change-save.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no
