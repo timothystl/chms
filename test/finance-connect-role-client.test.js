@@ -96,7 +96,10 @@ describe('roleCanAccessSection', () => {
     expect(roleCanAccessSection('unknown', financeSection, { finance: 'edit' })).toBe(false);
   });
   it('requires giving permission for giving and composite reports', () => {
-    expect(roleCanAccessSection('council', { id: 'giving', permission: 'finance' }, { giving: 'anon' })).toBe(true);
+    // Gift Entry names donors, so totals-only access opens the Giving totals pages but not Gift Entry.
+    expect(roleCanAccessSection('council', { id: 'giving', permission: 'finance' }, { giving: 'anon' })).toBe(false);
+    expect(roleCanAccessSection('council', { id: 'giving-analytics', permission: 'finance' }, { giving: 'anon' })).toBe(true);
+    expect(roleCanAccessSection('finance', { id: 'giving', permission: 'finance' }, { finance: 'edit', giving: 'view' })).toBe(true);
     expect(roleCanAccessSection('finance', { id: 'health', permission: 'finance' }, { finance: 'edit', giving: 'none' })).toBe(false);
   });
 

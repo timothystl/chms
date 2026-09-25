@@ -18,6 +18,7 @@ const TOTALS = {
       { label: '$1,000 – $2,499', households: 96, cents: 15830000 }, { label: '$2,500 – $4,999', households: 61, cents: 21460000 },
       { label: '$5,000 – $9,999', households: 31, cents: 20620000 }, { label: '$10,000 and up', households: 10, cents: 26910000 },
     ],
+    concentration: { households: 398, deciles: [0.48, 0.17, 0.11, 0.08, 0.06, 0.04, 0.03, 0.01, 0.01, 0.01].map((share) => ({ households: 40, share })), top_ten_share: 0.24, top_ten_share_last_year: 0.27, median_cents: 112000, households_1000_plus: 198 },
     t12_households: 398, t12_cents: 91840000, retained_households: 376, two_years_ago_households: 400,
     new_last_year_households: 24, new_last_year_avg_cents: 104000, last_year_avg_cents: 231000,
   },
@@ -160,5 +161,18 @@ describe('Giving analytics pages (Finance v3)', () => {
     expect(calls.filter((c) => c.path.endsWith('/giving-followup-write-v1'))).toHaveLength(0);
     const page = await (await get(refused.env, '&page=trends')).text();
     expect(page).toContain('Giving trends could not be read from Connect');
+  });
+
+  it('shows giving concentration on Charts, from totals only', async () => {
+    const { env, calls } = makeEnv({ role: 'council', giving: 'anon' });
+    const html = await (await worker.fetch(new Request('https://finance.test/?section=charts&page=concentration', { headers: { 'Cf-Access-Jwt-Assertion': 'jwt' } }), env)).text();
+    expect(html).toContain('<h1 class="page-title">Giving concentration</h1>');
+    expect(html).toContain('24% of giving');
+    expect(html).toContain('Down from 27% in 2025');
+    expect(html).toContain('$1,120');
+    expect(html).toContain('ga-decile-bar is-top');
+    expect(html).toContain('<td>Top 50%</td><td>200</td><td>90%</td>');
+    expect(paths(calls)).toContain('giving-analytics-v1');
+    expect(paths(calls)).not.toContain('giving-analytics-people-v1');
   });
 });

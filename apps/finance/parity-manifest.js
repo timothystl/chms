@@ -52,7 +52,7 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
       { id: 'expense-mix', label: 'Expense mix', status: 'live' },
       { id: 'cash-reserve', label: 'Cash & reserve', status: 'live' },
       { id: 'giving-pace', label: 'Giving vs. pace', status: 'live' },
-      { id: 'concentration', label: 'Giving concentration', status: 'unavailable', reason: 'This needs a distribution of gift sizes across donors or households, which the aggregate-only giving contract does not provide.' },
+      { id: 'concentration', label: 'Giving concentration', status: 'live' },
     ],
   },
   {
@@ -177,7 +177,7 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
     capabilities: ['account tree', 'board-category presentation'],
     pages: [
       { id: 'chart', label: 'Chart of accounts', status: 'live' },
-      { id: 'access', label: 'Access & roles', status: 'unavailable', reason: 'Role and permission data lives in Connect’s access control, not in a Finance-owned table -- Finance has nothing of its own to display here yet.' },
+      { id: 'access', label: 'Access & roles', status: 'live' },
     ],
   },
   // 'connection status' and 'staleness' are real now, via the connect.finance-data-status.v1

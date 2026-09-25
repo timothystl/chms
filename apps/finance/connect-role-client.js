@@ -62,6 +62,8 @@ export function roleCanAccessSection(role, section, permissions = {}) {
   const item = ['giving', 'giving-analytics'].includes(section.id) ? 'giving' : section.permission;
   const canRead = key => (key === 'giving' ? ['anon', 'view', 'edit'] : ['view', 'edit']).includes(permissions[key]);
   if (!canRead(item)) return false;
+  // Gift Entry names donors on every page, so totals-only Giving access (council) does not open it.
+  if (section.id === 'giving' && !['view', 'edit'].includes(permissions.giving)) return false;
   // These composite reports include the Giving summary as well as accounting.
   if (['health', 'charts', 'packet'].includes(section.id) && !canRead('giving')) return false;
   return true;

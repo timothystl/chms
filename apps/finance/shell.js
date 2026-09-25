@@ -21,8 +21,10 @@ import { PAYROLL_STYLES, legacyPayrollPage } from './payroll-pages.js';
 import { GIFT_BATCH_STYLES, renderBatchPage, renderBatchReportsPage, renderReconciliationPage } from './gift-batch-pages.js';
 import { describeGivingBatchFailure, fetchGivingBatchLedger, fetchGivingBatchWorkspace, postGivingBatchWrite } from './connect-giving-batch-client.js';
 import { fetchGivingAnalytics, fetchGivingAnalyticsPeople, postGivingFollowupWrite } from './connect-giving-analytics-client.js';
+import { fetchAccessRoles } from './connect-access-client.js';
+import { ACCESS_STYLES, renderAccessPage } from './access-pages.js';
 import {
-  GIVING_ANALYTICS_STYLES, renderHouseholdBandsPage, renderNudgesPage, renderPledgesPage, renderStatementsPage, renderTrendsPage,
+  GIVING_ANALYTICS_STYLES, renderConcentrationPage, renderHouseholdBandsPage, renderNudgesPage, renderPledgesPage, renderStatementsPage, renderTrendsPage,
   renderWhatIfPage, renderYearOverYearPage,
 } from './giving-analytics-pages.js';
 import { describeFormStatus, handleFinanceFormWrite, isSameOriginPost } from './form-post.js';
@@ -1119,6 +1121,12 @@ function renderSectionBody(ctx) {
       default: return renderTrendsPage({ result: totals });
     }
   }
+  if (section.id === 'charts' && page.id === 'concentration') {
+    return renderConcentrationPage({ result: ctx.givingAnalytics?.ok ? { ok: true, data: ctx.givingAnalytics.result } : { ok: false, message: describeGivingBatchFailure(ctx.givingAnalytics) } });
+  }
+  if (section.id === 'accounts' && page.id === 'access') {
+    return renderAccessPage({ result: ctx.accessRoles?.ok ? { ok: true, data: ctx.accessRoles.result } : { ok: false, message: describeGivingBatchFailure(ctx.accessRoles) } });
+  }
   if (section.id === 'charts') {
     return renderChartsPage(page.id, { churchReport, churchReportLive, cashRunway, propertyReserves, propertyReservesLive, giving, givingSource });
   }
@@ -1382,7 +1390,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/tlc-logo.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -3620,7 +3628,10 @@ export default {
           : ['reconciliation', 'reports'].includes(givingPageId) ? await fetchGivingBatchLedger(env, accessJwt) : null;
         // Giving pages read Connect live too; the named pages (statements, nudges) use their own
         // contract, never requested for council preview or a totals-only (council) Giving role.
-        const analyticsPageId = section.id === 'giving-analytics' ? resolveFinancePage(section, pageId).id : null;
+        const analyticsPageId = section.id === 'giving-analytics' ? resolveFinancePage(section, pageId).id
+          : section.id === 'charts' && resolveFinancePage(section, pageId).id === 'concentration' ? 'concentration' : null;
+        const accessRoles = section.id === 'accounts' && resolveFinancePage(section, pageId).id === 'access'
+          ? await fetchAccessRoles(env, accessJwt) : null;
         const [givingAnalytics, givingAnalyticsPeople] = analyticsPageId ? await Promise.all([
           analyticsPageId === 'statements' ? null : fetchGivingAnalytics(env, accessJwt),
           ['statements', 'nudges'].includes(analyticsPageId) && !councilPreview
@@ -3638,7 +3649,7 @@ export default {
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
-          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, planningBasis, planningScenarios, planningRunway, searchParams: url.searchParams,
+          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, planningBasis, planningScenarios, planningRunway, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
