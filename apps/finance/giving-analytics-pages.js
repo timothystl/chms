@@ -173,6 +173,35 @@ export function renderHouseholdBandsPage({ result }) {
       <tbody>${rows}<tr class="total-row"><td>All households</td><td>${h.t12_households}</td><td>100%</td><td>${money(total)}</td><td>100%</td></tr></tbody></table></div>` : '<div class="empty-note">No household gifts in the last 12 months.</div>'}</div>`;
 }
 
+// ── Giving concentration (Charts) ─────────────────────────────────────────────────────────────
+
+export function renderConcentrationPage({ result }) {
+  if (!result.ok) return unavailable('Giving concentration', result.message);
+  const c = result.data.households.concentration;
+  if (!c || c.households < 10) {
+    return `<p class="lede">How much of the church’s giving depends on a few households. Totals only.</p>
+      <div class="panel"><h2>Not enough households yet</h2><p class="muted-line">Concentration needs at least ten giving households in the last 12 months.</p></div>`;
+  }
+  const lastYear = result.data.year - 1;
+  const change = c.top_ten_share_last_year === null ? null : c.top_ten_share - c.top_ten_share_last_year;
+  const top = c.deciles[0];
+  const max = Math.max(...c.deciles.map((d) => d.share), 0.0001);
+  const labels = ['Top 10%', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
+  const bars = `<div class="ga-deciles">${c.deciles.map((d, i) => `<div class="ga-decile"><span class="ga-decile-value">${pct(d.share)}</span><div class="ga-decile-bar${i === 0 ? ' is-top' : ''}" style="height:${Math.max(1, d.share / max * 100).toFixed(1)}%" title="${labels[i]} of households (${d.households}): ${pct(d.share, 1)} of giving"></div><span class="ga-decile-label">${labels[i]}</span></div>`).join('')}</div>`;
+  const cumulative = c.deciles.reduce((acc, d) => { acc.push((acc.at(-1) || 0) + d.share); return acc; }, []);
+  return `<p class="lede">How much of the church’s giving depends on a few households, over the last 12 months. Totals only: no household is named, and gifts from organizations and anonymous plate cash are left out.</p>
+    ${kpis([
+      ['Top 10 households', `${pct(c.top_ten_share)} of giving`, change === null ? `No ${lastYear} gifts to compare` : `${change <= 0 ? 'Down' : 'Up'} from ${pct(c.top_ten_share_last_year)} in ${lastYear}`, change === null ? '' : change <= 0 ? 'good' : 'warn'],
+      ['Households giving $1,000+', String(c.households_1000_plus), `${pct(c.households_1000_plus / c.households)} of ${c.households} giving households`],
+      ['Median household gift', money(c.median_cents), 'Last 12 months'],
+    ])}
+    <div class="panel panel-spaced"><div class="panel-head"><h2>Share of giving by household tenth</h2><span class="muted">Largest givers first · the top ${top.households} households give ${pct(top.share)}</span></div>${bars}</div>
+    <div class="panel panel-spaced list-panel"><h2>Cumulative share</h2><div class="table-scroll"><table class="pm-table ga-num"><thead><tr><th>Households, largest first</th><th>Households</th><th>Share of giving</th></tr></thead><tbody>
+      ${[0, 1, 4].map((i) => `<tr><td>Top ${(i + 1) * 10}%</td><td>${c.deciles.slice(0, i + 1).reduce((s, d) => s + d.households, 0)}</td><td>${pct(cumulative[i])}</td></tr>`).join('')}
+      <tr><td>Bottom half</td><td>${c.deciles.slice(5).reduce((s, d) => s + d.households, 0)}</td><td>${pct(1 - cumulative[4])}</td></tr>
+    </tbody></table></div></div>`;
+}
+
 // ── Pledges ───────────────────────────────────────────────────────────────────────────────────
 
 export function renderPledgesPage({ result }) {
@@ -396,6 +425,13 @@ export const GIVING_ANALYTICS_STYLES = `
     .ga-nudges li { display:grid; grid-template-columns:minmax(0,1.6fr) auto minmax(0,2fr); gap:14px; align-items:center; }
     .ga-amount { font-weight:600; white-space:nowrap; }
     .ga-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+    .ga-deciles { display:flex; align-items:flex-end; gap:12px; height:220px; margin-top:16px; border-bottom:1px solid #D5DAE3; padding-bottom:0; }
+    .ga-decile { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; position:relative; }
+    .ga-decile-bar { width:min(44px,70%); background:var(--navy); border-radius:3px 3px 0 0; min-height:2px; }
+    .ga-decile-bar.is-top { background:#C9962E; }
+    .ga-decile-value { font-size:12px; color:#4B5563; margin-bottom:4px; }
+    .ga-decile-label { position:absolute; bottom:-22px; font-size:12px; color:#4B5563; white-space:nowrap; }
+    .ga-deciles { margin-bottom:30px; }
     .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
     @media (max-width:720px) { .ga-nudges li { grid-template-columns:1fr; } .ga-actions { justify-content:flex-start; } .ga-months { gap:4px; } }
 `;

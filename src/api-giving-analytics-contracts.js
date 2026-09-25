@@ -137,6 +137,33 @@ export function summarizeHouseholds(rows) {
     new_last_year_households: newLastYear.length,
     new_last_year_avg_cents: newLastYear.length ? Math.round(sum(newLastYear, 'y1') / newLastYear.length) : 0,
     last_year_avg_cents: Math.round(y1Avg),
+    concentration: concentrationOf(t12.map((r) => r.t12), y1.map((r) => r.y1)),
+  };
+}
+
+// How much of household giving depends on a few households: each tenth of households (largest
+// givers first) and its share, the ten largest households' share now and last year, and the
+// median. Shares and counts only, like the bands above -- never an amount tied to a household.
+export function concentrationOf(t12Cents, lastYearCents) {
+  const desc = (list) => [...list].sort((a, b) => b - a);
+  const total = (list) => list.reduce((s, v) => s + v, 0);
+  const now = desc(t12Cents);
+  const nowTotal = total(now);
+  const n = now.length;
+  const deciles = Array.from({ length: 10 }, (_, i) => {
+    const slice = now.slice(Math.floor((i * n) / 10), Math.floor(((i + 1) * n) / 10));
+    return { households: slice.length, share: nowTotal ? total(slice) / nowTotal : 0 };
+  });
+  const topTenShare = (list) => { const t = total(list); return t ? total(desc(list).slice(0, 10)) / t : null; };
+  const mid = Math.floor(n / 2);
+  const median = n ? (n % 2 ? now[mid] : Math.round((now[mid - 1] + now[mid]) / 2)) : 0;
+  return {
+    households: n,
+    deciles,
+    top_ten_share: topTenShare(now),
+    top_ten_share_last_year: topTenShare(lastYearCents),
+    median_cents: median,
+    households_1000_plus: now.filter((v) => v >= 100000).length,
   };
 }
 

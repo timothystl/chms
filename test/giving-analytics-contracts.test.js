@@ -167,6 +167,13 @@ describe('Giving analytics contracts (giving-analytics-*-v1, giving-followup-wri
     expect(a.households.bands.reduce((s, b) => s + b.households, 0)).toBe(a.households.t12_households);
     expect(a.households.bands.find((b) => b.label === '$2,500 – $4,999').households).toBe(1);
     expect(a.pledges).toMatchObject({ pledgers: 1, pledged_cents: 600000, received_cents: 180000, behind: 1 });
+    const c = a.households.concentration;
+    expect(c.households).toBe(a.households.t12_households);
+    expect(c.deciles).toHaveLength(10);
+    expect(c.deciles.reduce((s2, d) => s2 + d.share, 0)).toBeCloseTo(1, 6);
+    expect(c.deciles.reduce((s2, d) => s2 + d.households, 0)).toBe(c.households);
+    expect(c.top_ten_share).toBe(1);
+    expect(c.households_1000_plus).toBeGreaterThan(0);
     const text = JSON.stringify(a);
     for (const name of ['Krause', 'Schreiber', 'Ellis', 'Hollis', 'Nguyen', 'Acme']) expect(text).not.toContain(name);
   });
