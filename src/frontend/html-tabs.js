@@ -2208,8 +2208,8 @@ export const HTML_TABS_2 = String.raw`
 <!-- Follow-up modal -->
 <div class="modal-overlay" id="dash-customize-modal">
   <div class="modal" style="max-width:380px;">
-    <h2>Customize Dashboard</h2>
-    <p style="font-size:.85rem;color:var(--warm-gray);margin-bottom:14px;">Choose which cards to show on the dashboard.</p>
+    <h2>Choose Home panels</h2>
+    <p style="font-size:.85rem;color:var(--warm-gray);margin-bottom:14px;">Choose which extra panels appear under More on Home. Attendance and the month lists always show.</p>
     <div id="dash-prefs-list" style="display:flex;flex-direction:column;gap:10px;"></div>
     <div class="modal-actions">
       <button class="btn-primary" onclick="closeModal('dash-customize-modal')">Done</button>

@@ -2,7 +2,54 @@ export const JS_DASHBOARD = String.raw`// ── DASHBOARD ───────
 var _dashData = null;
 var _dashMonth = new Date().getMonth() + 1; // 1-12, default current month
 var DASH_PREF_DEFAULTS = {weeklyTasks:true, prayers:true, followUp:true, newContacts:true, reviewQueue:false, firstGivers:true, notSeen:true, birthdays:true, anniversaries:true, anniversaryIssues:false, baptismAnniversaries:true, membership:true};
-var DASH_PREF_LABELS = {weeklyTasks:'This Week\'s Tasks', prayers:'Prayer Requests', followUp:'Follow-up Queue', newContacts:'New Contacts', reviewQueue:'Visitor Review Batch', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', birthdays:'Birthdays', anniversaries:'Anniversaries', anniversaryIssues:'Anniversary Data Issues', baptismAnniversaries:'Baptism Anniversaries', membership:'Membership by Type'};
+var DASH_PREF_LABELS = {weeklyTasks:'This Week\'s Tasks', prayers:'Prayer Requests', followUp:'Follow-up Queue', newContacts:'New Contacts', reviewQueue:'Visitor Review Batch', firstGivers:'First-Time Givers', notSeen:'Not Seen Recently', anniversaryIssues:'Anniversary Data Issues', membership:'Membership by Type'};
+var _dashYear = new Date().getFullYear(); // year of the month being shown, for headings and print
+// OS5: which Home sections are open. Attendance and the month lists lead and start open;
+// the older panels below start closed. Stored per browser; a missing store just means defaults.
+var DASH_OPEN_DEFAULTS = {att:true, month:true, bd:true, ann:true, bap:true, glance:true};
+var _dashOpen = null;
+function dashIsOpen(key) {
+  if (!_dashOpen) {
+    try { _dashOpen = JSON.parse(localStorage.getItem('dashOpen') || '{}') || {}; } catch (e) { _dashOpen = {}; }
+  }
+  return Object.prototype.hasOwnProperty.call(_dashOpen, key) ? !!_dashOpen[key] : !!DASH_OPEN_DEFAULTS[key];
+}
+function dashToggle(key) {
+  var open = !dashIsOpen(key);
+  _dashOpen[key] = open;
+  try { localStorage.setItem('dashOpen', JSON.stringify(_dashOpen)); } catch (e) {}
+  var sec = document.getElementById('dsec-' + key);
+  var body = document.getElementById('dsec-body-' + key);
+  var btn = document.getElementById('dsec-btn-' + key);
+  if (sec) sec.classList.toggle('is-collapsed', !open);
+  if (body) { if (open) body.removeAttribute('hidden'); else body.setAttribute('hidden', ''); }
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+// A collapsible Home section. titleHtml and extraHtml are already-escaped markup; extraHtml
+// sits in the header after the title (counts, action buttons) and stays visible when closed.
+function dashSection(key, titleHtml, extraHtml, bodyHtml, sub) {
+  var open = dashIsOpen(key);
+  var hTag = sub ? 'h3' : 'h2';
+  return '<section class="dsec' + (sub ? ' dsec-sub' : '') + (open ? '' : ' is-collapsed') + '" id="dsec-' + key + '">'
+    + '<div class="dsec-hdr"><' + hTag + ' class="dsec-h">'
+    + '<button type="button" class="dsec-toggle" id="dsec-btn-' + key + '" aria-expanded="' + (open ? 'true' : 'false') + '" aria-controls="dsec-body-' + key + '" onclick="dashToggle(\'' + key + '\')">'
+    + '<svg class="dsec-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg><span>' + titleHtml + '</span></button>'
+    + '</' + hTag + '>' + (extraHtml || '') + '</div>'
+    + '<div class="dsec-body" id="dsec-body-' + key + '"' + (open ? '' : ' hidden') + '>' + bodyHtml + '</div></section>';
+}
+// Wraps one of the older panels, which render as a dash-section-hdr (title span first, then
+// counts and buttons) followed by their card, into a collapsible section.
+function dashPanel(key, panelHtml) {
+  if (!panelHtml) return '';
+  var open0 = '<div class="dash-section-hdr">';
+  if (panelHtml.indexOf(open0) !== 0) return dashSection(key, '', '', panelHtml);
+  var hdrEnd = panelHtml.indexOf('</div>');
+  var hdr = panelHtml.slice(open0.length, hdrEnd);
+  var t0 = hdr.indexOf('<span>'), t1 = hdr.indexOf('</span>');
+  var title = hdr.slice(t0 + 6, t1);
+  var rest = hdr.slice(t1 + 7);
+  return dashSection(key, title, '<div class="dsec-actions">' + rest + '</div>', panelHtml.slice(hdrEnd + 6));
+}
 function dashGetPrefs() {
   if (!_dashPrefs) {
     try { _dashPrefs = Object.assign({}, DASH_PREF_DEFAULTS, JSON.parse(localStorage.getItem('dashCardPrefs')||'{}')); }
@@ -27,21 +74,25 @@ function openDashCustomize() {
   }
   openModal('dash-customize-modal');
 }
-function loadDashboard() {
+function loadDashboard(keepAttendance) {
   var body = document.getElementById('dash-body');
   if (!body) return;
-  body.innerHTML = '<div style="color:var(--warm-gray);font-size:13px;padding:20px 0;">Loading\u2026</div>';
+  // Month switching reloads this; keep the current page up instead of flashing Loading.
+  if (!_dashData) body.innerHTML = '<div class="os-state"><div class="os-state-msg">Loading\u2026</div></div>';
+  if (typeof permEdit === 'function' && permEdit('attendance') && typeof attSaveSunday === 'function' && !(keepAttendance && _homeAtt.services)) homeAttLoad();
   api('/admin/api/dashboard?month=' + _dashMonth).then(function(d) {
     _dashData = d;
     renderDashboard(d);
   }).catch(function(e) {
     var body2 = document.getElementById('dash-body');
-    if (body2) body2.innerHTML = '<div style="color:var(--danger);padding:20px;">Could not load dashboard: '+esc(e.message||'error')+'</div>';
+    if (body2) body2.innerHTML = '<div class="os-state"><div class="os-state-title">Home could not load</div><div class="os-state-msg">'+esc(e.message||'error')+'</div><button type="button" class="btn-secondary" onclick="loadDashboard()">Try again</button></div>';
   });
 }
 function dashMonthNav(delta) {
-  _dashMonth = ((_dashMonth - 1 + delta + 12) % 12) + 1;
-  loadDashboard();
+  var m = _dashMonth - 1 + delta;
+  _dashYear += Math.floor(m / 12);
+  _dashMonth = ((m % 12) + 12) % 12 + 1;
+  loadDashboard(true);
 }
 
 // ── Visitor Review Batch actions (DC1) — hidden by default ──────────────
@@ -91,11 +142,11 @@ function taskToggle(id, completed) {
       var lbl = row.querySelector('.wt-lbl');
       if (completed) {
         row.dataset.completed = '0';
-        if (cb) cb.textContent = '□';
+        if (cb) cb.checked = false;
         if (lbl) lbl.style.textDecoration = '';
       } else {
         row.dataset.completed = '1';
-        if (cb) cb.textContent = '☑';
+        if (cb) cb.checked = true;
         if (lbl) lbl.style.textDecoration = 'line-through';
       }
     }
@@ -254,70 +305,224 @@ function _dashBulletinDate(dateStr, mnShort) {
   if (parts.length < 3) return dateStr;
   return mnShort[parseInt(parts[1])-1] + ' ' + String(parseInt(parts[2])).padStart(2,' ');
 }
-function dashCopyBirthdays() {
-  var d = _dashData;
-  if (!d) return;
-  var yr = new Date().getFullYear();
-  var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  var mnShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var mn = monthNames[(_dashMonth - 1)];
-  var bdList = d.birthdays || [];
-  var lines = ['Birthdays \u2014 ' + mn + ' ' + yr, ''];
-  if (bdList.length) {
-    bdList.forEach(function(p) {
-      var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-      lines.push('  ' + _dashBulletinDate(p.dob, mnShort) + '  ' + name);
-    });
-  } else {
-    lines.push('  None this month.');
-  }
-  navigator.clipboard.writeText(lines.join('\n')).then(function() {
-    var btn = document.getElementById('dash-copy-bd-btn');
-    if (btn) { btn.textContent = 'Copied!'; setTimeout(function(){ btn.innerHTML = '&#128203;'; }, 1500); }
-  });
+var DASH_MONTH_LISTS = [
+  { key: 'bd',  title: 'Birthdays',             field: 'dob',              data: 'birthdays',            none: 'No birthdays' },
+  { key: 'ann', title: 'Anniversaries',         field: 'anniversary_date', data: 'anniversaries',        none: 'No anniversaries' },
+  { key: 'bap', title: 'Baptism anniversaries', field: 'baptism_date',     data: 'baptismAnniversaries', none: 'No baptism anniversaries' }
+];
+var DASH_MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+var DASH_MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function dashListFor(key) {
+  for (var i = 0; i < DASH_MONTH_LISTS.length; i++) if (DASH_MONTH_LISTS[i].key === key) return DASH_MONTH_LISTS[i];
+  return null;
 }
-function dashCopyAnniversaries() {
-  var d = _dashData;
-  if (!d) return;
-  var yr = new Date().getFullYear();
-  var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  var mnShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var mn = monthNames[(_dashMonth - 1)];
-  var annList = d.anniversaries || [];
-  var lines = ['Anniversaries \u2014 ' + mn + ' ' + yr, ''];
-  if (annList.length) {
-    annList.forEach(function(p) {
-      var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-      lines.push('  ' + _dashBulletinDate(p.anniversary_date, mnShort) + '  ' + name);
-    });
-  } else {
-    lines.push('  None this month.');
-  }
-  navigator.clipboard.writeText(lines.join('\n')).then(function() {
-    var btn = document.getElementById('dash-copy-ann-btn');
-    if (btn) { btn.textContent = 'Copied!'; setTimeout(function(){ btn.innerHTML = '&#128203;'; }, 1500); }
-  });
+function dashPersonName(p) { return ((p.first_name || '') + ' ' + (p.last_name || '')).trim(); }
+function dashShortDate(dateStr) {
+  var parts = (dateStr || '').split('-');
+  if (parts.length < 3) return dateStr || '';
+  return DASH_MONTH_SHORT[parseInt(parts[1], 10) - 1] + ' ' + parseInt(parts[2], 10);
 }
-function dashCopyBaptisms() {
-  var d = _dashData;
-  if (!d) return;
-  var yr = new Date().getFullYear();
-  var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  var mnShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var mn = monthNames[(_dashMonth - 1)];
-  var list = d.baptismAnniversaries || [];
-  var lines = ['Baptism Anniversaries — ' + mn + ' ' + yr, ''];
+function dashCopyList(key) {
+  var d = _dashData, L = dashListFor(key);
+  if (!d || !L) return;
+  var list = d[L.data] || [];
+  var lines = [L.title + ' \u2014 ' + DASH_MONTH_NAMES[_dashMonth - 1] + ' ' + _dashYear, ''];
   if (list.length) {
-    list.forEach(function(p) {
-      var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-      lines.push('  ' + _dashBulletinDate(p.baptism_date, mnShort) + '  ' + name);
-    });
+    list.forEach(function(p) { lines.push('  ' + _dashBulletinDate(p[L.field], DASH_MONTH_SHORT) + '  ' + dashPersonName(p)); });
   } else {
     lines.push('  None this month.');
   }
-  navigator.clipboard.writeText(lines.join('\n')).then(function() {
-    var btn = document.getElementById('dash-copy-bap-btn');
-    if (btn) { btn.textContent = 'Copied!'; setTimeout(function(){ btn.innerHTML = '&#128203;'; }, 1500); }
+  var btn = document.getElementById('dash-copy-' + key + '-btn');
+  function done(msg) {
+    if (!btn) return;
+    btn.textContent = msg;
+    setTimeout(function() { btn.textContent = 'Copy for bulletin'; }, 1600);
+  }
+  if (!navigator.clipboard) { done('Copy not available'); return; }
+  navigator.clipboard.writeText(lines.join('\n')).then(function() { done('Copied'); }, function() { done('Copy failed'); });
+}
+// Opens a plain print page of the month's three lists. Names only, no contact details.
+function dashPrintMonth() {
+  var d = _dashData;
+  if (!d) return;
+  var heading = DASH_MONTH_NAMES[_dashMonth - 1] + ' ' + _dashYear;
+  var body = DASH_MONTH_LISTS.map(function(L) {
+    var list = d[L.data] || [];
+    var rows = list.length
+      ? list.map(function(p) { return '<tr><td class="dt">' + esc(dashShortDate(p[L.field])) + '</td><td>' + esc(dashPersonName(p)) + '</td></tr>'; }).join('')
+      : '<tr><td colspan="2" class="none">' + esc(L.none) + ' this month.</td></tr>';
+    return '<section><h2>' + esc(L.title) + ' <span>(' + list.length + ')</span></h2><table>' + rows + '</table></section>';
+  }).join('');
+  var html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>' + esc(heading) + ' \u2014 birthdays and anniversaries</title>'
+    + '<style>body{font-family:"Source Sans 3",Arial,sans-serif;color:#293D49;margin:32px;font-size:13pt;}'
+    + 'h1{font-size:20pt;margin:0 0 4px;}p.sub{margin:0 0 20px;color:#536B79;}'
+    + 'section{break-inside:avoid;margin-bottom:22px;}h2{font-size:14pt;margin:0 0 6px;border-bottom:1px solid #D7E2E9;padding-bottom:4px;}'
+    + 'h2 span{font-weight:400;color:#536B79;}table{border-collapse:collapse;width:100%;}td{padding:3px 0;vertical-align:top;}'
+    + 'td.dt{width:80px;color:#536B79;}td.none{color:#536B79;font-style:italic;}'
+    + '@media print{body{margin:0.5in;}}</style></head><body>'
+    + '<h1>' + esc(heading) + '</h1><p class="sub">Birthdays, anniversaries and baptism anniversaries</p>'
+    + body + '</body></html>';
+  var w = window.open('', '_blank');
+  if (!w) { alert('Allow pop-ups for this site to print.'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(function() { try { w.print(); } catch (e) {} }, 250);
+}
+function dashMonthListHtml(d, L) {
+  var list = d[L.data] || [];
+  var body = list.length
+    ? '<ul class="home-month-list">' + list.map(function(p) {
+        return '<li><span class="home-month-date">' + esc(dashShortDate(p[L.field])) + '</span>'
+          + '<button type="button" onclick="openPersonDetail(' + p.id + ')">' + esc(dashPersonName(p)) + '</button></li>';
+      }).join('') + '</ul>'
+    : '<div class="home-month-empty">' + esc(L.none) + ' in ' + DASH_MONTH_NAMES[_dashMonth - 1] + '.</div>';
+  body += '<div class="home-month-foot"><button type="button" class="os-link-btn home-copy" id="dash-copy-' + L.key + '-btn" onclick="dashCopyList(\'' + L.key + '\')" aria-label="Copy ' + esc(L.title.toLowerCase()) + ' for the bulletin">Copy for bulletin</button></div>';
+  return '<div class="home-month-card">' + dashSection(L.key, esc(L.title), '<span class="dsec-meta">' + list.length + '</span>', body, true) + '</div>';
+}
+
+// ── Home attendance entry (OS5) ─────────────────────────────────────────
+// A short window of Sundays (8 weeks back through the coming one), fetched on its own so Home
+// never waits on the Attendance tab's five-year load. Saving goes through attSaveSunday(),
+// the same writer the Attendance tab uses.
+var _homeAtt = { services: null, date: '', a8: '', a1045: '', dirty: false, err: '', names: {} };
+function homeAttIso(dt) {
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+function homeAttSundays() {
+  var now = new Date();
+  var next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ((7 - now.getDay()) % 7));
+  var out = [];
+  for (var i = 0; i <= 8; i++) out.push(homeAttIso(new Date(next.getFullYear(), next.getMonth(), next.getDate() - 7 * i)));
+  return out; // newest first; out[0] is today when today is Sunday
+}
+function homeAttMap() {
+  return typeof attSundayMap === 'function' ? attSundayMap(_homeAtt.services || []) : {};
+}
+function homeAttMissing() {
+  var map = homeAttMap(), today = homeAttIso(new Date());
+  return homeAttSundays().filter(function(ds) {
+    var r = map[ds];
+    return ds <= today && (!r || !r.att8 || !r.att1045);
+  });
+}
+function homeAttDefaultDate() {
+  var missing = homeAttMissing();
+  return missing.length ? missing[missing.length - 1] : homeAttSundays()[0];
+}
+function homeAttLoad() {
+  var sundays = homeAttSundays();
+  var from = sundays[sundays.length - 1], to = sundays[0];
+  return api('/admin/api/attendance?from=' + from + '&to=' + to + '&order=asc').then(function(d) {
+    _homeAtt.services = (d && d.services) || [];
+    _homeAtt.err = '';
+    var keep = _homeAtt.date && sundays.indexOf(_homeAtt.date) !== -1 && (_homeAtt.dirty || !homeAttSaved(_homeAtt.date));
+    homeAttPick(keep ? _homeAtt.date : homeAttDefaultDate(), true);
+  }).catch(function(e) {
+    if (e && e.message === 'Unauthorized') return;
+    _homeAtt.err = 'Could not load attendance.';
+    homeAttRefresh();
+  });
+}
+function homeAttSaved(ds) {
+  var r = homeAttMap()[ds];
+  return !!(r && r.att8 && r.att1045);
+}
+function homeAttPick(ds, keepState) {
+  var r = homeAttMap()[ds];
+  // A reload for the same Sunday (another Home panel refreshed) keeps what was typed.
+  if (!(_homeAtt.dirty && ds === _homeAtt.date)) {
+    _homeAtt.a8 = r && r.att8 ? String(r.att8) : '';
+    _homeAtt.a1045 = r && r.att1045 ? String(r.att1045) : '';
+    _homeAtt.dirty = false;
+  }
+  _homeAtt.date = ds;
+  homeAttRefresh(keepState);
+  if (!(r && r.name) && !_homeAtt.names[ds]) {
+    api('/admin/api/attendance/sunday-name?date=' + encodeURIComponent(ds)).then(function(n) {
+      if (n && n.name) { _homeAtt.names[ds] = n.name; if (_homeAtt.date === ds) homeAttRefresh(true); }
+    }).catch(function() {});
+  }
+}
+function homeAttInput() {
+  var in8 = document.getElementById('home-att-8'), in1045 = document.getElementById('home-att-1045');
+  _homeAtt.a8 = in8 ? in8.value : '';
+  _homeAtt.a1045 = in1045 ? in1045.value : '';
+  _homeAtt.dirty = true;
+  var t = document.getElementById('home-att-total');
+  if (t) t.textContent = (parseInt(_homeAtt.a8, 10) || 0) + (parseInt(_homeAtt.a1045, 10) || 0);
+  var st = document.getElementById('home-att-state');
+  if (st) st.textContent = '';
+}
+function homeAttMetaText() {
+  if (!_homeAtt.services) return '';
+  var n = homeAttMissing().length;
+  return n ? n + (n === 1 ? ' Sunday' : ' Sundays') + ' to enter' : 'Up to date';
+}
+function homeAttBodyHtml() {
+  if (_homeAtt.err) return '<div class="home-panel"><div class="os-state"><div class="os-state-msg">' + esc(_homeAtt.err) + '</div><button type="button" class="btn-secondary" onclick="homeAttLoad()">Try again</button></div></div>';
+  if (!_homeAtt.services) return '<div class="home-panel"><div class="dsec-meta">Loading attendance\u2026</div></div>';
+  var map = homeAttMap(), today = homeAttIso(new Date());
+  var opts = homeAttSundays().map(function(ds) {
+    var r = map[ds];
+    var dt = new Date(ds + 'T00:00:00');
+    var lbl = dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    var st = ds > today ? 'upcoming' : (r && r.att8 && r.att1045 ? 'entered, ' + r.combined : (r && r.combined ? 'partly entered' : 'not entered'));
+    return '<option value="' + ds + '"' + (ds === _homeAtt.date ? ' selected' : '') + '>' + esc(lbl + ' \u2014 ' + st) + '</option>';
+  }).join('');
+  var r0 = map[_homeAtt.date];
+  var name = (r0 && r0.name) || _homeAtt.names[_homeAtt.date] || '';
+  var total = (parseInt(_homeAtt.a8, 10) || 0) + (parseInt(_homeAtt.a1045, 10) || 0);
+  return '<div class="home-panel">'
+    + '<div class="home-att">'
+    +   '<div class="home-att-field home-att-field-date"><label for="home-att-date">Sunday</label>'
+    +     '<select id="home-att-date" onchange="homeAttPick(this.value)">' + opts + '</select></div>'
+    +   '<div class="home-att-field"><label for="home-att-8">8:00 service</label>'
+    +     '<input id="home-att-8" type="number" min="0" step="1" inputmode="numeric" value="' + esc(_homeAtt.a8) + '" oninput="homeAttInput()" onkeydown="if(event.key===\'Enter\')homeAttSave()"></div>'
+    +   '<div class="home-att-field"><label for="home-att-1045">10:45 service</label>'
+    +     '<input id="home-att-1045" type="number" min="0" step="1" inputmode="numeric" value="' + esc(_homeAtt.a1045) + '" oninput="homeAttInput()" onkeydown="if(event.key===\'Enter\')homeAttSave()"></div>'
+    +   '<div class="home-att-total"><span class="home-att-total-lbl">Total</span><span class="home-att-total-n" id="home-att-total">' + total + '</span></div>'
+    +   '<div class="home-att-actions"><button type="button" class="btn-primary" id="home-att-save" onclick="homeAttSave()">Save</button></div>'
+    + '</div>'
+    + '<div class="home-att-foot"><span>' + esc(name) + '</span><span class="pv2-save-state" id="home-att-state" role="status" aria-live="polite"></span>'
+    +   '<button type="button" class="os-link-btn" onclick="showTab(\'attendance\')">Open Attendance</button></div>'
+    + '</div>';
+}
+function homeAttRefresh(keepState) {
+  var st = document.getElementById('home-att-state');
+  var prev = keepState && st ? st.textContent : '';
+  var body = document.getElementById('dsec-body-att');
+  if (body) body.innerHTML = homeAttBodyHtml();
+  var meta = document.getElementById('home-att-meta');
+  if (meta) meta.textContent = homeAttMetaText();
+  var st2 = document.getElementById('home-att-state');
+  if (st2 && prev) st2.textContent = prev;
+}
+function homeAttSave() {
+  var ds = _homeAtt.date;
+  var st = document.getElementById('home-att-state');
+  var btn = document.getElementById('home-att-save');
+  var raw8 = String(_homeAtt.a8).trim(), raw1045 = String(_homeAtt.a1045).trim();
+  var a8 = parseInt(raw8, 10) || 0, a1045 = parseInt(raw1045, 10) || 0;
+  if (!ds || typeof attSaveSunday !== 'function') return;
+  if (!/^\d*$/.test(raw8) || !/^\d*$/.test(raw1045)) { if (st) st.textContent = 'Use whole numbers.'; return; }
+  if (!a8 && !a1045) { if (st) st.textContent = 'Enter a count first.'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
+  if (st) st.textContent = '';
+  var row = homeAttMap()[ds];
+  if (row && !row.name && _homeAtt.names[ds]) row.name = _homeAtt.names[ds];
+  attSaveSunday(ds, a8, a1045, row).then(function() {
+    _homeAtt.dirty = false;
+    return homeAttLoad();
+  }).then(function() {
+    var st2 = document.getElementById('home-att-state');
+    if (st2) st2.textContent = 'Saved ' + dashShortDate(ds) + '.';
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    if (err && err.message === 'Unauthorized') return;
+    var st3 = document.getElementById('home-att-state');
+    if (st3) st3.textContent = 'Not saved: ' + ((err && err.message) || 'error');
   });
 }
 function renderDashboard(d) {
@@ -334,24 +539,36 @@ function renderDashboard(d) {
   var isStaffRole   = _userRole === 'admin' || _userRole === 'staff';
   var canEditRole   = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff' || _userRole === 'council';
   var canViewReports = _userRole === 'admin' || _userRole === 'finance' || _userRole === 'staff'; // council/register-only roles may have no reporting access
-  html += '<div style="display:flex;justify-content:flex-end;margin-bottom:4px;">'
-    + '<button class="btn-secondary" style="font-size:.75rem;padding:3px 10px;" onclick="openDashCustomize()">&#9881; Customize</button>'
-    + '</div>';
-  html += '<div class="dash-quick">'
-    + (canEditRole ? dashQBtn('<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>', 'Add Person', "openPersonEdit(null);showTab('people')") : '')
-    + (isFinanceRole ? dashQBtn('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8L2 7h20l-6-4z"/>', 'Record Giving', "showTab('giving')") : '')
-    + (isStaffRole ? dashQBtn('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/>', 'Attendance', "showTab('attendance')") : '')
-    + (canViewReports ? dashQBtn('<path d="M18 20V10M12 20V4M6 20v-6"/>', 'Reports', "showTab('reports')") : '')
-    + '</div>';
+  var canEnterAtt   = typeof permEdit === 'function' && permEdit('attendance') && typeof attSaveSunday === 'function';
 
-  // ── Stat strip ─────────────────────────────────────────────────
+  // ── Sunday attendance entry ────────────────────────────────────
+  if (canEnterAtt) {
+    html += dashSection('att', 'Sunday attendance', '<span class="dsec-meta" id="home-att-meta">' + esc(homeAttMetaText()) + '</span>', homeAttBodyHtml());
+  }
+
+  // ── This month: birthdays, anniversaries, baptism anniversaries ─
+  var monthActions = '<div class="dsec-actions">'
+    + '<span class="home-month-nav">'
+    +   '<button type="button" class="btn-secondary home-month-arrow" onclick="dashMonthNav(-1)" aria-label="Previous month"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" style="stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;"><path d="M15 6l-6 6 6 6"/></svg></button>'
+    +   '<span class="home-month-lbl" aria-live="polite">' + DASH_MONTH_NAMES[_dashMonth - 1] + ' ' + _dashYear + '</span>'
+    +   '<button type="button" class="btn-secondary home-month-arrow" onclick="dashMonthNav(1)" aria-label="Next month"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" style="stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;"><path d="M9 6l6 6-6 6"/></svg></button>'
+    + '</span>'
+    + '<button type="button" class="btn-secondary" onclick="dashPrintMonth()">Print</button>'
+    + '</div>';
+  html += dashSection('month', 'This month', monthActions,
+    '<div class="home-month-grid">' + DASH_MONTH_LISTS.map(function(L) { return dashMonthListHtml(d, L); }).join('') + '</div>');
+
+  // ── At a glance ────────────────────────────────────────────────
   var svcs = (d.recentAttendance || []).slice(0, 2);
-  html += '<div class="dash-stats">'
+  html += dashSection('glance', 'At a glance', '', '<div class="dash-stats">'
     + dashStatPeopleQuad(d)
     + (isFinanceRole ? dashStat('$'+fmt$(d.gfYtd), yr+' Gen. Fund', yr-1+' YTD $'+fmt$(d.gfLastYearYtd), yr-1+' Full Year $'+fmt$(d.gfLastYearTotal)) : '')
     + (isStaffRole ? dashStatServices(svcs) : '')
-    + '</div>';
+    + '</div>');
 
+  html += '<div class="home-more"><h2 class="home-more-h">More</h2>'
+    + '<button type="button" class="os-link-btn" onclick="openDashCustomize()">Choose panels</button></div>';
+  var mk_weeklyTasks = html.length;
   // ── This Week's Tasks (engagement checklist) — editors+ only ─────────
   if (canEditRole && prefs.weeklyTasks) {
     var wtTasks = d.weeklyTasks || [];
@@ -366,13 +583,12 @@ function renderDashboard(d) {
       html += wtTasks.map(function(t) {
         var done = t.completed ? 1 : 0;
         var lineThrough = done ? 'text-decoration:line-through;color:var(--warm-gray);' : '';
-        var cbChar = done ? '&#9745;' : '&#9744;';
         var titleHtml = t.link_url
           ? '<a href="' + esc(t.link_url) + '" target="_blank" rel="noopener" style="color:var(--steel-anchor);text-decoration:none;' + lineThrough + '" class="wt-lbl">' + esc(t.title) + '</a>'
           : '<span class="wt-lbl" style="' + lineThrough + '">' + esc(t.title) + '</span>';
         return '<div class="dash-row-item" id="wt-row-' + t.id + '" data-completed="' + done + '"'
           + ' style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--linen);">'
-          + '<span class="wt-cb" style="font-size:1.2rem;cursor:pointer;flex-shrink:0;color:var(--steel-anchor);" onclick="taskToggle(' + t.id + ',' + done + ')" title="Toggle complete">' + cbChar + '</span>'
+          + '<input type="checkbox" class="wt-cb" style="width:20px;height:20px;flex-shrink:0;cursor:pointer;accent-color:var(--primary);"' + (done ? ' checked' : '') + ' onchange="taskToggle(' + t.id + ',this.checked?0:1)" aria-label="Done: ' + esc(t.title) + '">'
           + '<div style="flex:1;min-width:0;font-size:.88rem;">' + titleHtml + '</div>'
           + '<button style="background:none;border:none;cursor:pointer;color:var(--faint);font-size:1rem;padding:0 4px;flex-shrink:0;" onclick="taskDelete(' + t.id + ')" title="Remove task">&#10005;</button>'
           + '</div>';
@@ -385,7 +601,9 @@ function renderDashboard(d) {
       + '</div>';
     html += '</div></div>';
   }
+  html = html.slice(0, mk_weeklyTasks) + dashPanel('weeklyTasks', html.slice(mk_weeklyTasks));
 
+  var mk_prayers = html.length;
   // ── Prayer Requests (FU1) — editors+ only ─────────────────────
   if (canEditRole && prefs.prayers) {
     var pr       = d.prayerOpen || [];
@@ -428,7 +646,9 @@ function renderDashboard(d) {
     }
     html += '</div></div>';
   }
+  html = html.slice(0, mk_prayers) + dashPanel('prayers', html.slice(mk_prayers));
 
+  var mk_followUp = html.length;
   // ── Follow-up queue — staff+ only ─────────────────────────────
   if (isStaffRole && prefs.followUp) {
   var fuItems = d.followUpItems || [];
@@ -476,7 +696,9 @@ function renderDashboard(d) {
   }
   html += '</div></div>';
   } // end isStaffRole follow-up block
+  html = html.slice(0, mk_followUp) + dashPanel('followUp', html.slice(mk_followUp));
 
+  var mk_newContacts = html.length;
   // ── New Contacts follow-up (FU2/DB9) — editors+ only ──────────
   // Visitors/friends with a first_contact_date set, not yet marked done.
   // Newer contacts first so they get attention before going cold.
@@ -520,7 +742,9 @@ function renderDashboard(d) {
     }
     html += '</div></div>';
   }
+  html = html.slice(0, mk_newContacts) + dashPanel('newContacts', html.slice(mk_newContacts));
 
+  var mk_reviewQueue = html.length;
   // ── Visitor Review Batch (DC1) — editors+, off by default ─────────────
   if (canEditRole && prefs.reviewQueue) {
     var rq       = d.reviewQueue || [];
@@ -557,11 +781,13 @@ function renderDashboard(d) {
           + '</div></div>';
       }).join('');
     } else {
-      html += '<div style="padding:14px 16px;color:var(--warm-gray);font-size:.85rem;">Nothing to review this week. &#127881;</div>';
+      html += '<div style="padding:14px 16px;color:var(--warm-gray);font-size:.85rem;">Nothing to review this week.</div>';
     }
     html += '</div></div>';
   }
+  html = html.slice(0, mk_reviewQueue) + dashPanel('reviewQueue', html.slice(mk_reviewQueue));
 
+  var mk_firstGivers = html.length;
   // ── First-time givers — finance+ only ─────────────────────────
   var firstGivers = isFinanceRole ? (d.firstGivers || []) : [];
   if (prefs.firstGivers && firstGivers.length) {
@@ -582,7 +808,9 @@ function renderDashboard(d) {
         }).join('')
       + '</div></div>';
   }
+  html = html.slice(0, mk_firstGivers) + dashPanel('firstGivers', html.slice(mk_firstGivers));
 
+  var mk_notSeen = html.length;
   // ── Not seen recently ──────────────────────────────────────────
   var notSeen = d.notSeenRecently || [];
   if (prefs.notSeen && notSeen.length) {
@@ -602,105 +830,9 @@ function renderDashboard(d) {
         }).join('')
       + '</div></div>';
   }
+  html = html.slice(0, mk_notSeen) + dashPanel('notSeen', html.slice(mk_notSeen));
 
-  // ── Bottom row: birthdays + anniversaries + membership ─────────
-  html += '<div class="dash-row">';
-
-  var mnArr = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  var mnShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var curMonth = d.dashMonth || _dashMonth;
-  var navBtn = 'background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;cursor:pointer;font-size:14px;color:var(--charcoal);';
-  var bdList = d.birthdays || [], annList = d.anniversaries || [], bapList = d.baptismAnniversaries || [];
-
-  // ── Birthdays card ─────────────────────────────────────────────
-  if (prefs.birthdays) {
-    html += '<div class="dash-card">'
-      + '<div class="dash-card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">'
-      + '<span>Birthdays</span>'
-      + '<div style="display:flex;align-items:center;gap:4px;">'
-      + '<button style="'+navBtn+'" onclick="dashMonthNav(-1)" title="Previous month">&#8249;</button>'
-      + '<span style="font-size:12px;font-weight:600;min-width:66px;text-align:center;">'+mnArr[curMonth-1]+'</span>'
-      + '<button style="'+navBtn+'" onclick="dashMonthNav(1)" title="Next month">&#8250;</button>'
-      + '<button id="dash-copy-bd-btn" style="'+navBtn+'margin-left:2px;" onclick="dashCopyBirthdays()" title="Copy for bulletin">&#128203;</button>'
-      + '</div></div>'
-      + '<div class="dash-card-body">';
-    if (!bdList.length) {
-      html += '<div style="padding:16px 18px;color:var(--faint);font-size:13px;font-style:italic;">No birthdays in '+mnArr[curMonth-1]+'.</div>';
-    } else {
-      html += bdList.map(function(p) {
-        var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-        var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-        var tint = avatarTint(p.id);
-        var parts = (p.dob||'').split('-');
-        var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : esc(p.dob||'');
-        return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
-          + '<div class="dash-avatar" style="background:'+tint.bg+';color:'+tint.fg+';">'+ini+'</div>'
-          + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
-          + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
-          + '</div>';
-      }).join('');
-    }
-    html += '</div></div>';
-  }
-
-  // ── Anniversaries card ─────────────────────────────────────────
-  if (prefs.anniversaries) {
-    html += '<div class="dash-card">'
-      + '<div class="dash-card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">'
-      + '<span>Anniversaries</span>'
-      + '<div style="display:flex;align-items:center;gap:4px;">'
-      + '<span style="font-size:12px;font-weight:400;color:var(--warm-gray);">'+mnArr[curMonth-1]+'</span>'
-      + '<button id="dash-copy-ann-btn" style="'+navBtn+'margin-left:2px;" onclick="dashCopyAnniversaries()" title="Copy for bulletin">&#128203;</button>'
-      + '</div></div>'
-      + '<div class="dash-card-body">';
-    if (!annList.length) {
-      html += '<div style="padding:16px 18px;color:var(--faint);font-size:13px;font-style:italic;">No anniversaries in '+mnArr[curMonth-1]+'.</div>';
-    } else {
-      html += annList.map(function(p) {
-        var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-        var ini = (p.first_name||'').split(' ').map(function(n){return n.charAt(0);}).join('').slice(0,2).toUpperCase() || (p.last_name||'').charAt(0).toUpperCase();
-        var tint = avatarTint(p.id);
-        var parts = (p.anniversary_date||'').split('-');
-        var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : p.anniversary_date;
-        return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
-          + '<div class="dash-avatar" style="background:'+tint.bg+';color:'+tint.fg+';">'+ini+'</div>'
-          + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
-          + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
-          + '</div>';
-      }).join('');
-    }
-    html += '</div></div>';
-  }
-
-  // ── Baptism Anniversaries card ─────────────────────────────────
-  if (prefs.baptismAnniversaries) {
-    html += '<div class="dash-card">'
-      + '<div class="dash-card-hdr" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">'
-      + '<span>Baptism Anniversaries</span>'
-      + '<div style="display:flex;align-items:center;gap:4px;">'
-      + '<span style="font-size:12px;font-weight:400;color:var(--warm-gray);">'+mnArr[curMonth-1]+'</span>'
-      + '<button id="dash-copy-bap-btn" style="'+navBtn+'margin-left:2px;" onclick="dashCopyBaptisms()" title="Copy for bulletin">&#128203;</button>'
-      + '</div></div>'
-      + '<div class="dash-card-body">';
-    if (!bapList.length) {
-      html += '<div style="padding:16px 18px;color:var(--faint);font-size:13px;font-style:italic;">No baptism anniversaries in '+mnArr[curMonth-1]+'.</div>';
-    } else {
-      html += bapList.map(function(p) {
-        var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-        var ini = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
-        var tint = avatarTint(p.id);
-        var parts = (p.baptism_date||'').split('-');
-        var dateStr = parts.length >= 3 ? mnShort[parseInt(parts[1])-1]+' '+parseInt(parts[2]) : esc(p.baptism_date||'');
-        return '<div class="dash-bday" onclick="openPersonDetail('+p.id+')" style="cursor:pointer;">'
-          + '<div class="dash-avatar" style="background:'+tint.bg+';color:'+tint.fg+';">'+ini+'</div>'
-          + '<div style="flex:1;"><div class="dash-item-name">'+esc(name)+'</div></div>'
-          + '<div style="font-size:12px;color:var(--warm-gray);">'+dateStr+'</div>'
-          + '</div>';
-      }).join('');
-    }
-    html += '</div></div>';
-  }
-
+  var mk_ai = html.length;
   // ── Anniversary Data Issues (SW8) — editors+ only ──────────────────────
   // People with an anniversary_date whose automated anniversary email/SMS would be
   // silently skipped (deceased partner, no partner on file, or partner's date missing/
@@ -742,11 +874,10 @@ function renderDashboard(d) {
     }
     html += '</div></div>';
   }
+  html = html.slice(0, mk_ai) + dashPanel('anniversaryIssues', html.slice(mk_ai));
 
   // Membership breakdown
-  if (prefs.membership) html += '<div class="dash-card"><div class="dash-card-hdr">'
-    + '<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--teal);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>'
-    + 'Membership by Type</div>'
+  if (prefs.membership) html += dashSection('membership', 'Membership by Type', '', '<div class="dash-card">'
     + '<div class="dash-type-bar">'
     + (d.typeCounts||[]).map(function(r) {
         var pct = Math.round((r.n / Math.max(maxType,1)) * 100);
@@ -757,9 +888,8 @@ function renderDashboard(d) {
           + '<div class="dash-bar-n">'+r.n+'</div>'
           + '</div>';
       }).join('')
-    + '</div></div>';
+    + '</div></div>');
 
-  html += '</div>'; // /dash-row
   body.innerHTML = html;
 }
 // ── Follow-up helpers ──────────────────────────────────────────────────
@@ -892,11 +1022,6 @@ function dashStatPeopleQuad(d) {
     + dashStatQuadCell(baptized, 'Baptized')
     + '</div>'
     + '</div>';
-}
-function dashQBtn(svgPath, label, onclick) {
-  return '<button class="dash-quick-btn" onclick="'+onclick+'">'
-    + '<svg viewBox="0 0 24 24">'+svgPath+'</svg>'
-    + esc(label)+'</button>';
 }
 function fmt$(cents) {
   if (!cents) return '0';
