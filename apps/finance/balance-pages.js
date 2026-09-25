@@ -5,20 +5,19 @@ import { escapeHtml, formatCents, formatSignedCents, renderKpiCards, renderSecti
 // Connect's real finance_church_balances table (see finance-church-balances-xlsx-import-v1 in
 // src/api-contracts-service.js), never stored in Finance's own database. Same shape as
 // church-pages.js's renderChurchBudgetXlsxImportForm: a real `<input type="file">` upload
-// (multipart/form-data), a single parse-and-persist relay request (legacy's separate preview/
-// checkbox-review step is deliberately not ported -- see importChurchBalancesXlsx's header comment
-// in src/api-finance.js), and both the fiscal year AND the as-of date read from the workbook
+// (multipart/form-data), followed by a no-write preview and separate selective-commit relay.
+// Both the fiscal year AND the as-of date are read from the workbook
 // itself, so there is no form field for either.
 function renderBalanceXlsxImportForm(entryStatus, entryMessage) {
   return `<section aria-label="Import Balance Sheet from Excel">
     ${renderSectionHeading({ eyebrow: 'Balance Sheet', heading: 'Import Statement of Financial Position (.xlsx)', badge: 'Relayed live to Connect' })}
     ${entryStatus === 'ok' ? '<p class="status">Imported into Connect.</p>' : ''}
     ${entryStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
-    <form method="POST" action="/api/v1/connect-church-balances-xlsx-import-write" enctype="multipart/form-data">
+    <form method="POST" action="/api/v1/connect-church-balances-xlsx-preview" enctype="multipart/form-data">
       <div class="field"><label for="bbx-file">QuickBooks "Statement of Financial Position" export (.xlsx, max 15 MB)</label><input id="bbx-file" type="file" name="file" accept=".xlsx" required></div>
-      <button type="submit">Import file</button>
+      <button type="submit">Review file</button>
     </form>
-    <p><small>Parses the uploaded workbook and writes every account row directly into Connect's own <code>finance_church_balances</code> table, tagged <code>source='import'</code> -- the same table and source the legacy in-Connect Excel import writes, replacing any prior import for that same fiscal year. Only Connect's own admin role may import; Connect independently re-verifies your identity and role for every request.</small></p>
+    <p><small>First parses the workbook without changing data. After reviewing and selecting rows, the confirmed rows write directly into Connect's own <code>finance_church_balances</code> table, tagged <code>source='import'</code> -- the same table and source the legacy in-Connect Excel import writes, superseding prior imported rows for that fiscal year. Only Connect's own admin role may import; Connect independently re-verifies identity and role for both steps.</small></p>
   </section>`;
 }
 

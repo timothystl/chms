@@ -70,6 +70,8 @@ const ROUTES = [
   { id: 'church-budget-xlsx-preview-v1', paths: ['/api/v1/connect-church-budget-xlsx-preview'], methods: WRITE_METHODS, dataSource: 'live-relay', contract: 'connect.finance-church-budget-xlsx-preview-relay.v1' },
   { id: 'church-budget-xlsx-commit-v1', paths: ['/api/v1/connect-church-budget-xlsx-commit'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-budget-xlsx-commit-relay.v1' },
   { id: 'church-balances-xlsx-import-write-v1', paths: ['/api/v1/connect-church-balances-xlsx-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-balances-xlsx-import-write-relay.v1' },
+  { id: 'church-balances-xlsx-preview-v1', paths: ['/api/v1/connect-church-balances-xlsx-preview'], methods: WRITE_METHODS, dataSource: 'live-relay', contract: 'connect.finance-church-balances-xlsx-preview-relay.v1' },
+  { id: 'church-balances-xlsx-commit-v1', paths: ['/api/v1/connect-church-balances-xlsx-commit'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-balances-xlsx-commit-relay.v1' },
   // Same deliberate exception as the two routes above, for the four remaining legacy Church Excel
   // import routes: Monthly P&L, multi-year "Statement of Activity", multi-year "Budget by Year",
   // and multi-year "Statement of Financial Position" -- completing Church's Excel import write

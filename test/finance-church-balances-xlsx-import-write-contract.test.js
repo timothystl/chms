@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { handleContractsServiceApi } from '../src/api-contracts-service.js';
 import { resetAccessJwtCacheForTests } from '../src/access-jwt.js';
+import { previewChurchBalancesXlsx, commitChurchBalancesXlsxRows } from '../src/api-finance.js';
 
 const TEAM = 'timothystl.cloudflareaccess.com';
 const AUD = 'test-audience-tag';
@@ -199,6 +200,26 @@ ${xmlRow(14, [cellStr('A14', basisLine)])}
   });
 }
 
+describe('Balance Sheet Excel preview and selective commit primitives', () => {
+  it('previews without changing the database, then commits only selected rows with the as-of date', async () => {
+    const db = makeTestDb();
+    const preview = await previewChurchBalancesXlsx({ fileBytes: buildBalanceSheetXlsx() });
+    expect(preview).toMatchObject({ ok: true, fiscalYear: 2027, asOfDate: 'December 31, 2027', basis: 'Cash' });
+    expect(db._raw.prepare('SELECT * FROM finance_church_balances').all()).toHaveLength(0);
+
+    const selected = preview.rows.filter((row) => ['Cash', 'Accounts Payable'].includes(row.account_name));
+    const committed = await commitChurchBalancesXlsxRows(db, {
+      fiscalYear: preview.fiscalYear, asOfDate: preview.asOfDate, rows: selected,
+    });
+    expect(committed).toEqual({ ok: true, fiscalYear: 2027, asOfDate: 'December 31, 2027', imported: 2 });
+    expect(db._raw.prepare("SELECT account_name,as_of_date FROM finance_church_balances WHERE source='import' ORDER BY account_name").all())
+      .toEqual([
+        { account_name: 'Accounts Payable', as_of_date: 'December 31, 2027' },
+        { account_name: 'Cash', as_of_date: 'December 31, 2027' },
+      ]);
+  });
+});
+
 describe('POST /api/contracts/finance-church-balances-xlsx-import-v1', () => {
   let keyPair, jwk, kid, originalFetch;
 
@@ -221,14 +242,49 @@ describe('POST /api/contracts/finance-church-balances-xlsx-import-v1', () => {
     return { DB: db, FINANCE_CONTRACT_API_KEY: 'right-secret', FINANCE_ACCESS_TEAM_DOMAIN: TEAM, FINANCE_ACCESS_AUD: AUD };
   }
 
-  async function post({ env, token, contractKey = 'right-secret', body }) {
-    const req = new Request(`https://connect.example${PATH}`, {
+  async function post({ env, token, contractKey = 'right-secret', body, path = PATH }) {
+    const req = new Request(`https://connect.example${path}`, {
       method: 'POST',
       headers: { 'X-Contract-Key': contractKey, ...(token !== undefined ? { 'Cf-Access-Jwt-Assertion': token } : {}), 'Content-Type': 'application/json' },
       body: JSON.stringify(body || {}),
     });
-    return handleContractsServiceApi(req, env, PATH);
+    return handleContractsServiceApi(req, env, path);
   }
+
+  it('previews without a write, then commits only selected rows through separate contracts', async () => {
+    const db = makeTestDb();
+    insertUser(db, { username: 'root', email: 'admin@timothystl.org', role: 'admin' });
+    const token = await signToken(keyPair.privateKey, kid, accessPayload('admin@timothystl.org'));
+    const previewRes = await post({
+      env: baseEnv(db), token, path: '/api/contracts/finance-church-balances-xlsx-preview-v1',
+      body: { file_base64: bytesToBase64(buildBalanceSheetXlsx()) },
+    });
+    expect(previewRes.status).toBe(200);
+    const preview = await previewRes.json();
+    expect(preview).toMatchObject({ ok: true, fiscalYear: 2027, asOfDate: 'December 31, 2027', sheetName: 'Balance Sheet' });
+    expect(db._raw.prepare('SELECT * FROM finance_church_balances').all()).toHaveLength(0);
+
+    const selected = preview.rows.filter((row) => row.account_name === 'Cash');
+    const commitRes = await post({
+      env: baseEnv(db), token, path: '/api/contracts/finance-church-balances-xlsx-commit-v1',
+      body: { fiscal_year: preview.fiscalYear, as_of_date: preview.asOfDate, rows: selected },
+    });
+    expect(commitRes.status).toBe(200);
+    expect(await commitRes.json()).toMatchObject({ ok: true, fiscalYear: 2027, imported: 1, savedBy: 'root' });
+    expect(db._raw.prepare("SELECT account_name FROM finance_church_balances WHERE source='import'").all())
+      .toEqual([{ account_name: 'Cash' }]);
+  });
+
+  it('applies the same admin identity gate to preview and selective commit', async () => {
+    const db = makeTestDb();
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
+    for (const path of ['/api/contracts/finance-church-balances-xlsx-preview-v1', '/api/contracts/finance-church-balances-xlsx-commit-v1']) {
+      const res = await post({ env: baseEnv(db), token, path, body: {} });
+      expect(res.status).toBe(403);
+    }
+    expect(db._raw.prepare('SELECT * FROM finance_church_balances').all()).toHaveLength(0);
+  });
 
   it('saves real rows for an admin user, tagged source=import, the right fiscal year and as-of date', async () => {
     const db = makeTestDb();

@@ -1701,12 +1701,11 @@ export async function importChurchBudgetXlsx(db, options = {}) {
   return committed.error ? committed : { ...committed, skipped: preview.skipped };
 }
 
-// ── Shared Balance Sheet .xlsx import: parse + persist in ONE call ──────────────────────────
-// Same reasoning and same "additive combination, not an extraction" shape as
-// importChurchBudgetXlsx above, for the Balance Sheet / Statement of Financial Position import —
-// used only by finance-church-balances-xlsx-import-v1; the legacy finance/church/balances/
-// import-preview and finance/church/balances/import routes stay exactly as they are.
-export async function importChurchBalancesXlsx(db, { fileBytes } = {}) {
+// ── Shared Balance Sheet .xlsx preview and selective commit ─────────────────────────────────
+// Mirrors the Church Budget split above: preview parses without writing, selective commit
+// validates and persists only checked rows, and the original one-call helper remains as a
+// compatibility composition.
+export async function previewChurchBalancesXlsx({ fileBytes } = {}) {
   if (!fileBytes || !fileBytes.byteLength) return { error: 'No file uploaded', status: 400 };
   let sheets;
   try { sheets = await parseXlsxAllSheets(fileBytes.buffer); }
@@ -1718,13 +1717,35 @@ export async function importChurchBalancesXlsx(db, { fileBytes } = {}) {
   catch (e) { return { error: e.message, status: 400 }; }
   if (!parsed.fiscalYear) return { error: 'Could not determine the fiscal year from this sheet — expected an "As of ..." date line above the header row.', status: 400 };
   if (!parsed.rows.length) return { error: 'No importable account rows found in this sheet.', status: 400 };
+  return {
+    ok: true, sheetName: sheet.name, fiscalYear: parsed.fiscalYear, asOfDate: parsed.asOfDate,
+    basis: parsed.basis, equityReclass: computeEquityReclassification(parsed.rows), rows: parsed.rows, skipped: parsed.skipped,
+  };
+}
+
+export async function commitChurchBalancesXlsxRows(db, { fiscalYear, asOfDate, rows } = {}) {
+  const parsedFiscalYear = parseInt(fiscalYear, 10);
+  if (!Number.isFinite(parsedFiscalYear)) return { error: 'fiscal_year is required', status: 400 };
+  if (!Array.isArray(rows) || !rows.length) return { error: 'No rows to import', status: 400 };
+  const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
+    || !Number.isFinite(r.own_balance_cents));
+  if (bad) return { error: 'Malformed row in import payload', status: 400 };
   try {
-    await persistChurchBalancesImport(db, parsed.rows, parsed.fiscalYear, parsed.asOfDate, new Date().toISOString());
+    await persistChurchBalancesImport(db, rows, parsedFiscalYear, String(asOfDate || ''), new Date().toISOString());
   } catch (e) {
-    return { error: 'Could not save ' + parsed.rows.length + ' balance row(s) for FY' + parsed.fiscalYear + ': ' + (e && e.message ? e.message : String(e)), status: 500 };
+    return { error: 'Could not save ' + rows.length + ' balance row(s) for FY' + parsedFiscalYear + ': ' + (e && e.message ? e.message : String(e)), status: 500 };
   }
-  await recordImport(db, 'church_balance', `FY${parsed.fiscalYear}`);
-  return { ok: true, fiscalYear: parsed.fiscalYear, asOfDate: parsed.asOfDate, basis: parsed.basis, imported: parsed.rows.length, skipped: parsed.skipped };
+  await recordImport(db, 'church_balance', `FY${parsedFiscalYear}`);
+  return { ok: true, fiscalYear: parsedFiscalYear, asOfDate: String(asOfDate || ''), imported: rows.length };
+}
+
+export async function importChurchBalancesXlsx(db, options = {}) {
+  const preview = await previewChurchBalancesXlsx(options);
+  if (preview.error) return preview;
+  const committed = await commitChurchBalancesXlsxRows(db, {
+    fiscalYear: preview.fiscalYear, asOfDate: preview.asOfDate, rows: preview.rows,
+  });
+  return committed.error ? committed : { ...committed, basis: preview.basis, skipped: preview.skipped };
 }
 
 // ── Shared Monthly P&L .xlsx import: parse + persist in ONE call ────────────────────────────

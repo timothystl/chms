@@ -22,7 +22,8 @@ import {
   applyDaycareBudgetOverride, bulkRecordDaycareEntries, importDaycareFromChurchBudget,
   editDaycareEntry, removeDaycareEntry, syncDaycareFromApi, syncDaycareRoomsFromApi,
   saveBaseProjectionOverrides, savePurposeTags,
-  importChurchBudgetXlsx, previewChurchBudgetXlsx, commitChurchBudgetXlsxRows, importChurchBalancesXlsx,
+  importChurchBudgetXlsx, previewChurchBudgetXlsx, commitChurchBudgetXlsxRows,
+  importChurchBalancesXlsx, previewChurchBalancesXlsx, commitChurchBalancesXlsxRows,
   importChurchMonthlyXlsx, importChurchActivityXlsx, importChurchBudgetMultiYearXlsx, importChurchBalancesMultiYearXlsx,
   removePropertyMonthlyEntry, removePropertyDistribution, removePropertyReserveMonthly,
   removePropertyReserveDisbursement, removePropertyCapitalLedgerEntry, removePropertyRepair,
@@ -265,6 +266,14 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-church-balances-xlsx-import-v1' && req.method === 'POST') {
     return handleFinanceChurchBalancesXlsxImportContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-church-balances-xlsx-preview-v1' && req.method === 'POST') {
+    return handleFinanceChurchBalancesXlsxPreviewContract(req, env);
+  }
+
+  if (path === '/api/contracts/finance-church-balances-xlsx-commit-v1' && req.method === 'POST') {
+    return handleFinanceChurchBalancesXlsxCommitContract(req, env);
   }
 
   if (path === '/api/contracts/finance-church-monthly-xlsx-import-v1' && req.method === 'POST') {
@@ -1188,7 +1197,7 @@ async function handleFinanceChurchBudgetXlsxImportContract(req, env) {
   return json({ ...result, savedBy: user.username });
 }
 
-async function authorizeChurchBudgetImport(req, env) {
+async function authorizeChurchFinancialImport(req, env) {
   const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
   const audience = env.FINANCE_ACCESS_AUD || '';
   if (!teamDomain || !audience) return { response: json({ error: 'Access verification not configured' }, 503) };
@@ -1201,7 +1210,7 @@ async function authorizeChurchBudgetImport(req, env) {
 }
 
 async function handleFinanceChurchBudgetXlsxPreviewContract(req, env) {
-  const auth = await authorizeChurchBudgetImport(req, env);
+  const auth = await authorizeChurchFinancialImport(req, env);
   if (auth.response) return auth.response;
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
@@ -1213,7 +1222,7 @@ async function handleFinanceChurchBudgetXlsxPreviewContract(req, env) {
 }
 
 async function handleFinanceChurchBudgetXlsxCommitContract(req, env) {
-  const auth = await authorizeChurchBudgetImport(req, env);
+  const auth = await authorizeChurchFinancialImport(req, env);
   if (auth.response) return auth.response;
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
@@ -1248,6 +1257,32 @@ async function handleFinanceChurchBalancesXlsxImportContract(req, env) {
   const result = await importChurchBalancesXlsx(db, { fileBytes: decoded.bytes });
   if (result.error) return json({ error: result.error }, result.status || 400);
   return json({ ...result, savedBy: user.username });
+}
+
+async function handleFinanceChurchBalancesXlsxPreviewContract(req, env) {
+  const auth = await authorizeChurchFinancialImport(req, env);
+  if (auth.response) return auth.response;
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const decoded = decodeBase64XlsxUpload(body && body.file_base64);
+  if (decoded.error) return json({ error: decoded.error }, decoded.status || 400);
+  const result = await previewChurchBalancesXlsx({ fileBytes: decoded.bytes });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json(result);
+}
+
+async function handleFinanceChurchBalancesXlsxCommitContract(req, env) {
+  const auth = await authorizeChurchFinancialImport(req, env);
+  if (auth.response) return auth.response;
+  let body;
+  try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
+  const result = await commitChurchBalancesXlsxRows(env.DB, {
+    fiscalYear: body && body.fiscal_year,
+    asOfDate: body && body.as_of_date,
+    rows: body && body.rows,
+  });
+  if (result.error) return json({ error: result.error }, result.status || 400);
+  return json({ ...result, savedBy: auth.user.username });
 }
 
 // ── Monthly P&L .xlsx import, relayed from Finance's own Church Report UI ──────────────────────

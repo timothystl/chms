@@ -77,6 +77,7 @@ describe('Balance Sheet — Statement of Financial Position .xlsx import form an
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).not.toContain('/api/v1/connect-church-balances-xlsx-import-write');
+    expect(html).not.toContain('/api/v1/connect-church-balances-xlsx-preview');
   });
 
   it('does not show the import form for a council viewer -- admin-only', async () => {
@@ -86,6 +87,7 @@ describe('Balance Sheet — Statement of Financial Position .xlsx import form an
     }), env);
     const html = await res.text();
     expect(html).not.toContain('/api/v1/connect-church-balances-xlsx-import-write');
+    expect(html).not.toContain('/api/v1/connect-church-balances-xlsx-preview');
   });
 
   it('shows the import form for a verified admin viewer, only on the Position page', async () => {
@@ -94,7 +96,7 @@ describe('Balance Sheet — Statement of Financial Position .xlsx import form an
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
     const html = await res.text();
-    expect(html).toContain('<form method="POST" action="/api/v1/connect-church-balances-xlsx-import-write" enctype="multipart/form-data">');
+    expect(html).toContain('<form method="POST" action="/api/v1/connect-church-balances-xlsx-preview" enctype="multipart/form-data">');
     expect(html).toContain('type="file"');
     expect(html).toContain('name="file"');
 
@@ -103,6 +105,49 @@ describe('Balance Sheet — Statement of Financial Position .xlsx import form an
     }), env);
     const detailHtml = await detailRes.text();
     expect(detailHtml).not.toContain('/api/v1/connect-church-balances-xlsx-import-write');
+  });
+
+  it('renders a no-write checkbox review from the protected preview relay', async () => {
+    let captured;
+    const env = liveEnv(async (request) => {
+      captured = request;
+      return new Response(JSON.stringify({
+        ok: true, sheetName: 'Balance Sheet', fiscalYear: 2027, asOfDate: 'December 31, 2027', basis: 'Cash', skipped: [],
+        rows: [{ classification: 'Assets', category_path: 'Assets:Cash', account_name: 'Cash', depth: 1, has_children: false, own_balance_cents: 500000 }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    const form = new FormData();
+    form.set('file', fakeXlsxFile());
+    const res = await worker.fetch(new Request('https://finance.test/api/v1/connect-church-balances-xlsx-preview', {
+      method: 'POST', headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' }, body: form,
+    }), env);
+    expect(res.status).toBe(200);
+    expect(new URL(captured.url).pathname).toBe('/api/contracts/finance-church-balances-xlsx-preview-v1');
+    expect(captured.headers.get('Cf-Access-Jwt-Assertion')).toBe('signed.jwt.here');
+    const html = await res.text();
+    expect(html).toContain('No data has been changed.');
+    expect(html).toContain('December 31, 2027');
+    expect(html).toContain('Assets:Cash');
+    expect(html).toContain('/api/v1/connect-church-balances-xlsx-commit');
+  });
+
+  it('commits only checked rows and preserves the workbook as-of date', async () => {
+    let body;
+    const env = liveEnv(async (request) => {
+      body = await request.json();
+      return new Response(JSON.stringify({ ok: true, fiscalYear: 2027, imported: 1 }), { status: 200 });
+    });
+    const selected = { classification: 'Assets', category_path: 'Assets:Cash', account_name: 'Cash', depth: 1, has_children: false, own_balance_cents: 500000 };
+    const form = new FormData();
+    form.set('fiscal_year', '2027');
+    form.set('as_of_date', 'December 31, 2027');
+    form.append('row', JSON.stringify(selected));
+    const res = await worker.fetch(new Request('https://finance.test/api/v1/connect-church-balances-xlsx-commit', {
+      method: 'POST', headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' }, body: form,
+    }), env);
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/?section=balance&page=position&status=ok');
+    expect(body).toEqual({ fiscal_year: '2027', as_of_date: 'December 31, 2027', rows: [selected] });
   });
 
   it('redirects to a no_file error when no file was attached', async () => {
