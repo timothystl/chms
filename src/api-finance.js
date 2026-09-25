@@ -1760,6 +1760,69 @@ export async function importChurchBalancesXlsx(db, options = {}) {
 // derived the same way legacy derives it: from what is now actually stored, not just this
 // request's slice, so a multi-year file re-imported in the future still describes the true
 // stored range even if this one call only touched part of it.
+export async function previewChurchMultiPeriodXlsx(kind, { fileBytes } = {}) {
+  if (!fileBytes || !fileBytes.byteLength) return { error: 'No file uploaded', status: 400 };
+  let sheets;
+  try { sheets = await parseXlsxAllSheets(fileBytes.buffer); }
+  catch (e) { return { error: 'Could not read this file as an Excel workbook: ' + e.message, status: 400 }; }
+  const definitions = {
+    monthly: {
+      find: findMonthlyPnLSheet, parse: (sheet) => parseMonthlyPnLGrid(sheet.grid, sheet.colAIndent),
+      missing: 'Could not find a month-by-month "Profit and Loss by Month" sheet (a sheet with columns like "Jan 2026", "Feb 2026", ...) in this file.',
+    },
+    activity: {
+      find: findActivityMultiYearSheet, parse: (sheet) => parseActivityMultiYearGrid(sheet.grid, sheet.colAIndent),
+      missing: 'Could not find a year-by-year "Statement of Activity" sheet (a sheet with columns like "2019", "2020", ...) in this file.',
+    },
+    budget: {
+      find: findBudgetMultiYearSheet, parse: (sheet) => parseBudgetMultiYearGrid(sheet.grid, sheet.colAIndent),
+      missing: 'Could not find a year-by-year "Budget by Year" sheet (a sheet with columns like "2019", "2020", ...) in this file.',
+    },
+    balances: {
+      find: findFinancialPositionMultiYearSheet, parse: (sheet) => parseFinancialPositionMultiYearGrid(sheet.grid, sheet.colAIndent),
+      missing: 'Could not find a year-by-year "Statement of Financial Position" sheet (a sheet with columns like "2019", "2020", ...) in this file.',
+    },
+  };
+  const definition = definitions[kind];
+  if (!definition) return { error: 'Unknown Excel import type', status: 400 };
+  const sheet = definition.find(sheets);
+  if (!sheet) return { error: definition.missing, status: 400 };
+  let parsed;
+  try { parsed = definition.parse(sheet); }
+  catch (e) { return { error: e.message, status: 400 }; }
+  if (!parsed.rows.length || !parsed.years?.length) return { error: 'No importable account rows found in this sheet.', status: 400 };
+  return { ok: true, sheetName: sheet.name, ...parsed };
+}
+
+export async function commitChurchMultiPeriodXlsxRows(db, kind, { years, rows } = {}) {
+  const parsedYears = Array.isArray(years) ? [...new Set(years.map(y => parseInt(y, 10)).filter(Number.isFinite))].sort((a, b) => a - b) : [];
+  if (!parsedYears.length) return { error: 'years is required', status: 400 };
+  if (!Array.isArray(rows) || !rows.length) return { error: 'No rows to import', status: 400 };
+  const commonBad = (r) => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
+    || !Number.isInteger(r.fiscal_year) || !parsedYears.includes(r.fiscal_year);
+  const bad = kind === 'monthly'
+    ? rows.find(r => commonBad(r) || !Number.isInteger(r.period_month) || r.period_month < 1 || r.period_month > 12 || !Number.isFinite(r.own_actual_cents))
+    : kind === 'balances'
+      ? rows.find(r => commonBad(r) || !Number.isFinite(r.own_balance_cents))
+      : rows.find(r => commonBad(r) || !(Number.isFinite(r.own_actual_cents) || Number.isFinite(r.own_budget_cents)));
+  if (bad) return { error: 'Malformed row in import payload', status: 400 };
+  const config = {
+    monthly: { persist: persistChurchEntriesMonthlyImport, key: 'church_monthly_pnl' },
+    activity: { persist: persistChurchEntriesActivityImport, key: 'church_activity_multi' },
+    budget: { persist: persistChurchEntriesBudgetMultiYearImport, key: 'church_budget_multi' },
+    balances: { persist: persistChurchBalancesMultiYearImport, key: 'church_balance_multi' },
+  }[kind];
+  if (!config) return { error: 'Unknown Excel import type', status: 400 };
+  try {
+    if (kind === 'monthly') await config.persist(db, rows, new Date().toISOString());
+    else await config.persist(db, rows, parsedYears, new Date().toISOString());
+  } catch (e) {
+    return { error: 'Could not save ' + rows.length + ' row(s): ' + (e?.message || String(e)), status: 500 };
+  }
+  await recordImport(db, config.key, parsedYears.join(', '));
+  return { ok: true, years: parsedYears, imported: rows.length };
+}
+
 export async function importChurchMonthlyXlsx(db, { fileBytes } = {}) {
   if (!fileBytes || !fileBytes.byteLength) return { error: 'No file uploaded', status: 400 };
   let sheets;
