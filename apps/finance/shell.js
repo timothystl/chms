@@ -1018,7 +1018,7 @@ function renderSectionBody(ctx) {
       return renderHealthSummary({ health, runway, mix, entities, incomeVsBudget: resolveIncomeVsBudget(churchReportLive), attentionItems });
     }
     if (healthView === 'entity') return renderHealthByEntity({ health, runway, entities });
-    return `<section aria-label="Synthetic financial health">
+    return `<section aria-label="Financial health detail">
       <div class="dashboard-intro"><div class="eyebrow">Dashboard</div><h2 class="dashboard-title">Are we okay?</h2><p>Four questions the council asks first — each one links to the report it came from.</p></div>
       <div class="section-heading"><div><div class="eyebrow">Needs your attention</div><h2>${attentionItems.length ? `${attentionItems.length} item${attentionItems.length === 1 ? '' : 's'} flagged` : 'Nothing flagged right now'}</h2></div><span class="badge">${attentionItems.length ? 'Review' : 'Clear'}</span></div>
       ${attentionItems.length
@@ -1041,7 +1041,7 @@ function renderSectionBody(ctx) {
       <div class="section-heading trend-heading"><div><div class="eyebrow">Entity overview</div><h2>Separate operating views</h2></div><span class="badge">Not consolidated</span></div>
       ${entities
         ? `<div class="grid">${renderEntityCards(entities.entities)}</div>
-      <p>Periods are shown separately because these synthetic sources do not share one reporting window; their results are not added together.</p>`
+      <p>Periods are shown separately because these source reports may not share one reporting window; their results are not added together.</p>`
         : unavailableNote('The entity overview')}
       <div class="section-heading trend-heading"><div><div class="eyebrow">Money flow</div><h2>${bridge ? `FY${bridge.fiscalYear} ` : ''}Church operating bridge</h2></div><span class="badge">${bridge ? `Reconciled · ${isChurchLive ? 'Live from Connect' : 'Synthetic staging'}` : 'Unavailable'}</span></div>
       ${bridge
