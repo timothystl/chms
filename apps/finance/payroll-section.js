@@ -19,12 +19,13 @@ import { callPayrollProxy } from './payroll-proxy-client.js';
 import { postPayrollEmailReport } from './payroll-email-client.js';
 import { postPayrollReadyNotification } from './payroll-ready-client.js';
 import {
-  cents, fromCents, money, hrs, takesPto,
-  effectiveChurch, mergeMdoHours, mdoPtoMapFrom, mdoRateSnapshotMapFrom,
+  cents, fromCents, money,
+  mergeMdoHours, mdoPtoMapFrom, mdoRateSnapshotMapFrom,
   reportGroups, subtotal, exportReport, missingHours as computeMissingHours, payablePeople,
 } from './payroll-calc.js';
-import { buildPayrollPeriods, defaultPeriodStart, findPeriod, periodLabel, paysOnLabel } from './payroll-periods.js';
-import { renderLayoutTabs, renderReportBody, renderPrintTable, buildPayrollCsv } from './payroll-report-render.js';
+import { buildPayrollPeriods, defaultPeriodStart, findPeriod, periodLabel } from './payroll-periods.js';
+import { buildPayrollCsv } from './payroll-report-render.js';
+import { legacyPayrollPage, renderPayrollPage } from './payroll-pages.js';
 
 function escapeHtml(value) {
   const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -120,6 +121,13 @@ export async function loadPayrollWorkspace(env, accessJwt, periodStart, periodEn
   };
 }
 
+// Every period of the year with its approval stamp and frozen total -- the History page.
+export async function loadYearTotals(env, accessJwt, year) {
+  const result = await callPayrollProxy(env, accessJwt, 'payroll_get_year_totals', { p_year: year });
+  if (!result.ok) return { ok: false, rows: [], message: result.message || result.reason || 'unknown error' };
+  return { ok: true, rows: rows(result) };
+}
+
 export async function loadYearToDate(env, accessJwt, year) {
   const result = await callPayrollProxy(env, accessJwt, 'payroll_get_year_totals', { p_year: year });
   if (!result.ok) return `Year to date: could not be read — ${result.message || result.reason}.`;
@@ -145,180 +153,6 @@ export async function healMissingTotal(env, accessJwt, periodStart, workspace) {
   const result = await callPayrollProxy(env, accessJwt, 'payroll_backfill_total', { p_period_start: periodStart, p_total_gross_cents: healedCents });
   if (!result.ok) return workspace.periodApproval;
   return { ...workspace.periodApproval, total_gross_cents: healedCents };
-}
-
-function pillHtml(tone, label) {
-  return `<span class="pay-pill pay-pill-${tone}">${escapeHtml(label)}</span>`;
-}
-
-function entryStatus(kind, hoursEntered, approved) {
-  if (kind === 'hourly' && !hoursEntered) return { tone: 'warn', label: 'Needs hours' };
-  if (approved) return { tone: 'good', label: 'Approved' };
-  return { tone: 'plain', label: 'Ready' };
-}
-
-function periodPickerHtml(periods, period, view, layout) {
-  const options = periods.map((p) => `<option value="${escapeHtml(p.start)}"${p.start === period.start ? ' selected' : ''}>${escapeHtml(periodLabel(p.start, p.end))}</option>`).join('');
-  return `<form method="GET" action="/">
-    <input type="hidden" name="section" value="payroll">
-    <input type="hidden" name="view" value="${escapeHtml(view)}">
-    ${layout ? `<input type="hidden" name="layout" value="${escapeHtml(layout)}">` : ''}
-    <div class="field"><label for="pay-period">Pay period</label>
-      <span style="display:flex;gap:.5rem;align-items:center;"><select id="pay-period" name="period">${options}</select>
-      <button type="submit" style="margin-top:0;">Go</button></span>
-    </div>
-  </form>`;
-}
-
-function viewTabsHtml(period, view) {
-  return `<nav aria-label="Payroll view">
-    <a href="/?section=payroll&period=${encodeURIComponent(period.start)}&view=entry"${view === 'entry' ? ' aria-current="page"' : ''}>Enter &amp; approve</a>
-    <a href="/?section=payroll&period=${encodeURIComponent(period.start)}&view=report"${view === 'report' ? ' aria-current="page"' : ''}>Report</a>
-  </nav>`;
-}
-
-export function renderPayrollToolbar(periods, period, view, ytdLine) {
-  return `<p><small>${escapeHtml(ytdLine)}</small></p>
-    ${periodPickerHtml(periods, period, view)}
-    ${viewTabsHtml(period, view)}`;
-}
-
-function approvalLine(periodApproval) {
-  if (!periodApproval) return '';
-  const when = periodApproval.approved_at ? new Date(periodApproval.approved_at) : null;
-  const stamp = when && !isNaN(when)
-    ? when.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) + ' at ' + when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-    : '';
-  return `Approved${periodApproval.approved_by ? ' by ' + escapeHtml(periodApproval.approved_by) : ''}${stamp ? ' on ' + stamp : ''}.`;
-}
-
-// ── ENTRY & APPROVE VIEW ────────────────────────────────────────────────────
-export function renderEntryView({ period, periods, workspace, statusMsg, needsConfirm, alreadySent }) {
-  const { churchStaff, periodEntries, periodApproval, mdoStaff, mdoHoursMap, mdoPtoMap, mdoPeriodApproval, mdoError, staffError } = workspace;
-  const approved = !!periodApproval;
-  const lockAttr = approved ? ' readonly title="Approved — take back the approval to change hours"' : '';
-
-  const churchRows = churchStaff.map((s) => {
-    const entry = periodEntries.get(s.id) || {};
-    const isSalary = s.pay_type === 'salary';
-    const hoursVal = entry.hours_worked ?? '';
-    const ptoVal = entry.pto_hours_used ?? '';
-    const st = entryStatus(isSalary ? 'salary' : 'hourly', Number(hoursVal) > 0, approved);
-    const es = effectiveChurch(s, entry, approved);
-    const rate = isSalary ? `${money(es.base_salary_biweekly)}/period` : `${money(es.hourly_rate)}/hr`;
-    return `<tr>
-      <td><strong>${escapeHtml(s.name)}</strong><br><small>${escapeHtml(s.role || 'Church staff')} · ${escapeHtml(rate)}</small></td>
-      <td>${isSalary ? 'n/a' : `<input class="pay-in" type="number" min="0" step="0.25" name="hours_${escapeHtml(s.id)}" value="${escapeHtml(hoursVal)}"${lockAttr} aria-label="Hours worked by ${escapeHtml(s.name)}">`}</td>
-      <td>${takesPto(s.pay_type) ? `<input class="pay-in" type="number" min="0" step="0.25" name="pto_${escapeHtml(s.id)}" value="${escapeHtml(ptoVal)}"${lockAttr} aria-label="PTO used by ${escapeHtml(s.name)}">` : 'n/a'}</td>
-      <td>${pillHtml(st.tone, st.label)} <a href="/?section=payroll&view=staff-form&id=${escapeHtml(s.id)}">Edit</a></td>
-    </tr>`;
-  }).join('');
-
-  const mdoRows = mdoStaff.map((s) => {
-    const isSalary = s.pay_type === 'salary';
-    const h = mdoHoursMap.get(s.id) || 0;
-    const pto = mdoPtoMap.get(s.id) || 0;
-    if (!isSalary && h === 0 && pto === 0) return '';
-    const st = entryStatus(isSalary ? 'salary' : 'hourly', true, approved);
-    return `<tr>
-      <td><strong>${escapeHtml(s.name)}</strong><br><small>${escapeHtml(s.role || 'Childcare')}</small></td>
-      <td>${isSalary ? 'n/a' : escapeHtml(hrs(h))}</td>
-      <td>${isSalary ? 'n/a' : escapeHtml(hrs(pto))}</td>
-      <td>${pillHtml(st.tone, st.label)}</td>
-    </tr>`;
-  }).join('');
-
-  const allRows = churchRows + mdoRows;
-  const missing = computeMissingHours(churchStaff, periodEntries);
-  const people = payablePeople(churchStaff, mdoStaff, mdoHoursMap, mdoPtoMap);
-
-  const hourlyCount = churchStaff.filter((x) => x.pay_type === 'hourly').length
-    + mdoStaff.filter((x) => x.pay_type !== 'salary' && ((mdoHoursMap.get(x.id) || 0) > 0 || (mdoPtoMap.get(x.id) || 0) > 0)).length;
-  const salariedCount = churchStaff.filter((x) => x.pay_type === 'salary').length
-    + mdoStaff.filter((x) => x.pay_type === 'salary').length;
-  const totalHours = [...periodEntries.values()].reduce((n, e) => n + Number(e.hours_worked || 0), 0)
-    + [...mdoHoursMap.values()].reduce((n, h) => n + h, 0);
-  const summaryLine = approved ? approvalLine(periodApproval)
-    : `${totalHours.toFixed(2)} hours from ${hourlyCount} hourly staff · ${salariedCount} salaried, exceptions only`;
-
-  const mdoLiveText = mdoError
-    ? 'The childcare app could not be reached, so no childcare hours are included below — this report is incomplete.'
-    : mdoStaff.length
-      ? `${mdoStaff.length} childcare staff read live from the MDO app · hours and rates come from there, not from here`
-      : 'No childcare staff found for this period.';
-
-  const confirmBanner = needsConfirm && missing.length ? `<div class="pay-warn">
-    <p>${missing.length} ${missing.length === 1 ? 'person has' : 'people have'} no hours entered — ${escapeHtml(missing.map((m) => m.name).join(', '))}.</p>
-    <form method="POST" action="/api/v1/payroll-period-approve">
-      <input type="hidden" name="period" value="${escapeHtml(period.start)}">
-      <input type="hidden" name="action" value="approve">
-      <input type="hidden" name="confirm_missing" value="1">
-      <button type="submit">Approve the period anyway</button>
-    </form>
-  </div>` : '';
-
-  // Website's own confirm()-before-resend, rebuilt as a query-param confirm step:
-  // the first submit answers already_sent (not an error) and redirects back here
-  // with the fact of it; only a deliberate second submit carries force=1.
-  const emailAlreadySentBanner = alreadySent ? `<div class="pay-warn">
-    <p>This period was already emailed to ${escapeHtml(alreadySent.to || 'the bookkeeper')}${alreadySent.at ? ` on ${escapeHtml(new Date(alreadySent.at).toLocaleString('en-US', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}` : ''}.</p>
-    <form method="POST" action="/api/v1/payroll-email">
-      <input type="hidden" name="period" value="${escapeHtml(period.start)}">
-      <input type="hidden" name="force" value="1">
-      <button type="submit">Send it again</button>
-    </form>
-  </div>` : '';
-
-  const approveForm = `<form method="POST" action="/api/v1/payroll-period-approve">
-    <input type="hidden" name="period" value="${escapeHtml(period.start)}">
-    <input type="hidden" name="action" value="${approved ? 'unapprove' : 'approve'}">
-    ${!approved ? '' : '<label style="display:flex;gap:.4rem;align-items:center;font-weight:400;text-transform:none;letter-spacing:0;"><input type="checkbox" name="confirm_unapprove" value="1" required style="width:auto;"> I understand this reopens hours entry for this period</label>'}
-    <button type="submit" class="pay-approve${approved ? ' is-done' : ''}"${!people ? ' disabled' : ''}>${approved ? 'Take back approval' : 'Approve period'}</button>
-  </form>`;
-
-  return `
-    ${statusMsg ? `<p class="status">${escapeHtml(statusMsg)}</p>` : ''}
-    ${staffError ? `<p class="status status-error">Church staff could not be read: ${escapeHtml(staffError)}</p>` : ''}
-    <div class="pay-card">
-      <div class="pay-card-bar">Pay period · ${escapeHtml(periodLabel(period.start, period.end))} · ${escapeHtml(paysOnLabel(period.end))}</div>
-      <p style="padding:.65rem 1rem 0;margin:0;">${escapeHtml(mdoLiveText)} ${mdoPeriodApproval ? pillHtml('good', `MDO approved by ${mdoPeriodApproval.approved_by}`) : pillHtml('plain', 'MDO not yet approved')}</p>
-      <form method="POST" action="/api/v1/payroll-hours-save">
-        <input type="hidden" name="period" value="${escapeHtml(period.start)}">
-        <div class="table-wrap"><table><thead><tr><th>Person</th><th>Hours</th><th>PTO used</th><th>Status</th></tr></thead>
-        <tbody>${allRows || '<tr><td colspan="4">Nobody to pay in this period.</td></tr>'}</tbody></table></div>
-        ${!approved ? '<button type="submit">Save hours</button>' : ''}
-      </form>
-      <div class="pay-foot"><span>${escapeHtml(summaryLine)}</span>${approveForm}</div>
-    </div>
-    ${confirmBanner}
-    ${emailAlreadySentBanner}
-    <p><a href="/?section=payroll&view=staff-form&id=new">+ Add person</a> · <a href="/api/v1/payroll-csv?period=${encodeURIComponent(period.start)}">Export CSV</a></p>
-    <form method="POST" action="/api/v1/payroll-email" style="margin-top:0;">
-      <input type="hidden" name="period" value="${escapeHtml(period.start)}">
-      <button type="submit">Email report</button>
-    </form>
-    <p><small>Church hours are typed here and saved with the Save hours button. Childcare hours come from the MDO app and cannot be edited here.</small></p>
-    <p><small>Rates for church staff are entered here, shown beside each name above. Rates for childcare staff live in the MDO app and are read from it — there is deliberately no field for them here.</small></p>
-  `;
-}
-
-// ── REPORT VIEW ──────────────────────────────────────────────────────────
-export function renderReportView({ period, workspace, layout }) {
-  const { churchStaff, periodEntries, periodApproval, mdoStaff, mdoHoursMap, mdoPtoMap, mdoRateSnapshot, mdoError } = workspace;
-  const approved = !!periodApproval;
-  const groups = reportGroups({ churchStaff, periodEntries, mdoStaff, mdoHoursMap, mdoPtoMap, mdoRateSnapshot, periodApproved: approved });
-  const lbl = periodLabel(period.start, period.end);
-  const report = exportReport({
-    periodStart: period.start, periodEnd: period.end, periodLabel: lbl,
-    churchStaff, periodEntries, mdoStaff, mdoHoursMap, mdoPtoMap, mdoRateSnapshot,
-    periodApproved: approved, incomplete: !!mdoError,
-  });
-  const incompleteNote = mdoError ? 'The childcare app could not be reached, so no MDO staff are in this report. Do not send it to the payroll service until it can be read.' : '';
-  return `
-    ${renderLayoutTabs(layout, period.start)}
-    <div>${renderReportBody(groups, layout, lbl, incompleteNote)}</div>
-    <div id="pay-print">${renderPrintTable(report)}</div>
-  `;
 }
 
 // The one report shape CSV, print and the emailed report are all built from —
@@ -390,7 +224,6 @@ export function renderStaffFormView({ id, churchStaff, formError }) {
       <label style="display:flex;gap:.4rem;align-items:center;font-weight:400;text-transform:none;letter-spacing:0;"><input type="checkbox" name="confirm" value="1" required style="width:auto;"> Remove ${escapeHtml(staff.name)} from the church staff list. Their past periods stay in the record.</label>
       <button type="submit">Remove</button>
     </form>` : ''}
-    <p><a href="/?section=payroll">← Back to Payroll</a></p>
   `;
 }
 
@@ -400,19 +233,7 @@ export function renderStaffFormView({ id, churchStaff, formError }) {
 // view and wraps it in the shared toolbar (period picker + Enter&approve/
 // Report tabs), except the staff-form view, which is its own sub-page.
 export function renderPayrollSection(bundle) {
-  const { periods, period, view, layout, ytdLine, workspace, statusMsg, needsConfirm, staffFormId, staffFormError, alreadySent } = bundle;
-  if (view === 'staff-form') {
-    return `<section aria-label="Payroll"><h2>Payroll</h2>${renderStaffFormView({ id: staffFormId, churchStaff: workspace.churchStaff, formError: staffFormError })}</section>`;
-  }
-  const body = view === 'report'
-    ? renderReportView({ period, workspace, layout })
-    : renderEntryView({ period, periods, workspace, statusMsg, needsConfirm, alreadySent });
-  return `<section aria-label="Payroll">
-    <div class="section-heading"><div><div class="eyebrow">Payroll</div><h2>Payroll</h2></div><span class="badge">Relayed live to Website</span></div>
-    <p>Enter hours and exceptions, approve the period, then read the gross-pay report — church staff and Timothy MDO, with a combined total. Withholding, taxes and bank details stay with the payroll service.</p>
-    ${renderPayrollToolbar(periods, period, view, ytdLine)}
-    ${body}
-  </section>`;
+  return renderPayrollPage(bundle, { renderStaffForm: renderStaffFormView });
 }
 
 // ── WRITE ORCHESTRATION — called from shell.js's route handlers ────────────
@@ -495,10 +316,15 @@ const LAYOUTS = new Set(['cards', 'table', 'summary']);
 // render the payroll section for the current query string -- the period,
 // which view/layout, live workspace data, the YTD line and any status/error
 // banner left by a prior write's redirect.
+const PAYROLL_PAGES = new Set(['run', 'staff', 'mdo', 'report', 'history']);
+
 export async function buildPayrollSectionBundle(env, accessJwt, searchParams) {
   const { periods, period } = resolvePayrollPeriod(searchParams.get('period'));
   const rawView = searchParams.get('view');
   const view = rawView === 'report' ? 'report' : rawView === 'staff-form' ? 'staff-form' : 'entry';
+  const rawPage = searchParams.get('page');
+  const page = PAYROLL_PAGES.has(rawPage) ? rawPage : (legacyPayrollPage(rawView) || 'run');
+  const year = new Date().getFullYear();
   const rawLayout = searchParams.get('layout');
   const layout = LAYOUTS.has(rawLayout) ? rawLayout : 'cards';
   const needsConfirm = searchParams.get('needs_confirm') === '1';
@@ -506,9 +332,10 @@ export async function buildPayrollSectionBundle(env, accessJwt, searchParams) {
   const errorMessage = statusParam === 'error' ? (searchParams.get('message') || 'unknown error') : '';
 
   const workspace = await loadPayrollWorkspace(env, accessJwt, period.start, period.end);
-  const [ytdLine, healedApproval] = await Promise.all([
-    loadYearToDate(env, accessJwt, new Date().getFullYear()),
+  const [ytdLine, healedApproval, yearTotals] = await Promise.all([
+    loadYearToDate(env, accessJwt, year),
     healMissingTotal(env, accessJwt, period.start, workspace),
+    page === 'history' ? loadYearTotals(env, accessJwt, year) : Promise.resolve(null),
   ]);
   workspace.periodApproval = healedApproval;
 
@@ -520,7 +347,7 @@ export async function buildPayrollSectionBundle(env, accessJwt, searchParams) {
   // turning ready, so calling this on every render of a ready period is a safe no-op,
   // not a duplicate push. Never surfaced as page-render failure -- a push failing must
   // not read as the period itself being wrong.
-  if (view === 'entry' && !workspace.periodApproval) {
+  if (page === 'run' && !workspace.periodApproval) {
     const readyMissing = computeMissingHours(workspace.churchStaff, workspace.periodEntries);
     const readyPeople = payablePeople(workspace.churchStaff, workspace.mdoStaff, workspace.mdoHoursMap, workspace.mdoPtoMap);
     if (!readyMissing.length && readyPeople.length) {
@@ -540,7 +367,7 @@ export async function buildPayrollSectionBundle(env, accessJwt, searchParams) {
     : null;
 
   return {
-    periods, period, view, layout, needsConfirm, statusMsg, ytdLine, workspace, alreadySent,
+    periods, period, view, page, year, yearTotals, layout, needsConfirm, statusMsg, ytdLine, workspace, alreadySent,
     staffFormId: searchParams.get('id') || null,
     staffFormError: view === 'staff-form' && statusParam === 'error' ? errorMessage : '',
   };

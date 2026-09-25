@@ -259,7 +259,6 @@ describe('Finance alpha staging shell', () => {
     ]) expect(html).toMatch(new RegExp(`class="nav-item" href="[^"]+">${group}<span class="nav-count">\\d+</span>`));
     // Single-page groups are plain links; the active one is marked current.
     expect(html).toContain('<a class="nav-item is-active" href="/?section=health" aria-current="page">Financial Health</a>');
-    expect(html).toContain('<a class="nav-item" href="/?section=payroll">Payroll</a>');
     expect(html).toContain('<a class="nav-item" href="/?section=packet">Board packet</a>');
     // Only the active group is expanded.
     expect(html).not.toContain('Income &amp; expense detail');

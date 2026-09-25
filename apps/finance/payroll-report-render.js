@@ -26,7 +26,7 @@ const LAYOUT_NOTES = {
 };
 
 export function renderLayoutTabs(currentLayout, periodStart) {
-  const tab = (layout, label) => `<a class="pay-tab${layout === currentLayout ? ' is-on' : ''}" href="/?section=payroll&period=${encodeURIComponent(periodStart)}&view=report&layout=${layout}"${layout === currentLayout ? ' aria-current="page"' : ''}>${label}</a>`;
+  const tab = (layout, label) => `<a class="pay-tab${layout === currentLayout ? ' is-on' : ''}" href="/?section=payroll&amp;page=report&amp;period=${encodeURIComponent(periodStart)}&amp;layout=${layout}"${layout === currentLayout ? ' aria-current="page"' : ''}>${label}</a>`;
   return `<div class="pay-toolbar">
     ${tab('cards', 'Detail cards')}${tab('table', 'One line each')}${tab('summary', 'Totals only')}
     <span class="pay-note">${escapeHtml(LAYOUT_NOTES[currentLayout] || LAYOUT_NOTES.cards)}</span>
