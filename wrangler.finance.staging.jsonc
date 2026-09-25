@@ -31,7 +31,9 @@
   ],
   "vars": {
     "ENVIRONMENT": "staging",
-    "RELEASE_SHA": "unreleased"
+    "RELEASE_SHA": "unreleased",
+    "FINANCE_QB_ENABLED": "0",
+    "FINANCE_QB_ENVIRONMENT": "sandbox"
   },
   "observability": {
     "enabled": true

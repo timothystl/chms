@@ -293,6 +293,15 @@ const ROUTES = [
   // straight into Finance's own database, the finance_settings row legacy Connect used to write.
   // Live, not flag-gated; Connect's council write paths are retired in the same change.
   { id: 'compensation-council-overlay-save-v1', paths: ['/api/v1/compensation-council-overlay-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.compensation-council-overlay-save.v1' },
+  // QuickBooks, owned by Finance (Andrew, 2026-09-25): quickbooks-oauth-routes.js, gated by
+  // FINANCE_QB_ENABLED. connect/callback are browser GETs in the OAuth handshake (they store the
+  // CSRF state and the connection row); the rest are admin form posts. All write FINANCE_DB only.
+  { id: 'qb-connect-v1', paths: ['/api/v1/qb/connect'], methods: Object.freeze(['GET']), dataSource: 'quickbooks-oauth', writer: true, contract: 'finance.quickbooks-connect.v1' },
+  { id: 'qb-callback-v1', paths: ['/api/v1/qb/callback'], methods: Object.freeze(['GET']), dataSource: 'quickbooks-oauth', writer: true, contract: 'finance.quickbooks-callback.v1' },
+  { id: 'qb-disconnect-v1', paths: ['/api/v1/qb/disconnect'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.quickbooks-disconnect.v1' },
+  { id: 'qb-sync-v1', paths: ['/api/v1/qb/sync'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.quickbooks-sync.v1' },
+  { id: 'qb-sync-years-v1', paths: ['/api/v1/qb/sync-years'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.quickbooks-sync-years.v1' },
+  { id: 'qb-budget-select-v1', paths: ['/api/v1/qb/budget-select'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.quickbooks-budget-select.v1' },
 ];
 
 export const FINANCE_ROUTE_MANIFEST = Object.freeze(ROUTES.map((route) => Object.freeze({
