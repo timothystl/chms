@@ -20,6 +20,7 @@ export const FINANCE_QUERY_BUDGETS = Object.freeze({
   cashRunway: 2,
   propertyDistributions: 1,
   facilities: 4,
+  hr: 8,
 });
 
 export async function runBudgetedReadBatch(db, budgetName, statements) {

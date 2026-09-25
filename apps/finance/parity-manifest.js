@@ -11,7 +11,6 @@
 //                                 of guessing at data or hiding the nav entry.
 // `resolveFinanceSection()` and every permission check still key off the top-level `id`, exactly
 // as before PR #961 and the sub-page breakout -- `pages`/`group` are additive display metadata.
-const HR_PENDING = 'HR & Staff is new in this design. No personnel-record table exists in Finance yet; this page will show real records once that admin-only storage ships.';
 
 export const FINANCE_PARITY_SECTIONS = Object.freeze([
   {
@@ -195,19 +194,20 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
   // server routes would fight that existing, working structure rather than improve it.
   { id: 'payroll', label: 'Payroll', group: 'Payroll', permission: 'admin', capabilities: ['staff roster', 'hours and PTO entry', 'period approval', 'MDO hours integration', 'reports', 'CSV export', 'email the report', 'relayed live to Website, never stored in Finance'], pages: [{ id: 'workspace', label: 'Payroll', status: 'live' }] },
   // HR & Staff is new in the v3 design and holds staff personnel records, so it is admin-only
-  // (the design's own label: admin and lead pastor only). No table exists yet.
+  // (the design's own label: admin and lead pastor only). Church staff and key volunteers live
+  // in Finance's own tables (migration 0011, hr-service.js); daycare staff stay in myMDO.
   {
     id: 'hr', label: 'HR & Staff', group: 'HR & Staff', permission: 'admin',
     capabilities: ['staff directory', 'org chart', 'performance reviews', 'background checks and certifications', 'required trainings', 'policies', 'benefits enrollment', 'volunteer screening'],
     pages: [
-      { id: 'directory', label: 'Staff directory', status: 'unavailable', reason: HR_PENDING },
-      { id: 'org-chart', label: 'Org chart & job descriptions', status: 'unavailable', reason: HR_PENDING },
-      { id: 'reviews', label: 'Performance reviews', status: 'unavailable', reason: HR_PENDING },
-      { id: 'checks', label: 'Background checks & certs', status: 'unavailable', reason: HR_PENDING },
-      { id: 'trainings', label: 'Required trainings', status: 'unavailable', reason: HR_PENDING },
-      { id: 'policies', label: 'Policies & handbook', status: 'unavailable', reason: HR_PENDING },
-      { id: 'benefits', label: 'Benefits enrollment', status: 'unavailable', reason: HR_PENDING },
-      { id: 'volunteers', label: 'Volunteer screening', status: 'unavailable', reason: HR_PENDING },
+      { id: 'directory', label: 'Staff directory', status: 'live' },
+      { id: 'org-chart', label: 'Org chart & job descriptions', status: 'live' },
+      { id: 'reviews', label: 'Performance reviews', status: 'live' },
+      { id: 'checks', label: 'Background checks & certs', status: 'live' },
+      { id: 'trainings', label: 'Required trainings', status: 'live' },
+      { id: 'policies', label: 'Policies & handbook', status: 'live' },
+      { id: 'benefits', label: 'Benefits enrollment', status: 'live' },
+      { id: 'volunteers', label: 'Volunteer screening', status: 'live' },
     ],
   },
 ].map((section) => Object.freeze({
