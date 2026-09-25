@@ -2,7 +2,7 @@ const READ_METHODS = Object.freeze(['GET', 'HEAD']);
 const WRITE_METHODS = Object.freeze(['POST']);
 
 const ROUTES = [
-  { id: 'shell', paths: ['/', '/index.html'], dataSource: 'synthetic-d1', queryBudget: 'summary', optionalQueryBudgets: ['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'compensationPlanRaw', 'cashRunway'] },
+  { id: 'shell', paths: ['/', '/index.html'], dataSource: 'synthetic-d1', queryBudget: 'summary', optionalQueryBudgets: ['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'compensationPlanRaw', 'cashRunway', 'facilities'] },
   { id: 'health', paths: ['/health'], dataSource: 'none' },
   // Self-hosted logo and fonts for the v3 design (see brand-assets.js); static bytes, no data.
   { id: 'brand-asset', paths: ['/assets/tlc-logo.png', '/assets/fonts/outfit.woff2', '/assets/fonts/figtree.woff2'], dataSource: 'none' },
@@ -200,6 +200,14 @@ const ROUTES = [
   { id: 'daycare-entry-remove-v1', paths: ['/api/v1/connect-daycare-entry-remove'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-entry-remove-relay.v1' },
   { id: 'daycare-sync-v1', paths: ['/api/v1/connect-daycare-sync'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-sync-relay.v1' },
   { id: 'daycare-rooms-sync-v1', paths: ['/api/v1/connect-daycare-rooms-sync'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-daycare-rooms-sync-relay.v1' },
+  // Facilities (v3 design): Finance-owned asset register, service history, maintenance schedule,
+  // and capital projects (migration 0010, facilities-service.js). Form posts that redirect back.
+  { id: 'facilities-asset-save-v1', paths: ['/api/v1/facilities/asset-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-asset-save.v1' },
+  { id: 'facilities-service-log-v1', paths: ['/api/v1/facilities/service-log'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-service-log.v1' },
+  { id: 'facilities-service-remove-v1', paths: ['/api/v1/facilities/service-remove'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-service-remove.v1' },
+  { id: 'facilities-pm-save-v1', paths: ['/api/v1/facilities/pm-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-pm-save.v1' },
+  { id: 'facilities-pm-done-v1', paths: ['/api/v1/facilities/pm-done'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-pm-done.v1' },
+  { id: 'facilities-project-save-v1', paths: ['/api/v1/facilities/project-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-project-save.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no

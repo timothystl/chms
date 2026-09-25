@@ -11,7 +11,6 @@
 //                                 of guessing at data or hiding the nav entry.
 // `resolveFinanceSection()` and every permission check still key off the top-level `id`, exactly
 // as before PR #961 and the sub-page breakout -- `pages`/`group` are additive display metadata.
-const FACILITIES_PENDING = 'Facilities is new in this design. There is no asset register, service log, or maintenance schedule table yet; this page will show real records once that storage ships.';
 const HR_PENDING = 'HR & Staff is new in this design. No personnel-record table exists in Finance yet; this page will show real records once that admin-only storage ships.';
 
 export const FINANCE_PARITY_SECTIONS = Object.freeze([
@@ -104,17 +103,17 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
     ],
   },
   // Facilities is new in the v3 design: an asset register with service history, capital projects,
-  // and a preventive-maintenance calendar. No Finance or Connect table holds this yet, so every
-  // page is honestly unavailable until its own Finance-owned tables ship.
+  // and a preventive-maintenance schedule, stored in Finance's own tables (migration 0010,
+  // facilities-service.js).
   {
     id: 'facilities', label: 'Facilities', group: 'Facilities', permission: 'finance',
     capabilities: ['asset register', 'service history', 'capital projects', 'preventive maintenance'],
     pages: [
-      { id: 'overview', label: 'Overview', status: 'unavailable', reason: FACILITIES_PENDING },
-      { id: 'assets', label: 'Assets', status: 'unavailable', reason: FACILITIES_PENDING },
-      { id: 'service-history', label: 'Service history', status: 'unavailable', reason: FACILITIES_PENDING },
-      { id: 'capital-projects', label: 'Capital projects', status: 'unavailable', reason: FACILITIES_PENDING },
-      { id: 'preventive-maintenance', label: 'Preventive maintenance', status: 'unavailable', reason: FACILITIES_PENDING },
+      { id: 'overview', label: 'Overview', status: 'live' },
+      { id: 'assets', label: 'Assets', status: 'live' },
+      { id: 'service-history', label: 'Service history', status: 'live' },
+      { id: 'capital-projects', label: 'Capital projects', status: 'live' },
+      { id: 'preventive-maintenance', label: 'Preventive maintenance', status: 'live' },
     ],
   },
   // The Budget builder is real now too, via the connect.finance-budget.v1 contract (real planned

@@ -273,9 +273,9 @@ describe('Finance alpha staging shell', () => {
     expect(data).toContain('<a href="/?section=accounts&amp;page=chart">Chart of accounts</a>');
     expect(data).toContain('<a href="/?section=data" aria-current="page">Data &amp; Imports</a>');
 
-    // New v3 areas render honest unavailable pages until their storage ships.
-    const facilities = await (await worker.fetch(new Request('https://finance.test/?section=facilities&page=assets'), env)).text();
-    expect(facilities).toContain('no asset register');
+    // HR & Staff renders honest unavailable pages until its storage ships.
+    const hr = await (await worker.fetch(new Request('https://finance.test/?section=hr&page=reviews'), env)).text();
+    expect(hr).toContain('No personnel-record table exists');
   });
 
   it('offers the v3 Financial Health layouts: Summary by default, By entity, and Full detail', async () => {
@@ -1492,7 +1492,7 @@ describe('Finance alpha staging shell', () => {
   });
 
   it('enforces the named summary query budget and read-only statements', async () => {
-    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, propertyValuation: 3, propertyForecast: 1, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1, compensationBenchmark: 1, compensationBenefits: 1, cashRunway: 2, propertyDistributions: 1 });
+    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, propertyValuation: 3, propertyForecast: 1, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1, compensationBenchmark: 1, compensationBenefits: 1, cashRunway: 2, propertyDistributions: 1, facilities: 4 });
     await expect(runBudgetedReadBatch(env.FINANCE_DB, 'summary', [
       'SELECT 1', 'SELECT 2', 'SELECT 3', 'SELECT 4', 'SELECT 5',
     ])).rejects.toThrow('Finance query budget exceeded: summary');

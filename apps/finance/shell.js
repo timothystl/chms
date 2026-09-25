@@ -16,6 +16,9 @@ import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from '
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage } from './parity-manifest.js';
 import { HEALTH_STYLES, renderHealthByEntity, renderHealthSummary, renderHealthViewToggle, resolveHealthView } from './health-pages.js';
+import { FACILITIES_WRITERS, buildFacilitiesView, isoDay, readFacilities } from './facilities-service.js';
+import { canEditFacilities, describeFacilitiesStatus, handleFacilitiesWrite } from './facilities-routes.js';
+import { FACILITIES_STYLES, renderFacilitiesPage } from './facilities-pages.js';
 import { SHELL_STYLES, collapseDuplicateHeading, identityInitials, renderSectionNav, renderViewingAs } from './shell-layout.js';
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
 import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
@@ -907,6 +910,17 @@ function renderSectionBody(ctx) {
   if (page.status === 'unavailable') {
     return renderUnavailablePage({ eyebrow: section.label, heading: page.label, reason: page.reason });
   }
+  if (section.id === 'facilities') {
+    if (!ctx.facilities || isSyntheticUnavailable(ctx.facilities)) {
+      return renderDataUnavailablePage({ eyebrow: section.label, heading: page.label, reason: 'Facilities records could not be read for this request. Nothing shown here is an empty register.' });
+    }
+    return renderFacilitiesPage(page.id, {
+      view: buildFacilitiesView(ctx.facilities, isoDay(new Date())),
+      params: ctx.searchParams,
+      canEdit: canEditFacilities(roleResult),
+      status: describeFacilitiesStatus(ctx.searchParams),
+    });
+  }
   if (section.id === 'giving') {
     return renderGiftEntryPage(page.id, { giving, givingSource, givingEntryStatus, givingEntryMessage });
   }
@@ -1137,7 +1151,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/tlc-logo.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -2653,6 +2667,10 @@ export default {
       }
     }
 
+    if (FACILITIES_WRITERS[route.id]) {
+      return handleFacilitiesWrite(request, env, route.id, url);
+    }
+
     if (route.id === 'summary-legacy') {
       try {
         const summary = await readSyntheticSummary(env.FINANCE_DB);
@@ -3069,11 +3087,13 @@ export default {
         const propertyMonthlyImportCsvMessage = propertyMonthlyImportCsvStatus === 'error'
           ? describePropertyMonthlyImportCsvError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        const facilities = section.id === 'facilities'
+          ? await safeSyntheticRead(() => readFacilities(env.FINANCE_DB)) : null;
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
         return response(renderShell({
-          healthView: url.searchParams.get('view'),
+          healthView: url.searchParams.get('view'), facilities, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,

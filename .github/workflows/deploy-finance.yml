@@ -75,6 +75,21 @@ jobs:
       - name: Run Finance validation gate
         run: npm run validate:finance:prod
 
+      # Applies only migrations not yet recorded in timothy-finance-db's d1_migrations ledger
+      # (additive CREATE TABLE IF NOT EXISTS files such as 0010_finance_facilities.sql), before
+      # the Worker that reads them goes live. The list step records the ledger state first.
+      - name: List Finance D1 migration state
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: d1 migrations list timothy-finance-db --remote --config wrangler.finance.jsonc
+
+      - name: Apply pending Finance D1 migrations
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: d1 migrations apply timothy-finance-db --remote --config wrangler.finance.jsonc
+
       - name: Deploy Finance production (wrangler.finance.jsonc)
         uses: cloudflare/wrangler-action@v3
         with:
