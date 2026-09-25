@@ -172,7 +172,9 @@ const SECURITY_HEADERS = Object.freeze({
   // (brand-assets.js) -- still no third-party origins and no script of any kind.
   'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   'Cross-Origin-Opener-Policy': 'same-origin',
-  'Referrer-Policy': 'no-referrer',
+  // same-origin, not no-referrer: no-referrer makes browsers send `Origin: null` on this app's
+  // own form posts. Nothing still leaves for another origin.
+  'Referrer-Policy': 'same-origin',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'X-Robots-Tag': 'noindex, nofollow',

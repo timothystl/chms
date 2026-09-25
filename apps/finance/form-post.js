@@ -5,11 +5,13 @@ import { fetchVerifiedRole } from './connect-role-client.js';
 import { FormValidationError } from './form-fields.js';
 
 // Browsers send Sec-Fetch-Site and Origin on form posts; a cross-site post is refused before any
-// identity check. Requests without either header (non-browser tools) still need a verified
-// Access identity.
+// identity check. Sec-Fetch-Site is browser-controlled and decides on its own when present:
+// under a no-referrer policy a genuine same-origin post carries `Origin: null`, which must not be
+// read as cross-site. Origin is the fallback for browsers without Fetch Metadata. Requests
+// without either header (non-browser tools) still need a verified Access identity.
 export function isSameOriginPost(request, url) {
   const site = request.headers.get('Sec-Fetch-Site');
-  if (site && !['same-origin', 'none'].includes(site)) return false;
+  if (site) return ['same-origin', 'none'].includes(site);
   const origin = request.headers.get('Origin');
   if (origin === 'null') return false;
   if (origin) {
