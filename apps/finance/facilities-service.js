@@ -3,6 +3,7 @@
 // Reads go through the named `facilities` query budget; writes validate every field here and
 // store money in whole cents.
 import { runBudgetedReadBatch } from './query-budget.js';
+import { FormValidationError, day, int, month, oneOf, optionalId, parseDollarsToCents, text } from './form-fields.js';
 
 export const FACILITY_CATEGORIES = Object.freeze([
   'HVAC', 'Boilers', 'Elevator', 'Roofs', 'Electrical', 'Kitchen', 'Fire & security', 'Plumbing',
@@ -13,7 +14,8 @@ export const PROJECT_STATUSES = Object.freeze(['Planned', 'In progress', 'Comple
 export const NEAR_END_OF_LIFE_PCT = 85;
 export const DUE_SOON_DAYS = 30;
 
-export class FacilitiesValidationError extends Error {}
+// Shared with HR; the Facilities name is kept for existing callers.
+export { FormValidationError as FacilitiesValidationError, parseDollarsToCents };
 
 // ── Reading ────────────────────────────────────────────────────────────────────────────────────
 
@@ -131,64 +133,9 @@ export function buildFacilitiesView(data, today) {
 
 // ── Writing ────────────────────────────────────────────────────────────────────────────────────
 
-function text(value, max, label, { required = false } = {}) {
-  const v = String(value ?? '').trim();
-  if (required && !v) throw new FacilitiesValidationError(`${label} is required.`);
-  if (v.length > max) throw new FacilitiesValidationError(`${label} is too long (${max} characters at most).`);
-  return v;
-}
-
-function oneOf(value, list, label) {
-  const v = String(value ?? '').trim();
-  if (!list.includes(v)) throw new FacilitiesValidationError(`Choose a valid ${label}.`);
-  return v;
-}
-
-function month(value, label) {
-  const v = String(value ?? '').trim();
-  const m = /^(\d{4})-(\d{2})$/.exec(v);
-  if (!m || Number(m[2]) < 1 || Number(m[2]) > 12 || Number(m[1]) < 1850 || Number(m[1]) > 2200) {
-    throw new FacilitiesValidationError(`${label} must be a month like 2026-09.`);
-  }
-  return v;
-}
-
-function day(value, label) {
-  const v = String(value ?? '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(`${v}T00:00:00Z`)) || isoDay(new Date(`${v}T00:00:00Z`)) !== v) {
-    throw new FacilitiesValidationError(`${label} must be a date.`);
-  }
-  return v;
-}
-
-function int(value, min, max, label, { optional = false } = {}) {
-  const v = String(value ?? '').trim();
-  if (optional && v === '') return null;
-  if (!/^\d+$/.test(v) || Number(v) < min || Number(v) > max) {
-    throw new FacilitiesValidationError(`${label} must be a whole number from ${min} to ${max}.`);
-  }
-  return Number(v);
-}
-
-export function parseDollarsToCents(value, label) {
-  const v = String(value ?? '').replace(/[$,\s]/g, '');
-  if (v === '') return 0;
-  if (!/^\d+(\.\d{1,2})?$/.test(v)) throw new FacilitiesValidationError(`${label} must be a dollar amount.`);
-  const cents = Math.round(Number(v) * 100);
-  if (!Number.isSafeInteger(cents) || cents > 100_000_000_00) throw new FacilitiesValidationError(`${label} is too large.`);
-  return cents;
-}
-
-function optionalId(value) {
-  const v = String(value ?? '').trim();
-  if (v === '' || v === '0') return null;
-  if (!/^\d+$/.test(v)) throw new FacilitiesValidationError('Unknown record.');
-  return Number(v);
-}
-
 async function requireRow(db, table, id, label) {
   const row = await db.prepare(`SELECT id FROM ${table} WHERE id = ?`).bind(id).first();
-  if (!row) throw new FacilitiesValidationError(`That ${label} no longer exists.`);
+  if (!row) throw new FormValidationError(`That ${label} no longer exists.`);
 }
 
 export async function saveFacilityAsset(db, form, actor) {
@@ -239,7 +186,7 @@ export async function logFacilityService(db, form, actor) {
 // Mistakes only: an entry logged against the wrong asset or with a typo. Real history stays.
 export async function removeFacilityServiceEntry(db, form) {
   const id = optionalId(form.id);
-  if (!id) throw new FacilitiesValidationError('Unknown record.');
+  if (!id) throw new FormValidationError('Unknown record.');
   await requireRow(db, 'finance_facility_service_log', id, 'service entry');
   await db.prepare('DELETE FROM finance_facility_service_log WHERE id = ?').bind(id).run();
   return { id };
@@ -275,9 +222,9 @@ export async function saveFacilityPmTask(db, form, actor) {
 // (catching up on paperwork) never moves the schedule backward.
 export async function markFacilityPmDone(db, form, actor) {
   const id = optionalId(form.id);
-  if (!id) throw new FacilitiesValidationError('Unknown task.');
+  if (!id) throw new FormValidationError('Unknown task.');
   const task = await db.prepare('SELECT id, name, covers, asset_id, assignee, last_done_on FROM finance_facility_pm_tasks WHERE id = ?').bind(id).first();
-  if (!task) throw new FacilitiesValidationError('That task no longer exists.');
+  if (!task) throw new FormValidationError('That task no longer exists.');
   const doneOn = day(form.done_on, 'Done on');
   const cost = parseDollarsToCents(form.cost, 'Cost');
   const note = text(form.note, 300, 'Note');
@@ -318,7 +265,7 @@ export async function saveFacilityProject(db, form, actor) {
 }
 
 export const FACILITIES_WRITERS = Object.freeze({
-  'facilities-asset-save-v1': { run: saveFacilityAsset, page: 'assets' },
+  'facilities-asset-save-v1': { run: saveFacilityAsset, page: 'assets', returnParam: 'asset' },
   'facilities-service-log-v1': { run: logFacilityService, page: 'service-history' },
   'facilities-service-remove-v1': { run: removeFacilityServiceEntry, page: 'service-history' },
   'facilities-pm-save-v1': { run: saveFacilityPmTask, page: 'preventive-maintenance' },
