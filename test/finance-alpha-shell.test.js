@@ -142,9 +142,12 @@ describe('Finance alpha staging shell', () => {
     const shell = fs.readFileSync(path.join(repoRoot, 'apps/finance/shell.js'), 'utf8');
     expect(shell).not.toMatch(/\b(INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP)\b/i);
     expect(shell).not.toMatch(/\.run\(|\.exec\(/);
-    for (const forbidden of ['kv_namespaces', 'r2_buckets', 'queues', 'triggers']) {
+    for (const forbidden of ['kv_namespaces', 'queues', 'triggers']) {
       expect(config[forbidden], `${forbidden} must not exist in the alpha shell`).toBeUndefined();
     }
+    // One private R2 bucket, for Facilities photos and scanned documents (facility-files.js).
+    // Pinned exactly so any other storage binding still fails this test.
+    expect(config.r2_buckets).toEqual([{ binding: 'FACILITY_FILES', bucket_name: 'timothy-finance-files-staging' }]);
     // 'services' is deliberately no longer in the forbidden list above: the two bindings this
     // config carries are each an intentional, narrow real connection -- CONNECT_SERVICE for
     // connect.giving-summary.v1 (see connect-giving-client.js), PAYROLL_SERVICE for Website's
@@ -1601,7 +1604,7 @@ describe('Finance alpha staging shell', () => {
   });
 
   it('enforces the named summary query budget and read-only statements', async () => {
-    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, propertyValuation: 3, propertyForecast: 1, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1, compensationBenchmark: 1, compensationBenefits: 1, cashRunway: 2, propertyDistributions: 1, facilities: 4, hr: 8 });
+    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, propertyValuation: 3, propertyForecast: 1, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1, compensationBenchmark: 1, compensationBenefits: 1, cashRunway: 2, propertyDistributions: 1, facilities: 5, hr: 8 });
     await expect(runBudgetedReadBatch(env.FINANCE_DB, 'summary', [
       'SELECT 1', 'SELECT 2', 'SELECT 3', 'SELECT 4', 'SELECT 5',
     ])).rejects.toThrow('Finance query budget exceeded: summary');

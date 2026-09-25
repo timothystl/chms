@@ -32,6 +32,21 @@ jobs:
       - name: Run Finance validation gate
         run: npm run validate:finance
 
+      # Facilities photos/documents bucket (FACILITY_FILES). Created once, the first time a release
+      # needs it; an existing bucket and its files are never touched.
+      - name: Ensure the Facilities files R2 bucket exists
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          BUCKET: timothy-finance-files-staging
+        run: |
+          set -euo pipefail
+          if npx wrangler r2 bucket info "$BUCKET" >/dev/null 2>&1; then
+            echo "R2 bucket $BUCKET already exists."
+          else
+            npx wrangler r2 bucket create "$BUCKET"
+          fi
+
       - name: Deploy Finance staging (wrangler.finance.staging.jsonc)
         uses: cloudflare/wrangler-action@v3
         with:

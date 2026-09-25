@@ -10,6 +10,7 @@ import {
 import { canEditFacilities, isSameOriginPost } from '../apps/finance/facilities-routes.js';
 
 const migrationSql = readFileSync(new URL('../apps/finance/migrations/0010_finance_facilities.sql', import.meta.url), 'utf8');
+const filesMigrationSql = readFileSync(new URL('../apps/finance/migrations/0012_finance_facility_files.sql', import.meta.url), 'utf8');
 const fixtureSql = readFileSync(new URL('../apps/finance/fixtures/0013_synthetic_facilities.sql', import.meta.url), 'utf8');
 
 // A D1-shaped wrapper around node:sqlite so the real migration SQL and queries run.
@@ -17,6 +18,7 @@ function makeDb({ seed = false } = {}) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON;');
   sqlite.exec(migrationSql);
+  sqlite.exec(filesMigrationSql);
   if (seed) sqlite.exec(fixtureSql);
   const statement = (sql, args = []) => ({
     sql,

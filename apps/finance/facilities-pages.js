@@ -6,6 +6,7 @@ import {
   DUE_SOON_DAYS, FACILITY_CATEGORIES, NEAR_END_OF_LIFE_PCT, PROJECT_STATUSES, SERVICE_TYPES,
   formatDay, formatMonth,
 } from './facilities-service.js';
+import { INLINE_IMAGE_TYPES, MAX_FILES_PER_UPLOAD, MAX_FILE_BYTES, formatBytes, recordReturn } from './facility-files.js';
 import { formatCompactCents } from './health-pages.js';
 
 const e = escapeHtml;
@@ -76,6 +77,53 @@ function emptyNote(text) {
   return `<div class="empty-note">${text}</div>`;
 }
 
+// ── Photos & documents ────────────────────────────────────────────────────────────────────────
+
+const RETURN_KEY = { asset: 'asset', pm_task: 'task', service: 'entry', project: 'project' };
+
+function returnFields(recordType, recordId) {
+  const { page } = recordReturn(recordType, recordId);
+  return `<input type="hidden" name="return_page" value="${page}"><input type="hidden" name="return_${RETURN_KEY[recordType]}" value="${recordId}">`;
+}
+
+function fileUrl(file) {
+  return `/api/v1/facilities/file?id=${file.id}`;
+}
+
+function fileTile(file, recordType, recordId, canEdit) {
+  const label = file.caption || file.file_name;
+  const remove = canEdit ? `<form method="POST" action="/api/v1/facilities/file-remove" class="inline-form"><input type="hidden" name="id" value="${file.id}">${returnFields(recordType, recordId)}<button type="submit" class="link-button" title="Remove this file">Remove</button></form>` : '';
+  const preview = INLINE_IMAGE_TYPES.includes(file.content_type)
+    ? `<img src="${fileUrl(file)}" alt="${e(label)}" loading="lazy">`
+    : `<span class="doc-badge">${file.content_type === 'application/pdf' ? 'PDF' : 'Photo'}</span>`;
+  return `<figure class="file-tile"><a class="file-open" href="${fileUrl(file)}" target="_blank" rel="noopener">${preview}</a><figcaption><a href="${fileUrl(file)}" target="_blank" rel="noopener">${e(label)}</a><small>${e(file.created_at ? formatDay(file.created_at.slice(0, 10)) : '')} · ${formatBytes(file.byte_size)}</small>${remove}</figcaption></figure>`;
+}
+
+// Chooser for photos and PDFs. On a phone the browser offers the camera, the photo library, and
+// files (including scanned documents).
+function fileInput({ required } = {}) {
+  return `<input type="file" name="files" accept="image/*,application/pdf" multiple${required ? ' required' : ''}>`;
+}
+
+const FILE_HINT = `Photos and PDFs, up to ${MAX_FILES_PER_UPLOAD} at a time, ${MAX_FILE_BYTES / 1024 / 1024} MB each. On a phone you can take the picture right here.`;
+
+function filesPanel(view, recordType, recordId, canEdit, { heading = 'Photos &amp; documents', empty = 'No photos or documents attached yet.' } = {}) {
+  const files = view.filesFor(recordType, recordId);
+  const gallery = files.length ? `<div class="file-grid">${files.map((f) => fileTile(f, recordType, recordId, canEdit)).join('')}</div>` : emptyNote(empty);
+  const upload = canEdit ? `<form method="POST" action="/api/v1/facilities/file-upload" enctype="multipart/form-data" class="form-grid facility-form upload-form">
+      <input type="hidden" name="record_type" value="${recordType}"><input type="hidden" name="record_id" value="${recordId}">${returnFields(recordType, recordId)}
+      ${field('Add photos or a scanned document', fileInput({ required: true }))}
+      ${field('Caption (optional)', '<input name="caption" maxlength="200" placeholder="e.g. Nameplate label, service order #1142">')}
+      <div class="form-actions"><button type="submit">Attach</button><p class="muted-line">${FILE_HINT}</p></div>
+    </form>` : '';
+  return `<div class="panel panel-spaced"><div class="panel-head"><h2>${heading}</h2>${files.length ? `<span class="muted">${files.length} file${files.length === 1 ? '' : 's'}</span>` : ''}</div>${gallery}${upload}</div>`;
+}
+
+function fileCount(view, recordType, recordId) {
+  const n = view.filesFor(recordType, recordId).length;
+  return n ? `${n} file${n === 1 ? '' : 's'}` : '';
+}
+
 // ── Overview ──────────────────────────────────────────────────────────────────────────────────
 
 function renderOverview(view) {
@@ -141,8 +189,9 @@ function renderAssetDetail(view, asset, canEdit) {
       <dl class="fact-grid">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${e(v || '—')}</dd></div>`).join('')}</dl>
       ${asset.notes ? `<p>${e(asset.notes)}</p>` : ''}
     </div>
-    <div class="panel panel-spaced"><h2>Service history</h2>${history.length ? `<ul class="row-list">${history.map(serviceRow).join('')}</ul>` : emptyNote('No service logged for this asset yet.')}</div>
-    ${tasks.length ? `<div class="panel panel-spaced"><h2>Recurring maintenance</h2><ul class="row-list">${tasks.map((t) => `<li><div><b>${e(t.name)}</b><small>Every ${everyLabel(t.interval_months).toLowerCase()} · ${e(t.assignee || 'Unassigned')}</small></div><div class="right">${pmPill(t.schedule)}<small>Next ${formatDay(t.schedule.nextDue)}</small></div></li>`).join('')}</ul></div>` : ''}
+    ${filesPanel(view, 'asset', asset.id, canEdit, { empty: 'No photos yet. Add the unit, its nameplate label, and anything a contractor will ask about.' })}
+    <div class="panel panel-spaced"><h2>Service history</h2>${history.length ? `<ul class="row-list">${history.map((s) => serviceRow(view, s)).join('')}</ul>` : emptyNote('No service logged for this asset yet.')}</div>
+    ${tasks.length ? `<div class="panel panel-spaced"><h2>Recurring maintenance</h2><ul class="row-list">${tasks.map((t) => `<li><div><b><a href="${link('preventive-maintenance', { task: String(t.id) })}">${e(t.name)}</a></b><small>Every ${everyLabel(t.interval_months).toLowerCase()} · ${e(t.assignee || 'Unassigned')}</small></div><div class="right">${pmPill(t.schedule)}<small>Next ${formatDay(t.schedule.nextDue)}</small></div></li>`).join('')}</ul></div>` : ''}
     ${canEdit ? `<details class="panel panel-spaced edit-panel"><summary>Edit this asset</summary>${assetForm(asset)}</details>` : ''}`;
 }
 
@@ -157,7 +206,7 @@ function renderAssets(view, params, canEdit) {
   return `<p class="lede">Select an asset to see its record: model and serial, warranty, contractor, expected life and service history.</p>
     ${used.length > 1 ? chips('assets', 'category', used, category) : ''}
     <div class="panel list-panel">${list.length
-    ? `<ul class="row-list">${list.map((a) => `<li><a class="row-link" href="${link('assets', { asset: String(a.id) })}"><div><b>${e(a.name)}</b><small>${e([a.category, a.location].filter(Boolean).join(' · '))}</small></div><div class="right"><span class="tone-${lifeTone(a.life)} strong-small">${lifeLabel(a.life)}</span><small>Installed ${formatMonth(a.installed_month)}</small></div></a></li>`).join('')}</ul>`
+    ? `<ul class="row-list">${list.map((a) => `<li><a class="row-link" href="${link('assets', { asset: String(a.id) })}"><div><b>${e(a.name)}</b><small>${e([a.category, a.location].filter(Boolean).join(' · '))}</small></div><div class="right"><span class="tone-${lifeTone(a.life)} strong-small">${lifeLabel(a.life)}</span><small>Installed ${formatMonth(a.installed_month)}${fileCount(view, 'asset', a.id) ? ` · ${fileCount(view, 'asset', a.id)}` : ''}</small></div></a></li>`).join('')}</ul>`
     : emptyNote(view.assets.length ? 'No assets in this category.' : 'No assets on record yet. Add the building systems, roofs, vehicles, and equipment you want to track.')}</div>
     ${retired.length ? `<p class="muted-line">${retired.length} retired asset${retired.length === 1 ? '' : 's'} kept for history: ${retired.map((a) => `<a href="${link('assets', { asset: String(a.id) })}">${e(a.name)}</a>`).join(', ')}.</p>` : ''}
     ${canEdit ? `<details class="panel panel-spaced edit-panel"${view.assets.length ? '' : ' open'}><summary>Add an asset</summary>${assetForm()}</details>` : ''}`;
@@ -167,26 +216,41 @@ function renderAssets(view, params, canEdit) {
 
 const TYPE_TONE = { Repair: 'bad', Inspection: 'info', Preventive: 'good', Replacement: 'warn' };
 
-function serviceRow(s, canRemove) {
-  return `<li class="service-row"><span class="date">${formatDay(s.service_date)}</span><div class="grow"><b>${e(s.description)}</b><small>${e([s.assetName, s.vendor].filter(Boolean).join(' · '))}</small></div><div class="right"><b>${s.cost_cents ? formatCents(s.cost_cents) : '—'}</b><small class="tone-${TYPE_TONE[s.service_type]}">${e(s.service_type)}</small>${canRemove === true ? `<form method="POST" action="/api/v1/facilities/service-remove" class="inline-form"><input type="hidden" name="id" value="${s.id}"><button type="submit" class="link-button" title="Remove an entry logged by mistake">Remove</button></form>` : ''}</div></li>`;
+function serviceRow(view, s, canRemove) {
+  const files = fileCount(view, 'service', s.id);
+  return `<li class="service-row"><span class="date">${formatDay(s.service_date)}</span><div class="grow"><b><a class="plain-link" href="${link('service-history', { entry: String(s.id) })}">${e(s.description)}</a></b><small>${e([s.assetName, s.vendor].filter(Boolean).join(' · '))}${files ? ` · <a href="${link('service-history', { entry: String(s.id) })}">${files}</a>` : ''}</small></div><div class="right"><b>${s.cost_cents ? formatCents(s.cost_cents) : '—'}</b><small class="tone-${TYPE_TONE[s.service_type]}">${e(s.service_type)}</small>${canRemove === true ? `<form method="POST" action="/api/v1/facilities/service-remove" class="inline-form"><input type="hidden" name="id" value="${s.id}"><button type="submit" class="link-button" title="Remove an entry logged by mistake">Remove</button></form>` : ''}</div></li>`;
+}
+
+function renderServiceEntry(view, entry, canEdit) {
+  const facts = [
+    ['Date', formatDay(entry.service_date)], ['Type', entry.service_type], ['Asset', entry.assetName],
+    ['Contractor', entry.vendor || '—'], ['Cost', dollars(entry.cost_cents)],
+  ];
+  const assetLink = entry.asset_id && view.allAssets.some((a) => a.id === entry.asset_id) ? ` · <a href="${link('assets', { asset: String(entry.asset_id) })}">Open asset</a>` : '';
+  return `<p class="crumb"><a href="${link('service-history')}">All service history</a>${assetLink}</p>
+    <div class="panel"><h2>${e(entry.description)}</h2><dl class="fact-grid">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${e(v)}</dd></div>`).join('')}</dl></div>
+    ${filesPanel(view, 'service', entry.id, canEdit, { heading: 'Service order, invoice &amp; photos', empty: 'Nothing attached yet. Add a photo or scan of the service order or invoice.' })}`;
 }
 
 function renderService(view, params, canEdit) {
+  const entry = view.service.find((s) => String(s.id) === params.get('entry'));
+  if (entry) return renderServiceEntry(view, entry, canEdit);
   const type = SERVICE_TYPES.includes(params.get('type')) ? params.get('type') : null;
   const list = view.service.filter((s) => !type || s.service_type === type);
   const form = canEdit ? `<div class="panel"><h2>Log service or repair</h2>
-    <form method="POST" action="/api/v1/facilities/service-log" class="form-grid facility-form">
+    <form method="POST" action="/api/v1/facilities/service-log" enctype="multipart/form-data" class="form-grid facility-form">
       ${field('Asset', assetOptions(view, '', 'General / no single asset'))}
       ${field('Date', `<input type="date" name="service_date" required value="${view.today}">`)}
       ${field('Type', select('service_type', SERVICE_TYPES.map((t) => [t, t]), 'Repair'))}
       ${field('Contractor', `<input name="vendor" maxlength="160" placeholder="Company or staff">`)}
       ${field('Cost ($)', `<input name="cost" inputmode="decimal" placeholder="0.00">`)}
       ${field('What was done', `<input name="description" required maxlength="500" placeholder="e.g. Boiler pump replaced; old pump seized">`, true)}
-      <div class="form-actions"><button type="submit">Add to history</button></div>
+      ${field('Service order or photos (optional)', fileInput(), true)}
+      <div class="form-actions"><button type="submit">Add to history</button><p class="muted-line">${FILE_HINT}</p></div>
     </form></div>` : '';
   return `${form}
     ${chips('service-history', 'type', SERVICE_TYPES, type)}
-    <div class="panel list-panel">${list.length ? `<ul class="row-list">${list.map((s) => serviceRow(s, canEdit)).join('')}</ul>` : emptyNote('No service logged yet.')}</div>`;
+    <div class="panel list-panel">${list.length ? `<ul class="row-list">${list.map((s) => serviceRow(view, s, canEdit)).join('')}</ul>` : emptyNote('No service logged yet.')}</div>`;
 }
 
 // ── Capital projects ──────────────────────────────────────────────────────────────────────────
@@ -210,7 +274,30 @@ function projectForm(project = {}) {
 
 const STATUS_TONE = { Planned: 'warn', 'In progress': 'info', Completed: 'good' };
 
+function projectThumbs(view, project) {
+  const images = view.filesFor('project', project.id).filter((f) => INLINE_IMAGE_TYPES.includes(f.content_type)).slice(-4);
+  if (!images.length) return '';
+  return `<div class="thumb-row">${images.map((f) => `<a href="${link('capital-projects', { project: String(project.id) })}"><img src="${fileUrl(f)}" alt="${e(f.caption || f.file_name)}" loading="lazy"></a>`).join('')}</div>`;
+}
+
+function renderProjectDetail(view, project, canEdit) {
+  return `<p class="crumb"><a href="${link('capital-projects')}">All capital projects</a></p>
+    <div class="panel"><div class="panel-head"><div><h2>${e(project.name)}</h2>${project.scope ? `<p class="scope">${e(project.scope)}</p>` : ''}</div>${pill(project.status, STATUS_TONE[project.status])}</div>
+      <dl class="fact-grid">
+        <div><dt>${project.status === 'Completed' ? 'Completed' : 'Target'}</dt><dd>${formatMonth(project.target_month)}</dd></div>
+        <div><dt>${project.status === 'Planned' ? 'Estimate' : 'Cost'}</dt><dd>${formatCents(project.cost_cents)}</dd></div>
+        <div><dt>Contractor</dt><dd>${e(project.vendor || '—')}</dd></div>
+        <div><dt>Warranty</dt><dd>${e(project.warranty || '—')}</dd></div>
+      </dl>
+      ${project.notes ? `<p class="scope">${e(project.notes)}</p>` : ''}
+    </div>
+    ${filesPanel(view, 'project', project.id, canEdit, { empty: 'Nothing attached yet. Add bids, contracts, before-and-after photos, or warranty papers.' })}
+    ${canEdit ? `<details class="panel panel-spaced edit-panel"><summary>Edit this project</summary>${projectForm(project)}</details>` : ''}`;
+}
+
 function renderProjects(view, params, canEdit) {
+  const project = view.projects.find((p) => String(p.id) === params.get('project'));
+  if (project) return renderProjectDetail(view, project, canEdit);
   const status = PROJECT_STATUSES.includes(params.get('status')) ? params.get('status') : null;
   const list = view.projects.filter((p) => !status || p.status === status);
   const firstCompleted = view.completed.list.map((p) => p.target_month).sort()[0];
@@ -235,6 +322,8 @@ function renderProjects(view, params, canEdit) {
         <div><dt>${done ? 'Replace around' : 'Next after'}</dt><dd>${next || '—'}</dd></div>
       </dl>
       ${p.notes ? `<p class="scope">${e(p.notes)}</p>` : ''}
+      ${projectThumbs(view, p)}
+      <p class="card-links"><a href="${link('capital-projects', { project: String(p.id) })}">Photos &amp; documents${fileCount(view, 'project', p.id) ? ` (${view.filesFor('project', p.id).length})` : ''}</a></p>
       ${canEdit ? `<details class="edit-inline"><summary>Edit</summary>${projectForm(p)}</details>` : ''}
     </div>`;
   }).join('');
@@ -261,7 +350,25 @@ function pmForm(view, task = {}) {
   </form>`;
 }
 
+function renderPmTask(view, task, canEdit) {
+  const asset = task.asset_id ? view.allAssets.find((a) => a.id === task.asset_id) : null;
+  const facts = [
+    ['Every', everyLabel(task.interval_months)], ['Last done', formatDay(task.last_done_on)],
+    ['Next due', task.schedule.state === 'never' ? 'Now' : formatDay(task.schedule.nextDue)], ['Who', task.assignee || '—'],
+  ];
+  const history = view.service.filter((s) => s.pm_task_id === task.id);
+  return `<p class="crumb"><a href="${link('preventive-maintenance')}">All maintenance</a>${asset ? ` · <a href="${link('assets', { asset: String(asset.id) })}">${e(asset.name)}</a>` : ''}</p>
+    <div class="panel"><div class="panel-head"><div><h2>${e(task.name)}</h2>${task.covers ? `<p class="scope">${e(task.covers)}</p>` : ''}</div>${pmPill(task.schedule)}</div>
+      <dl class="fact-grid">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${e(v)}</dd></div>`).join('')}</dl>
+    </div>
+    ${filesPanel(view, 'pm_task', task.id, canEdit, { empty: 'Nothing attached yet. Add the service contract, a checklist, or photos of what gets checked.' })}
+    ${history.length ? `<div class="panel panel-spaced"><h2>Completions</h2><ul class="row-list">${history.map((s) => serviceRow(view, s)).join('')}</ul></div>` : ''}
+    ${canEdit ? `<details class="panel panel-spaced edit-panel"><summary>Edit this task</summary>${pmForm(view, task)}</details>` : ''}`;
+}
+
 function renderPm(view, params, canEdit) {
+  const detail = view.pmTasks.find((t) => String(t.id) === params.get('task'));
+  if (detail) return renderPmTask(view, detail, canEdit);
   const editing = canEdit ? view.pmTasks.find((t) => String(t.id) === params.get('edit')) : null;
   const overdue = view.pmTasks.filter((t) => t.schedule.state === 'overdue' || t.schedule.state === 'never').length;
   const soon = view.pmTasks.filter((t) => t.schedule.state === 'soon').length;
@@ -271,7 +378,7 @@ function renderPm(view, params, canEdit) {
     [`Due in ${DUE_SOON_DAYS} days`, String(soon)],
   ]);
   const rows = view.pmTasks.map((t) => `<tr class="${t.schedule.state === 'overdue' || t.schedule.state === 'never' ? 'row-alert' : ''}">
-      <td><b>${e(t.name)}</b>${t.covers ? `<small>${e(t.covers)}</small>` : ''}</td>
+      <td><b><a class="plain-link" href="${link('preventive-maintenance', { task: String(t.id) })}">${e(t.name)}</a></b>${t.covers || fileCount(view, 'pm_task', t.id) ? `<small>${e([t.covers, fileCount(view, 'pm_task', t.id)].filter(Boolean).join(' · '))}</small>` : ''}</td>
       <td>${everyLabel(t.interval_months)}</td>
       <td>${formatDay(t.last_done_on)}</td>
       <td><b>${t.schedule.state === 'never' ? 'Now' : formatDay(t.schedule.nextDue)}</b></td>
@@ -376,4 +483,19 @@ export const FACILITIES_STYLES = `
     .pm-table .actions { white-space:nowrap; }
     .pm-table .actions input[type=date] { padding:5px 6px; font-size:12.5px; }
     .edit-link { margin-left:8px; font-size:13px; }
+    .plain-link { color:inherit; text-decoration:none; }
+    .plain-link:hover { color:var(--gold-ink); text-decoration:underline; }
+    .file-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(125px,1fr)); gap:12px; margin-top:14px; }
+    .file-tile { margin:0; min-width:0; }
+    .file-open { display:flex; align-items:center; justify-content:center; aspect-ratio:4 / 3; border:1px solid var(--line); border-radius:8px; background:var(--page); overflow:hidden; text-decoration:none; }
+    .file-open img { width:100%; height:100%; object-fit:cover; display:block; }
+    .doc-badge { padding:6px 12px; border:1px solid var(--navy); border-radius:6px; color:var(--navy); font-weight:600; font-size:13px; letter-spacing:.04em; }
+    .file-tile figcaption { margin-top:6px; font-size:13px; overflow-wrap:anywhere; }
+    .file-tile figcaption a { color:var(--ink); text-decoration:none; font-weight:500; }
+    .file-tile figcaption small { display:block; color:var(--muted); font-size:12px; margin:2px 0; }
+    .upload-form { margin-top:18px; padding-top:16px; border-top:1px solid var(--line-soft); }
+    .upload-form input[type=file] { padding:8px 0; border:0; background:none; }
+    .thumb-row { display:flex; gap:8px; margin:12px 0 0; }
+    .thumb-row img { width:64px; height:48px; object-fit:cover; border-radius:6px; border:1px solid var(--line); display:block; }
+    .card-links { margin:10px 0 0; font-size:13px; }
 `;
