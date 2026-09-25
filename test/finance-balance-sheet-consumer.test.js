@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateFinanceBalanceSheetV1, acceptFinanceBalanceSheetV1 } from '../apps/finance/finance-balance-sheet-consumer.js';
+import { validateFinanceBalanceSheetV1, acceptFinanceBalanceSheetV1 } from '../contracts/validators/finance-balance-sheet-consumer.js';
 
 function validAccount(overrides = {}) {
   return {

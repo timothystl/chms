@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   acceptFinanceDataStatusV1,
   validateFinanceDataStatusV1,
-} from '../apps/finance/finance-data-status-consumer.js';
+} from '../contracts/validators/finance-data-status-consumer.js';
 
 const example = {
   contract: 'connect.finance-data-status.v1',

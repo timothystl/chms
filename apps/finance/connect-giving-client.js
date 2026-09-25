@@ -10,7 +10,7 @@
 // { ok: false, reason } so the caller can fall back to the committed
 // synthetic fixture instead of breaking the page. Only a real target
 // (accepted, validated data) resolves to { ok: true, summary }.
-import { acceptConnectGivingSummaryV1 } from './connect-giving-consumer.js';
+import { acceptConnectGivingSummaryV1 } from '../../contracts/validators/connect-giving-consumer.js';
 
 const REQUEST_TIMEOUT_MS = 4000;
 

@@ -137,7 +137,7 @@ both follow the same shape — use them as the template for the next one:
    `ACCESS_GATE`, above) for admin/debugging use, and a shared-secret (`X-Contract-Key` /
    `FINANCE_CONTRACT_API_KEY`) server-to-server route in `src/api-contracts-service.js`, which is
    what Finance's Worker actually calls via a Cloudflare service binding.
-3. **Consumer** (`apps/finance/*-consumer.js`): a pure `validateX`/`acceptX` pair with no I/O —
+3. **Consumer** (`contracts/validators/*-consumer.js`, shared by Connect and Finance): a pure `validateX`/`acceptX` pair with no I/O —
    closed-shape validation (`additionalProperties: false`-style exact key checks), so producer and
    consumer can never silently drift apart.
 4. **Client/transport** (`apps/finance/*-client.js`): calls the server-to-server route via the

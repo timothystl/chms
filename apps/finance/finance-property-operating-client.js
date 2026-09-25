@@ -3,7 +3,7 @@
 // binding call to Connect's server-to-server contract endpoint, never throws, resolves to
 // { ok: false, reason } on any failure so the caller (property-report-service.js) can fall back
 // to the local synthetic fixture.
-import { acceptFinancePropertyOperatingV1 } from './finance-property-operating-consumer.js';
+import { acceptFinancePropertyOperatingV1 } from '../../contracts/validators/finance-property-operating-consumer.js';
 import { DEFAULT_LIVE_PROPERTY_KEY } from './finance-property-valuation-client.js';
 
 const REQUEST_TIMEOUT_MS = 4000;

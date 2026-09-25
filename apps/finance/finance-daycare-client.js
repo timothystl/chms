@@ -3,7 +3,7 @@
 // call to Connect's server-to-server contract endpoint, never throws, resolves to
 // { ok: false, reason } on any failure so the caller (daycare-report-service.js) can fall back to
 // the local synthetic fixture.
-import { acceptFinanceDaycareReportV1 } from './finance-daycare-consumer.js';
+import { acceptFinanceDaycareReportV1 } from '../../contracts/validators/finance-daycare-consumer.js';
 
 const REQUEST_TIMEOUT_MS = 4000;
 

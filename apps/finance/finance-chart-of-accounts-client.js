@@ -2,7 +2,7 @@
 // Same shape as finance-data-status-client.js: a service-binding call to Connect's
 // server-to-server contract endpoint, never throws, resolves to { ok: false, reason } on any
 // failure so the caller (accounts-report-service.js) can fall back to the local synthetic fixture.
-import { acceptFinanceChartOfAccountsV1 } from './finance-chart-of-accounts-consumer.js';
+import { acceptFinanceChartOfAccountsV1 } from '../../contracts/validators/finance-chart-of-accounts-consumer.js';
 
 const REQUEST_TIMEOUT_MS = 4000;
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { buildFinanceDaycareReportV1 } from '../src/api-contracts.js';
-import { validateFinanceDaycareReportV1 } from '../apps/finance/finance-daycare-consumer.js';
+import { validateFinanceDaycareReportV1 } from '../contracts/validators/finance-daycare-consumer.js';
 
 // finance_daycare_entries, finance_church_entries, and finance_settings are not part of
 // migrations/0001_baseline.sql -- same reason Church Report's producer test adds

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { buildFinancePropertyForecastV1 } from '../src/api-contracts.js';
-import { validateFinancePropertyForecastV1 } from '../apps/finance/finance-property-forecast-consumer.js';
+import { validateFinancePropertyForecastV1 } from '../contracts/validators/finance-property-forecast-consumer.js';
 
 // finance_property_budget_monthly is migrations/0025 (production ledger), not part of
 // migrations/0001_baseline.sql -- same reason Property Operating's producer test adds its own

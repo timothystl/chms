@@ -4,7 +4,7 @@
 // caller (church-report-service.js's resolveChurchTrend) can fall back to the local synthetic
 // fixture. No query parameters -- the trend is inherently the whole multi-year history on file, not
 // one period a caller names.
-import { acceptFinanceChurchReportTrendV1 } from './finance-church-report-trend-consumer.js';
+import { acceptFinanceChurchReportTrendV1 } from '../../contracts/validators/finance-church-report-trend-consumer.js';
 
 const REQUEST_TIMEOUT_MS = 4000;
 

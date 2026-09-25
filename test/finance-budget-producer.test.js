@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { buildFinanceBudgetV1 } from '../src/api-contracts.js';
-import { validateFinanceBudgetV1 } from '../apps/finance/finance-budget-consumer.js';
+import { validateFinanceBudgetV1 } from '../contracts/validators/finance-budget-consumer.js';
 
 // finance_budget_plan is not part of migrations/0001_baseline.sql (it was added later, in
 // migrations/0024_finance_budget_plan.sql) -- same reason Chart of Accounts' producer test adds

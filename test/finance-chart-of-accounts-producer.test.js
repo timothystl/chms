@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { buildFinanceChartOfAccountsV1 } from '../src/api-contracts.js';
-import { validateFinanceChartOfAccountsV1 } from '../apps/finance/finance-chart-of-accounts-consumer.js';
+import { validateFinanceChartOfAccountsV1 } from '../contracts/validators/finance-chart-of-accounts-consumer.js';
 
 const EXTRA_SCHEMA = `
 CREATE TABLE IF NOT EXISTS finance_church_entries (

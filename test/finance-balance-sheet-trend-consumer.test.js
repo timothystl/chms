@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateFinanceBalanceSheetTrendV1, acceptFinanceBalanceSheetTrendV1 } from '../apps/finance/finance-balance-sheet-trend-consumer.js';
+import { validateFinanceBalanceSheetTrendV1, acceptFinanceBalanceSheetTrendV1 } from '../contracts/validators/finance-balance-sheet-trend-consumer.js';
 
 function validYear(overrides = {}) {
   return {

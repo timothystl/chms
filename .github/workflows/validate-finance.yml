@@ -4,8 +4,7 @@ on:
   pull_request:
     paths:
       - 'apps/finance/**'
-      - 'contracts/giving-summary-v1.schema.json'
-      - 'contracts/examples/giving-summary-v1.synthetic.json'
+      - 'contracts/**'
       - 'test/finance-*.test.js'
       - 'wrangler.finance.staging.jsonc'
       - 'wrangler.finance.jsonc'

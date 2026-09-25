@@ -1,4 +1,4 @@
-import { acceptConnectGivingSummaryV1 } from './connect-giving-consumer.js';
+import { acceptConnectGivingSummaryV1 } from '../../contracts/validators/connect-giving-consumer.js';
 
 const OUTCOMES = new Set(['temporary_failure', 'permanent_failure', 'delivered']);
 

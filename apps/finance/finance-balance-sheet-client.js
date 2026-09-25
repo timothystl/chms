@@ -3,7 +3,7 @@
 // call to Connect's server-to-server contract endpoint, never throws, resolves to
 // { ok: false, reason } on any failure so the caller (balance-sheet-service.js) can fall back to
 // the local synthetic fixture.
-import { acceptFinanceBalanceSheetV1 } from './finance-balance-sheet-consumer.js';
+import { acceptFinanceBalanceSheetV1 } from '../../contracts/validators/finance-balance-sheet-consumer.js';
 
 const REQUEST_TIMEOUT_MS = 4000;
 

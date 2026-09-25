@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   acceptFinanceChartOfAccountsV1,
   validateFinanceChartOfAccountsV1,
-} from '../apps/finance/finance-chart-of-accounts-consumer.js';
+} from '../contracts/validators/finance-chart-of-accounts-consumer.js';
 
 const example = {
   contract: 'connect.finance-chart-of-accounts.v1',

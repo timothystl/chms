@@ -8,7 +8,7 @@
 // roster of current staff, not a per-year plan; see api-finance.js's own comment on
 // SALARY_PLANNER_KEY), so unlike Budget/Church Report/Balance Sheet/Daycare Report this contract
 // takes no parameters at all.
-import { acceptFinanceCompensationV1 } from './finance-compensation-consumer.js';
+import { acceptFinanceCompensationV1 } from '../../contracts/validators/finance-compensation-consumer.js';
 
 const REQUEST_TIMEOUT_MS = 4000;
 
