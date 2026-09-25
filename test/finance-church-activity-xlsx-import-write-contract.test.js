@@ -216,14 +216,29 @@ describe('POST /api/contracts/finance-church-activity-xlsx-import-v1', () => {
     return { DB: db, FINANCE_CONTRACT_API_KEY: 'right-secret', FINANCE_ACCESS_TEAM_DOMAIN: TEAM, FINANCE_ACCESS_AUD: AUD };
   }
 
-  async function post({ env, token, contractKey = 'right-secret', body }) {
-    const req = new Request(`https://connect.example${PATH}`, {
+  async function post({ env, token, contractKey = 'right-secret', body, path = PATH }) {
+    const req = new Request(`https://connect.example${path}`, {
       method: 'POST',
       headers: { 'X-Contract-Key': contractKey, ...(token !== undefined ? { 'Cf-Access-Jwt-Assertion': token } : {}), 'Content-Type': 'application/json' },
       body: JSON.stringify(body || {}),
     });
-    return handleContractsServiceApi(req, env, PATH);
+    return handleContractsServiceApi(req, env, path);
   }
+
+  it('previews without writing, then commits only the selected activity rows', async () => {
+    const db = makeTestDb();
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
+    const previewRes = await post({ env: baseEnv(db), token, path: '/api/contracts/finance-church-activity-xlsx-preview-v1', body: { file_base64: bytesToBase64(buildActivityMultiYearXlsx()) } });
+    expect(previewRes.status).toBe(200);
+    const preview = await previewRes.json();
+    expect(preview).toMatchObject({ ok: true, years: [2026, 2027] });
+    expect(db._raw.prepare('SELECT * FROM finance_church_entries').all()).toHaveLength(0);
+    const commitRes = await post({ env: baseEnv(db), token, path: '/api/contracts/finance-church-activity-xlsx-commit-v1', body: { years: preview.years, rows: preview.rows.slice(0, 1) } });
+    expect(commitRes.status).toBe(200);
+    expect(await commitRes.json()).toMatchObject({ ok: true, imported: 1, savedBy: 'sarah' });
+    expect(db._raw.prepare("SELECT * FROM finance_church_entries WHERE source='import_activity'").all()).toHaveLength(1);
+  });
 
   it('saves real rows for a finance-role user, tagged source=import_activity, actual only', async () => {
     const db = makeTestDb();

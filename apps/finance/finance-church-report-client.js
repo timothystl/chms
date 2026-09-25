@@ -170,6 +170,24 @@ export function postConnectChurchBudgetXlsxCommit(env, accessJwt, body) {
   return postConnectChurchBudgetXlsxStep(env, accessJwt, '/api/contracts/finance-church-budget-xlsx-commit-v1', body);
 }
 
+export function postConnectChurchMultiPeriodXlsxPreview(env, accessJwt, kind, body) {
+  const paths = {
+    monthly: '/api/contracts/finance-church-monthly-xlsx-preview-v1',
+    activity: '/api/contracts/finance-church-activity-xlsx-preview-v1',
+    budget: '/api/contracts/finance-church-budget-multi-year-xlsx-preview-v1',
+  };
+  return postConnectChurchBudgetXlsxStep(env, accessJwt, paths[kind], body);
+}
+
+export function postConnectChurchMultiPeriodXlsxCommit(env, accessJwt, kind, body) {
+  const paths = {
+    monthly: '/api/contracts/finance-church-monthly-xlsx-commit-v1',
+    activity: '/api/contracts/finance-church-activity-xlsx-commit-v1',
+    budget: '/api/contracts/finance-church-budget-multi-year-xlsx-commit-v1',
+  };
+  return postConnectChurchBudgetXlsxStep(env, accessJwt, paths[kind], body);
+}
+
 // ── Real transport for connect.finance-church-monthly-xlsx-import-relay.v1 (a write) ───────────
 // Relays an uploaded "Profit and Loss by Month" .xlsx to Connect's own contract endpoint
 // (src/api-contracts-service.js), which parses AND persists it in one call -- see

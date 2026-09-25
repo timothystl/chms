@@ -126,6 +126,14 @@ export function postConnectChurchBalancesXlsxCommit(env, accessJwt, body) {
   return postConnectChurchBalancesXlsxStep(env, accessJwt, '/api/contracts/finance-church-balances-xlsx-commit-v1', body);
 }
 
+export function postConnectChurchBalancesMultiYearXlsxPreview(env, accessJwt, body) {
+  return postConnectChurchBalancesXlsxStep(env, accessJwt, '/api/contracts/finance-church-balances-multi-year-xlsx-preview-v1', body);
+}
+
+export function postConnectChurchBalancesMultiYearXlsxCommit(env, accessJwt, body) {
+  return postConnectChurchBalancesXlsxStep(env, accessJwt, '/api/contracts/finance-church-balances-multi-year-xlsx-commit-v1', body);
+}
+
 // ── Real transport for connect.finance-church-balances-multi-year-xlsx-import-relay.v1 (a
 // write) ─────────────────────────────────────────────────────────────────────────────────────
 // Same shape as postConnectChurchBalancesXlsxImport above, for the multi-year "Statement of

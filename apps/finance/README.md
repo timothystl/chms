@@ -28,8 +28,7 @@ continues using its single existing connection, with no competing token refresh 
 Remaining product gaps are distinct from storage cutover: some overview cards still use
 explicitly labeled fixture/unavailable fallbacks; compensation benchmark/benefit detail lacks a
 real source; standalone native Excel preview/select/commit parity is now complete for the annual
-Church Budget-vs-Actuals and Balance Sheet imports and remains incomplete for the multi-period
-Excel import types. Legacy Finance
+and multi-period Church report and balance-sheet imports. Legacy Finance
 screens are retained for functionality that the new UI has not yet replaced. No production
 fixture seeding or removal of working workflows is part of this cutover.
 
