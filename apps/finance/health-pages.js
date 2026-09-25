@@ -90,7 +90,7 @@ export function renderHealthSummary({ health, runway, mix, entities, incomeVsBud
       health.operating.varianceCents >= 0 ? 'good' : 'bad')
     : unavailableKpi('Church surplus, year to date');
   const cash = runway
-    ? kpi('Operating cash runway', `${runway.runwayMonths.toFixed(1)} mo`, `${formatCents(runway.operatingCashCents)} covers ~${Math.round(runway.runwayMonths)} months of expenses`)
+    ? kpi('Operating cash runway', `${runway.runwayMonths.toFixed(1)} mo`, `${formatCents(runway.operatingCashCents)} covers ~${Math.round(runway.runwayMonths)} months of expenses · ${sourceWord(runway.source)}`)
     : unavailableKpi('Operating cash runway');
   const income = incomeVsBudget
     ? kpi('Income vs. budget', `${Math.round(incomeVsBudget.actualCents / incomeVsBudget.budgetCents * 100)}%`,
@@ -133,7 +133,7 @@ export function renderHealthByEntity({ health, runway, entities }) {
     : '<p class="status status-pending">The entity overview could not be read for this request. Nothing shown here is a real $0 — see Data &amp; Imports.</p>';
   const cell = (label, value, note) => `<div><small>${label}</small><strong>${value}</strong><span>${note}</span></div>`;
   const position = `<div class="position-strip">
-    ${runway ? cell('Operating cash', formatCents(runway.operatingCashCents), escapeHtml(runway.accountName)) : cell('Operating cash', 'Unavailable', 'Not a zero')}
+    ${runway ? cell('Operating cash', formatCents(runway.operatingCashCents), `${escapeHtml(runway.accountName)} · ${sourceWord(runway.source)}`) : cell('Operating cash', 'Unavailable', 'Not a zero')}
     ${health.position ? cell('Total assets', formatCents(health.position.assetsCents), sourceWord(health.position.source)) : cell('Total assets', 'Unavailable', 'Not a zero')}
     ${health.position ? cell('Total liabilities', formatCents(health.position.liabilitiesCents), sourceWord(health.position.source)) : cell('Total liabilities', 'Unavailable', 'Not a zero')}
     ${health.position ? cell('Net assets', formatCents(health.position.netAssetsCents), 'Assets minus liabilities') : cell('Net assets', 'Unavailable', 'Not a zero')}

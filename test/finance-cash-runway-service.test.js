@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCashRunwayView, readSyntheticCashRunway } from '../apps/finance/cash-runway-service.js';
+import { buildCashRunwayView, buildLiveCashRunwayView, readSyntheticCashRunway } from '../apps/finance/cash-runway-service.js';
 
 const cash = { fiscal_year: 2026, as_of_date: '2026-12-31', account_name: 'Synthetic Cash', operating_cash_cents: 30000000 };
 const expenses = { fiscal_year: 2026, annual_expense_cents: 8000000 };
@@ -24,6 +24,7 @@ describe('Finance synthetic cash runway service', () => {
 
   it('calculates average monthly expense and cash coverage without rounding away evidence', () => {
     expect(buildCashRunwayView({ ...cash, annual_expense_cents: 8000000 })).toEqual({
+      source: 'synthetic-fallback',
       fiscalYear: 2026,
       asOfDate: '2026-12-31',
       accountName: 'Synthetic Cash',
@@ -32,6 +33,21 @@ describe('Finance synthetic cash runway service', () => {
       monthlyExpenseCents: 8000000 / 12,
       runwayMonths: 45,
     });
+  });
+
+  it('maps an available live contract without relabeling annualized expense as year-to-date', () => {
+    expect(buildLiveCashRunwayView({
+      fiscalYear: 2026, available: true, onHandCents: 2400000, expensesYtdCents: 900000,
+      monthsElapsed: 9, averageMonthlyExpenseCents: 100000, monthsOfCash: 24,
+      policyFloorMonths: 3, floorCents: 300000, gapToFloorCents: 0,
+      cashSource: 'balance_sheet', cashAccounts: ['11027 Lindell Checking'], asOfDate: '2026-09-01',
+      daycareExcludedCents: 300000,
+    })).toMatchObject({
+      source: 'live', operatingCashCents: 2400000, expensesYtdCents: 900000,
+      annualExpenseCents: 1200000, monthlyExpenseCents: 100000, runwayMonths: 24,
+      accountName: '11027 Lindell Checking', daycareExcludedCents: 300000,
+    });
+    expect(buildLiveCashRunwayView({ available: false })).toBeNull();
   });
 
   it('fails closed on missing, mismatched, negative-cash, or nonpositive-expense inputs', async () => {

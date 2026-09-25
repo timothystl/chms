@@ -21,11 +21,14 @@ import { validateFinancePropertyOperatingV1 } from '../contracts/validators/fina
 import { validateFinancePropertyReservesV1 } from '../contracts/validators/finance-property-reserves-consumer.js';
 import { validateFinancePropertyLedgersV1 } from '../contracts/validators/finance-property-ledgers-consumer.js';
 import { validateFinancePropertyForecastV1 } from '../contracts/validators/finance-property-forecast-consumer.js';
+import { validateFinanceCashRunwayV1 } from '../contracts/validators/finance-cash-runway-consumer.js';
 import {
   readPlanningBoardCategories, readPurposeTags, REVENUE_STREAMS, BOARD_EXPENSE_CATEGORIES,
   resolveChurchYearPrecedence, computeYearSummary,
   applyDesignatedFundsAsEquity, computeBalanceSummary, computeEquityReclassification,
   computeMdoUtilityInsuranceAllocation, computePropertyAnnualSummary,
+  readCashPolicy, computeOperatingExpenseSplit, computeCashRunway,
+  operatingCashFromBalanceSheet, operatingCashFromAccounts,
 } from './api-finance.js';
 import { resolveGeneralFundIds } from './api-utils.js';
 
@@ -192,6 +195,95 @@ export async function respondWithFinanceDataStatusV1(db) {
   }
 
   return json(status);
+}
+
+// The live operating-cash runway already shown in Connect, exposed as one bounded aggregate read
+// so Finance does not substitute fixture cash beside otherwise-live Church and Balance reports.
+// This deliberately reuses Connect's existing policy, account selection, daycare exclusion, and
+// runway arithmetic verbatim. It is read-only and carries no account balances beyond the one
+// already-designated operating-cash total and the names used to make that selection auditable.
+export async function buildFinanceCashRunwayV1(db, { fiscalYear, now = new Date() }) {
+  const rawEntries = ((await db.prepare(
+    'SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0'
+  ).bind(fiscalYear).all()).results || []);
+  const entries = resolveChurchYearPrecedence(rawEntries);
+  const expenseSplit = computeOperatingExpenseSplit(entries);
+  const policy = await readCashPolicy(db);
+
+  let onHandCents = policy.cash_on_hand_cents;
+  let cashSource = onHandCents == null ? 'none' : 'manual';
+  let cashAccounts = [];
+  let asOfDate = '';
+
+  if (onHandCents == null) {
+    const balanceYear = await db.prepare(
+      'SELECT MAX(fiscal_year) AS y FROM finance_church_balances WHERE fiscal_year <= ?'
+    ).bind(fiscalYear).first();
+    if (balanceYear?.y != null) {
+      const balanceRows = ((await db.prepare(
+        'SELECT * FROM finance_church_balances WHERE fiscal_year=? ORDER BY category_path'
+      ).bind(balanceYear.y).all()).results || []);
+      const fromBalance = operatingCashFromBalanceSheet(balanceRows, policy.cash_account_code);
+      if (fromBalance) {
+        onHandCents = fromBalance.cents;
+        cashSource = 'balance_sheet';
+        cashAccounts = fromBalance.accounts;
+        asOfDate = fromBalance.asOfDate || `FY${balanceYear.y}`;
+      }
+    }
+  }
+
+  if (onHandCents == null) {
+    const snapshot = await db.prepare("SELECT value FROM finance_qb_snapshot WHERE key='accounts'").first();
+    let accounts = null;
+    try { accounts = snapshot?.value ? JSON.parse(snapshot.value) : null; } catch { accounts = null; }
+    const fromQuickBooks = accounts ? operatingCashFromAccounts(accounts) : null;
+    if (fromQuickBooks) {
+      onHandCents = fromQuickBooks.cents;
+      cashSource = 'quickbooks';
+    }
+  }
+
+  const monthsElapsed = fiscalYear === now.getUTCFullYear() ? now.getUTCMonth() + 1 : 12;
+  const runway = computeCashRunway({
+    onHandCents,
+    expensesYtdCents: expenseSplit.churchCents,
+    monthsElapsed,
+    policyFloorMonths: policy.policy_floor_months,
+  });
+
+  return {
+    contract: 'connect.finance-cash-runway.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    fiscalYear,
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    available: runway.available,
+    onHandCents: runway.onHandCents,
+    expensesYtdCents: expenseSplit.churchCents,
+    monthsElapsed,
+    averageMonthlyExpenseCents: runway.avgMonthlyExpenseCents,
+    monthsOfCash: runway.available ? runway.monthsOfCash : null,
+    policyFloorMonths: policy.policy_floor_months,
+    floorCents: runway.available ? runway.floorCents : null,
+    gapToFloorCents: runway.available ? runway.gapToFloorCents : null,
+    cashSource,
+    cashAccounts,
+    asOfDate,
+    daycareExcludedCents: expenseSplit.daycareCents,
+    allExpensesYtdCents: expenseSplit.totalCents,
+  };
+}
+
+export async function respondWithFinanceCashRunwayV1(url, db) {
+  const fiscalYearStr = url.searchParams.get('fiscal_year');
+  if (!isValidFiscalYearStr(fiscalYearStr)) return json({ error: 'fiscal_year is required as a 4-digit year' }, 400);
+  const runway = await buildFinanceCashRunwayV1(db, { fiscalYear: Number(fiscalYearStr), now: new Date() });
+  const validation = validateFinanceCashRunwayV1(runway);
+  if (!validation.ok) return json({ error: 'Internal: assembled cash runway failed contract validation', details: validation.errors }, 500);
+  return json(runway);
 }
 
 // Third real slice of Finance separation: the Chart of Accounts section's account tree,
@@ -1732,6 +1824,9 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
   }
   if (seg === 'contracts/finance-data-status-v1' && method === 'GET') {
     return respondWithFinanceDataStatusV1(db);
+  }
+  if (seg === 'contracts/finance-cash-runway-v1' && method === 'GET') {
+    return respondWithFinanceCashRunwayV1(url, db);
   }
   if (seg === 'contracts/finance-chart-of-accounts-v1' && method === 'GET') {
     return respondWithFinanceChartOfAccountsV1(db);

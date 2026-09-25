@@ -39,7 +39,9 @@ showing their dollar effect.
 
 Remaining product gaps are distinct from storage cutover: some overview cards still use
 explicitly labeled fixture/unavailable fallbacks; the Commercial Property overview now reuses its
-reconciled live annual summary instead of re-summing nullable monthly rows; compensation
+reconciled live annual summary instead of re-summing nullable monthly rows, and Financial Health/
+Charts now read Connect's existing selected operating-cash balance and church-only expense runway
+through `connect.finance-cash-runway.v1`; compensation
 benchmark/benefit detail lacks a real source; standalone native Excel preview/select/commit parity
 is now complete for the annual and multi-period Church report and balance-sheet imports. Legacy Finance
 screens are retained for functionality that the new UI has not yet replaced. No production

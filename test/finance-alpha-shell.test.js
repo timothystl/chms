@@ -794,7 +794,17 @@ describe('Finance alpha staging shell', () => {
       annualSummary: [{ year: 2026, totalRevenueCents: 9000000, totalExpensesCents: 4000000, netIncomeCents: 5000000, avgOccupancyPct: 0.9, confirmedDistributionsCents: 125000, expenseMonthsDerived: 1, notes: '' }],
     };
 
-    function connectServiceEnv({ church = null, balance = null, daycare = null, property = null } = {}) {
+    const LIVE_CASH_RUNWAY = {
+      contract: 'connect.finance-cash-runway.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD', fiscalYear: 2026,
+      generatedAt: '2026-09-25T12:00:00Z', available: true, onHandCents: 2400000,
+      expensesYtdCents: 900000, monthsElapsed: 9, averageMonthlyExpenseCents: 100000,
+      monthsOfCash: 24, policyFloorMonths: 3, floorCents: 300000, gapToFloorCents: 0,
+      cashSource: 'balance_sheet', cashAccounts: ['11027 Lindell Checking'], asOfDate: '2026-09-01',
+      daycareExcludedCents: 300000, allExpensesYtdCents: 1200000,
+    };
+
+    function connectServiceEnv({ church = null, balance = null, daycare = null, property = null, cash = null } = {}) {
       return {
         ...env,
         FINANCE_CONTRACT_API_KEY: 'test-secret',
@@ -815,6 +825,9 @@ describe('Finance alpha staging shell', () => {
             }
             if (url.pathname === '/api/contracts/finance-property-operating-v1') {
               return property ? new Response(JSON.stringify(property), { status: 200 }) : new Response('not found', { status: 404 });
+            }
+            if (url.pathname === '/api/contracts/finance-cash-runway-v1') {
+              return cash ? new Response(JSON.stringify(cash), { status: 200 }) : new Response('not found', { status: 404 });
             }
             // Giving deliberately answers 404 here in every case below so its card stays on the
             // synthetic fixture -- out of scope for this contract, and it keeps the assertions
@@ -932,6 +945,23 @@ describe('Finance alpha staging shell', () => {
         expect(html).toContain(page === 'overview' ? 'No property reporting year on file' : 'No operating periods on file');
         expect(html).not.toContain('Synthetic Commercial Property');
       }
+    });
+
+    it('uses the live selected cash account and church-only expense burn on Health and Charts', async () => {
+      const liveEnv = connectServiceEnv({ cash: LIVE_CASH_RUNWAY });
+      const summary = await (await worker.fetch(new Request('https://finance.test/?section=health&view=summary', {
+        headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+      }), liveEnv)).text();
+      expect(summary).toContain('24.0 mo');
+      expect(summary).toContain('$24,000 covers ~24 months of expenses · live from Connect');
+
+      const charts = await (await worker.fetch(new Request('https://finance.test/?section=charts&page=cash-reserve', {
+        headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+      }), liveEnv)).text();
+      expect(charts).toContain('11027 Lindell Checking · live from Connect');
+      expect(charts).toContain('24.0 months');
+      expect(charts).toContain('Cash divided by average monthly expense · live from Connect');
+      expect(charts).not.toContain('Synthetic Cash');
     });
 
     describe('Operating mix / Church operating bridge live-first (reuses churchReportLive directly, independent of Entity overview)', () => {
