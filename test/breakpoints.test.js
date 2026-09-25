@@ -52,6 +52,6 @@ describe('MOB3 — consolidation did not change which rule wins', () => {
   });
 
   it('still hides the desktop people grids on phones', () => {
-    expect(STYLE).toMatch(/#p-grid,#p-card-grid[^}]*display:none!important/);
+    expect(STYLE).toMatch(/#p-grid\{display:none!important/);
   });
 });

@@ -706,20 +706,20 @@ a.s-item{text-decoration:none;color:inherit;}
 /* ── MOBILE CONTACT CARDS ── */
 .contact-list{display:none;}
 @media(max-width:767px){
-  #p-grid,#p-card-grid,#tab-people .view-toggle{display:none!important;}
+  #p-grid{display:none!important;}
   .contact-list{display:flex;flex-direction:column;background:var(--warm-surface-card);order:1;flex:0 0 auto;}
   .toolbar .filter-pills{display:none;}
   .c-card{display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid var(--warm-row-divider);background:var(--warm-surface-card);cursor:pointer;}
-  .c-avatar{width:50px;height:50px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-head);font-size:1rem;font-weight:800;overflow:hidden;}
+  .c-avatar{width:48px;height:48px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-head);font-size:16px;font-weight:700;overflow:hidden;background:var(--tint);color:var(--primary);}
   .c-avatar img{width:100%;height:100%;object-fit:cover;}
   .c-info{flex:1;min-width:0;}
-  .c-name{font-weight:800;font-size:1.05rem;color:var(--color-navy);}
+  .c-name{font-weight:700;font-size:17px;color:var(--brand-ink);}
   .c-type{margin:4px 0 9px;}
   .c-actions{display:flex;gap:8px;flex-wrap:wrap;}
-  .c-btn{display:inline-flex;align-items:center;gap:6px;font-size:.85rem;font-weight:700;padding:8px 14px;border-radius:99px;min-height:36px;text-decoration:none;white-space:nowrap;box-sizing:border-box;}
+  .c-btn{display:inline-flex;align-items:center;gap:6px;font-size:15px;font-weight:600;padding:8px 14px;border-radius:var(--radius-control);min-height:44px;text-decoration:none;white-space:nowrap;box-sizing:border-box;}
   .c-btn svg{width:14px;height:14px;flex-shrink:0;}
-  .c-btn-call{background:var(--color-teal);color:var(--white);}
-  .c-btn-outline{background:var(--warm-surface-header);border:1.5px solid var(--warm-border);color:var(--color-navy);}
+  .c-btn-call{background:var(--primary);color:var(--white);}
+  .c-btn-outline{background:var(--surface);border:1px solid var(--control-border);color:var(--primary);}
   /* Pagination reachability on mobile.
      #p-pager lives inside .ppl-list-col > .ppl-master-detail, but the mobile list
      (.contact-list) is a SIBLING of .ppl-master-detail, not a child. So on a phone the
@@ -749,35 +749,80 @@ a.s-item{text-decoration:none;color:inherit;}
 /* ── SETTINGS ── */
 code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;font-family:monospace;}
 /* ── PEOPLE DIRECTORY TABLE ── */
-.dir-table{width:100%;border-collapse:collapse;font-size:14px;background:var(--warm-surface-card);}
-.dir-table th{text-align:left;padding:12px 16px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-ink-label);border-bottom:2px solid var(--warm-divider);background:var(--warm-surface-header);white-space:nowrap;position:sticky;top:0;z-index:1;}
-.dir-table td{padding:14px 16px;border-bottom:1px solid var(--warm-row-divider);vertical-align:middle;font-size:14px;}
-.dir-table tbody tr:nth-child(even) td{background:var(--page);}
-.dir-table tbody tr:hover td{background:var(--page);}
-.dir-table tbody tr.dir-row-selected td{background:var(--warm-surface-header);}
-.dir-name-cell{display:flex;align-items:center;gap:11px;}
-.dir-avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;}
-.dir-avatar-org{border-radius:8px!important;background:var(--linen);}
-.dir-avatar-0{background:var(--pale-gold);color:var(--warning);}
-.dir-avatar-1{background:var(--blue-mist);color:var(--color-teal);}
-.dir-avatar-2{background:#F0D7C4;color:var(--error);}
-.dir-avatar-3{background:var(--success-bg);color:var(--success);}
-.dir-avatar-4{background:var(--error-bg);color:var(--error);}
-.dir-name-link{color:var(--color-navy);font-weight:700;font-size:14px;}
-/* Color-coded dot + label (replaces filled pill for member type throughout People/Profile/Household) */
-.type-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;flex-shrink:0;}
-.type-label{font-size:13px;font-weight:600;vertical-align:middle;}
-.dir-contact a{text-decoration:none;}
-.dir-phone-main a{color:var(--color-teal);font-size:14px;font-weight:500;}
-.dir-email-sub{margin-top:2px;}
-.dir-email-sub a{color:var(--warm-meta);font-size:12px;}
+/* ── OPEN SKY SHARED PIECES (OS2) — small building blocks from the Timothy Workspace kit ── */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+.btn-ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+.os-badge{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:var(--radius-control);font-size:13px;font-weight:600;line-height:1.5;white-space:nowrap;vertical-align:middle;}
+.os-badge-neutral{background:var(--page);color:var(--muted);border:1px solid var(--border);}
+.os-badge-success{background:var(--success-bg);color:var(--success);}
+.os-badge-warning{background:var(--warning-bg);color:var(--warning);}
+.os-badge-info{background:var(--info-bg);color:var(--primary);}
+.os-chip{display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:0 4px 0 12px;border-radius:var(--radius-control);background:var(--tint);color:var(--primary);font-size:14px;font-weight:600;}
+.os-chip-x{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;background:none;color:inherit;border-radius:6px;cursor:pointer;}
+.os-chip-x:hover{background:var(--surface);}
+.os-chip-x svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;}
+.os-link-btn{background:none;border:none;color:var(--link);font:inherit;font-size:14px;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:6px 4px;}
+.os-link-btn:hover{color:var(--primary-hover);}
+.os-state{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:32px 24px;max-width:68ch;}
+.os-state-title{font-size:18px;font-weight:700;color:var(--brand-ink);}
+.os-state-msg{color:var(--muted);}
+/* ── PEOPLE TOOLBAR (OS2) ── */
+.ppl-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;}
+.ppl-search{flex:1 1 280px;max-width:440px;}
+.ppl-more-tools{display:contents;}
+.ppl-more-toggle{display:none;}
+.ppl-add-btn{margin-left:auto;}
+.ppl-toolbar [aria-pressed="true"]{background:var(--tint);color:var(--primary);border-color:var(--primary);}
+.ppl-count-badge{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:var(--radius-control);background:var(--primary);color:#FFFFFF;font-size:13px;font-weight:700;}
+.ppl-active-filters{flex-wrap:wrap;gap:8px;align-items:center;margin:-4px 0 16px;}
+.ppl-bulk-bar{position:sticky;bottom:0;z-index:50;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;margin-bottom:12px;background:var(--surface);border:1px solid var(--primary);border-radius:var(--radius-card);}
+.ppl-bulk-count{font-weight:700;color:var(--primary);}
+.ppl-bulk-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto;}
+.ppl-bulk-select{min-height:40px;padding:8px 12px;border:1px solid var(--control-border);border-radius:var(--radius-control);background:var(--surface);color:var(--text);font-size:15px;}
+.ppl-bulk-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);padding:16px 20px;margin:0 0 12px;}
+.ppl-bulk-panel label{display:flex;align-items:center;gap:8px;min-height:32px;}
+.ppl-panel-title{font-size:16px;font-weight:700;color:var(--brand-ink);margin-bottom:8px;}
+@media(max-width:767px){
+  .ppl-toolbar{gap:8px;}
+  .ppl-search{flex:1 1 100%;max-width:none;}
+  .ppl-more-toggle{display:inline-flex;}
+  .ppl-more-tools{display:none;flex:1 1 100%;flex-wrap:wrap;gap:8px;}
+  .ppl-more-tools.open{display:flex;}
+  .ppl-more-tools{order:5;}
+  .ppl-add-btn{margin-left:auto;}
+  .ppl-bulk-actions{margin-left:0;}
+}
+/* ── PEOPLE DIRECTORY TABLE (Open Sky) ── */
+.dir-table{width:100%;border-collapse:collapse;font-size:15px;background:var(--surface);}
+.dir-table th{text-align:left;padding:12px 14px;font-size:14px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--control-border);background:var(--page);white-space:nowrap;position:sticky;top:0;z-index:1;}
+.dir-table tbody th{position:static;background:none;border-bottom:1px solid var(--border);white-space:normal;padding:12px 14px;font-weight:400;}
+.dir-table td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle;font-size:15px;color:var(--text);}
+.dir-table tbody tr{cursor:pointer;}
+.dir-table tbody tr:hover td,.dir-table tbody tr:hover th{background:var(--page);}
+.dir-table tbody tr.dir-row-selected td,.dir-table tbody tr.dir-row-selected th{background:var(--tint);}
+.dir-table [hidden]{display:none;}
+.dir-cb{width:44px;text-align:center;}
+.dir-cb input{width:18px;height:18px;accent-color:var(--primary);}
+.dir-sort{background:none;border:none;padding:0;font:inherit;font-weight:600;color:inherit;cursor:pointer;display:inline-flex;gap:4px;align-items:center;}
+.dir-sort:hover{color:var(--primary);}
+.dir-table th[aria-sort="ascending"],.dir-table th[aria-sort="descending"]{color:var(--primary);}
+.dir-name-cell{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.dir-avatar{width:40px;height:40px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0;overflow:hidden;background:var(--tint);color:var(--primary);}
+.dir-avatar img{width:100%;height:100%;object-fit:cover;}
+.dir-avatar-org{border-radius:var(--radius-control)!important;background:var(--page);color:var(--muted);border:1px solid var(--border);}
+.dir-name-link{background:none;border:none;padding:0;font:inherit;font-weight:600;font-size:15px;color:var(--brand-ink);cursor:pointer;text-align:left;}
+.dir-name-link:hover,.dir-row-qv .dir-name-link{color:var(--primary);}
+.dir-none{color:var(--muted);}
+.dir-col-email a,.dir-col-phone a{color:var(--link);text-decoration:none;}
+.dir-col-email a:hover,.dir-col-phone a:hover{text-decoration:underline;}
+.dir-col-email{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* With the preview open the table has less room: household and email give way first. */
+@media(max-width:1100px){.dir-col-email{display:none;}}
+.ppl-master-detail:not(:has(.ppl-quickview.is-empty)) .dir-col-email{display:none;}
+.type-dot{display:none;}
+.type-label{font-size:15px;font-weight:400;color:var(--text);vertical-align:middle;}
 #p-grid{flex:1;min-height:0;overflow-y:auto;display:block;}
-#p-card-grid{flex:1;min-height:0;overflow-y:auto;display:none;padding:2px 2px 0;}
 #p-pager{position:sticky;bottom:0;background:var(--white);border-top:1px solid var(--border);padding:9px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
-/* ── PEOPLE LIST — VIEW TOGGLE + CARD VIEW (2a/2b) ── */
-.view-toggle{display:flex;border:1.5px solid var(--warm-border);border-radius:9px;overflow:hidden;flex-shrink:0;}
-.view-toggle button{padding:8px 14px;background:var(--white);color:var(--warm-meta);font-size:.8rem;font-weight:700;border:none;cursor:pointer;font-family:var(--font-body);white-space:nowrap;}
-.view-toggle button.active{background:var(--tint);color:var(--primary);}
 /* ── Finance/Giving/Tuition-Aid shared sub-nav — one flat horizontal bar (not a rail),
    shown at the top of all three tab-panels, so the collapsed single sidebar entry still
    reaches all seven sections. Deliberately NOT the Volunteers-tab .vol-subnav vertical rail —
@@ -1229,17 +1274,6 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .fin-plan-rpt-table tr.sub td{border-top:1px solid var(--warm-border);font-weight:700;}
 .fin-plan-rpt-table tr.tot td{border-top:2px solid var(--color-navy);background:var(--warm-surface-header);font-weight:700;padding-top:3px;padding-bottom:3px;}
 .fin-plan-rpt-table tr.net td{border-top:2px solid var(--color-navy);font-weight:700;font-size:8.5pt;padding-top:4px;padding-bottom:4px;}
-.ppl-card-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:var(--warm-surface-card-page);padding:16px;border-radius:12px;}
-@media(max-width:1100px){.ppl-card-grid{grid-template-columns:1fr;}}
-.ppl-card{background:var(--warm-surface-card);border-radius:12px;border-left:4px solid var(--status-member);box-shadow:0 0 0 1px var(--border);padding:14px 16px;cursor:pointer;position:relative;transition:box-shadow .15s;}
-.ppl-card:hover{box-shadow:0 0 0 1px var(--control-border);}
-.ppl-card.selected{box-shadow:0 0 0 3px var(--color-navy);}
-.ppl-card-top{display:flex;align-items:center;gap:11px;margin-bottom:10px;}
-.ppl-card-name{font-weight:700;font-size:14px;color:var(--color-navy);line-height:1.2;}
-.ppl-card-phone{font-size:12.5px;color:var(--color-teal);margin-bottom:2px;}
-.ppl-card-email{font-size:12.5px;color:var(--warm-meta);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.ppl-card-cb{position:absolute;top:8px;right:8px;width:18px;height:18px;border:2px solid var(--warm-border);border-radius:4px;background:var(--white);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--white);}
-.ppl-card.selected .ppl-card-cb{background:var(--primary);border-color:var(--primary);}
 /* ── PEOPLE — master-detail quick-view panel (RDS2) ──
    List (table/card view, unchanged) on the left; a right-side preview panel
    shows the selected person without navigating away. "Full Profile" inside
@@ -1260,32 +1294,34 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
   .ppl-master-detail{flex:0 0 auto;order:2;}
   .ppl-list-col{overflow:visible;}
 }
-.ppl-quickview{width:340px;flex-shrink:0;background:var(--white);border-left:1px solid var(--linen);padding:28px 26px;overflow-y:auto;display:flex;flex-direction:column;}
-.ppl-qv-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--warm-gray);gap:10px;padding:40px 20px;text-align:center;font-size:.9rem;margin:auto 0;}
-.ppl-qv-avatar{width:64px;height:64px;border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;margin-bottom:14px;flex-shrink:0;overflow:hidden;}
+.ppl-quickview{width:340px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-card);margin-left:24px;padding:24px;overflow-y:auto;display:flex;flex-direction:column;align-self:flex-start;max-height:100%;}
+.ppl-quickview.is-empty{display:none;}
+.ppl-qv-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);gap:10px;padding:32px 16px;text-align:center;}
+.ppl-qv-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;}
+.ppl-qv-avatar{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;flex-shrink:0;overflow:hidden;background:var(--tint);color:var(--primary);}
 .ppl-qv-avatar img{width:100%;height:100%;object-fit:cover;}
-.ppl-qv-name{font-size:19px;font-weight:800;color:var(--color-navy);}
-.ppl-qv-meta{font-size:12.5px;color:var(--warm-gray);margin:4px 0 18px;}
-.ppl-qv-meta a{color:var(--color-teal);font-weight:600;cursor:pointer;text-decoration:none;}
-.ppl-qv-meta a:hover{text-decoration:underline;}
-.ppl-qv-actions{display:flex;gap:8px;margin-bottom:20px;}
-.ppl-qv-actions>*{flex:1;text-align:center;padding:9px 0;border-radius:10px;font-size:12.5px;font-weight:700;cursor:pointer;text-decoration:none;}
-.ppl-qv-section{margin-bottom:20px;}
-.ppl-qv-section-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warm-gray);margin-bottom:8px;}
-.ppl-qv-row{font-size:13.5px;color:var(--color-navy);margin-bottom:6px;}
-.ppl-qv-row a{color:inherit;text-decoration:none;}
-.ppl-qv-row a:hover{text-decoration:underline;}
-.ppl-qv-hh-chips{display:flex;flex-wrap:wrap;gap:8px;}
-.ppl-qv-chip{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;}
-.ppl-qv-hh-names{display:flex;flex-direction:column;gap:4px;}
-.ppl-qv-hh-name{font-size:13.5px;color:var(--color-teal);font-weight:600;cursor:pointer;}
-.ppl-qv-hh-name:hover{text-decoration:underline;}
-.ppl-qv-hh-name.is-self{color:var(--color-navy);font-weight:700;cursor:default;}
+.ppl-qv-close{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;margin:-8px -8px 0 0;border:none;background:none;border-radius:var(--radius-control);color:var(--muted);cursor:pointer;}
+.ppl-qv-close:hover{background:var(--page);color:var(--text);}
+.ppl-qv-close svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;}
+.ppl-qv-name{font-size:22px;font-weight:700;color:var(--brand-ink);line-height:1.2;}
+.ppl-qv-meta{font-size:15px;color:var(--muted);margin:4px 0 16px;}
+.ppl-qv-meta a{color:var(--link);font-weight:600;}
+.ppl-qv-actions{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+.ppl-qv-actions>*{flex:1;text-decoration:none;}
+.ppl-qv-section{padding-top:16px;margin-bottom:16px;border-top:1px solid var(--border);}
+.ppl-qv-section-lbl{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:8px;}
+.ppl-qv-row{font-size:15px;color:var(--text);margin-bottom:6px;overflow-wrap:anywhere;}
+.ppl-qv-row a{color:var(--link);}
+.ppl-qv-hh-names{display:flex;flex-direction:column;gap:2px;}
+.ppl-qv-hh-name{display:block;width:100%;text-align:left;background:none;border:none;padding:8px 0;font:inherit;font-size:15px;color:var(--link);font-weight:600;cursor:pointer;border-bottom:1px solid var(--border);}
+.ppl-qv-hh-name:hover{color:var(--primary-hover);text-decoration:underline;}
+.ppl-qv-hh-name.is-self{color:var(--brand-ink);font-weight:700;cursor:default;}
 .ppl-qv-hh-name.is-self:hover{text-decoration:none;}
-.ppl-qv-map{border-radius:10px;overflow:hidden;line-height:0;border:1px solid var(--warm-divider);min-height:20px;}
-.dir-table tbody tr.dir-row-qv td{background:var(--blue-mist)!important;box-shadow:inset 3px 0 0 var(--color-teal);}
-.ppl-card.qv-active{box-shadow:0 0 0 2px var(--color-teal);}
-@media(max-width:1100px){.ppl-quickview{width:280px;padding:22px 18px;}}
+.ppl-qv-map{border-radius:var(--radius-control);overflow:hidden;line-height:0;border:1px solid var(--border);min-height:20px;}
+.ppl-qv-map>div{line-height:1.5;}
+.dir-table tbody tr.dir-row-qv td,.dir-table tbody tr.dir-row-qv th{background:var(--tint)!important;}
+.dir-table tbody tr.dir-row-qv th{box-shadow:inset 3px 0 0 var(--primary);}
+@media(max-width:1100px){.ppl-quickview{width:300px;padding:20px;margin-left:16px;}}
 @media(max-width:767px){.ppl-quickview{display:none!important;}}
 /* ── DASHBOARD ──
    Card spec follows the design-handoff mockup exactly: soft dual box-shadow,

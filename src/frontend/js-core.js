@@ -212,13 +212,10 @@ function photoSrc(url) {
   return url;
 }
 // ── SHARED AVATAR / STATUS-COLOR SYSTEM (People list, Person Profile, Household View) ──
+// Open Sky (2026-09-25): every initials avatar is the same soft blue. The old six-color rotation
+// carried no meaning, and the design system reserves color for state.
 var AVATAR_TINTS = [
-  {bg:'var(--pale-gold)',fg:'#8A5A12'}, // gold
-  {bg:'var(--blue-mist)',fg:'var(--color-teal)'}, // teal
-  {bg:'#F0D7C4',fg:'#8A4A1E'}, // clay
-  {bg:'#E6EEE6',fg:'#4E6E53'}, // sage
-  {bg:'#DDE8F5',fg:'#2E4E8A'}, // periwinkle
-  {bg:'#EFE0EF',fg:'#7A4A8A'}  // mauve
+  {bg:'var(--tint)',fg:'var(--primary)'}
 ];
 function avatarTint(id) {
   return AVATAR_TINTS[Math.abs(id||0) % AVATAR_TINTS.length];
@@ -271,9 +268,9 @@ function mapUrl(addr) {
 // map call sites pass around.
 function openInMapsHtml(encAddr) {
   return '<a href="https://maps.google.com/?q=' + encAddr + '" target="_blank" rel="noopener"'
-    + ' style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:99px;'
-    + 'background:var(--color-teal);color:var(--white);font-size:.85rem;font-weight:700;'
-    + 'text-decoration:none;min-height:36px;box-sizing:border-box;">Open in Maps</a>';
+    + ' style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;'
+    + 'background:var(--surface);color:var(--primary);border:1px solid var(--control-border);font-size:15px;font-weight:600;'
+    + 'text-decoration:none;min-height:40px;box-sizing:border-box;">Open in Maps</a>';
 }
 // The static-map image failed. An img onerror cannot read the response body, so the old
 // handling could only ever say "Map unavailable" with no reason — which is why this stayed
@@ -298,12 +295,12 @@ function showMapError(el, encAddr) {
     })
     .catch(function() { /* leave the generic message */ });
 }
+// Member type as plain text (Open Sky decision 2026-09-25: a category, not a state, so no color
+// dot). Name kept so every existing caller picks up the change; the size argument is ignored.
 function typeDotHtml(mt, size) {
-  size = size || 8;
   var label = mt || 'Visitor';
   label = label.charAt(0).toUpperCase() + label.slice(1);
-  var c = typeColor(mt);
-  return '<span class="type-dot" style="width:'+size+'px;height:'+size+'px;background:'+c+';"></span><span class="type-label" style="color:'+c+';">'+esc(label)+'</span>';
+  return '<span class="type-label">'+esc(label)+'</span>';
 }
 
 // ── Financial Reports sub-nav (Overview / Church Report / Daycare Report) ──────────────
@@ -766,7 +763,6 @@ window.addEventListener('load', function() {
     // Funds are giving data — the member and volunteer allowlists don't include them, so for
     // either this is a guaranteed 403. It fails silently, but it's still a wasted round trip.
     if (_userRole !== 'member' && _userRole !== 'volunteer') loadFunds();
-    initPeopleViewMode();
     // Restore tab from URL hash (back/forward or bookmarked link), otherwise default
     var hashTab = location.hash.replace('#', '');
     var defaultTab = _userRole === 'member' ? 'people' : (_userRole === 'volunteer' ? 'volunteers' : (_userRole === 'compensation' ? 'finance' : (_userRole === 'council' ? 'people' : 'home')));
@@ -925,24 +921,33 @@ function toggleFilterDrawer() {
 function openFilterDrawer() {
   _filterDrawerOpen = true;
   renderFilterDrawer();
-  document.getElementById('people-filter-drawer').style.display = 'flex';
+  var dr = document.getElementById('people-filter-drawer');
+  dr.style.display = 'flex';
   document.getElementById('people-filter-overlay').style.display = 'block';
+  var fb = document.getElementById('p-filter-btn'); if (fb) fb.setAttribute('aria-expanded', 'true');
+  var first = dr.querySelector('input,button'); if (first) first.focus();
 }
 function closeFilterDrawer() {
+  var wasOpen = _filterDrawerOpen;
   _filterDrawerOpen = false;
   document.getElementById('people-filter-drawer').style.display = 'none';
   document.getElementById('people-filter-overlay').style.display = 'none';
+  var fb = document.getElementById('p-filter-btn');
+  if (fb) { fb.setAttribute('aria-expanded', 'false'); if (wasOpen) fb.focus(); }
 }
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && _filterDrawerOpen) closeFilterDrawer();
+});
 var FD_SORT_FIELDS = [
-  { v: 'last_name', label: 'Last Name' },
-  { v: 'first_name', label: 'First Name' },
-  { v: 'member_type', label: 'Member Type' },
+  { v: 'last_name', label: 'Last name' },
+  { v: 'first_name', label: 'First name' },
+  { v: 'member_type', label: 'Member type' },
   { v: 'household', label: 'Household' },
-  { v: 'created_at', label: 'Recently Added' },
-  { v: 'dob', label: 'Date of Birth', missing: 'dob' },
-  { v: 'baptism', label: 'Baptism Date', missing: 'baptism' },
-  { v: 'confirmation', label: 'Confirmation Date', missing: 'confirmation' },
-  { v: 'anniversary', label: 'Anniversary Date', missing: 'anniversary' }
+  { v: 'created_at', label: 'Recently added' },
+  { v: 'dob', label: 'Date of birth', missing: 'dob' },
+  { v: 'baptism', label: 'Baptism date', missing: 'baptism' },
+  { v: 'confirmation', label: 'Confirmation date', missing: 'confirmation' },
+  { v: 'anniversary', label: 'Anniversary date', missing: 'anniversary' }
 ];
 function renderFilterDrawer() {
   // Sort by
@@ -1085,7 +1090,7 @@ function updateFilterBadge() {
   var badge = document.getElementById('p-filter-count');
   if (badge) { badge.textContent = count; badge.style.display = count > 0 ? 'inline-flex' : 'none'; }
   var mb = document.getElementById('p-members-btn');
-  if (mb) { mb.style.background = peopleFilter.mt === 'member' ? 'var(--teal)' : ''; mb.style.color = peopleFilter.mt === 'member' ? 'var(--white)' : ''; }
+  if (mb) mb.setAttribute('aria-pressed', peopleFilter.mt === 'member' ? 'true' : 'false');
 }
 function toggleMemberFilter() {
   setFdMt(peopleFilter.mt === 'member' ? '' : 'member');
@@ -1109,19 +1114,20 @@ function renderActiveFilterChips() {
   if (peopleFilter.gender) chips.push(filterChip('Gender: ' + peopleFilter.gender, 'var(--color-teal)', "setFdGender('')"));
   var _arLabels = { under_18:'Age: Under 18', '18_29':'Age: 18–29', '30_44':'Age: 30–44', '45_64':'Age: 45–64', '65_plus':'Age: 65+' };
   if (peopleFilter.ageRange) chips.push(filterChip(_arLabels[peopleFilter.ageRange] || peopleFilter.ageRange, 'var(--color-gold)', "setFdAgeRange('')"));
-  var _mfLabels = { dob:'No Birthday', gender:'No Gender', photo:'No Photo', anniversary:'No Anniversary', baptism:'No Baptism Date', confirmation:'No Confirmation Date', email:'No Email', phone:'No Phone', address:'No Address' };
+  var _mfLabels = { dob:'No birthday', gender:'No gender', photo:'No photo', anniversary:'No anniversary', baptism:'No baptism date', confirmation:'No confirmation date', email:'No email', phone:'No phone', address:'No address' };
   peopleFilter.missingFields.forEach(function(v) {
     chips.push(filterChip(_mfLabels[v] || ('No ' + v), 'var(--warm-gray)', "toggleFdMissing('" + v + "',false)"));
   });
   c.innerHTML = chips.length
-    ? chips.join('') + (chips.length > 1 ? '<button onclick="clearAllFilters()" style="font-size:.75rem;color:var(--teal);background:none;border:none;cursor:pointer;padding:2px 6px;font-weight:600;">Clear all</button>' : '')
+    ? chips.join('') + (chips.length > 1 ? '<button type="button" class="os-link-btn" onclick="clearAllFilters()">Clear all</button>' : '')
     : '';
   c.style.display = chips.length ? 'flex' : 'none';
 }
+// Active-filter chip: tint + primary text (the Open Sky "selected" treatment) with a real remove
+// button. The color argument is accepted for existing callers but no longer used — filters are not states.
 function filterChip(label, color, onclick) {
-  return '<span style="display:inline-flex;align-items:center;gap:5px;background:' + color + ';color:var(--white);border-radius:99px;padding:3px 11px;font-size:.78rem;font-weight:600;">'
-    + esc(label)
-    + '<span onclick="' + onclick + '" style="cursor:pointer;opacity:.75;font-size:13px;margin-left:2px;line-height:1;">&#215;</span>'
+  return '<span class="os-chip">' + esc(label)
+    + '<button type="button" class="os-chip-x" onclick="' + onclick + '" aria-label="Remove filter: ' + esc(label) + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>'
     + '</span>';
 }
 function openTagsManager() {

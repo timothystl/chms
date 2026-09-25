@@ -5,42 +5,42 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
 <!-- ═══ PEOPLE TAB ═══ -->
 <div id="tab-people" class="tab-panel">
-  <div class="toolbar">
-    <div class="search-wrap"><input type="search" id="p-search" placeholder="Search name, email, phone…" oninput="debouncePeople()"></div>
-    <div class="view-toggle" title="Switch between list, card, and household view">
-      <button id="p-view-list-btn" class="active" onclick="setPeopleViewMode('list')">&#9776; List</button>
-      <button id="p-view-card-btn" onclick="setPeopleViewMode('card')">&#9638; Card</button>
-      <button id="p-view-household-btn" onclick="setPeopleViewMode('household')">&#8962; Household</button>
-    </div>
-    <button class="btn-secondary" id="p-filter-btn" onclick="toggleFilterDrawer()" style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
-      <svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;flex-shrink:0;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+  <div class="ppl-toolbar">
+    <div class="search-wrap ppl-search"><label for="p-search" class="sr-only">Search people</label><input type="search" id="p-search" placeholder="Search name, email, phone, or envelope" oninput="debouncePeople()"></div>
+    <button class="btn-secondary" id="p-filter-btn" onclick="toggleFilterDrawer()" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/></svg>
       Filters
-      <span id="p-filter-count" style="display:none;background:var(--teal);color:var(--white);border-radius:99px;padding:1px 7px;font-size:.72rem;font-weight:700;"></span>
+      <span id="p-filter-count" class="ppl-count-badge" style="display:none;"></span>
     </button>
-    <button class="btn-secondary no-member" id="p-members-btn" onclick="toggleMemberFilter()" title="Toggle between Members only and all types" style="margin-left:auto;">Members</button>
-    <button class="btn-secondary no-member" id="p-select-btn" onclick="toggleSelectMode()">&#9745; Select</button>
-    <button class="btn-secondary no-member" id="p-archive-btn" onclick="toggleArchiveView()" title="View archived &amp; deceased people">Archived</button>
-    <button class="btn-secondary no-member" onclick="printDirectory()" title="Print directory">&#128438; Directory</button>
-    <button class="btn-primary require-edit" onclick="openPersonEdit(null)">+ Add Person</button>
+    <button class="btn-secondary ppl-more-toggle no-member" id="p-more-btn" onclick="togglePeopleMoreTools()" aria-expanded="false" aria-controls="ppl-more-tools">More</button>
+    <div class="ppl-more-tools" id="ppl-more-tools">
+      <button class="btn-secondary no-member" id="p-members-btn" onclick="toggleMemberFilter()" aria-pressed="true" title="Show members only, or every member type">Members only</button>
+      <button class="btn-secondary no-member" id="p-archive-btn" onclick="toggleArchiveView()" aria-pressed="false" title="Show archived and deceased people">Archived</button>
+      <button class="btn-secondary no-member" id="p-select-btn" onclick="toggleSelectMode()" aria-pressed="false">Select</button>
+      <button class="btn-secondary no-member" onclick="printDirectory()">Print directory</button>
+    </div>
+    <button class="btn-primary require-edit ppl-add-btn" onclick="openPersonEdit(null)"><svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Add person</button>
   </div>
   <!-- Active filter chips -->
-  <div id="p-active-filters" style="display:none;padding:0 16px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;"></div>
+  <div id="p-active-filters" class="ppl-active-filters" style="display:none;"></div>
   <!-- Bulk action bar (visible when Select mode is active) -->
-  <div id="p-bulk-bar" style="display:none;position:sticky;bottom:0;z-index:500;background:var(--brand-ink);color:var(--white);padding:10px 16px;display:none;align-items:center;gap:10px;flex-wrap:wrap;">
-    <span id="p-bulk-count" style="font-size:.9rem;font-weight:700;">0 selected</span>
-    <div style="flex:1;"></div>
-    <select id="p-bulk-mt" style="padding:5px 8px;border-radius:6px;border:none;font-size:.85rem;background:var(--white);color:var(--charcoal);">
-      <option value="">Change Member Type…</option>
-    </select>
-    <button class="btn-sm" onclick="applyBulkMemberType()" style="background:var(--white);color:var(--steel-anchor);">Apply</button>
-    <button class="btn-sm" onclick="openBulkTagsPanel()" style="background:var(--white);color:var(--steel-anchor);">&#9881; Tags</button>
-    <button class="btn-sm" onclick="openBulkCommPanel()" style="background:var(--white);color:var(--steel-anchor);">&#9993; Comms</button>
-    <button class="btn-sm" onclick="openBulkSacramentPanel()" style="background:var(--white);color:var(--steel-anchor);">&#10010; Sacraments</button>
-    <button class="btn-sm" onclick="clearSelection()" style="background:rgba(255,255,255,.2);color:var(--white);">Cancel</button>
+  <div id="p-bulk-bar" class="ppl-bulk-bar" role="region" aria-label="Bulk actions" style="display:none;">
+    <span id="p-bulk-count" class="ppl-bulk-count" aria-live="polite">0 selected</span>
+    <div class="ppl-bulk-actions">
+      <label for="p-bulk-mt" class="sr-only">Change member type</label>
+      <select id="p-bulk-mt" class="ppl-bulk-select">
+        <option value="">Change member type…</option>
+      </select>
+      <button class="btn-secondary" onclick="applyBulkMemberType()">Apply</button>
+      <button class="btn-secondary" onclick="openBulkTagsPanel()">Tags</button>
+      <button class="btn-secondary" onclick="openBulkCommPanel()">Communications</button>
+      <button class="btn-secondary" onclick="openBulkSacramentPanel()">Sacraments</button>
+      <button class="btn-secondary" onclick="clearSelection()">Done</button>
+    </div>
   </div>
   <!-- Bulk sacrament-flag mini-panel -->
-  <div id="p-bulk-sacrament-panel" style="display:none;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin:4px 0 8px;">
-    <div style="font-size:.78rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;margin-bottom:8px;">Bulk Sacramental Status</div>
+  <div id="p-bulk-sacrament-panel" class="ppl-bulk-panel" style="display:none;">
+    <h3 class="ppl-panel-title">Sacraments for selected people</h3>
     <div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">For all selected people, mark them as baptized and/or confirmed (date unknown). Use after filtering by missing baptism/confirmation date.</div>
     <div style="display:flex;flex-wrap:wrap;gap:24px;margin-bottom:12px;">
       <div style="display:flex;flex-direction:column;gap:6px;font-size:.88rem;">
@@ -57,13 +57,13 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
     </div>
     <div style="display:flex;gap:8px;">
-      <button class="btn-primary" style="font-size:.82rem;padding:5px 12px;" onclick="applyBulkSacrament()">Apply</button>
-      <button class="btn-secondary" style="font-size:.82rem;padding:5px 12px;" onclick="document.getElementById(&#39;p-bulk-sacrament-panel&#39;).style.display=&#39;none&#39;">Cancel</button>
+      <button class="btn-primary" onclick="applyBulkSacrament()">Apply</button>
+      <button class="btn-secondary" onclick="document.getElementById(&#39;p-bulk-sacrament-panel&#39;).style.display=&#39;none&#39;">Cancel</button>
     </div>
   </div>
   <!-- Bulk communications opt-in/out mini-panel -->
-  <div id="p-bulk-comm-panel" style="display:none;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin:4px 0 8px;">
-    <div style="font-size:.78rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;margin-bottom:8px;">Bulk Communications Opt-In</div>
+  <div id="p-bulk-comm-panel" class="ppl-bulk-panel" style="display:none;">
+    <h3 class="ppl-panel-title">Communications for selected people</h3>
     <div style="display:flex;flex-wrap:wrap;gap:24px;margin-bottom:12px;">
       <div style="display:flex;flex-direction:column;gap:6px;font-size:.88rem;">
         <div style="font-weight:700;color:var(--charcoal);">SMS (text messages)</div>
@@ -78,18 +78,18 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
     </div>
     <div style="display:flex;gap:8px;">
-      <button class="btn-primary" style="font-size:.82rem;padding:5px 12px;" onclick="applyBulkComm()">Apply</button>
-      <button class="btn-secondary" style="font-size:.82rem;padding:5px 12px;" onclick="document.getElementById(&#39;p-bulk-comm-panel&#39;).style.display=&#39;none&#39;">Cancel</button>
+      <button class="btn-primary" onclick="applyBulkComm()">Apply</button>
+      <button class="btn-secondary" onclick="document.getElementById(&#39;p-bulk-comm-panel&#39;).style.display=&#39;none&#39;">Cancel</button>
     </div>
   </div>
   <!-- Bulk tags mini-panel -->
-  <div id="p-bulk-tags-panel" style="display:none;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin:4px 0 8px;">
-    <div style="font-size:.78rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;margin-bottom:8px;">Bulk Tag Management</div>
+  <div id="p-bulk-tags-panel" class="ppl-bulk-panel" style="display:none;">
+    <h3 class="ppl-panel-title">Tags for selected people</h3>
     <div id="p-bulk-tags-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
-    <div style="font-size:.75rem;color:var(--warm-gray);margin-bottom:6px;">&#9679; = add to all &nbsp; &#9675; = remove from all &nbsp; (empty = no change)</div>
+    <div style="font-size:14px;color:var(--muted);margin-bottom:8px;">Click a tag to cycle: add to all, remove from all, no change.</div>
     <div style="display:flex;gap:8px;">
-      <button class="btn-primary" style="font-size:.82rem;padding:5px 12px;" onclick="applyBulkTags()">Apply Tags</button>
-      <button class="btn-secondary" style="font-size:.82rem;padding:5px 12px;" onclick="document.getElementById(&#39;p-bulk-tags-panel&#39;).style.display=&#39;none&#39;">Cancel</button>
+      <button class="btn-primary" onclick="applyBulkTags()">Apply tags</button>
+      <button class="btn-secondary" onclick="document.getElementById(&#39;p-bulk-tags-panel&#39;).style.display=&#39;none&#39;">Cancel</button>
     </div>
   </div>
   <div id="p-status" class="status-msg"></div>
@@ -97,27 +97,14 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
        so on a phone there was no way to see how many results a search returned without
        scrolling to the bottom of 25 cards. Populated by renderPeoplePager(). -->
   <div id="p-count-mobile"></div>
-  <!-- Master-detail: list (List/Card view) on the left, quick-view panel on the right (RDS2) -->
+  <!-- Master-detail: list on the left, quick-view panel on the right (shown once a row is chosen) -->
   <div class="ppl-master-detail">
     <div class="ppl-list-col">
-      <!-- Desktop list (table) view -->
       <div id="p-grid"></div>
-      <!-- Desktop card view -->
-      <div id="p-card-grid"></div>
-      <!-- Household view (RDS2b) — reuses the Households tab's card grid -->
-      <div id="p-hh-view" style="display:none;flex-direction:column;flex:1;min-height:0;">
-        <div id="p-hh-grid" class="card-grid" style="flex:1;min-height:0;overflow-y:auto;padding:2px 2px 0;"></div>
-        <div id="p-hh-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;flex-shrink:0;"></div>
-      </div>
       <!-- Pagination -->
       <div id="p-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;"></div>
     </div>
-    <div class="ppl-quickview" id="ppl-quickview">
-      <div class="ppl-qv-empty">
-        <svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-        <div>Select a person to view details</div>
-      </div>
-    </div>
+    <aside class="ppl-quickview is-empty" id="ppl-quickview" aria-label="Person preview"></aside>
   </div>
   <!-- Mobile contact list -->
   <div class="contact-list" id="p-contact-list"></div>
@@ -1813,42 +1800,42 @@ export const HTML_TABS_2 = String.raw`
 </div><!-- /content-area -->
 
 <!-- ═══ PEOPLE FILTER DRAWER ═══ -->
-<div id="people-filter-overlay" onclick="closeFilterDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:1100;"></div>
-<div id="people-filter-drawer" style="display:none;position:fixed;right:0;top:0;bottom:0;width:300px;max-width:90vw;background:var(--white);box-shadow:-4px 0 24px rgba(0,0,0,.18);z-index:1101;flex-direction:column;overflow:hidden;">
-  <div style="display:flex;align-items:center;padding:16px 18px;border-bottom:1px solid var(--border);flex-shrink:0;">
-    <span style="font-size:16px;font-weight:700;flex:1;">Filters</span>
-    <button onclick="clearAllFilters()" style="font-size:.78rem;color:var(--teal);background:none;border:none;cursor:pointer;font-weight:600;padding:4px 8px;">Clear All</button>
-    <button onclick="closeFilterDrawer()" style="background:none;border:none;cursor:pointer;font-size:22px;color:var(--warm-gray);line-height:1;margin-left:4px;">&#215;</button>
+<div id="people-filter-overlay" onclick="closeFilterDrawer()" style="display:none;position:fixed;inset:0;background:var(--backdrop);z-index:1100;"></div>
+<div id="people-filter-drawer" role="dialog" aria-modal="true" aria-labelledby="fd-title" style="display:none;position:fixed;right:0;top:0;bottom:0;width:340px;max-width:90vw;background:var(--surface);border-left:1px solid var(--border);z-index:1101;flex-direction:column;overflow:hidden;">
+  <div style="display:flex;align-items:center;gap:8px;padding:16px 20px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <h2 id="fd-title" style="font-size:20px;font-weight:700;color:var(--brand-ink);flex:1;">Filters</h2>
+    <button type="button" class="os-link-btn" onclick="clearAllFilters()">Clear all</button>
+    <button type="button" class="ppl-qv-close" onclick="closeFilterDrawer()" aria-label="Close filters" style="margin:0;"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
   </div>
   <div style="flex:1;overflow-y:auto;padding:16px 18px;">
     <div style="margin-bottom:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Sort By</div>
+      <h3 class="ppl-qv-section-lbl">Sort by</h3>
       <div id="fd-sort"></div>
     </div>
     <div style="margin-bottom:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Member Type</div>
+      <h3 class="ppl-qv-section-lbl">Member type</h3>
       <div id="fd-member-types"></div>
     </div>
     <div>
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Tags</div>
+      <h3 class="ppl-qv-section-lbl">Tags</h3>
       <div id="fd-tags"></div>
     </div>
     <div style="margin-top:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Gender</div>
+      <h3 class="ppl-qv-section-lbl">Gender</h3>
       <div id="fd-gender"></div>
     </div>
     <div style="margin-top:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Age Range</div>
+      <h3 class="ppl-qv-section-lbl">Age Range</h3>
       <div id="fd-age-range"></div>
     </div>
     <div style="margin-top:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Missing Field</div>
+      <h3 class="ppl-qv-section-lbl">Missing information</h3>
       <div id="fd-missing"></div>
     </div>
   </div>
   <div style="padding:14px 18px;border-top:1px solid var(--border);flex-shrink:0;">
-    <div id="fd-result-count" style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;text-align:center;"></div>
-    <button class="btn-primary" style="width:100%;padding:10px;" onclick="closeFilterDrawer()">Done</button>
+    <div id="fd-result-count" role="status" style="font-size:14px;color:var(--muted);margin-bottom:10px;text-align:center;"></div>
+    <button class="btn-primary" style="width:100%;" onclick="closeFilterDrawer()">Show results</button>
   </div>
 </div>
 

@@ -6,7 +6,7 @@ import { HTML_TABS_1 } from '../src/frontend/html-tabs.js';
 // button. The list was fine — it was a full first page of 25 — but the pager was gone.
 //
 // Mechanism: #p-pager lives inside .ppl-list-col > .ppl-master-detail, while the mobile list
-// (.contact-list) is a SIBLING of .ppl-master-detail. Under 767px, #p-grid and #p-card-grid are
+// (.contact-list) is a SIBLING of .ppl-master-detail. Under 767px, #p-grid (the card grid was retired 2026-09-25) is
 // display:none, so the master-detail subtree holds nothing visible but the pager — yet still
 // claimed flex:1. With a full page of contact cards already overflowing the tab panel there was
 // no free space to grow into, so it collapsed to zero height and .ppl-list-col's overflow:hidden
@@ -42,7 +42,7 @@ function mediaBlocks(css, bp) {
 // than one. Pick the block that actually carries the mobile contact-card rules — matching
 // merely the FIRST would silently test the wrong one.
 const MOBILE_BLOCK = (mediaBlocks(HTML_HEAD, 767)
-  .find((b) => /#p-grid,#p-card-grid/.test(b.text)) || { text: '' }).text;
+  .find((b) => /#p-grid\{display:none!important/.test(b.text)) || { text: '' }).text;
 
 /** The declarations for `selector` within a CSS chunk, or '' if the rule isn't there. */
 function ruleFor(css, selector) {
@@ -154,6 +154,6 @@ describe('desktop layout is untouched', () => {
   });
 
   it('still hides the desktop grids on mobile', () => {
-    expect(MOBILE_BLOCK).toMatch(/#p-grid,#p-card-grid[^}]*display:none!important/);
+    expect(MOBILE_BLOCK).toMatch(/#p-grid\{display:none!important/);
   });
 });
