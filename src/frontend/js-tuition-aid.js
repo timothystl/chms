@@ -1364,7 +1364,7 @@ function tapOpenHistory(id) {
 function tapRenderPipelineList() {
   var box = document.getElementById('tap-pipeline-list');
   var pipe = _tapRoster.filter(function(s) { return s.isPipeline; });
-  if (!pipe.length) { box.innerHTML = '<div style="font-size:.78rem;color:#8A7440;font-style:italic;">No future entrants added yet.</div>'; return; }
+  if (!pipe.length) { box.innerHTML = '<div style="font-size:.78rem;color:var(--warning);font-style:italic;">No future entrants added yet.</div>'; return; }
   box.innerHTML = pipe.map(function(p) {
     var kCalYear = p.birthYear + 5;
     var kk = (kCalYear + 1) % 100;
@@ -2096,7 +2096,7 @@ function tapRenderImportPreview(records, unresolved, collisionWarnings, reconcil
       var entry = rec.entries[e];
       var isLhs = entry.lhs_award_cents != null;
       var isMismatch = !isCollision && !!mismatchKeys[rec.family.trim().toLowerCase() + '|' + rec.child.trim().toLowerCase() + '|' + entry.school_year];
-      html += '<tr' + (isCollision ? ' style="background:#FBEAEA;"' : (isMismatch ? ' style="background:#FDF3E3;"' : '')) + '><td style="padding:4px 8px;"><input type="checkbox"' + (isCollision ? '' : ' checked') + ' id="tap-import-cb-' + r + '-' + e + '"></td>'
+      html += '<tr' + (isCollision ? ' style="background:var(--error-bg);"' : (isMismatch ? ' style="background:var(--page);"' : '')) + '><td style="padding:4px 8px;"><input type="checkbox"' + (isCollision ? '' : ' checked') + ' id="tap-import-cb-' + r + '-' + e + '"></td>'
         + '<td style="padding:4px 8px;">' + esc(rec.family) + (isCollision ? ' ⚠' : '') + '</td><td style="padding:4px 8px;">' + esc(rec.child) + '</td>'
         + '<td style="padding:4px 8px;">' + esc(entry.school_year) + (isMismatch ? ' ≈' : '') + '</td>'
         + (anyRich ? '<td style="padding:4px 8px;">' + esc(entry.grade || '') + '</td>'
@@ -2110,14 +2110,14 @@ function tapRenderImportPreview(records, unresolved, collisionWarnings, reconcil
   html += '</tbody></table></div>'
     + '<p style="font-size:.72rem;color:var(--warm-gray);margin:8px 0 0;">Uncheck any row you don’t want imported — for example a figure your source file itself flags as an estimate or unreconciled. A family/child not already in the roster gets a history-only record (won’t appear in the current planner).</p>';
   if (collisionWarnings && collisionWarnings.length) {
-    html += '<div style="margin-top:10px;padding:8px 10px;background:#FBEAEA;border-radius:8px;font-size:.75rem;">'
+    html += '<div style="margin-top:10px;padding:8px 10px;background:var(--error-bg);border-radius:8px;font-size:.75rem;">'
       + '<strong>⚠ ' + collisionWarnings.length + ' name' + (collisionWarnings.length === 1 ? '' : 's') + ' matched both a K-8 record and an LHS award in the same school year</strong> — that means two different students almost certainly share this exact name. Their rows above are unchecked by default; review carefully (a middle name, DOB, or household would help tell them apart) before checking either one:'
       + '<ul style="margin:6px 0 0;padding-left:18px;">'
       + collisionWarnings.map(function(w) { return '<li>' + esc(w.family) + ' / ' + esc(w.child) + '</li>'; }).join('')
       + '</ul></div>';
   }
   if (reconcileWarnings && reconcileWarnings.length) {
-    html += '<div style="margin-top:10px;padding:8px 10px;background:#FDF3E3;border-radius:8px;font-size:.75rem;">'
+    html += '<div style="margin-top:10px;padding:8px 10px;background:var(--page);border-radius:8px;font-size:.75rem;">'
       + '<strong>≈ ' + reconcileWarnings.length + ' entr' + (reconcileWarnings.length === 1 ? 'y' : 'ies') + " don't add up</strong> — tuition minus outside aid minus Timothy award doesn't equal family owed for these, so one of the figures is likely off in the source file. Still checked for import (family owed is probably the more reliable number), but worth a look:"
       + '<ul style="margin:6px 0 0;padding-left:18px;">'
       + reconcileWarnings.map(function(w) {

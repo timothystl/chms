@@ -58,6 +58,49 @@ evidence-gathering audit, not a redesign or a palette substitution.
   and responsive states, and record approved exceptions. Do not attempt a family-wide visual
   rewrite in one release.
 
+### Timothy Workspace "Open Sky" adoption in Connect (started 2026-09-25)
+
+The church-app family now has an approved design system: **Timothy Workspace v1.0 ("Open Sky")**,
+delivered 2026-09-24 as a Claude Design kit (canonical: its `DESIGN-SYSTEM.md` + `tokens.json`).
+It supersedes PAL1 (navy/teal/cream, Cormorant/DM Sans/Lora) for Connect staff screens. Public
+Serve/website pages and all MDO products are out of its scope. Decisions taken with Andrew on
+2026-09-25 before adoption began:
+
+- Keep today's sidebar sections (People / Finance / Ministry / Admin) and routes; retire the old
+  colors and fonts. Plain JS/CSS — no React. Keep the phone shell (`src/mobile-admin-html.js`) and
+  restyle it. Leave the legacy in-Connect Finance screens' layouts alone (Finance is moving out).
+- People stays person-first. Keep every filter and bulk action; drop the Card and Household views.
+  Quick-view panel keeps map + household members. Person page: section-level edit (a pencil per
+  section opening that section's fields), all current fields kept, "More actions" menu (Archive,
+  Deceased, Reactivate, Invite, Print, Send statement, Breeze push). "Groups" = tags. No volunteer
+  schedule, no per-person attendance, no activity timeline. Giving stays a tab; the empty
+  Attendance tab goes. Directory visibility stays the existing flags (no publish step). Member
+  type becomes a plain text label, not a colored dot. No emoji.
+- Home redesign (agenda/"needs attention") is deferred for a later decision.
+
+- [x] **OS1 — Foundation (2026-09-25).** Open Sky tokens in `html-head.js` `:root`, with every
+  legacy token name aliased onto them (so all screens moved at once); Source Sans 3; white 224px
+  sidebar that stays open above the 1100px tier and is a Menu drawer below it (Escape closes,
+  focus returns); Lucide outline nav icons inlined; flat bordered cards; Open Sky buttons, fields
+  and a never-removed 3px focus ring; login page, phone shell, manifest, Volunteers sub-nav and the
+  Scheduler tab bar restyled. Printed letters/certificates/email bodies intentionally unchanged.
+- [x] **OS2 — People list (2026-09-25).** Rows of name / household / member type (text) / phone /
+  email with sortable headers; Card and Household views retired; toolbar of search, Filters,
+  Members only / Archived / Select / Print directory toggles (behind "More" on phones) and Add
+  person; preview panel appears only when a person is chosen (map + household kept); filters
+  drawer is a labelled dialog; bulk actions unchanged in behavior.
+- [x] **OS3 — Person page (2026-09-25).** Header with photo, name, member type, household, role,
+  Call / Text / Email and a "More actions" menu (Invite, Send statement, Breeze, Print, Archive,
+  Mark deceased, Reactivate). Sections Contact, Personal, Church life (incl. envelope #), Tags,
+  Directory visibility, Follow-ups, Notes; aside Household, Giving, Location. Each section edits as
+  a whole (one PATCH of the changed fields, Unsaved / Saving / Saved / Not saved states, address
+  validation in Contact). Attendance tab removed. Add person is a short side panel that opens the
+  new profile. Still open for OS4: household and organization pages keep their per-field editing
+  and jump-to rail (they already share the new card styling).
+- [ ] **OS4 — Remaining Connect screens** (Giving, Attendance, Reports, Register, Volunteers,
+  Settings, Tuition Aid, Scheduler embed) and emoji removal; printouts decided separately.
+- [ ] **OS5 — Home** once the agenda/"needs attention" content is decided.
+
 ## The work queue — priority order (rebuilt 2026-08-20)
 
 **Read this table, not the phase numbers.** The phases below were written 2026-08-19 when authorization
