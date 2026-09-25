@@ -1656,24 +1656,13 @@ export async function persistChurchEntriesImport(db, rows, fiscalYear, importedA
   await db.batch(ops);
 }
 
-// ── Shared Church Budget-vs-Actuals .xlsx import: parse + persist in ONE call ───────────────
-// Used only by finance-church-budget-xlsx-import-v1 (src/api-contracts-service.js) — NOT by the
-// legacy two-step finance/church/import-preview -> finance/church/import routes above, which stay
-// exactly as they are and are otherwise untouched by this batch. Unlike every other shared-
-// function extraction in this file (which factors one existing route body out so a relay can call
-// it verbatim), legacy's own preview/checkbox-review flow has no single function to extract — this
-// is a new, additive COMBINATION of the same existing primitives those legacy routes already use
-// (parseXlsxAllSheets/findBudgetVsActualsSheet/parseBudgetVsActualsGrid/persistChurchEntriesImport/
-// recordImport), collapsing legacy's preview-then-checkbox-commit UX into one parse-and-persist
-// step for a caller with no session to hold a pending preview in — the same deliberate reduction
-// apps/finance's own xlsx-import-service.js already ships for this exact report type (see its
-// Alpha.45 changelog entry in apps/finance/README.md, "a real, deliberate reduction from legacy's
-// own UX for this specific file format"). `fiscalYearHint` is accepted for symmetry with the
-// caller's request shape but is never trusted over the workbook's own fiscal year — exactly like
-// legacy, which only ever imports whatever the sheet itself declares (see
-// parseBudgetVsActualsGrid's own date-range-line scan above); there is no server-side row-review
-// step left to let a caller override it.
-export async function importChurchBudgetXlsx(db, { fiscalYearHint, fileBytes } = {}) {
+// ── Shared Church Budget-vs-Actuals .xlsx preview and selective commit ───────────────────────
+// The standalone Finance UI uses these as two separate, stateless contract calls: parsing returns
+// reviewable rows without touching D1, then only the checked rows are validated and persisted.
+// importChurchBudgetXlsx remains as a compatibility composition for the original one-call relay.
+// `fiscalYearHint` is accepted for that legacy request shape but is never trusted over the year
+// declared by the workbook itself.
+export async function previewChurchBudgetXlsx({ fiscalYearHint, fileBytes } = {}) {
   void fiscalYearHint; // never trusted — see this function's own header comment
   if (!fileBytes || !fileBytes.byteLength) return { error: 'No file uploaded', status: 400 };
   let sheets;
@@ -1686,13 +1675,30 @@ export async function importChurchBudgetXlsx(db, { fiscalYearHint, fileBytes } =
   catch (e) { return { error: e.message, status: 400 }; }
   if (!parsed.fiscalYear) return { error: 'Could not determine the fiscal year from this sheet — expected a date-range line like "January - December 2026" above the header row.', status: 400 };
   if (!parsed.rows.length) return { error: 'No importable account rows found in this sheet.', status: 400 };
+  return { ok: true, sheetName: sheet.name, fiscalYear: parsed.fiscalYear, rows: parsed.rows, skipped: parsed.skipped };
+}
+
+export async function commitChurchBudgetXlsxRows(db, { fiscalYear, rows } = {}) {
+  const parsedFiscalYear = parseInt(fiscalYear, 10);
+  if (!Number.isFinite(parsedFiscalYear)) return { error: 'fiscal_year is required', status: 400 };
+  if (!Array.isArray(rows) || !rows.length) return { error: 'No rows to import', status: 400 };
+  const bad = rows.find(r => !r.category_path || !r.classification || !r.account_name || typeof r.depth !== 'number'
+    || !Number.isFinite(r.own_actual_cents) || !Number.isFinite(r.own_budget_cents));
+  if (bad) return { error: 'Malformed row in import payload', status: 400 };
   try {
-    await persistChurchEntriesImport(db, parsed.rows, parsed.fiscalYear, new Date().toISOString());
+    await persistChurchEntriesImport(db, rows, parsedFiscalYear, new Date().toISOString());
   } catch (e) {
-    return { error: 'Could not save ' + parsed.rows.length + ' row(s) for FY' + parsed.fiscalYear + ': ' + (e && e.message ? e.message : String(e)), status: 500 };
+    return { error: 'Could not save ' + rows.length + ' row(s) for FY' + parsedFiscalYear + ': ' + (e && e.message ? e.message : String(e)), status: 500 };
   }
-  await recordImport(db, 'church_budget', `FY${parsed.fiscalYear}`);
-  return { ok: true, fiscalYear: parsed.fiscalYear, imported: parsed.rows.length, skipped: parsed.skipped };
+  await recordImport(db, 'church_budget', `FY${parsedFiscalYear}`);
+  return { ok: true, fiscalYear: parsedFiscalYear, imported: rows.length };
+}
+
+export async function importChurchBudgetXlsx(db, options = {}) {
+  const preview = await previewChurchBudgetXlsx(options);
+  if (preview.error) return preview;
+  const committed = await commitChurchBudgetXlsxRows(db, { fiscalYear: preview.fiscalYear, rows: preview.rows });
+  return committed.error ? committed : { ...committed, skipped: preview.skipped };
 }
 
 // ── Shared Balance Sheet .xlsx import: parse + persist in ONE call ──────────────────────────

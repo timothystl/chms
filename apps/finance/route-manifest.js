@@ -67,6 +67,8 @@ const ROUTES = [
   // travels as a base64 string in the JSON relay body -- shell.js reads the browser's real
   // multipart upload and re-encodes it before calling out.
   { id: 'church-budget-xlsx-import-write-v1', paths: ['/api/v1/connect-church-budget-xlsx-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-budget-xlsx-import-write-relay.v1' },
+  { id: 'church-budget-xlsx-preview-v1', paths: ['/api/v1/connect-church-budget-xlsx-preview'], methods: WRITE_METHODS, dataSource: 'live-relay', contract: 'connect.finance-church-budget-xlsx-preview-relay.v1' },
+  { id: 'church-budget-xlsx-commit-v1', paths: ['/api/v1/connect-church-budget-xlsx-commit'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-budget-xlsx-commit-relay.v1' },
   { id: 'church-balances-xlsx-import-write-v1', paths: ['/api/v1/connect-church-balances-xlsx-import-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-church-balances-xlsx-import-write-relay.v1' },
   // Same deliberate exception as the two routes above, for the four remaining legacy Church Excel
   // import routes: Monthly P&L, multi-year "Statement of Activity", multi-year "Budget by Year",

@@ -69,6 +69,7 @@ describe('Church Report — Budget vs. Actuals .xlsx import form and relay route
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).not.toContain('/api/v1/connect-church-budget-xlsx-import-write');
+    expect(html).not.toContain('/api/v1/connect-church-budget-xlsx-preview');
   });
 
   it('does not show the import form for a council viewer -- admin-only, same as the actual-figure correction form', async () => {
@@ -78,6 +79,7 @@ describe('Church Report — Budget vs. Actuals .xlsx import form and relay route
     }), env);
     const html = await res.text();
     expect(html).not.toContain('/api/v1/connect-church-budget-xlsx-import-write');
+    expect(html).not.toContain('/api/v1/connect-church-budget-xlsx-preview');
   });
 
   it('shows the import form for a verified admin viewer, only on Budget vs actual', async () => {
@@ -86,7 +88,7 @@ describe('Church Report — Budget vs. Actuals .xlsx import form and relay route
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
     const html = await res.text();
-    expect(html).toContain('<form method="POST" action="/api/v1/connect-church-budget-xlsx-import-write" enctype="multipart/form-data">');
+    expect(html).toContain('<form method="POST" action="/api/v1/connect-church-budget-xlsx-preview" enctype="multipart/form-data">');
     expect(html).toContain('type="file"');
     expect(html).toContain('name="file"');
 
@@ -95,6 +97,48 @@ describe('Church Report — Budget vs. Actuals .xlsx import form and relay route
     }), env);
     const overviewHtml = await overviewRes.text();
     expect(overviewHtml).not.toContain('/api/v1/connect-church-budget-xlsx-import-write');
+  });
+
+  it('renders a no-write checkbox review from the protected preview relay', async () => {
+    let captured;
+    const env = liveEnv(async (request) => {
+      captured = request;
+      return new Response(JSON.stringify({
+        ok: true, sheetName: 'Budget vs. Actuals FY27', fiscalYear: 2027, skipped: [],
+        rows: [{ classification: 'Income', category_path: 'Income:Offerings', account_name: 'Offerings', depth: 1, has_children: false, own_actual_cents: 100000, own_budget_cents: 90000 }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    const form = new FormData();
+    form.set('file', fakeXlsxFile());
+    const res = await worker.fetch(new Request('https://finance.test/api/v1/connect-church-budget-xlsx-preview', {
+      method: 'POST', headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' }, body: form,
+    }), env);
+    expect(res.status).toBe(200);
+    expect(new URL(captured.url).pathname).toBe('/api/contracts/finance-church-budget-xlsx-preview-v1');
+    expect(captured.headers.get('Cf-Access-Jwt-Assertion')).toBe('signed.jwt.here');
+    const html = await res.text();
+    expect(html).toContain('No data has been changed.');
+    expect(html).toContain('FY2027');
+    expect(html).toContain('Income:Offerings');
+    expect(html).toContain('/api/v1/connect-church-budget-xlsx-commit');
+  });
+
+  it('commits only checked rows through the protected commit relay', async () => {
+    let body;
+    const env = liveEnv(async (request) => {
+      body = await request.json();
+      return new Response(JSON.stringify({ ok: true, fiscalYear: 2027, imported: 1 }), { status: 200 });
+    });
+    const selected = { classification: 'Income', category_path: 'Income:Offerings', account_name: 'Offerings', depth: 1, has_children: false, own_actual_cents: 100000, own_budget_cents: 90000 };
+    const form = new FormData();
+    form.set('fiscal_year', '2027');
+    form.append('row', JSON.stringify(selected));
+    const res = await worker.fetch(new Request('https://finance.test/api/v1/connect-church-budget-xlsx-commit', {
+      method: 'POST', headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' }, body: form,
+    }), env);
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/?section=church&page=budget-actual&status=ok');
+    expect(body).toEqual({ fiscal_year: '2027', rows: [selected] });
   });
 
   it('redirects to a no_file error when no file was attached', async () => {
