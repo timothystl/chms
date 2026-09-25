@@ -220,6 +220,12 @@ const ROUTES = [
   { id: 'facilities-pm-save-v1', paths: ['/api/v1/facilities/pm-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-pm-save.v1' },
   { id: 'facilities-pm-done-v1', paths: ['/api/v1/facilities/pm-done'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-pm-done.v1' },
   { id: 'facilities-project-save-v1', paths: ['/api/v1/facilities/project-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-project-save.v1' },
+  // Photos and scanned documents attached to Facilities records (migration 0012, facility-files.js):
+  // the upload/remove writers above, and the one read route that serves a file's bytes from
+  // Finance's own R2 bucket to a viewer who may see Facilities.
+  { id: 'facilities-file-upload-v1', paths: ['/api/v1/facilities/file-upload'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-file-upload.v1' },
+  { id: 'facilities-file-remove-v1', paths: ['/api/v1/facilities/file-remove'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.facilities-file-remove.v1' },
+  { id: 'facilities-file-v1', paths: ['/api/v1/facilities/file'], dataSource: 'finance-files-read', contract: 'finance.facilities-file.v1' },
   // HR & Staff (v3 design): admin-only personnel records in Finance's own tables (migration 0011,
   // hr-service.js). Form posts that redirect back.
   { id: 'planning-scenario-save-v1', paths: ['/api/v1/planning/scenario-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.planning-scenario-save.v1' },

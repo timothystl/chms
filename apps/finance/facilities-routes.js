@@ -12,8 +12,15 @@ export function canEditFacilities(roleResult) {
   return ['finance', 'staff'].includes(roleResult.role) && roleResult.permissions?.finance === 'edit';
 }
 
+// The register and its attached-files index are created together.
+export async function ensureFacilitiesSchema(db) {
+  const register = await ensureFinanceOwnedSchema(db, 'facilities');
+  const files = await ensureFinanceOwnedSchema(db, 'facilityFiles');
+  return register && files;
+}
+
 export async function handleFacilitiesWrite(request, env, routeId, url) {
-  await ensureFinanceOwnedSchema(env.FINANCE_DB, 'facilities');
+  await ensureFacilitiesSchema(env.FINANCE_DB);
   return handleFinanceFormWrite({ request, env, url, section: 'facilities', writer: FACILITIES_WRITERS[routeId], canEdit: canEditFacilities });
 }
 

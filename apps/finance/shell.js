@@ -30,7 +30,8 @@ import { HR_WRITERS, buildHrView, readHr } from './hr-service.js';
 import { canEditHr, describeHrStatus, handleHrWrite } from './hr-routes.js';
 import { HR_STYLES, renderHrPage } from './hr-pages.js';
 import { FACILITIES_WRITERS, buildFacilitiesView, isoDay, readFacilities } from './facilities-service.js';
-import { canEditFacilities, describeFacilitiesStatus, handleFacilitiesWrite } from './facilities-routes.js';
+import { canEditFacilities, describeFacilitiesStatus, ensureFacilitiesSchema, handleFacilitiesWrite } from './facilities-routes.js';
+import { serveFacilityFile } from './facility-files.js';
 import { PLANNING_WRITERS, canEditPlanning, readPlanningScenarios } from './planning-scenarios-service.js';
 import { PLANNING_V3_STYLES, renderForecastPage, renderScenariosPage } from './planning-v3-pages.js';
 import { describePlanningBasisFailure, fetchPlanningBasis } from './connect-planning-client.js';
@@ -3090,6 +3091,23 @@ export default {
       return handleFacilitiesWrite(request, env, route.id, url);
     }
 
+    // One attached Facilities photo or document, for a verified viewer of the Facilities section.
+    // Built without response()'s page headers: a PDF must open in the browser's own viewer.
+    if (route.id === 'facilities-file-v1') {
+      const plain = (text, status) => new Response(text, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+      const roleResult = await fetchVerifiedRole(env, request.headers.get('Cf-Access-Jwt-Assertion') || '');
+      const facilitiesSection = FINANCE_PARITY_SECTIONS.find((s) => s.id === 'facilities');
+      if (!roleResult.ok || !roleCanAccessSection(roleResult.role, facilitiesSection, roleResult.permissions)) return plain('Access denied', 403);
+      try {
+        await ensureFacilitiesSchema(env.FINANCE_DB);
+        const file = await serveFacilityFile(env.FINANCE_DB, env.FACILITY_FILES, url.searchParams.get('id'), { head: request.method === 'HEAD' });
+        if (!file) return plain('Not found', 404);
+        return new Response(file.body, { headers: { ...file.headers, 'Content-Length': String(file.size), 'Cache-Control': 'private, max-age=3600', 'Referrer-Policy': 'same-origin', 'X-Robots-Tag': 'noindex, nofollow' } });
+      } catch {
+        return plain('File unavailable', 503);
+      }
+    }
+
     if (route.id === 'summary-legacy') {
       try {
         const summary = await readSyntheticSummary(env.FINANCE_DB);
@@ -3611,7 +3629,7 @@ export default {
         ]) : [null, null];
         const facilities = section.id === 'facilities'
           ? await safeSyntheticRead(async () => {
-            await ensureFinanceOwnedSchema(env.FINANCE_DB, 'facilities');
+            await ensureFacilitiesSchema(env.FINANCE_DB);
             return readFacilities(env.FINANCE_DB);
           }) : null;
         const payrollBundle = section.id === 'payroll'

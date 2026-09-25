@@ -44,6 +44,15 @@
     }
   ],
 
+  // Facilities photos and scanned documents (apps/finance/facility-files.js). Private: files are
+  // only served through the Worker's own access-checked route, never a public bucket URL.
+  "r2_buckets": [
+    {
+      "binding": "FACILITY_FILES",
+      "bucket_name": "timothy-finance-files"
+    }
+  ],
+
   "services": [
     {
       "binding": "CONNECT_SERVICE",
