@@ -78,7 +78,7 @@ const ROUTES = [
   // import routes: Monthly P&L, multi-year "Statement of Activity", multi-year "Budget by Year",
   // and multi-year "Statement of Financial Position" -- completing Church's Excel import write
   // parity (every legacy Church import route except the deliberately-excluded
-  // finance/church/clear-all now has a relay counterpart). Each relays an uploaded file to its own
+  // finance/church/clear-all, since retired from Connect too, now has a relay counterpart). Each relays an uploaded file to its own
   // Connect contract endpoint (never writes to Finance's own database), matching the legacy
   // in-Connect finance/church/monthly-import(-preview), finance/church/activity-import(-preview),
   // finance/church/budget-multi-year-import(-preview), and finance/church/balances/

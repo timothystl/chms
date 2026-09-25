@@ -430,14 +430,6 @@ function finRenderDataImports() {
     + '<div id="fin-imports-card" class="fin-card">' + finRenderImportsCard() + '</div>'
     + '<div class="fin-grid-2-wide">'
       + '<div class="fin-card">' + finRenderAdjustmentsCard(isAdminUI) + '</div>'
-      + (isAdminUI
-        ? '<div class="fin-card require-admin" style="border:1px solid var(--danger);">'
-          + '<div class="fin-card-title" style="color:var(--danger);font-size:19px;">Danger zone</div>'
-          + '<p class="fin-data-card-body">Clears stored Church Report, Balance Sheet, Daycare and Budget data. <b>Commercial Property and all Giving data are never touched.</b></p>'
-          + '<button class="btn-secondary" style="border-color:var(--danger);color:var(--danger);" onclick="finLoadClearDataPreview()">Clear budget &amp; report data…</button>'
-          + '<div id="fin-clear-data-panel" style="margin-top:10px;"></div>'
-          + '</div>'
-        : '')
     + '</div>'
     + '<div id="fin-data-property-tools"></div>'
     + (isAdminUI ? '<div id="fin-data-classification" class="fin-card">' + finRenderClassificationCard() + '</div>' : '')
@@ -515,7 +507,8 @@ function finRenderImportsCard() {
   }
   return '<div class="fin-card-title" style="font-size:20px;">File imports</div>'
     + '<div class="fin-card-sub">Grouped by what they feed, with the last import date — so you can see what is stale without opening a report. '
-    + 'A date marked <i>from the data</i> predates this log and was read off the imported rows themselves; the imported data is still there either way.</div>'
+    + 'A date marked <i>from the data</i> predates this log and was read off the imported rows themselves; the imported data is still there either way.'
+    + (_userRole === 'admin' ? '' : ' Only admins can run imports.') + '</div>'
     + '<div class="fin-grid-2">'
       + panel('Feeds Church Report', 'church', '')
       + panel('Feeds Ivanhoe &amp; Daycare', 'other', finRenderDaycareAllocationConfig())
@@ -2365,42 +2358,6 @@ function finRenderQboTxnsTable() {
     + '<thead style="border-bottom:2px solid var(--navy);"><tr>'
       + th('Date', 'date') + th('Transaction', 'type') + th('Account / Line', 'account') + th('Amount', 'amount') + '<th style="padding:6px 8px;"></th>'
     + '</tr></thead><tbody>' + body + '</tbody></table></div>';
-}
-
-// Clears only finance_church_entries + finance_qb_snapshot (the church budget/actuals and their
-// cached Budget vs Actual blob) — never Daycare Report, Balance Sheet, Budget Planning, Commercial
-// Property, or giving data, per an explicit, narrowly-scoped user decision. Preview-then-confirm,
-// same pattern as the giving reconcile tools: the confirm step echoes back the exact counts shown
-// in preview, so a stale page can't silently wipe data that changed in between.
-var _finClearDataCounts = null;
-function finLoadClearDataPreview() {
-  var el = document.getElementById('fin-clear-data-panel');
-  el.innerHTML = '<p style="font-size:.8rem;color:var(--warm-gray);">Loading…</p>';
-  api('/admin/api/finance/church/clear-all-preview').then(function(d) {
-    if (!d || d.error) { el.innerHTML = '<p style="font-size:.8rem;color:var(--danger);">' + esc((d && d.error) || 'Could not load preview.') + '</p>'; return; }
-    _finClearDataCounts = d.counts;
-    var total = Object.keys(d.counts).reduce(function(s, k) { return s + d.counts[k]; }, 0);
-    if (!total) { el.innerHTML = '<p style="font-size:.8rem;color:var(--warm-gray);">Nothing to clear — church budget/actuals data is already empty.</p>'; return; }
-    el.innerHTML = '<p style="font-size:.82rem;margin:0 0 8px;">This will permanently delete <b>' + total + ' row(s)</b>: ' + d.counts.finance_church_entries + ' Church Report line item(s), ' + d.counts.finance_qb_snapshot + ' cached QuickBooks report snapshot(s). Daycare, Balance Sheet, Budget, Commercial Property, and Giving data are not affected.</p>'
-      + '<button class="btn-danger" onclick="finConfirmClearData()">Yes, permanently clear this data</button>';
-  });
-}
-function finConfirmClearData() {
-  if (!_finClearDataCounts) return;
-  if (!confirm('This cannot be undone. Permanently delete the stored church budget and actuals data?')) return;
-  api('/admin/api/finance/church/clear-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm_counts: _finClearDataCounts }) }).then(function(d) {
-    if (d && d.error) { finToast('Could not clear: ' + d.error); finLoadClearDataPreview(); return; }
-    _finClearDataCounts = null;
-    document.getElementById('fin-clear-data-panel').innerHTML = '<p style="font-size:.8rem;color:var(--sage);">Cleared. Sync QuickBooks or import a report to repopulate.</p>';
-    finToast('Church budget/actuals data cleared.');
-    loadFinance(true);
-  }).catch(function(err) {
-    if (err.message !== 'Unauthorized') {
-      finToast('Error: ' + err.message);
-      _finClearDataCounts = null;
-      finLoadClearDataPreview();
-    }
-  });
 }
 
 // ── Budget vs Actual — generic renderer for QuickBooks' Columns/Rows report shape ──

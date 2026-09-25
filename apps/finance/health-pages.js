@@ -104,7 +104,7 @@ export function renderHealthSummary({ health, runway, mix, entities, incomeVsBud
     ? `<div class="panel-grid">${renderComposition('Where church income comes from', mix.income)}${renderComposition('Where church money goes', mix.expenses)}</div>`
     : '<p class="status status-pending">The revenue and expense mix could not be read for this request. Nothing shown here is a real $0 — see Data &amp; Imports.</p>';
   const strip = entities
-    ? `<div class="entity-strip">${entities.entities.map((entity) => `<a class="entity-mini" href="${ENTITY_LINKS[entity.id]}"><div><b>${escapeHtml(entity.label)}</b><small>${escapeHtml(entity.periodLabel)}</small></div><div class="entity-mini-value"><strong class="${entity.resultCents >= 0 ? 'tone-good' : 'tone-bad'}">${formatResultCents(entity.resultCents)}</strong><small>${resultWord(entity)}</small></div></a>`).join('')}</div>`
+    ? `<div class="entity-strip">${entities.entities.map((entity) => `<a class="entity-mini" href="${ENTITY_LINKS[entity.id]}"><div><b>${escapeHtml(entity.label)}</b><small>${escapeHtml(entity.periodLabel)} · ${sourceWord(entity.source)}</small></div><div class="entity-mini-value"><strong class="${entity.resultCents >= 0 ? 'tone-good' : 'tone-bad'}">${formatResultCents(entity.resultCents)}</strong><small>${resultWord(entity)}</small></div></a>`).join('')}</div>`
     : '';
   return `<section aria-label="Financial health summary">
     ${renderAttention(attentionItems)}
@@ -117,7 +117,7 @@ export function renderHealthSummary({ health, runway, mix, entities, incomeVsBud
 export function renderHealthByEntity({ health, runway, entities }) {
   const cards = entities
     ? `<div class="entity-grid">${entities.entities.map((entity) => `<div class="entity-card">
-        <div class="entity-band"><h2>${escapeHtml(entity.label)}</h2><span>${escapeHtml(entity.periodLabel)}</span></div>
+        <div class="entity-band"><h2>${escapeHtml(entity.label)}</h2><span>${escapeHtml(entity.periodLabel)} · ${sourceWord(entity.source)}</span></div>
         <div class="entity-body">
           <small>${resultWord(entity)}</small>
           <strong class="${entity.resultCents >= 0 ? 'tone-good' : 'tone-bad'}">${formatResultCents(entity.resultCents)}</strong>

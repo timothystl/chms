@@ -64,14 +64,24 @@ describe('Daycare Report — Church-Budget import form and relay route', () => {
     expect(html).not.toContain('/api/v1/connect-daycare-church-budget-import-write');
   });
 
-  it('shows the import form for any verified role that can reach the Daycare section, e.g. finance', async () => {
-    const env = roleEnv('finance', async () => new Response('not found', { status: 404 }));
+  it('shows the import form for an admin viewer (imports are admin-only, 2026-09-25)', async () => {
+    const env = roleEnv('admin', async () => new Response('not found', { status: 404 }));
     const res = await worker.fetch(new Request('https://finance.test/?section=daycare&page=actuals', {
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
     const html = await res.text();
     expect(html).toContain('<form method="POST" action="/api/v1/connect-daycare-church-budget-import-write">');
     expect(html).toContain('name="year"');
+  });
+
+  it('hides the import form from a finance-role viewer (imports are admin-only)', async () => {
+    const env = roleEnv('finance', async () => new Response('not found', { status: 404 }));
+    const res = await worker.fetch(new Request('https://finance.test/?section=daycare&page=actuals', {
+      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+    }), env);
+    const html = await res.text();
+    expect(html).toContain('Record an entry');
+    expect(html).not.toContain('/api/v1/connect-daycare-church-budget-import-write');
   });
 
   it('redirects to a not_configured error when the service binding and shared secret are not set', async () => {
@@ -111,7 +121,7 @@ describe('Daycare Report — Church-Budget import form and relay route', () => {
     const sentBody = JSON.parse(await captured.text());
     expect(sentBody).toEqual({ year: '2025' });
 
-    const shownEnv = roleEnv('finance', async () => new Response('not found', { status: 404 }));
+    const shownEnv = roleEnv('admin', async () => new Response('not found', { status: 404 }));
     const shown = await worker.fetch(new Request(location.toString(), { headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' } }), shownEnv);
     const html = await shown.text();
     expect(html).toContain('Imported from the Church Budget in Connect.');
@@ -125,7 +135,7 @@ describe('Daycare Report — Church-Budget import form and relay route', () => {
     expect(location.searchParams.get('reason')).toBe('http_error');
     expect(location.searchParams.get('message')).toBe('No imported Church Budget found for 2025.');
 
-    const shownEnv = roleEnv('finance', async () => new Response('not found', { status: 404 }));
+    const shownEnv = roleEnv('admin', async () => new Response('not found', { status: 404 }));
     const shown = await worker.fetch(new Request(location.toString(), { headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' } }), shownEnv);
     const html = await shown.text();
     expect(html).toContain('Not imported: No imported Church Budget found for 2025.');

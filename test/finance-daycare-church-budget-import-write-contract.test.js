@@ -113,10 +113,10 @@ describe('POST /api/contracts/finance-daycare-church-budget-import-write-v1', ()
     });
   }
 
-  it('re-derives Daycare entries for a finance-role user (edit on the finance item by default)', async () => {
+  it('re-derives Daycare entries for an admin (edit on the finance item by default)', async () => {
     const db = makeTestDb();
     seedChurchBudget(db);
-    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
 
     const res = await post({ env: baseEnv(db), token, body: { year: 2025 } });
@@ -131,13 +131,15 @@ describe('POST /api/contracts/finance-daycare-church-budget-import-write-v1', ()
     expect(audit).toEqual({ action: 'daycare_church_budget_import_via_finance', entity_type: 'finance_daycare_entries', new_value: 'sarah@timothystl.org' });
   });
 
-  it('allows council by default, since compensation defaults to edit and this accepts any of finance/budget/compensation', async () => {
-    const db = makeTestDb();
-    seedChurchBudget(db);
-    insertUser(db, { username: 'boardmember', email: 'board@timothystl.org', role: 'council' });
-    const token = await signToken(keyPair.privateKey, kid, accessPayload('board@timothystl.org'));
-    const res = await post({ env: baseEnv(db), token, body: { year: 2025 } });
-    expect(res.status).toBe(200);
+  it('refuses council and finance roles: imports are admin-only (2026-09-25)', async () => {
+    for (const [username, email, role] of [['boardmember', 'board@timothystl.org', 'council'], ['bookkeeper', 'books@timothystl.org', 'finance']]) {
+      const db = makeTestDb();
+      seedChurchBudget(db);
+      insertUser(db, { username, email, role });
+      const token = await signToken(keyPair.privateKey, kid, accessPayload(email));
+      const res = await post({ env: baseEnv(db), token, body: { year: 2025 } });
+      expect(res.status).toBe(403);
+    }
   });
 
   it('allows admin unconditionally', async () => {
@@ -161,7 +163,7 @@ describe('POST /api/contracts/finance-daycare-church-budget-import-write-v1', ()
 
   it('errors when that year\'s Church Budget was never imported', async () => {
     const db = makeTestDb();
-    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const res = await post({ env: baseEnv(db), token, body: { year: 2099 } });
     expect(res.status).toBe(400);
@@ -170,7 +172,7 @@ describe('POST /api/contracts/finance-daycare-church-budget-import-write-v1', ()
   it('rejects when the shared X-Contract-Key is wrong, before ever looking at identity', async () => {
     const db = makeTestDb();
     seedChurchBudget(db);
-    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const res = await post({ env: baseEnv(db), token, contractKey: 'wrong-secret', body: { year: 2025 } });
     expect(res.status).toBe(401);
@@ -179,7 +181,7 @@ describe('POST /api/contracts/finance-daycare-church-budget-import-write-v1', ()
   it('rejects a missing or invalid Access assertion even with a correct contract key', async () => {
     const db = makeTestDb();
     seedChurchBudget(db);
-    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const noToken = await post({ env: baseEnv(db), body: { year: 2025 } });
     expect(noToken.status).toBe(401);
     const garbage = await post({ env: baseEnv(db), token: 'not-a-jwt', body: { year: 2025 } });
@@ -198,7 +200,7 @@ describe('POST /api/contracts/finance-daycare-church-budget-import-write-v1', ()
   it('returns 503 when Connect has not been configured with the Access team/audience yet', async () => {
     const db = makeTestDb();
     seedChurchBudget(db);
-    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const env = { DB: db, FINANCE_CONTRACT_API_KEY: 'right-secret' };
     const res = await post({ env, token, body: { year: 2025 } });

@@ -243,7 +243,10 @@ describe('Finance alpha staging shell', () => {
     // independent read of the same fixture `churchReport` above already reads, since `churchReport`
     // still feeds Health's own Revenue/expense mix and Church operating bridge panels unchanged)
     // and +1 for balanceSheet's (the 'balance' section's live-first resolver, now also used here).
-    expect(statements).toHaveLength(12);
+    // The Daycare entity now uses its live-first resolver too; on this deliberately unconfigured
+    // test environment its fallback adds the two allocation-input reads that the old flat entity
+    // card did not include. Property reuses the already-fetched fallback rows without another read.
+    expect(statements).toHaveLength(14);
     expect(statements.every((sql) => /^SELECT\b/i.test(sql))).toBe(true);
   });
 
@@ -297,7 +300,7 @@ describe('Finance alpha staging shell', () => {
     const entity = await (await worker.fetch(new Request('https://finance.test/?section=health&view=entity'), env)).text();
     expect(entity).toContain('aria-label="Financial health by entity"');
     expect(entity).toContain('they sit side by side instead of being added together');
-    expect(entity).toContain('<div class="entity-band"><h2>Church</h2><span>FY2026</span></div>');
+    expect(entity).toContain('<div class="entity-band"><h2>Church</h2><span>FY2026 · synthetic fixture</span></div>');
     expect(entity).toContain('Open Commercial Property overview');
     expect(entity).toContain('Total liabilities');
 
@@ -772,7 +775,27 @@ describe('Finance alpha staging shell', () => {
       reconciliation: { accountCount: 3, assetsCount: 1, liabilitiesCount: 1, equityCount: 1, unclassifiedEquityCount: 0, totalsMatch: true },
     };
 
-    function connectServiceEnv({ church = null, balance = null } = {}) {
+    const LIVE_DAYCARE_REPORT = {
+      contract: 'connect.finance-daycare-report.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+      fiscalYear: new Date().getUTCFullYear(), generatedAt: '2026-09-15T12:00:00Z',
+      categories: [
+        { category: 'Tuition Income', classification: 'Income', actualCents: 5000000, budgetCents: 4800000 },
+        { category: 'Payroll', classification: 'Expenses', actualCents: 3000000, budgetCents: 2900000 },
+      ],
+      allocation: { utilityPct: 0.1, insurancePct: 0.05, churchUtilityActualCents: 1000000, churchInsuranceActualCents: 2000000, mdoUtilityCents: 100000, mdoInsuranceCents: 100000 },
+      totals: { incomeActualCents: 5000000, incomeBudgetCents: 4800000, expenseActualCents: 3000000, expenseBudgetCents: 2900000, netActualCents: 2000000, netBudgetCents: 1900000 },
+      reconciliation: { categoryCount: 2, incomeCategoryCount: 1, expenseCategoryCount: 1, totalsMatch: true },
+    };
+
+    const LIVE_PROPERTY_OPERATING = {
+      contract: 'connect.finance-property-operating.v1', dataClassification: 'aggregate',
+      sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD', propertyKey: 'ivanhoe', generatedAt: '2026-09-15T12:00:00Z',
+      periods: [{ period: '2026-01', occupancyPct: 0.9, totalRevenueCents: 1000000, totalExpensesCents: null, netIncomeCents: 600000, netOperatingIncomeCents: null, availableForDistributionCents: null, reserveBalanceCents: null, loanPaymentCents: null, interestExpenseCents: null, sourceReport: 'finance-app' }],
+      annualSummary: [{ year: 2026, totalRevenueCents: 9000000, totalExpensesCents: 4000000, netIncomeCents: 5000000, avgOccupancyPct: 0.9, confirmedDistributionsCents: 0, expenseMonthsDerived: 1, notes: '' }],
+    };
+
+    function connectServiceEnv({ church = null, balance = null, daycare = null, property = null } = {}) {
       return {
         ...env,
         FINANCE_CONTRACT_API_KEY: 'test-secret',
@@ -787,6 +810,12 @@ describe('Finance alpha staging shell', () => {
             }
             if (url.pathname === '/api/contracts/finance-balance-sheet-v1') {
               return balance ? new Response(JSON.stringify(balance), { status: 200 }) : new Response('not found', { status: 404 });
+            }
+            if (url.pathname === '/api/contracts/finance-daycare-report-v1') {
+              return daycare ? new Response(JSON.stringify(daycare), { status: 200 }) : new Response('not found', { status: 404 });
+            }
+            if (url.pathname === '/api/contracts/finance-property-operating-v1') {
+              return property ? new Response(JSON.stringify(property), { status: 200 }) : new Response('not found', { status: 404 });
             }
             // Giving deliberately answers 404 here in every case below so its card stays on the
             // synthetic fixture -- out of scope for this contract, and it keeps the assertions
@@ -862,6 +891,19 @@ describe('Finance alpha staging shell', () => {
       expect(html).not.toContain('<span class="badge">Live from Connect</span>');
     });
 
+    it('uses live annual Daycare and Property totals in the entity comparison and labels every source', async () => {
+      const res = await worker.fetch(new Request('https://finance.test/?section=health&view=entity', {
+        headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+      }), connectServiceEnv({ church: LIVE_CHURCH_REPORT, balance: LIVE_BALANCE_SHEET, daycare: LIVE_DAYCARE_REPORT, property: LIVE_PROPERTY_OPERATING }));
+      const html = await res.text();
+      expect(res.status).toBe(200);
+      expect(html).toContain(`<h2>Church</h2><span>FY${LIVE_CHURCH_REPORT.fiscalYear} · live from Connect</span>`);
+      expect(html).toContain(`<h2>Daycare</h2><span>${LIVE_DAYCARE_REPORT.fiscalYear} · live from Connect</span>`);
+      expect(html).toContain('<h2>Commercial Property</h2><span>2026 · live from Connect</span>');
+      expect(html).toContain('$50,000');
+      expect(html).not.toContain('Commercial Property</h2><span>2026-01 · synthetic fixture');
+    });
+
     describe('Operating mix / Church operating bridge live-first (reuses churchReportLive directly, independent of Entity overview)', () => {
       // Same LIVE_CHURCH_REPORT fixture as the describe block above: Income $175,000/Expenses
       // $95,000 (40000 Contributions/60000 Programs), distinct from the synthetic fixture's
@@ -881,10 +923,11 @@ describe('Finance alpha staging shell', () => {
         expect(html).toContain(`FY${LIVE_CHURCH_REPORT.fiscalYear} Church operating bridge`);
         expect(html).toContain('Reconciled · Live from Connect');
         expect(html).toContain('3 · Surplus');
-        // Entity overview stayed synthetic (its own investigated, deliberate decision -- see
-        // shell.js) even though churchReportLive is live here: still the old fixture's Church card.
-        expect(html).toContain('Church · FY2026');
-        expect(html).toContain('Daycare · 2026-01');
+        // Full detail keeps its compact card markup, but Church's entity amount now follows the
+        // same live result and every card discloses its source.
+        expect(html).toContain(`Church · FY${LIVE_CHURCH_REPORT.fiscalYear}`);
+        expect(html).toContain('expenses $95,000 · live from Connect');
+        expect(html).toContain('expenses $33,500 · synthetic fixture');
       });
 
       it('stays synthetic, badged "Synthetic staging", when churchReportLive is not live (Balance Sheet live but Church Report not)', async () => {
