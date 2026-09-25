@@ -39,7 +39,9 @@ showing their dollar effect.
 
 Remaining product gaps are distinct from storage cutover: some overview cards still use
 explicitly labeled fixture/unavailable fallbacks; the Commercial Property overview now reuses its
-reconciled live annual summary instead of re-summing nullable monthly rows; compensation
+reconciled live annual summary instead of re-summing nullable monthly rows, and Financial Health/
+Charts now read Connect's existing selected operating-cash balance and church-only expense runway
+through `connect.finance-cash-runway.v1`; compensation
 benchmark/benefit detail lacks a real source; standalone native Excel preview/select/commit parity
 is now complete for the annual and multi-period Church report and balance-sheet imports. Legacy Finance
 screens are retained for functionality that the new UI has not yet replaced. No production
@@ -67,6 +69,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `payroll-pages.js` — Payroll's five v3 pages (Run payroll, Staff entry, Import from MDO, Email / print, History) over the same live Website payroll relay; older `?view=` links map onto them. History reads `payroll_get_year_totals`.
 - `print-pages.js` — server-built print versions: any page with `print=1`, and the board packet print at `/print/board-packet`.
 - `compensation-projection.js`, `compensation-council-report.js` — the legacy Salary Planner's raise projection (raise methods, benefits, health cost, base-year comparison, Council report helpers), ported from `src/frontend/js-finance.js` and checked against the legacy bundle in `test/finance-compensation-projection.test.js`. Inputs are the saved plan (`finance-compensation-plan-v1`) and the base year's church ledger (`connect.finance-church-report.v1`). The Council page renders the full Council report (and prints it); the Plan page shows the projection under the roster editor or a council member's draft. `?plan_year=` picks the plan year; the base year is the year before.
+- `gift-batch-pages.js`, `connect-giving-batch-client.js` — Gift Entry's v3 pages: Enter a batch (giver search by name or envelope, gifts split across up to four funds, loose cash, a cash count checked against the batch's cash gifts and never saved, close/reopen), Reconciliation to bank (deposit closed batches, match each deposit to the statement amount), and Batch reports. Giving stays in Connect: every read and write goes through Connect's `giving-batch-workspace-v1`, `giving-batch-ledger-v1` and `giving-batch-write-v1` contracts (`src/api-giving-batch-contracts.js`), which re-verify the Access identity and require admin or Giving edit to write (Giving view to read); council's anonymous-only access is refused. Finance stores nothing. `gift-batch-write-v1` is the single relay route.
 - `brand-assets.js` — self-hosted logo and Outfit/Figtree fonts, served from `/assets/*` so the CSP stays same-origin with no script.
 - `version.js` — intentional semantic prerelease version.
 - `migrations/` — Finance-only D1 migration ledger; never targets the shared Connect database.

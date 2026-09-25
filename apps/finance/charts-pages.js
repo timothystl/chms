@@ -1,6 +1,6 @@
 import { buildChurchReportView, buildLiveChurchReportView } from './church-report-service.js';
 import { buildFinancialMixView, buildLiveFinancialMixView } from './financial-mix-service.js';
-import { buildCashRunwayView } from './cash-runway-service.js';
+import { buildResolvedCashRunwayView } from './cash-runway-service.js';
 import { escapeHtml, formatCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
 
 export function renderFinancialMixRows(rows) {
@@ -15,9 +15,8 @@ export function renderFinancialMixRows(rows) {
 // (likewise now computed for 'charts' alongside 'property'); `churchReport`/`propertyReserves`
 // remain the plain synthetic reads other sections (Financial Health, Board packet, Commercial
 // Property) still depend on, so this page reads them only as its own synthetic fallback, never
-// re-fetching. `cashRunway`/buildCashRunwayView has no live equivalent anywhere in this codebase
-// and stays entirely synthetic -- its two KPI cards keep saying so explicitly rather than sharing
-// a page-wide badge with the one live-capable reserve KPI on the same card row.
+// re-fetching. Cash runway independently resolves through its own aggregate contract and retains
+// the labeled synthetic fallback when Connect is unavailable.
 export function renderChartsPage(pageId, { churchReport, churchReportLive, cashRunway, propertyReserves, propertyReservesLive, giving, givingSource }) {
   const isChurchLive = churchReportLive?.source === 'live';
   const mix = isChurchLive
@@ -33,15 +32,20 @@ export function renderChartsPage(pageId, { churchReport, churchReportLive, cashR
     </section>`;
   }
   if (pageId === 'cash-reserve') {
-    const runway = buildCashRunwayView(cashRunway);
+    const runway = buildResolvedCashRunwayView(cashRunway);
     const isReserveLive = propertyReservesLive?.source === 'live';
     const latestReserve = isReserveLive ? propertyReservesLive.rows.at(-1) : propertyReserves.at(-1);
     const reserveFallbackNote = isReserveLive ? '' : `<p><small>Property tax reserve: the committed synthetic fixture (the live endpoint is not configured or did not answer${propertyReservesLive?.fallbackReason ? `: ${escapeHtml(propertyReservesLive.fallbackReason)}` : ''}).</small></p>`;
     return `<section class="report" aria-label="${isReserveLive ? 'Cash and reserve chart' : 'Synthetic cash and reserve chart'}">
-      ${renderSectionHeading({ eyebrow: 'Charts', heading: 'Cash & reserve', badge: `As of ${runway.asOfDate}` })}
+      ${renderSectionHeading({ eyebrow: 'Charts', heading: 'Cash & reserve', badge: runway ? `As of ${runway.asOfDate}` : 'Operating cash unavailable' })}
       ${renderKpiCards([
-        { label: 'Operating cash', value: formatCents(runway.operatingCashCents), hint: `${runway.accountName} · synthetic fixture` },
-        { label: 'Expense coverage', value: `${runway.runwayMonths.toFixed(1)} months`, hint: 'Cash divided by average monthly expense · synthetic fixture' },
+        ...(runway ? [
+          { label: 'Operating cash', value: formatCents(runway.operatingCashCents), hint: `${runway.accountName} · ${runway.source === 'live' ? 'live from Connect' : 'synthetic fixture'}` },
+          { label: 'Expense coverage', value: `${runway.runwayMonths.toFixed(1)} months`, hint: `Cash divided by average monthly expense · ${runway.source === 'live' ? 'live from Connect' : 'synthetic fixture'}` },
+        ] : [
+          { label: 'Operating cash', value: 'Unavailable', hint: 'No selected operating-cash balance is on file' },
+          { label: 'Expense coverage', value: 'Unavailable', hint: 'Not shown as zero' },
+        ]),
         { label: 'Property tax reserve', value: formatCents(latestReserve.reserve_after_cents), hint: `${latestReserve.funded_pct.toFixed(1)}% funded, ${latestReserve.report_month} · ${isReserveLive ? 'live from Connect' : 'synthetic fixture'}` },
       ])}
       ${reserveFallbackNote}

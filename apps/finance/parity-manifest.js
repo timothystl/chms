@@ -20,13 +20,15 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
   },
   {
     id: 'giving', label: 'Giving Entry', group: 'Gift Entry', permission: 'finance',
-    capabilities: ['record a gift', 'relayed live to Connect, never stored in Finance'],
+    // Batches, deposits and gifts live in Connect's giving_* tables; these pages read and write
+    // them through the giving-batch-*-v1 contracts (connect-giving-batch-client.js).
+    capabilities: ['enter a batch', 'bank reconciliation', 'batch reports', 'record a gift', 'relayed live to Connect, never stored in Finance'],
     pages: [
-      { id: 'quick-entry', label: 'Record a gift', status: 'live' },
+      { id: 'batch', label: 'Enter a batch', status: 'live' },
       { id: 'funds', label: 'Funds', status: 'live' },
-      { id: 'batch', label: 'Enter a batch', status: 'unavailable', reason: 'Finance has no deposit/batch table yet -- gifts are recorded one at a time, live into Connect. A batch/count-and-assign workflow needs a new data model and product decision before it can be built for real.' },
-      { id: 'reconciliation', label: 'Reconciliation to bank', status: 'unavailable', reason: 'There is no batch or bank-deposit table to reconcile against yet. This page will need both a batch workflow and a bank-feed connection before it can show anything real.' },
-      { id: 'reports', label: 'Batch reports', status: 'unavailable', reason: 'Batch reporting depends on the batch workflow above, which does not exist yet. Nothing to report on until gifts are grouped into batches somewhere.' },
+      { id: 'reconciliation', label: 'Reconciliation to bank', status: 'live' },
+      { id: 'reports', label: 'Batch reports', status: 'live' },
+      { id: 'quick-entry', label: 'Record a single gift', status: 'live' },
     ],
   },
   {

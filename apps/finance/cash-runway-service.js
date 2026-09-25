@@ -1,4 +1,6 @@
 import { runBudgetedReadBatch } from './query-budget.js';
+import { fetchLiveFinanceCashRunway } from './finance-cash-runway-client.js';
+import { defaultLiveChurchReportFiscalYear } from './finance-church-report-client.js';
 
 export async function readSyntheticCashRunway(db) {
   const statements = [
@@ -33,6 +35,7 @@ export function buildCashRunwayView(input) {
     throw new Error('Synthetic cash runway calculation invalid');
   }
   return {
+    source: 'synthetic-fallback',
     fiscalYear: input.fiscal_year,
     asOfDate: input.as_of_date,
     accountName: input.account_name,
@@ -41,4 +44,38 @@ export function buildCashRunwayView(input) {
     monthlyExpenseCents,
     runwayMonths,
   };
+}
+
+export function buildLiveCashRunwayView(input) {
+  if (!input.available) return null;
+  return {
+    source: 'live',
+    fiscalYear: input.fiscalYear,
+    asOfDate: input.asOfDate || `FY${input.fiscalYear}`,
+    accountName: input.cashAccounts.length ? input.cashAccounts.join(', ')
+      : input.cashSource === 'manual' ? 'Cash on hand entered by policy' : 'QuickBooks cash accounts',
+    cashSource: input.cashSource,
+    operatingCashCents: input.onHandCents,
+    annualExpenseCents: input.averageMonthlyExpenseCents * 12,
+    expensesYtdCents: input.expensesYtdCents,
+    monthsElapsed: input.monthsElapsed,
+    monthlyExpenseCents: input.averageMonthlyExpenseCents,
+    runwayMonths: input.monthsOfCash,
+    policyFloorMonths: input.policyFloorMonths,
+    floorCents: input.floorCents,
+    gapToFloorCents: input.gapToFloorCents,
+    daycareExcludedCents: input.daycareExcludedCents,
+  };
+}
+
+export async function resolveCashRunway(env, db) {
+  const fiscalYear = defaultLiveChurchReportFiscalYear();
+  const result = await fetchLiveFinanceCashRunway(env, fiscalYear);
+  if (result.ok) return { source: 'live', runway: result.runway };
+  const row = await readSyntheticCashRunway(db);
+  return { source: 'synthetic-fallback', fallbackReason: result.reason, row };
+}
+
+export function buildResolvedCashRunwayView(result) {
+  return result.source === 'live' ? buildLiveCashRunwayView(result.runway) : buildCashRunwayView(result.row);
 }

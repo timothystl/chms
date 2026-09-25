@@ -8,10 +8,11 @@
 // api-chms.js: it reaches nothing but the contracts named below.
 import { json, timingSafeEqual } from './auth.js';
 import { financeStorageDb } from './finance-storage.js';
-import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, respondWithFinanceChartOfAccountsV1, respondWithFinanceBudgetV1, respondWithFinanceChurchReportV1, respondWithFinanceChurchReportTrendV1, respondWithFinanceBalanceSheetV1, respondWithFinanceBalanceSheetTrendV1, respondWithFinanceDaycareReportV1, respondWithFinanceDaycareEntriesV1, respondWithFinancePropertyValuationV1, respondWithFinanceCompensationV1, respondWithFinancePropertyOperatingV1, respondWithFinancePropertyReservesV1, respondWithFinancePropertyLedgersV1, respondWithFinancePropertyForecastV1 } from './api-contracts.js';
+import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, respondWithFinanceCashRunwayV1, respondWithFinanceChartOfAccountsV1, respondWithFinanceBudgetV1, respondWithFinanceChurchReportV1, respondWithFinanceChurchReportTrendV1, respondWithFinanceBalanceSheetV1, respondWithFinanceBalanceSheetTrendV1, respondWithFinanceDaycareReportV1, respondWithFinanceDaycareEntriesV1, respondWithFinancePropertyValuationV1, respondWithFinanceCompensationV1, respondWithFinancePropertyOperatingV1, respondWithFinancePropertyReservesV1, respondWithFinancePropertyLedgersV1, respondWithFinancePropertyForecastV1 } from './api-contracts.js';
 import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
+import { handleGivingBatchContracts } from './api-giving-batch-contracts.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
@@ -39,12 +40,22 @@ export async function handleContractsServiceApi(req, env, path) {
   if (env.FINANCE_STORAGE_MODE === 'copying' && path.startsWith('/api/contracts/finance-') && !['GET','HEAD'].includes(req.method)) return json({error:'Accounting maintenance: please retry shortly.'},503);
   env = { ...env, DB: financeStorageDb(env) };
 
+  // Gift Entry batches (Finance v3): donor-level, identity-checked -- see api-giving-batch-contracts.js.
+  if (path.startsWith('/api/contracts/giving-batch-')) {
+    const batchResponse = await handleGivingBatchContracts(req, env, path);
+    if (batchResponse) return batchResponse;
+  }
+
   if (path === '/api/contracts/connect-giving-summary-v1' && req.method === 'GET') {
     return respondWithConnectGivingSummaryV1(new URL(req.url), env.DB);
   }
 
   if (path === '/api/contracts/finance-data-status-v1' && req.method === 'GET') {
     return respondWithFinanceDataStatusV1(env.DB);
+  }
+
+  if (path === '/api/contracts/finance-cash-runway-v1' && req.method === 'GET') {
+    return respondWithFinanceCashRunwayV1(new URL(req.url), env.DB);
   }
 
   if (path === '/api/contracts/finance-chart-of-accounts-v1' && req.method === 'GET') {
