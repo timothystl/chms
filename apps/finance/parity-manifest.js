@@ -33,15 +33,15 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
   },
   {
     id: 'giving-analytics', label: 'Giving', group: 'Giving', permission: 'finance',
-    capabilities: ['trends', 'year over year', 'household bands', 'pledges', 'what-if modeling', 'statements'],
+    capabilities: ['trends', 'year over year', 'household bands', 'pledges', 'what-if modeling', 'statements', 'nudges'],
     pages: [
-      { id: 'trends', label: 'Trends', status: 'unavailable', reason: 'The Connect giving-summary contract Finance consumes is a single-period aggregate (this month’s fund totals), not a stored multi-period series -- there is nothing to trend yet.' },
-      { id: 'year-over-year', label: 'Year over year', status: 'unavailable', reason: 'Same limit as Trends: only one period of aggregate giving data is available at a time, so there is no prior year to compare against.' },
-      { id: 'household-bands', label: 'Household bands', status: 'unavailable', reason: 'The giving contract is deliberately aggregate-only, with no household-level rows -- Council Giving access is aggregate/anonymous by design, so this isn’t just unbuilt, it needs a new, explicitly-approved contract shape before it can exist.' },
-      { id: 'pledges', label: 'Pledges', status: 'unavailable', reason: 'There is no pledge table anywhere in Connect or Finance today. This is a new feature, not a missing report.' },
-      { id: 'what-if', label: 'Giving what-if', status: 'unavailable', reason: 'Modeling depends on the Trends data above, which does not exist yet.' },
-      { id: 'statements', label: 'Giving statements', status: 'unavailable', reason: 'Donor-level statements need donor-level records. The contract Finance consumes is aggregate-only on purpose -- this needs a deliberate, approved change to what Connect shares with Finance, not just a new page.' },
-      { id: 'nudges', label: 'Giving nudges', status: 'unavailable', reason: 'Nudges (first-time givers to thank, regular givers who have stopped) need donor-level gift history. Finance deliberately receives aggregate-only Giving, so this belongs in Connect beside the donor records.' },
+      { id: 'trends', label: 'Trends', status: 'live' },
+      { id: 'year-over-year', label: 'Year over year', status: 'live' },
+      { id: 'household-bands', label: 'Household bands', status: 'live' },
+      { id: 'pledges', label: 'Pledges', status: 'live' },
+      { id: 'what-if', label: 'Giving what-if', status: 'live' },
+      { id: 'statements', label: 'Giving statements', status: 'live' },
+      { id: 'nudges', label: 'Giving nudges', status: 'live' },
     ],
   },
   {

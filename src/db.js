@@ -2215,6 +2215,21 @@ async function _doInitDb(db) {
     // the outcome locally; they do not change any batch/deposit/statement total calculation.
     "ALTER TABLE giving_entries ADD COLUMN refunded_cents INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE giving_entries ADD COLUMN voided_at TEXT NOT NULL DEFAULT ''",
+    // (see migrations/0057_giving_followups.sql): who a giving nudge was handed to and whether
+    // it was done. The nudges are computed on read; only the follow-up state is stored.
+    `CREATE TABLE IF NOT EXISTS giving_followups (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       kind TEXT NOT NULL,
+       subject_key TEXT NOT NULL,
+       episode TEXT NOT NULL,
+       assigned_to TEXT NOT NULL DEFAULT '',
+       status TEXT NOT NULL DEFAULT 'open',
+       done_at TEXT NOT NULL DEFAULT '',
+       done_by TEXT NOT NULL DEFAULT '',
+       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+     )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_giving_followups_identity ON giving_followups(kind, subject_key, episode)`,
   ];
   // Every statement here is either an idempotent CREATE ... IF NOT EXISTS, or an ALTER TABLE
   // ADD COLUMN — SQLite has no "ADD COLUMN IF NOT EXISTS", so a re-run always throws "duplicate

@@ -232,6 +232,7 @@ const ROUTES = [
   { id: 'hr-benefit-change-save-v1', paths: ['/api/v1/hr/benefit-change-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-benefit-change-save.v1' },
   // Gift Entry batches (v3): every op relays to Connect's giving-batch-write-v1 contract.
   { id: 'gift-batch-write-v1', paths: ['/api/v1/gift-batch-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.giving-batch-write.v1' },
+  { id: 'giving-followup-write-v1', paths: ['/api/v1/giving-followup-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.giving-followup-write.v1' },
   { id: 'summary-legacy', paths: ['/api/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', deprecated: true },
   // Temporary diagnostic to confirm the payroll relay (payroll-proxy-client.js) actually reaches
   // Website's production payroll proxy end to end. Read-only from Finance's own perspective (no

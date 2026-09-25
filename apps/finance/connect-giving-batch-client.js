@@ -5,7 +5,8 @@
 const REQUEST_TIMEOUT_MS = 8000;
 const BASE = 'https://connect.timothystl.org/api/contracts/';
 
-async function call(env, accessJwt, path, { method = 'GET', body, query } = {}) {
+// Shared by the Giving analytics client (connect-giving-analytics-client.js).
+export async function callConnectContract(env, accessJwt, path, { method = 'GET', body, query } = {}) {
   const binding = env.CONNECT_SERVICE;
   const key = env.FINANCE_CONTRACT_API_KEY;
   if (!binding || !key) return { ok: false, reason: 'not_configured' };
@@ -37,15 +38,15 @@ export function fetchGivingBatchWorkspace(env, accessJwt, { batchId, q } = {}) {
   const query = {};
   if (batchId) query.batch_id = String(batchId);
   if (q) query.q = String(q).slice(0, 60);
-  return call(env, accessJwt, 'giving-batch-workspace-v1', { query });
+  return callConnectContract(env, accessJwt, 'giving-batch-workspace-v1', { query });
 }
 
 export function fetchGivingBatchLedger(env, accessJwt) {
-  return call(env, accessJwt, 'giving-batch-ledger-v1');
+  return callConnectContract(env, accessJwt, 'giving-batch-ledger-v1');
 }
 
 export function postGivingBatchWrite(env, accessJwt, body) {
-  return call(env, accessJwt, 'giving-batch-write-v1', { method: 'POST', body });
+  return callConnectContract(env, accessJwt, 'giving-batch-write-v1', { method: 'POST', body });
 }
 
 export function describeGivingBatchFailure(result) {
