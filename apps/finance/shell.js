@@ -51,6 +51,7 @@ import {
   postConnectChurchBalancesMultiYearXlsxPreview, postConnectChurchBalancesMultiYearXlsxCommit,
 } from './finance-balance-sheet-client.js';
 import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
+import { fetchLiveFinanceDaycareEntries } from './finance-daycare-entries-client.js';
 import {
   buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers,
   resolvePropertyValuation, resolvePropertyReport, resolvePropertyReserves, resolvePropertyLedgers,
@@ -805,7 +806,7 @@ function renderEntityCards(entities) {
 function renderSectionBody(ctx) {
   const {
     section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends,
-    daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
+    daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
     propertyLedgers, propertyLedgersLive, propertyValuation,
     propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
     compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage,
@@ -1037,7 +1038,7 @@ function renderSectionBody(ctx) {
     // admin-only, matching finance/daycare/rooms/sync's own explicit isAdmin check exactly.
     const canSyncDaycareRooms = roleResult.ok && roleResult.role === 'admin';
     return renderDaycarePage(page.id, {
-      daycareReport: daycareReportLive, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage,
+      daycareReport: daycareReportLive, daycareEntries, daycareEditId, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage,
       canManageDaycareAllocation, daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
       canManageDaycareBudgetOverride, daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
       daycareBulkEntryStatus, daycareBulkEntryMessage,
@@ -2456,12 +2457,9 @@ export default {
 
     // Daycare Report entry edit (partial correction, by id) -- same looser gate as the
     // single-entry/bulk/church-budget-import forms above, since the legacy finance/daycare/:id
-    // route this relays carries no role check of its own beyond the blanket ACCESS_GATE. Ships
-    // without a page form: the connect.finance-daycare-report.v1 contract this section's own
-    // Actuals detail table reads is aggregated by category and never exposes a row's own id (see
-    // apps/finance/README.md's changelog entry for this batch), the same allowance the Property
-    // capital-ledger/repair-remove routes already used -- still a fully real, directly POST-able
-    // relay for a caller that already has an id. Only fields actually present in the submitted form
+    // route this relays carries no role check of its own beyond the blanket ACCESS_GATE. Reached from
+    // Actuals detail's entry list, which reads row ids from connect.finance-daycare-entries.v1
+    // (daycare-pages.js's renderDaycareEntryList). Only fields actually present in the submitted form
     // are forwarded, so a field the caller leaves out keeps its existing value on Connect's side
     // (editDaycareEntry's own partial-edit semantics, src/api-finance.js).
     if (route.id === 'daycare-entry-edit-v1') {
@@ -2490,8 +2488,8 @@ export default {
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
 
-    // Daycare Report entry removal (by id) -- same shape and same "no page form yet" reasoning as
-    // daycare-entry-edit-v1 above.
+    // Daycare Report entry removal (by id) -- same shape as daycare-entry-edit-v1 above; the remove
+    // button sits on each non-daycare-app row of Actuals detail's entry list.
     if (route.id === 'daycare-entry-remove-v1') {
       const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
       let form;
@@ -3099,6 +3097,12 @@ export default {
         // the plain synthetic rows above -- unchanged, out of scope for this contract.
         const daycareReportLive = section.id === 'daycare'
           ? await safeSyntheticRead(() => resolveDaycareReport(env, env.FINANCE_DB)) : null;
+        // Actuals detail lists the individual entries behind the live report (edit/remove parity with
+        // legacy finRenderDaycare). A failed read just omits the list; the report still renders.
+        const daycareEntries = section.id === 'daycare' && resolveFinancePage(section, pageId).id === 'actuals'
+          && daycareReportLive && daycareReportLive.source === 'live'
+          ? await fetchLiveFinanceDaycareEntries(env, daycareReportLive.fiscalYear) : null;
+        const daycareEditId = section.id === 'daycare' ? Number(url.searchParams.get('edit')) || null : null;
         const propertyReport = section.id === 'property' || section.id === 'health'
           ? await safeSyntheticRead(() => readSyntheticPropertyReport(env.FINANCE_DB)) : null;
         const propertyReserves = ['property', 'charts'].includes(section.id)
@@ -3369,7 +3373,7 @@ export default {
           : null;
         return response(renderShell({
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
-          balanceSheet, balanceTrends, daycareReport, daycareReportLive, propertyReport, propertyReportLive, propertyReserves,
+          balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,

@@ -14,6 +14,7 @@ import { validateFinanceChurchReportTrendV1 } from '../contracts/validators/fina
 import { validateFinanceBalanceSheetV1 } from '../contracts/validators/finance-balance-sheet-consumer.js';
 import { validateFinanceBalanceSheetTrendV1 } from '../contracts/validators/finance-balance-sheet-trend-consumer.js';
 import { validateFinanceDaycareReportV1 } from '../contracts/validators/finance-daycare-consumer.js';
+import { validateFinanceDaycareEntriesV1 } from '../contracts/validators/finance-daycare-entries-consumer.js';
 import { validateFinancePropertyValuationV1 } from '../contracts/validators/finance-property-valuation-consumer.js';
 import { validateFinanceCompensationV1 } from '../contracts/validators/finance-compensation-consumer.js';
 import { validateFinancePropertyOperatingV1 } from '../contracts/validators/finance-property-operating-consumer.js';
@@ -1040,6 +1041,54 @@ export async function respondWithFinanceDaycareReportV1(url, db) {
   }
 
   return json(report);
+}
+
+// ── Daycare entries: the individual rows behind Finance's Daycare actuals screens ─────────────
+// Legacy finRenderDaycare (src/frontend/js-finance.js) lists every finance_daycare_entries row with
+// Edit (all rows) and Delete (all but daycare_api rows). This returns one fiscal year's rows -- the
+// annual `YYYY` period plus its `YYYY-MM` months -- so Finance can target the existing
+// finance-daycare-entry-edit/-remove relays by id. Bounded: a year is at most a few hundred rows
+// (monthly sync x categories); the LIMIT only guards against a runaway import.
+const DAYCARE_ENTRIES_LIMIT = 2000;
+
+export async function buildFinanceDaycareEntriesV1(db, { fiscalYear, now = new Date() }) {
+  const year = String(fiscalYear);
+  const rows = (await db.prepare(
+    `SELECT id, period, category, entry_type, amount_cents, notes, source FROM finance_daycare_entries
+       WHERE period = ? OR period LIKE ?
+       ORDER BY period, category, id LIMIT ${DAYCARE_ENTRIES_LIMIT}`
+  ).bind(year, `${year}-%`).all()).results || [];
+  return {
+    contract: 'connect.finance-daycare-entries.v1',
+    dataClassification: 'aggregate',
+    sourceProduct: 'connect',
+    consumerProduct: 'finance',
+    currency: 'USD',
+    fiscalYear,
+    generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    entries: rows.map((r) => ({
+      id: r.id,
+      period: r.period,
+      category: r.category || '',
+      entryType: r.entry_type === 'budget' ? 'budget' : 'actual',
+      amountCents: Number.isInteger(r.amount_cents) ? r.amount_cents : Math.round(Number(r.amount_cents) || 0),
+      notes: r.source === 'daycare_api' ? '' : (r.notes || ''),
+      source: r.source || 'manual',
+    })),
+  };
+}
+
+export async function respondWithFinanceDaycareEntriesV1(url, db) {
+  const fiscalYearStr = url.searchParams.get('fiscal_year');
+  if (!isValidFiscalYearStr(fiscalYearStr)) {
+    return json({ error: 'fiscal_year is required as a 4-digit year' }, 400);
+  }
+  const entries = await buildFinanceDaycareEntriesV1(db, { fiscalYear: Number(fiscalYearStr), now: new Date() });
+  const validation = validateFinanceDaycareEntriesV1(entries);
+  if (!validation.ok) {
+    return json({ error: 'Internal: assembled daycare entries failed contract validation', details: validation.errors }, 500);
+  }
+  return json(entries);
 }
 
 // ── Property Valuation: the eighth contract, and the first sourced from a JSON settings blob ──
