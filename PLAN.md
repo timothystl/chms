@@ -97,8 +97,14 @@ Serve/website pages and all MDO products are out of its scope. Decisions taken w
   validation in Contact). Attendance tab removed. Add person is a short side panel that opens the
   new profile. Still open for OS4: household and organization pages keep their per-field editing
   and jump-to rail (they already share the new card styling).
-- [ ] **OS4 — Remaining Connect screens** (Giving, Attendance, Reports, Register, Volunteers,
-  Settings, Tuition Aid, Scheduler embed) and emoji removal; printouts decided separately.
+- [x] **OS4 — Household/organization pages and screen cleanup (2026-09-25).** Household and
+  organization pages now match the person page (header with actions, sections that edit as a
+  whole, aside with members / giving / map; jump-to rail and per-field editing removed). Emoji
+  removed from Giving, Settings, Reports, Register and Tuition Aid (and the shared modals in
+  html-tabs.js); Tuition Aid's navy KPI tile and gradient gauge, Giving's gold lens select and
+  Register's special-arrow buttons brought onto Open Sky. Still on the old look in places:
+  Home/dashboard, Attendance, Volunteers, Scheduler embed internals, legacy Finance screens,
+  and printed letters/certificates.
 - [ ] **OS5 — Home** once the agenda/"needs attention" content is decided.
 
 ## The work queue — priority order (rebuilt 2026-08-20)

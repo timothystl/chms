@@ -431,7 +431,7 @@ a.s-item{text-decoration:none;color:inherit;}
 /* ── Fund lens + "Everything else" strip (giving consolidation) ───────── */
 /* Gold-bordered so the lens reads as the primary control on the board toolbar, not just one
    more select next to the period picker. */
-.board-lens-select{font-family:var(--font-body);font-size:.85rem;font-weight:700;padding:6px 10px;border-radius:8px;border:1px solid var(--color-gold);background:var(--page);color:var(--color-navy);cursor:pointer;}
+.board-lens-select{font-family:var(--font-body);font-size:.85rem;font-weight:700;padding:6px 10px;border-radius:8px;border:1px solid var(--control-border);background:var(--surface);color:var(--color-navy);cursor:pointer;}
 .board-else-strip{display:flex;align-items:center;gap:10px;background:var(--warm-surface-card);border:1px solid var(--warm-border);border-radius:12px;padding:9px 14px;margin-bottom:14px;flex-wrap:wrap;}
 .board-else-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-meta);}
 .board-else-chip{padding:5px 12px;border-radius:99px;border:1px solid var(--warm-border);background:var(--white);font-family:var(--font-body);font-size:11.5px;color:var(--charcoal);cursor:pointer;white-space:nowrap;}
@@ -1670,8 +1670,11 @@ code{background:var(--linen);padding:1px 5px;border-radius:4px;font-size:.85em;f
 .content-area.ov-mode > .topbar{display:none;}
 .content-area.ov-mode > .tab-panel{display:none!important;}
 .content-area.ov-mode > #organization-view{display:flex;}
-#organization-view{display:none;flex-direction:column;flex:1;overflow:hidden;background:var(--warm-surface-card);}
-#household-view{display:none;flex-direction:column;flex:1;overflow:hidden;background:var(--warm-surface-card);}
+#organization-view{display:none;flex-direction:column;flex:1;overflow:hidden;background:var(--page);}
+#household-view{display:none;flex-direction:column;flex:1;overflow:hidden;background:var(--page);}
+#household-view .topbar,#organization-view .topbar{gap:16px;}
+.rec-photo{color:var(--muted);background:var(--page);}
+.pv2-edit-wide{grid-column:1/-1;}
 .hv-body{flex:1;overflow-y:auto;}
 .hv-hdr{display:flex;align-items:flex-start;gap:18px;padding:22px 24px;border-bottom:1px solid var(--warm-divider);background:var(--white);}
 .hv-icon-tile{width:76px;height:76px;border-radius:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:26px;background:var(--warm-surface-header);border:1px solid var(--warm-divider);}
@@ -2079,13 +2082,13 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 /* ── Tuition Aid Planner ── */
 .tap-kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px;}
 .tap-kpi{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px 16px;}
-.tap-kpi.accent{background:linear-gradient(135deg,var(--navy),var(--deep-steel));border:none;}
+.tap-kpi.accent{background:var(--tint);border:1px solid var(--primary);}
 .tap-kpi .tap-lbl{font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--warm-gray);font-weight:700;}
-.tap-kpi.accent .tap-lbl{color:var(--ice-blue);}
+.tap-kpi.accent .tap-lbl{color:var(--primary);}
 .tap-kpi .tap-val{font-size:1.5rem;font-weight:700;color:var(--navy);margin-top:2px;}
-.tap-kpi.accent .tap-val{color:var(--white);}
+.tap-kpi.accent .tap-val{color:var(--primary);}
 .tap-kpi .tap-note{font-size:.72rem;color:var(--warm-gray);margin-top:2px;}
-.tap-kpi.accent .tap-note{color:var(--ice-blue);}
+.tap-kpi.accent .tap-note{color:var(--muted);}
 .tap-pathway{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:18px;}
 .tap-path-track{display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding:6px 0 4px;}
 .tap-path-stage{flex:1 0 auto;min-width:100px;text-align:center;position:relative;padding:0 6px;}
@@ -2102,8 +2105,8 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 .tap-grid2b{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
 @media(max-width:900px){.tap-grid2,.tap-grid2b{grid-template-columns:1fr;}}
 .tap-gauge-track{width:100%;height:20px;background:var(--linen);border-radius:10px;overflow:hidden;}
-.tap-gauge-fill{height:100%;background:linear-gradient(90deg,var(--navy),var(--sky-steel));width:0%;transition:width .2s ease,background .2s ease;}
-.tap-gauge-fill.over{background:linear-gradient(90deg,var(--danger),#D9534F);}
+.tap-gauge-fill{height:100%;background:var(--primary);width:0%;transition:width .2s ease,background .2s ease;}
+.tap-gauge-fill.over{background:var(--error);}
 .tap-gauge-label{display:flex;justify-content:space-between;margin-top:6px;font-size:.82rem;color:var(--warm-gray);}
 .tap-gauge-label .tap-gauge-text{font-weight:700;color:var(--navy);}
 .tap-gauge-label .tap-over-text{color:var(--danger)!important;}

@@ -236,7 +236,7 @@ function openRegFromPeoplePrompt() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ cutoff: '1900-01-01', types: [type] })
   }).then(function(d) {
-    if (btn) { btn.disabled = false; btn.innerHTML = '&#128100; From People'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = 'From People'; }
     if (d.error) {
       if (stat) stat.textContent = 'Error: ' + d.error;
       return;
@@ -246,7 +246,7 @@ function openRegFromPeoplePrompt() {
     if (stat) stat.textContent = msg;
     if (d.imported > 0) loadRegister();
   }).catch(function(e) {
-    if (btn) { btn.disabled = false; btn.innerHTML = '&#128100; From People'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = 'From People'; }
     if (stat) stat.textContent = 'Error: ' + e.message;
   });
 }
@@ -1217,9 +1217,9 @@ function runBreezeImport() {
       if (d.done) {
         var msg = 'People sync done (add-only). ' + totalImported + ' new added, ' + totalSkipped + ' already here left unchanged.';
         if (!lastStatusField) {
-          msg += ' ⚠ No Breeze status field detected — check Settings › Breeze Status Mapping.';
+          msg += ' No Breeze status field detected — check Settings › Breeze Status Mapping.';
         } else if (allStatusesSeen.size === 0) {
-          msg += ' ⚠ Status field "' + lastStatusField.name + '" found but no values seen.';
+          msg += ' Status field "' + lastStatusField.name + '" found but no values seen.';
         } else {
           msg += ' Status field: "' + lastStatusField.name + '". Statuses: ' + [...allStatusesSeen].join(', ') + '.';
         }

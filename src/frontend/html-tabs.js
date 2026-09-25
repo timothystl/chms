@@ -287,7 +287,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <div class="report-tiles" id="giv-rpt-tiles-grid">
       <div class="report-tile require-finance" data-tile-id="giving-by-fund">
-        <div class="tile-icon">&#128200;</div>
         <div class="tile-title">Giving by Fund</div>
         <div class="tile-desc">
           <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-from" name="rpt-from" style="font-size:.82rem;padding:4px 8px;"></div>
@@ -296,7 +295,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
       </div>
       <div class="report-tile require-finance" data-tile-id="giving-by-method">
-        <div class="tile-icon">&#128179;</div>
         <div class="tile-title">Giving by Method</div>
         <div class="tile-desc">
           <div class="field" style="margin:8px 0 4px;"><label>From</label><input type="date" id="rpt-method-from" name="rpt-method-from" style="font-size:.82rem;padding:4px 8px;"></div>
@@ -305,7 +303,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
       </div>
       <div class="report-tile require-finance require-giving-named" data-tile-id="giving-statement">
-        <div class="tile-icon">&#128196;</div>
         <div class="tile-title">Giving Statement</div>
         <div class="tile-desc">
           <div style="display:flex;gap:6px;margin-bottom:6px;">
@@ -330,7 +327,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
       </div>
       <div class="report-tile require-finance" data-tile-id="giving-trend">
-        <div class="tile-icon">&#128200;</div>
         <div class="tile-title">Giving Trend</div>
         <div class="tile-desc">
           <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year giving comparison by month.</div>
@@ -339,7 +335,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
       </div>
       <div class="report-tile require-finance require-giving-named" data-tile-id="giving-insights">
-        <div class="tile-icon">&#128202;</div>
         <div class="tile-title">Giving Insights</div>
         <div class="tile-desc">
           <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Top givers, lapsed givers, frequency, and average gift trends.</div>
@@ -348,7 +343,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
       </div>
       <div class="report-tile require-finance require-giving-named" data-tile-id="giving-yoy">
-        <div class="tile-icon">&#128200;</div>
         <div class="tile-title">Giving Trends</div>
         <div class="tile-desc">
           <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year giving changes per person — who increased, decreased, or lapsed.</div>
@@ -357,7 +351,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
       </div>
       <div class="report-tile require-finance" data-tile-id="giving-vs-attendance">
-        <div class="tile-icon">&#128202;</div>
         <div class="tile-title">Giving &times; Attendance</div>
         <div class="tile-desc">
           <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Weekly giving vs. weekly attendance &mdash; see correlation between engagement and giving.</div>
@@ -367,7 +360,6 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         </div>
       </div>
       <div class="report-tile require-finance require-giving-named" data-tile-id="letters-moved" style="cursor:pointer;" onclick="givSetView('letters')">
-        <div class="tile-icon">&#128140;</div>
         <div class="tile-title">Letters &amp; Statements</div>
         <div class="tile-desc">
           <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-end statements, mid-year updates, appeals, and thank-you letters &mdash; with per-recipient send status &mdash; now live under <strong>Communications</strong> above.</div>
@@ -377,7 +369,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <div id="giv-rpt-output" class="report-output"></div>
     <div class="import-card require-finance require-giving-named" style="margin-top:18px;">
-      <h3>&#128201; Giving Plateaus &amp; Nudges</h3>
+      <h3>Giving Plateaus &amp; Nudges</h3>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">Every giver's weekly level = their whole year's giving, every fund, &divide; 52 weeks &mdash; so a weekly regular, a monthly giver, and someone who made one large gift (e.g. a stock or IRA/QCD transfer) all get the same treatment. Offers 3 fixed, familiar round-number increase options. By default this sums <strong>everything a giver gives across every fund</strong> &mdash; General, Tuition Aid, Food Pantry, etc.; no fund is discounted. Pick a specific fund below to analyze just that fund instead (e.g. a designated pass-through fund).</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
         <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-plateau-year" name="rpt-plateau-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
@@ -391,7 +383,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
 
     <div class="import-card require-finance require-giving-named" style="margin-top:18px;">
-      <h3>&#128202; Giving by Weekly / Monthly Band</h3>
+      <h3>Giving by Weekly / Monthly Band</h3>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">How giving households spread across per-week (or per-month) giving levels, and what a small across-the-board step up would add. A household&rsquo;s weekly figure is its giving &divide; weeks in the period, so monthly and lump-sum givers still land in the right band.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:8px;">
         <div class="field" style="margin:0;"><label>Year</label><input type="number" id="rpt-bands-year" name="rpt-bands-year" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>
@@ -454,7 +446,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div id="giv-settings-status" class="status-msg" style="margin-bottom:8px;"></div>
     <!-- Church Info Card -->
     <div class="import-card require-finance" style="margin-bottom:14px;">
-      <h3>&#9962; Church Information</h3>
+      <h3>Church Information</h3>
       <p>Used in giving letters, email headers, and reports.</p>
       <div class="modal-2col" style="margin-bottom:10px;">
         <div class="field"><label>Church Name</label><input type="text" id="st-church-name" name="st-church-name" placeholder="Timothy Lutheran Church" style="width:100%;"></div>
@@ -476,7 +468,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <img id="st-logo-preview" style="max-height:56px;display:none;border:1px solid var(--border);border-radius:6px;padding:4px;background:var(--white);">
           <input type="file" id="st-logo-file" name="st-logo-file" accept="image/*" style="display:none;" onchange="uploadLetterheadLogo(this.files[0])">
-          <button class="btn-secondary" style="font-size:.82rem;" onclick="document.getElementById('st-logo-file').click()">&#128247; Upload Logo</button>
+          <button class="btn-secondary" style="font-size:.82rem;" onclick="document.getElementById('st-logo-file').click()">Upload Logo</button>
           <button class="btn-secondary" id="st-logo-remove-btn" style="font-size:.82rem;display:none;" onclick="removeLetterheadLogo()">Remove Logo</button>
           <span id="st-logo-status" class="import-status"></span>
         </div>
@@ -485,7 +477,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <!-- Fund Categories Card — the mapping the Reports fund lens depends on -->
     <div class="import-card require-admin" style="margin-bottom:14px;max-width:760px;">
-      <h3>&#127991; Fund categories</h3>
+      <h3>Fund categories</h3>
       <p>Every fund gets one category. This is what the Reports lens switches between, and what the council packet summarizes. Fund budgets live in <b>Settings &rarr; Import/Export &rarr; Manage Funds</b> &mdash; this screen only maps funds to categories.</p>
       <div id="giv-fundcat-root"><div style="font-size:.85rem;color:var(--warm-gray);">Loading&hellip;</div></div>
       <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
@@ -495,7 +487,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <!-- Breeze Giving Sync Card -->
     <div class="import-card require-finance" style="margin-bottom:14px;">
-      <h3>&#9729; Breeze Giving Sync</h3>
+      <h3>Breeze Giving Sync</h3>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">Pull contribution records from the Breeze account log. Already-imported contributions are skipped (safe to re-sync). Groups by Breeze batch number. Fund names can be renamed in Settings &rarr; Import/Export after import.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
         <div class="field" style="margin:0;"><label>From</label><input type="date" id="giving-sync-from" name="giving-sync-from" style="font-size:.85rem;padding:4px 8px;"></div>
@@ -514,34 +506,34 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <div style="margin-top:12px;">
         <p style="margin:0 0 8px;"><strong>Breeze Audit Log Export</strong> — Download every contribution-related event from Breeze (added, updated, deleted) as a CSV for reconciliation. Uses the same date range as the sync above.</p>
-        <button class="btn-secondary" onclick="downloadBreezeAuditLog()">&#128229; Download Audit Log CSV</button>
+        <button class="btn-secondary" onclick="downloadBreezeAuditLog()">Download Audit Log CSV</button>
       </div>
       <div style="margin-top:12px;" class="require-admin">
         <p style="margin:0 0 8px;"><strong>Processor Fee Check</strong> — Ask the Breeze API whether it returns a per-payment fee / net / deposit field. Answers whether native giving can capture the processor fee straight from Breeze, or whether it has to come from a report import.</p>
-        <button class="btn-secondary" onclick="runBreezeFeeCheck()">&#128269; Check for Fee Field</button>
+        <button class="btn-secondary" onclick="runBreezeFeeCheck()">Check for Fee Field</button>
         <div class="import-status" id="breeze-fee-check-status"></div>
         <pre id="breeze-fee-check-out" style="display:none;margin-top:10px;padding:10px;background:var(--page);border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
       </div>
     </div>
     <!-- Letter Template Card -->
     <div class="import-card require-finance" style="margin-bottom:14px;">
-      <h3>&#128140; Year-End Giving Letter Template</h3>
+      <h3>Year-End Giving Letter Template</h3>
       <p>Used when generating giving letters. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{ein}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code></p>
       <textarea id="st-letter-tpl" name="st-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
       <div style="margin-top:8px;">
         <button class="btn-primary" onclick="saveSettings()">Save Template</button>
-        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;year_end&#39;)" style="margin-left:8px;">&#128065; Preview</button>
+        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;year_end&#39;)" style="margin-left:8px;">Preview</button>
         <button class="btn-secondary" onclick="resetLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
       </div>
     </div>
     <!-- Mid-Year Letter Template Card -->
     <div class="import-card require-finance" style="margin-bottom:14px;">
-      <h3>&#128140; Mid-Year Giving Update Letter Template</h3>
+      <h3>Mid-Year Giving Update Letter Template</h3>
       <p>Used for the mid-year giving update &mdash; thanks givers, shows year-to-date giving for them to review, and suggests ways to set up recurring/automatic giving. Available placeholders: <code>{{name}}</code>, <code>{{year}}</code>, <code>{{total}}</code>, <code>{{date}}</code>, <code>{{gift_table}}</code>, <code>{{giving_url}}</code></p>
       <textarea id="st-midyear-letter-tpl" name="st-midyear-letter-tpl" rows="10" style="width:100%;font-family:monospace;font-size:.82rem;padding:10px;border:1px solid var(--border);border-radius:8px;resize:vertical;"></textarea>
       <div style="margin-top:8px;">
         <button class="btn-primary" onclick="saveSettings()">Save Template</button>
-        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;midyear&#39;)" style="margin-left:8px;">&#128065; Preview</button>
+        <button class="btn-secondary" onclick="previewLetterTemplate(&#39;midyear&#39;)" style="margin-left:8px;">Preview</button>
         <button class="btn-secondary" onclick="resetMidyearLetterTemplate()" style="margin-left:8px;">Reset to Default</button>
       </div>
     </div>
@@ -550,27 +542,23 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
 <!-- ═══ REPORTS TAB ═══ -->
 <div id="tab-reports" class="tab-panel">
-  <div style="padding:10px 16px 0;display:flex;align-items:center;gap:8px;">
-    <button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="openRptCustomize()">&#9881; Customize</button>
+  <div style="padding:0 0 16px;display:flex;align-items:center;gap:8px;">
+    <button class="btn-secondary" onclick="openRptCustomize()">Customize tiles</button>
   </div>
   <div class="report-tiles" id="rpt-tiles-grid">
     <div class="report-tile" data-tile-id="membership" onclick="runMembership()">
-      <div class="tile-icon">&#128100;</div>
       <div class="tile-title">Membership Summary</div>
       <div class="tile-desc">Counts by member type</div>
     </div>
     <div class="report-tile no-member" data-tile-id="contact-completeness" onclick="runContactCompleteness()">
-      <div class="tile-icon">&#128231;</div>
       <div class="tile-title">Contact Completeness</div>
       <div class="tile-desc">Missing email, phone, address, DOB, photo</div>
     </div>
     <div class="report-tile no-member" data-tile-id="people-insights" onclick="runPeopleInsights()">
-      <div class="tile-icon">&#128196;</div>
       <div class="tile-title">People Insights</div>
       <div class="tile-desc">Growth, age, gender, households, sacramental pipeline</div>
     </div>
     <div class="report-tile" data-tile-id="attendance-summary">
-      <div class="tile-icon">&#128197;</div>
       <div class="tile-title">Attendance Summary</div>
       <div class="tile-desc">
         <div style="font-size:.82rem;color:var(--warm-gray);margin-bottom:8px;">Year-over-year Sunday attendance comparison.</div>
@@ -793,14 +781,14 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <div id="st-status" class="status-msg" style="margin-bottom:8px;"></div>
     <!-- Users Card (admin only) -->
     <div class="import-card require-admin" style="margin-bottom:14px;">
-      <h3>&#128100; Users</h3>
+      <h3>Users</h3>
       <p>Create named login accounts. Each user gets their own username and password for their role.</p>
       <div id="st-users-list" style="margin:12px 0;"></div>
       <button class="btn-primary" style="font-size:.85rem;padding:6px 14px;" onclick="openUserForm(null)">+ Add User</button>
     </div>
     <!-- Role Permissions Card (admin only) -->
     <div class="import-card require-admin" style="margin-bottom:14px;">
-      <h3>&#128274; Role Permissions</h3>
+      <h3>Role Permissions</h3>
       <p>Set each feature area to <strong>No access</strong>, <strong>View only</strong>, or <strong>Edit</strong> for every user type. Admin always has full access. Member is the read-only directory view &mdash; it can never edit and only its safe extras (the Reports tab) can be turned on.</p>
       <div id="role-perm-status" class="status-msg" style="margin-bottom:8px;"></div>
       <div style="overflow-x:auto;">
@@ -819,7 +807,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <!-- Volunteer Site & Notifications Card -->
     <div class="import-card" style="margin-bottom:14px;">
-      <h3>&#128101; Volunteer Site &amp; Notifications</h3>
+      <h3>Volunteer Site &amp; Notifications</h3>
       <p>Shown on the public volunteer sign-up site, plus who gets notified about new sign-ups.</p>
       <div class="field" style="margin-bottom:10px;"><label>Address</label><input type="text" id="st-vol-address" name="st-vol-address" placeholder="6704 Fyler Ave, St. Louis, MO 63139" style="width:100%;"></div>
       <div class="modal-2col" style="margin-bottom:12px;">
@@ -836,7 +824,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <!-- Tags Card -->
     <div class="import-card" style="margin-bottom:14px;">
-      <h3>&#9881; Tags</h3>
+      <h3>Tags</h3>
       <p>Tags are used to categorize people. You can filter by tag in the People tab.</p>
       <div id="settings-tags-list" style="margin-bottom:10px;"></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -847,7 +835,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <!-- Member Types Card -->
     <div class="import-card" style="margin-bottom:14px;">
-      <h3>&#9965; Member Types</h3>
+      <h3>Member Types</h3>
       <p>Define the member types available for people records.</p>
       <div id="settings-member-types-list" style="margin-bottom:10px;"></div>
       <div style="display:flex;gap:8px;align-items:center;">
@@ -857,7 +845,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <!-- Breeze Status Mapping Card -->
     <div class="import-card">
-      <h3>&#128279; Breeze Status &rarr; Member Type Mapping</h3>
+      <h3>Breeze Status &rarr; Member Type Mapping</h3>
       <p>After a Breeze import, each status name that came in from Breeze appears here. Map it to your local member type so future imports assign the right type automatically.</p>
       <div id="settings-mt-map-list" style="margin-bottom:10px;"></div>
       <div id="settings-mt-map-hint" style="font-size:.8rem;color:var(--warm-gray);"></div>
@@ -872,11 +860,11 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     <h2 style="font-size:1rem;font-weight:700;margin:24px 0 12px;color:var(--warm-gray);">Data Import &amp; Sync</h2>
     <!-- Old System Comparison Card -->
     <div class="import-card require-admin" style="margin-bottom:14px;" id="old-sys-compare-card">
-      <h3>&#128202; Old System Comparison</h3>
+      <h3>Old System Comparison</h3>
       <p>Upload a spreadsheet from a previous system to compare dates (baptism, confirmation, birthday, anniversary), email, phone, and address against what&#8217;s currently in Connect. Identify missing or mismatched data before deciding what to patch.</p>
       <p style="font-size:.82rem;color:var(--warm-gray);margin-bottom:10px;">Accepts <strong>.csv</strong> (preferred) or <strong>.xlsx</strong> (Excel). To use Excel: File &#8594; Save As &#8594; CSV. Matches people by full name. After upload, map your column headers to the fields below, then run the comparison.</p>
       <input type="file" id="old-sys-file" accept=".csv,.xlsx,.xls,.tsv,.txt" style="display:none;" onchange="oldSysFileSelected(this)">
-      <button class="btn-secondary" onclick="document.getElementById('old-sys-file').click()">&#128196; Choose Spreadsheet…</button>
+      <button class="btn-secondary" onclick="document.getElementById('old-sys-file').click()">Choose Spreadsheet…</button>
       <span id="old-sys-filename" style="font-size:.82rem;color:var(--warm-gray);margin-left:10px;"></span>
       <div id="old-sys-col-map" style="display:none;margin-top:14px;">
         <p style="font-weight:600;font-size:.88rem;margin-bottom:8px;">Map spreadsheet columns to fields:</p>
@@ -889,17 +877,17 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div id="old-sys-results" style="margin-top:18px;"></div>
     </div>
     <div class="import-card">
-      <h3>&#9729; Breeze Sync</h3>
+      <h3>Breeze Sync</h3>
       <p>Direct syncing with the Breeze API for people and fund names. Giving sync moved to Giving &rarr; Settings.</p>
 
       <h4 style="font-size:.9rem;margin:0 0 6px;">People</h4>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;"><strong>Add-only:</strong> brand-new Breeze people are added to Connect. People already here are <strong>never changed</strong> and are never deactivated — Connect is the source of truth for all people data (only giving syncs from Breeze). To connect a Breeze record to someone you already added here, use <em>Link Existing People to Breeze</em> below.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
         <button class="btn-primary" onclick="runBreezeImport()">Sync People from Breeze</button>
-        <button class="btn-secondary" onclick="runBreezeTagSync(this)">&#127991; Sync Tags Only</button>
-        <button class="btn-secondary" onclick="runBreezeNameSync(this)">&#128100; Sync Middle &amp; Preferred Names Only</button>
+        <button class="btn-secondary" onclick="runBreezeTagSync(this)">Sync Tags Only</button>
+        <button class="btn-secondary" onclick="runBreezeNameSync(this)">Sync Middle &amp; Preferred Names Only</button>
       </div>
-      <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 8px;">&#128100; <strong>Names Only</strong> pulls just the middle name and preferred (nickname) from Breeze for people already linked to Breeze &mdash; nothing else is touched, and a blank in Breeze never clears a name you&rsquo;ve set here.</p>
+      <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 8px;"><strong>Names Only</strong> pulls just the middle name and preferred (nickname) from Breeze for people already linked to Breeze &mdash; nothing else is touched, and a blank in Breeze never clears a name you&rsquo;ve set here.</p>
       <div class="progress-bar" id="breeze-bar"><div class="progress-fill" id="breeze-fill" style="width:0%"></div></div>
       <div class="import-status" id="breeze-status"></div>
       <div class="import-status" id="breeze-tag-status" style="margin-top:4px;"></div>
@@ -909,14 +897,14 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,var(--border));">
       <h4 style="font-size:.9rem;margin:0 0 6px;">Link Existing People to Breeze</h4>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">For someone you added here in Connect who later got their own Breeze record (e.g. once they gave), a plain <strong>Sync People</strong> would create a duplicate — it only matches on Breeze ID. This finds Breeze people who aren&rsquo;t linked yet and suggests a matching Connect person (by email, then name). Review each and click <strong>Link</strong> — it just connects the two records and keeps all your Connect data; future syncs then update that person normally.</p>
-      <button class="btn-secondary" onclick="loadBreezeUnlinked()" style="margin-bottom:10px;">&#128279; Find People to Link</button>
+      <button class="btn-secondary" onclick="loadBreezeUnlinked()" style="margin-bottom:10px;">Find People to Link</button>
       <div id="breeze-link-area"></div>
       <div class="import-status" id="breeze-link-status"></div>
 
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,var(--border));">
       <h4 style="font-size:.9rem;margin:0 0 6px;">Fund Names</h4>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">After the giving sync, imported funds may show as "Breeze Fund XXXXXXX". Use <strong>Auto-Fix from Breeze</strong> to look up the real names directly from Breeze and rename them automatically. If any funds still have placeholder names after that, use the manual mapping tool below.</p>
-      <button class="btn-primary" onclick="fixFundNames()" style="margin-bottom:8px;">&#128260; Auto-Fix Fund Names from Breeze</button>
+      <button class="btn-primary" onclick="fixFundNames()" style="margin-bottom:8px;">Auto-Fix Fund Names from Breeze</button>
       <div class="import-status" id="fix-fund-names-status" style="margin-bottom:10px;"></div>
       <div id="manual-fund-rename-area" style="display:none;margin-bottom:12px;">
         <table style="width:100%;border-collapse:collapse;" id="manual-fund-rename-table"></table>
@@ -934,7 +922,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div class="import-status" id="fund-map-status"></div>
     </div>
     <div class="import-card">
-      <h3>&#128181; Import Giving from Breeze CSV Export</h3>
+      <h3>Import Giving from Breeze CSV Export</h3>
       <p>Export from Breeze: Contributions &rarr; Export to CSV. Drag &amp; drop the file below or click to browse. Already-imported contributions are skipped (safe to re-run).</p>
       <div id="giving-csv-drop"
         style="border:2px dashed var(--border);border-radius:8px;padding:28px 16px;text-align:center;cursor:pointer;margin-bottom:8px;transition:background .15s;"
@@ -942,91 +930,91 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         ondragover="event.preventDefault();this.style.background=&#39;#f0f4f8&#39;;"
         ondragleave="this.style.background=&#39;&#39;;"
         ondrop="event.preventDefault();this.style.background=&#39;&#39;;importGivingCSV(event.dataTransfer.files[0]);">
-        <div style="font-size:2rem;margin-bottom:6px;">&#128228;</div>
+        
         <div id="giving-csv-name" style="font-size:.88rem;color:var(--warm-gray);">Drop CSV here or click to browse</div>
       </div>
       <input type="file" id="giving-csv-file" accept=".csv,.txt" style="display:none;" onchange="importGivingCSV(this.files[0]);">
       <div class="import-status" id="giving-csv-status"></div>
     </div>
     <div class="import-card require-admin">
-      <h3>&#128203; Find Duplicate Funds</h3>
+      <h3>Find Duplicate Funds</h3>
       <p>Finds fund records that share the exact same name (e.g. two "40085 General Fund" rows) — common when a Breeze fund was re-created or is no longer in Breeze at all. Lets you pick which one to keep; all contributions from the others are reassigned to it and the duplicate rows are deleted.</p>
       <button class="btn-secondary" onclick="loadDuplicateFunds()" style="margin-bottom:10px;">Find Duplicate Funds</button>
       <div id="dup-funds-area"></div>
       <div class="import-status" id="dup-funds-status"></div>
     </div>
     <div class="import-card require-admin">
-      <h3>&#128203; Manage Funds</h3>
+      <h3>Manage Funds</h3>
       <p>List of every fund on file. Uncheck "Active" for placeholder/unused funds (e.g. leftover "Breeze Fund 12345" rows with 0 gifts) to hide them from the Giving by Fund report and every other fund picker — this does not delete the fund or touch any gifts already recorded against it, so it's safe even for a fund that turns out to still be needed later.</p>
       <button class="btn-secondary" onclick="loadManageFunds()" style="margin-bottom:10px;">Load Funds</button>
       <div id="manage-funds-area"></div>
       <div class="import-status" id="manage-funds-status"></div>
     </div>
     <div class="import-card">
-      <h3>&#128101; Migrate Scheduler Volunteers to People</h3>
+      <h3>Migrate Scheduler Volunteers to People</h3>
       <p>Links each of the Scheduler's existing volunteers to a real ChMS person record (instead of a separate, disconnected list). For each legacy volunteer this suggests a match against real People — by Breeze ID first, then by name — but never links anyone automatically; review and confirm (or search for someone else, or create a new person) before committing.</p>
       <button class="btn-secondary" onclick="loadSchedulerVolunteerMigration()" style="margin-bottom:10px;">Load Volunteers to Migrate</button>
       <div id="sv-mig-area"></div>
       <div class="import-status" id="sv-mig-status"></div>
     </div>
     <div class="import-card">
-      <h3>&#128197; Import Attendance (Simple CSV)</h3>
+      <h3>Import Attendance (Simple CSV)</h3>
       <p>Paste or upload a 3-column file: <code>date, service_name, attendance</code>. Date must be YYYY-MM-DD. One row per service. Header row optional. Existing records for the same date+time are updated; new ones are inserted.</p>
       <textarea id="att-simple-text" name="att-simple-text" rows="6" style="width:100%;font-family:monospace;font-size:.8rem;padding:6px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;" placeholder="2024-03-10&#9;Sunday 8am&#9;112&#10;2024-03-10&#9;Sunday 10:45am&#9;187"></textarea>
       <button class="btn-primary" onclick="importAttendanceSimple()">Import</button>
       <div class="import-status" id="att-simple-status"></div>
     </div>
     <div class="import-card">
-      <h3>&#128229; Export Data</h3>
+      <h3>Export Data</h3>
       <p>Download records as CSV files for reporting, backups, or transfer to other software.</p>
       <div style="display:flex;flex-direction:column;gap:10px;">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <button class="btn-secondary" onclick="exportPeople()">&#128100; Export All People</button>
+          <button class="btn-secondary" onclick="exportPeople()">Export All People</button>
           <span style="font-size:.82rem;color:var(--warm-gray);">All members and contacts with contact info, dates, and household.</span>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <button class="btn-secondary" onclick="exportGiving()">&#128181; Export Giving</button>
+          <button class="btn-secondary" onclick="exportGiving()">Export Giving</button>
           <select id="export-giving-year" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:.88rem;">
             <option value="">All Years</option>
           </select>
           <span style="font-size:.82rem;color:var(--warm-gray);">All gifts with date, person, fund, amount, method.</span>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <button class="btn-secondary" onclick="exportRegister()">&#128214; Export Register</button>
+          <button class="btn-secondary" onclick="exportRegister()">Export Register</button>
           <span style="font-size:.82rem;color:var(--warm-gray);">All baptism, confirmation, marriage, and burial records.</span>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;">
-          <button class="btn-secondary" onclick="exportRegisterScans()">&#128247; Export Scanned Pages</button>
+          <button class="btn-secondary" onclick="exportRegisterScans()">Export Scanned Pages</button>
           <span style="font-size:.82rem;color:var(--warm-gray);">Every scanned page image on file, with its type, page number, and URL.</span>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;">
-          <button class="btn-secondary" onclick="exportRegisterReconcile()">&#128269; Export Page-Number Reconciliation</button>
+          <button class="btn-secondary" onclick="exportRegisterReconcile()">Export Page-Number Reconciliation</button>
           <span style="font-size:.82rem;color:var(--warm-gray);">One row per page number, showing register entries vs. the scanned image on file — flags any mismatch.</span>
         </div>
       </div>
       <div class="import-status" id="export-status"></div>
     </div>
     <div class="import-card">
-      <h3>&#128140; Brevo Newsletter Sync</h3>
+      <h3>Brevo Newsletter Sync</h3>
       <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Syncs active members with email addresses to your Brevo contact list. Use "Check Sync" to see who's missing, then bulk-add all at once.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn-secondary" style="font-size:.88rem;" onclick="brevoCheckSync()">&#128269; Check Brevo Sync</button>
+        <button class="btn-secondary" style="font-size:.88rem;" onclick="brevoCheckSync()">Check Brevo Sync</button>
         <button class="btn-secondary" style="font-size:.88rem;" onclick="brevoBulkSyncAll()">&#8593; Bulk Sync All Members</button>
       </div>
       <div id="brevo-reconcile-status" class="import-status" style="margin-top:8px;"></div>
       <div id="brevo-reconcile-results" style="margin-top:10px;"></div>
     </div>
     <div class="import-card require-admin">
-      <h3>&#9993; Automated Emails (EM2)</h3>
+      <h3>Automated Emails (EM2)</h3>
       <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Daily cron sends birthday emails to active members and anniversary emails to couples at 9am Central. Use these buttons to trigger manually or test.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn-secondary" style="font-size:.88rem;" onclick="runEmailTest('birthday')">&#127874; Send Birthday Emails (Today)</button>
-        <button class="btn-secondary" style="font-size:.88rem;" onclick="runEmailTest('anniversary')">&#10084; Send Anniversary Emails (Today)</button>
+        <button class="btn-secondary" style="font-size:.88rem;" onclick="runEmailTest('birthday')">Send Birthday Emails (Today)</button>
+        <button class="btn-secondary" style="font-size:.88rem;" onclick="runEmailTest('anniversary')">Send Anniversary Emails (Today)</button>
       </div>
       <div class="import-status" id="email-test-status" style="margin-top:8px;"></div>
     </div>
     <div class="import-card require-admin">
-      <h3>&#128241; Automated Texts (SMS1)</h3>
+      <h3>Automated Texts (SMS1)</h3>
       <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Daily cron sends birthday and anniversary SMS via Brevo to members with SMS opt-in enabled and a valid phone number. Use these buttons to trigger manually or test.</p>
       <div class="field" style="max-width:280px;margin-bottom:10px;">
         <label>Sender Name (max 11 letters/digits, no spaces &mdash; shown as the "From" on the text)</label>
@@ -1034,38 +1022,38 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button class="btn-secondary" style="font-size:.88rem;" onclick="saveSmsSenderName()">Save Sender Name</button>
-        <button class="btn-secondary" style="font-size:.88rem;" onclick="runSmsTest('birthday')">&#127874; Send Birthday Texts (Today)</button>
-        <button class="btn-secondary" style="font-size:.88rem;" onclick="runSmsTest('anniversary')">&#10084; Send Anniversary Texts (Today)</button>
+        <button class="btn-secondary" style="font-size:.88rem;" onclick="runSmsTest('birthday')">Send Birthday Texts (Today)</button>
+        <button class="btn-secondary" style="font-size:.88rem;" onclick="runSmsTest('anniversary')">Send Anniversary Texts (Today)</button>
       </div>
       <div class="import-status" id="sms-sender-status" style="margin-top:8px;"></div>
       <div class="import-status" id="sms-test-status" style="margin-top:8px;"></div>
     </div>
     <div class="import-card require-admin">
-      <h3>&#128276; Push Notifications (Member Portal)</h3>
+      <h3>Push Notifications (Member Portal)</h3>
       <p style="font-size:.88rem;color:var(--warm-gray);margin-bottom:10px;">Send an announcement to all member-portal users who have enabled push notifications on their device.</p>
-      <button class="btn-secondary" style="font-size:.88rem;" onclick="openPushBroadcastModal()">&#128276; Send Push Notification</button>
+      <button class="btn-secondary" style="font-size:.88rem;" onclick="openPushBroadcastModal()">Send Push Notification</button>
     </div>
     <div class="import-card">
-      <h3>&#127968; Household Head Assignment</h3>
+      <h3>Household Head Assignment</h3>
       <p id="hq4-status-text">Loading…</p>
       <p style="font-size:.82rem;color:var(--warm-gray);">Heads are used for display names and anniversary pairing. Promotes a spouse (or first member) to Head when none is assigned.</p>
       <button class="btn-secondary" onclick="fixHouseholdHeads()" style="font-size:.88rem;">Fix Household Heads</button>
       <div class="import-status" id="hq4-status"></div>
     </div>
     <div class="import-card require-admin">
-      <h3>&#127911; Cascade Household Photos</h3>
+      <h3>Cascade Household Photos</h3>
       <p>Copy each household's photo to its members who currently have no photo. Members with their own profile picture are never overwritten. Run after uploading new household photos or after a Breeze sync.</p>
       <button class="btn-secondary" onclick="applyAllHouseholdPhotos()" style="font-size:.88rem;">Apply Household Photos</button>
       <div class="import-status" id="cascade-photos-status"></div>
     </div>
     <div class="import-card role-admin">
-      <h3>&#128222; Normalize Phone Numbers</h3>
+      <h3>Normalize Phone Numbers</h3>
       <p>Reformats all phone numbers in the database to <strong>(XXX) XXX-XXXX</strong>. Safe to run multiple times — unchanged numbers are skipped. Run once after migrating data from Breeze or another source.</p>
       <button class="btn-secondary" onclick="normalizeAllPhones()" style="font-size:.88rem;">Normalize All Phones</button>
       <div class="import-status" id="normalize-phones-status"></div>
     </div>
     <div class="import-card role-admin">
-      <h3>&#127968; Validate All Addresses</h3>
+      <h3>Validate All Addresses</h3>
       <p>Runs every active person with a street address through USPS address validation and standardizes the format. Undeliverable addresses are left unchanged. Uses USPS Web Tools if configured, otherwise falls back to Census Bureau geocoding (free, no key needed).</p>
       <button class="btn-secondary" onclick="bulkValidateAddresses()" id="bulk-validate-addr-btn" style="font-size:.88rem;">Validate All Addresses</button>
       <div class="import-status" id="bulk-validate-addr-status"></div>
@@ -1083,13 +1071,13 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <button class="pv-tab" data-rtab="funeral" onclick="showRegisterTab('funeral')" style="font-size:13px;padding:12px 18px;">Burials</button>
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
         <button class="btn-secondary" style="display:none;font-size:.8rem;" id="reg-add-toggle" onclick="toggleRegForm()">+ Add</button>
-        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegFromPeoplePrompt()" title="Generate register entries from people records">&#128100; From People</button>
-        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegImport()">&#8679; Import File</button>
-        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegScanManage()" title="View or attach scanned book-page images, searchable by page number">&#128247; Scanned Pages</button>
-        <button class="btn-secondary require-admin" style="font-size:.8rem;" onclick="regOpenCertTemplateManage()" title="Upload a certificate image and position where each field prints on it">&#128196; Certificate Template</button>
+        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegFromPeoplePrompt()" title="Generate register entries from people records">From People</button>
+        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegImport()">Import file</button>
+        <button class="btn-secondary" style="font-size:.8rem;" onclick="openRegScanManage()" title="View or attach scanned book-page images, searchable by page number">Scanned Pages</button>
+        <button class="btn-secondary require-admin" style="font-size:.8rem;" onclick="regOpenCertTemplateManage()" title="Upload a certificate image and position where each field prints on it">Certificate Template</button>
         <button class="btn-secondary" style="font-size:.8rem;" onclick="printRegister()">Print</button>
         <div class="require-admin" id="reg-export-wrap" style="position:relative;">
-          <button class="btn-secondary" style="font-size:.8rem;" onclick="regToggleExportMenu()" title="Download the register as CSV">&#8681; Export</button>
+          <button class="btn-secondary" style="font-size:.8rem;" onclick="regToggleExportMenu()" title="Download the register as CSV">Export</button>
           <div id="reg-export-menu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--white);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:20;min-width:260px;padding:6px;">
             <a href="/admin/api/export/register" download="register-export.csv" style="display:block;padding:8px 10px;font-size:.82rem;color:var(--charcoal);text-decoration:none;border-radius:6px;" onmouseover="this.style.background='var(--linen)'" onmouseout="this.style.background=''">All records (Baptisms, Confirmations, Marriages, Burials)</a>
             <a href="/admin/api/export/register-scans" download="register-scanned-pages.csv" style="display:block;padding:8px 10px;font-size:.82rem;color:var(--charcoal);text-decoration:none;border-radius:6px;" onmouseover="this.style.background='var(--linen)'" onmouseout="this.style.background=''">Scanned page images list</a>
@@ -1421,33 +1409,27 @@ export const HTML_TABS_2 = String.raw`
 <!-- ═══ HOUSEHOLD VIEW ═══ -->
 <div id="household-view">
   <div class="topbar">
-    <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-    <span class="topbar-back" onclick="closeHouseholdView()">&#8592; Households</span>
-    <span id="hv-topbar-name" style="font-size:15px;font-weight:500;color:var(--charcoal);margin-left:8px;"></span>
-    <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
-      <button class="btn-outline-cream require-edit" id="hv-edit-btn">Edit</button>
-    </div>
+    <button class="hamburger" onclick="openSidebar()" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg><span>Menu</span></button>
+    <a href="#" class="topbar-back" onclick="event.preventDefault();closeHouseholdView()"><svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>Households</a>
+    <span id="hv-topbar-name" class="pv-topbar-name"></span>
   </div>
   <div class="pv-body">
     <div id="hv-info"></div>
   </div>
-  <div class="pv2-toast" id="hv-toast"><span class="ck">&#10003;</span> Changes saved</div>
+  <div class="pv2-toast" id="hv-toast" role="status" aria-live="polite">Saved</div>
 </div>
 
 <!-- ═══ ORGANIZATION VIEW (full page, mirrors Household View) ═══ -->
 <div id="organization-view">
   <div class="topbar">
-    <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-    <span class="topbar-back" onclick="closeOrganizationView()">&#8592; Organizations</span>
-    <span id="ov-topbar-name" style="font-size:15px;font-weight:500;color:var(--charcoal);margin-left:8px;"></span>
-    <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
-      <button class="btn-outline-cream require-edit" id="ov-edit-btn">Edit</button>
-    </div>
+    <button class="hamburger" onclick="openSidebar()" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg><span>Menu</span></button>
+    <a href="#" class="topbar-back" onclick="event.preventDefault();closeOrganizationView()"><svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>Organizations</a>
+    <span id="ov-topbar-name" class="pv-topbar-name"></span>
   </div>
   <div class="pv-body">
     <div id="ov-info"></div>
   </div>
-  <div class="pv2-toast" id="ov-toast"><span class="ck">&#10003;</span> Changes saved</div>
+  <div class="pv2-toast" id="ov-toast" role="status" aria-live="polite">Saved</div>
 </div>
 
 <!-- ═══ TUITION AID PLANNER TAB ═══ -->
@@ -1559,7 +1541,7 @@ export const HTML_TABS_2 = String.raw`
               Base school year: <input type="number" id="tap-cfg-base_school_year" min="2000" max="2100" step="1" style="width:80px;">
               <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveConfigField('base_school_year')">Save</button>
             </span>
-            <p style="font-size:.72rem;color:var(--warning);margin:0;">&#9888; This is the "current" year (offset 0) everywhere on this tab &mdash; advance it once a year, at rollover, not for any other reason. Changing it reloads the whole planner.</p>
+            <p style="font-size:.72rem;color:var(--warning);margin:0;">This is the "current" year (offset 0) everywhere on this tab &mdash; advance it once a year, at rollover, not for any other reason. Changing it reloads the whole planner.</p>
           </div>
         </div>
       </section>
@@ -1859,7 +1841,7 @@ export const HTML_TABS_2 = String.raw`
       </div>
       <div id="reg-import-headers" style="background:var(--linen);border-radius:8px;padding:10px 14px;font-size:.78rem;color:var(--charcoal);margin-bottom:16px;line-height:1.8;"></div>
       <label style="display:inline-flex;align-items:center;gap:8px;padding:10px 18px;background:var(--teal);color:white;border-radius:8px;cursor:pointer;font-size:.875rem;font-weight:600;">
-        &#8679; Choose File
+        Choose file
         <input type="file" id="reg-import-file" accept=".csv,.tsv,.txt" style="display:none;" onchange="regImportFileChosen(this)">
       </label>
       <span id="reg-import-filename" style="margin-left:10px;font-size:.85rem;color:var(--warm-gray);"></span>
@@ -1904,7 +1886,7 @@ export const HTML_TABS_2 = String.raw`
     </p>
     <div class="require-edit-register" style="background:var(--linen);border-radius:8px;padding:12px 14px;margin-bottom:16px;">
       <label style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:var(--teal);color:white;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;">
-        &#8679; Choose Page Image(s)&hellip;
+        Choose page images&hellip;
         <input type="file" id="reg-scan-file-input" accept="image/*" multiple style="display:none;" onchange="regScanFilesChosen(this)">
       </label>
       <div style="font-size:.76rem;color:var(--warm-gray);margin-top:8px;">
@@ -2129,11 +2111,11 @@ export const HTML_TABS_2 = String.raw`
       <input type="hidden" id="hm-photo">
       <div style="display:flex;align-items:center;gap:12px;margin-top:4px;">
         <img id="hm-photo-preview" src="" alt="" style="display:none;width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);">
-        <button type="button" id="hm-photo-upload-btn" class="btn-secondary require-edit" style="display:none;font-size:.82rem;padding:5px 12px;" onclick="triggerHHPhotoUpload()">&#128247; Upload Photo</button>
-        <button type="button" id="hm-photo-pick-btn" class="btn-secondary require-edit" style="display:none;font-size:.82rem;padding:5px 12px;" onclick="openHHPhotoPicker()">&#128100; Use Member's Photo</button>
-        <button type="button" id="hm-photo-recrop-btn" class="btn-secondary require-edit" style="display:none;font-size:.82rem;padding:5px 12px;" onclick="recropHHPhoto()">&#9986; Re-crop</button>
+        <button type="button" id="hm-photo-upload-btn" class="btn-secondary require-edit" style="display:none;font-size:.82rem;padding:5px 12px;" onclick="triggerHHPhotoUpload()">Upload Photo</button>
+        <button type="button" id="hm-photo-pick-btn" class="btn-secondary require-edit" style="display:none;font-size:.82rem;padding:5px 12px;" onclick="openHHPhotoPicker()">Use Member's Photo</button>
+        <button type="button" id="hm-photo-recrop-btn" class="btn-secondary require-edit" style="display:none;font-size:.82rem;padding:5px 12px;" onclick="recropHHPhoto()">Re-crop</button>
         <button type="button" id="hm-photo-remove-btn" class="btn-secondary require-edit" style="display:none;font-size:.82rem;padding:5px 12px;color:var(--clay-red);" onclick="removeHHPhoto()">&times; Remove</button>
-        <button type="button" id="hm-apply-photo-btn" class="btn-secondary require-edit" style="display:none;font-size:.82rem;padding:5px 12px;" onclick="applyHHPhotoToMembers()">&#128247; Apply to Family</button>
+        <button type="button" id="hm-apply-photo-btn" class="btn-secondary require-edit" style="display:none;font-size:.82rem;padding:5px 12px;" onclick="applyHHPhotoToMembers()">Apply to Family</button>
         <input type="file" id="hm-photo-input" accept="image/*" style="display:none;" onchange="handleHHPhotoSelected(this)">
       </div>
     </div>
@@ -2379,7 +2361,7 @@ export const HTML_TABS_2 = String.raw`
 <!-- Push broadcast modal -->
 <div class="modal-overlay" id="push-broadcast-modal">
   <div class="modal-card" style="max-width:460px;">
-    <div class="modal-header"><span>&#128276; Send Push Notification</span><button class="modal-close" onclick="closeModal('push-broadcast-modal')">&#10005;</button></div>
+    <div class="modal-header"><span>Send Push Notification</span><button class="modal-close" onclick="closeModal('push-broadcast-modal')">&#10005;</button></div>
     <div style="padding:0 0 8px;">
       <p style="font-size:.84rem;color:var(--warm-gray);margin-bottom:14px;">Sends an instant push notification to all member-portal users who have notifications enabled on their device.</p>
       <div class="field"><label>Title <span style="color:var(--danger);">*</span></label><input type="text" id="push-broadcast-title" placeholder="e.g. Sunday Service Update" maxlength="100"></div>
