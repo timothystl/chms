@@ -792,7 +792,7 @@ describe('Finance alpha staging shell', () => {
       contract: 'connect.finance-property-operating.v1', dataClassification: 'aggregate',
       sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD', propertyKey: 'ivanhoe', generatedAt: '2026-09-15T12:00:00Z',
       periods: [{ period: '2026-01', occupancyPct: 0.9, totalRevenueCents: 1000000, totalExpensesCents: null, netIncomeCents: 600000, netOperatingIncomeCents: null, availableForDistributionCents: null, reserveBalanceCents: null, loanPaymentCents: null, interestExpenseCents: null, sourceReport: 'finance-app' }],
-      annualSummary: [{ year: 2026, totalRevenueCents: 9000000, totalExpensesCents: 4000000, netIncomeCents: 5000000, avgOccupancyPct: 0.9, confirmedDistributionsCents: 0, expenseMonthsDerived: 1, notes: '' }],
+      annualSummary: [{ year: 2026, totalRevenueCents: 9000000, totalExpensesCents: 4000000, netIncomeCents: 5000000, avgOccupancyPct: 0.9, confirmedDistributionsCents: 125000, expenseMonthsDerived: 1, notes: '' }],
     };
 
     function connectServiceEnv({ church = null, balance = null, daycare = null, property = null } = {}) {
@@ -902,6 +902,37 @@ describe('Finance alpha staging shell', () => {
       expect(html).toContain('<h2>Commercial Property</h2><span>2026 · live from Connect</span>');
       expect(html).toContain('$50,000');
       expect(html).not.toContain('Commercial Property</h2><span>2026-01 · synthetic fixture');
+    });
+
+    it('uses the reconciled live annual Property summary on the Property overview', async () => {
+      const res = await worker.fetch(new Request('https://finance.test/?section=property&page=overview', {
+        headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+      }), connectServiceEnv({ property: LIVE_PROPERTY_OPERATING }));
+      const html = await res.text();
+      expect(res.status).toBe(200);
+      expect(html).toContain('Property performance for 2026');
+      expect(html).toContain('Live from Connect');
+      expect(html).toContain('$90,000');
+      expect(html).toContain('$40,000');
+      expect(html).toContain('$50,000');
+      expect(html).toContain('Average occupancy 90%');
+      expect(html).toContain('Confirmed distributions $1,250');
+      expect(html).not.toContain('Synthetic Commercial Property overview');
+      expect(html).not.toContain('Reserve balance $25,000');
+    });
+
+    it('renders an honest empty live Property state instead of crashing or falling back', async () => {
+      const empty = { ...LIVE_PROPERTY_OPERATING, periods: [], annualSummary: [] };
+      for (const page of ['overview', 'operating-results']) {
+        const res = await worker.fetch(new Request(`https://finance.test/?section=property&page=${page}`, {
+          headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+        }), connectServiceEnv({ property: empty }));
+        const html = await res.text();
+        expect(res.status).toBe(200);
+        expect(html).toContain('Live from Connect');
+        expect(html).toContain(page === 'overview' ? 'No property reporting year on file' : 'No operating periods on file');
+        expect(html).not.toContain('Synthetic Commercial Property');
+      }
     });
 
     describe('Operating mix / Church operating bridge live-first (reuses churchReportLive directly, independent of Entity overview)', () => {

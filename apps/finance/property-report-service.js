@@ -180,9 +180,9 @@ export function buildPropertyValuationView(input) {
 // on the synthetic fallback still only runs the query-budgeted synthetic read once (it's already
 // unconditionally fetched into the top-level `propertyReport` variable every 'property'/'health'
 // page needs) -- see query-budget.js's own per-request statement-count discipline. Only the
-// 'property' section's 'operating-results' page uses the result of this resolver;
-// 'overview'/'health' keep reading the plain synthetic rows directly, unchanged and out of scope
-// for this contract.
+// The 'property' overview and operating-results pages use the result of this resolver; Financial
+// Health also reuses its reconciled annual summary. Monthly live rows may contain nullable expense
+// fields, so aggregate cards must prefer annualSummary rather than coercing missing values to zero.
 //
 // Real finding confirmed against production on 2026-09-15 (see src/api-contracts.js's
 // buildFinancePropertyOperatingV1 header comment): occupancy_pct is a 0-1 fraction in real data,
