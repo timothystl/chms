@@ -5,7 +5,6 @@
 // QBO amounts are kept as QBO returns them (decimal dollars) rather than converted to this
 // app's integer-cents convention — they're display-only, never combined arithmetically with
 // giving_entries/tuition figures.
-import { clearChurchReport, CHURCH_CLEAR_TABLES } from './finance-clear.js';
 import { json, getAuthInfo } from './auth.js';
 import { resolveGeneralFundIds, resolveGeneralFundBudget, parseCsvRows } from './api-utils.js';
 import { getAuthorizeUrl, exchangeCodeForTokens, refreshTokens, revokeToken, makeQboClient, qboConfigured, buildQboTransactionUrl } from './quickbooks.js';
@@ -4647,6 +4646,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
 
   // Commit step: same extraction, then wholesale-replace this year's church_budget_import rows.
   if (seg === 'finance/daycare/church-budget-import' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
     const year = parseInt(b.year, 10);
     const result = await importDaycareFromChurchBudget(db, year);
@@ -4900,43 +4900,6 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ years, byYear, streamsByYear });
   }
 
-  // ── Clear stored Church budget/actuals data (user decision 2026-07-28: after repeated
-  // QuickBooks live-sync issues, starting fresh from re-downloaded QuickBooks exports imported
-  // month-by-month via the existing CSV import tools). Deliberately narrow, per the user's
-  // explicit correction mid-session — only the church budget/actuals themselves, NOT Daycare
-  // Report, Balance Sheet, or Budget Planning data (all of which stay untouched), and never
-  // Commercial Property or any giving data. finance_qb_snapshot is included alongside
-  // finance_church_entries because it's the same data under a different cache — the Overview
-  // tab's "Budget vs. Actual" card reads directly from this snapshot, not from
-  // finance_church_entries, so leaving it out would let stale numbers linger there after a
-  // clear. Same confirm-count safety pattern as giving/force-remove-orphans: preview returns
-  // exact row counts, the clear call must echo them back exactly, so a stale page (data changed
-  // between preview and click) is refused rather than blindly wiping.
-  const CLEAR_TABLES = CHURCH_CLEAR_TABLES;
-  if (seg === 'finance/church/clear-all-preview' && method === 'GET') {
-    if (!isAdmin) return json({ error: 'Access denied: clearing financial report data requires admin access' }, 403);
-    const counts = {};
-    for (const t of CLEAR_TABLES) {
-      const r = await db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first();
-      counts[t] = r?.n || 0;
-    }
-    return json({ counts });
-  }
-  if (seg === 'finance/church/clear-all' && method === 'POST') {
-    if (!isAdmin) return json({ error: 'Access denied: clearing financial report data requires admin access' }, 403);
-    const b = await req.json().catch(() => ({}));
-    const confirmCounts = b.confirm_counts || {};
-    const result = await clearChurchReport(db, confirmCounts);
-    if (result.error) return json(result, result.status);
-    const actualCounts = result.cleared;
-    try {
-      await db.prepare(
-        `INSERT INTO audit_log(action,entity_type,entity_id,person_name,field,old_value,new_value) VALUES(?,?,?,?,?,?,?)`
-      ).bind('clear_finance_report_data', 'finance', null, '', CLEAR_TABLES.join(','), '', JSON.stringify(actualCounts)).run();
-    } catch { /* audit log is best-effort, never block the clear on it */ }
-    return json({ ok: true, cleared: actualCounts });
-  }
-
   // ── Church Report v2: Budget import (backfill/resilience path when live QuickBooks sync
   // isn't available — see FIN2 — or to correct a bad sync) ─────────────────────────────────
   // Preview step: parse the uploaded "Budget vs. Actuals" .xlsx server-side and return the flat
@@ -4945,6 +4908,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // pattern as Tuition Aid's TAP10 import) and only the checked rows get sent to the commit
   // step below.
   if (seg === 'finance/church/import-preview' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const form = await req.formData().catch(() => null);
     const file = form && form.get('file');
     if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
@@ -4964,6 +4928,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // Commit step: persist the (possibly-filtered, per the preview's checkboxes) rows for one
   // fiscal year — wholesale-replaces any existing source='import' rows for that year only.
   if (seg === 'finance/church/import' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
     const fiscalYear = parseInt(b.fiscal_year, 10);
     if (!Number.isFinite(fiscalYear)) return json({ error: 'fiscal_year is required' }, 400);
@@ -4982,6 +4947,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // instead of one Actual/Budget pair, so it needs its own sheet-finder/parser, but reuses the
   // same preview-then-commit shape and the same xlsx-reading infrastructure. ─────────────────
   if (seg === 'finance/church/monthly-import-preview' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const form = await req.formData().catch(() => null);
     const file = form && form.get('file');
     if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
@@ -5011,6 +4977,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // driven by each row's own fiscal_year so one multi-year file can be committed in whatever
   // slices the caller chooses (the UI sends one year at a time, for progress and payload size).
   if (seg === 'finance/church/monthly-import' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
     const rows = Array.isArray(b.rows) ? b.rows : [];
     if (!rows.length) return json({ error: 'No rows to import' }, 400);
@@ -5056,6 +5023,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // file spans many fiscal years, unlike the annual/monthly imports above, so the commit step
   // takes a `years` array and persists all of them in a single call. ─────────────────────────
   if (seg === 'finance/church/activity-import-preview' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const form = await req.formData().catch(() => null);
     const file = form && form.get('file');
     if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
@@ -5075,6 +5043,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // a row only ever carries own_actual_cents OR own_budget_cents, never both, since Activity and
   // Budget by Year are two separate files each supplying one field.
   if (seg === 'finance/church/activity-import' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
     const years = Array.isArray(b.years) ? b.years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
     if (!years.length) return json({ error: 'years is required' }, 400);
@@ -5093,6 +5062,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // actual-only. Shares the 'import_activity' source and the same field-preserving merge, so
   // uploading this and the Activity file (in either order) combines into complete rows.
   if (seg === 'finance/church/budget-multi-year-import-preview' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const form = await req.formData().catch(() => null);
     const file = form && form.get('file');
     if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
@@ -5108,6 +5078,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     return json({ sheetName: sheet.name, years: parsed.years, rows: parsed.rows, skipped: parsed.skipped });
   }
   if (seg === 'finance/church/budget-multi-year-import' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
     const years = Array.isArray(b.years) ? b.years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
     if (!years.length) return json({ error: 'years is required' }, 400);
@@ -5126,6 +5097,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // balance sheet is a fundamentally different report (point-in-time Assets/Liabilities/Equity,
   // no actual-vs-budget split) — see migrations/0019_finance_church_balances.sql.
   if (seg === 'finance/church/balances/import-preview' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const form = await req.formData().catch(() => null);
     const file = form && form.get('file');
     if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
@@ -5146,6 +5118,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   }
 
   if (seg === 'finance/church/balances/import' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
     const fiscalYear = parseInt(b.fiscal_year, 10);
     if (!Number.isFinite(fiscalYear)) return json({ error: 'fiscal_year is required' }, 400);
@@ -5169,6 +5142,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // ── Church Report: "Statement of Financial Position" multi-year import (one file spans many
   // fiscal years, like the Statement of Activity import above) ───────────────────────────────
   if (seg === 'finance/church/balances/multi-year-import-preview' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const form = await req.formData().catch(() => null);
     const file = form && form.get('file');
     if (!file || typeof file.arrayBuffer !== 'function') return json({ error: 'No file uploaded' }, 400);
@@ -5187,6 +5161,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   }
 
   if (seg === 'finance/church/balances/multi-year-import' && method === 'POST') {
+    if (!isAdmin) return json({ error: 'Access denied: importing financial data requires admin access' }, 403);
     const b = await req.json().catch(() => ({}));
     const years = Array.isArray(b.years) ? b.years.map(y => parseInt(y, 10)).filter(Number.isFinite) : [];
     if (!years.length) return json({ error: 'years is required' }, 400);

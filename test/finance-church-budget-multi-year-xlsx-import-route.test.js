@@ -73,8 +73,8 @@ describe('Church Report — Budget by Year multi-year .xlsx import form and rela
     expect(html).not.toContain('/api/v1/connect-church-budget-multi-year-xlsx-preview');
   });
 
-  it('shows the import form for a verified finance-role viewer -- not admin-only, unlike the annual Budget vs. Actuals import', async () => {
-    const env = roleEnv('finance', async () => new Response('not found', { status: 404 }));
+  it('shows the import form for an admin viewer (imports are admin-only, 2026-09-25)', async () => {
+    const env = roleEnv('admin', async () => new Response('not found', { status: 404 }));
     const res = await worker.fetch(new Request('https://finance.test/?section=church&page=trend', {
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
@@ -90,13 +90,16 @@ describe('Church Report — Budget by Year multi-year .xlsx import form and rela
     expect(overviewHtml).not.toContain('/api/v1/connect-church-budget-multi-year-xlsx-import-write');
   });
 
-  it('shows the import form for a council viewer explicitly granted finance edit access', async () => {
+  it('hides the import form from council and finance viewers, even with finance edit access', async () => {
     const env = roleEnv('council', async () => new Response('not found', { status: 404 }), { finance: 'edit' });
     const res = await worker.fetch(new Request('https://finance.test/?section=church&page=trend', {
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
     const html = await res.text();
-    expect(html).toContain('/api/v1/connect-church-budget-multi-year-xlsx-preview');
+    expect(html).not.toContain('/api/v1/connect-church-budget-multi-year-xlsx-preview');
+    const financeEnv = roleEnv('finance', async () => new Response('not found', { status: 404 }));
+    const financeRes = await worker.fetch(new Request('https://finance.test/?section=church&page=trend', { headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' } }), financeEnv);
+    expect(await financeRes.text()).not.toContain('/api/v1/connect-church-budget-multi-year-xlsx-preview');
   });
 
   it('redirects to a no_file error when no file was attached', async () => {
@@ -159,7 +162,7 @@ describe('Church Report — Budget by Year multi-year .xlsx import form and rela
     const sentBody = JSON.parse(await captured.text());
     expect(sentBody.file_base64).toBe(await bytesToBase64FromString(content));
 
-    const shownEnv = roleEnv('finance', async () => new Response('not found', { status: 404 }));
+    const shownEnv = roleEnv('admin', async () => new Response('not found', { status: 404 }));
     const shown = await worker.fetch(new Request(location.toString(), { headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' } }), shownEnv);
     const html = await shown.text();
     expect(html).toContain('Imported into Connect.');
@@ -173,7 +176,7 @@ describe('Church Report — Budget by Year multi-year .xlsx import form and rela
     expect(location.searchParams.get('reason')).toBe('http_error');
     expect(location.searchParams.get('message')).toBe('Access denied');
 
-    const shownEnv = roleEnv('finance', async () => new Response('not found', { status: 404 }));
+    const shownEnv = roleEnv('admin', async () => new Response('not found', { status: 404 }));
     const shown = await worker.fetch(new Request(location.toString(), { headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' } }), shownEnv);
     const html = await shown.text();
     expect(html).toContain('Not imported: Access denied');

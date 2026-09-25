@@ -1306,21 +1306,9 @@ async function handleFinanceChurchBalancesXlsxCommitContract(req, env) {
   return json({ ...result, savedBy: auth.user.username });
 }
 
-async function authorizeFinanceEditImport(req, env) {
-  const teamDomain = env.FINANCE_ACCESS_TEAM_DOMAIN || '';
-  const audience = env.FINANCE_ACCESS_AUD || '';
-  if (!teamDomain || !audience) return { response: json({ error: 'Access verification not configured' }, 503) };
-  const email = await verifyAccessJwt(req.headers.get('Cf-Access-Jwt-Assertion') || '', { teamDomain, audience });
-  if (!email) return { response: json({ error: 'Unauthorized' }, 401) };
-  const user = await env.DB.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
-  if (!user) return { response: json({ error: 'No matching active Connect account for this identity' }, 403) };
-  const perms = await getRolePermissions(env.DB);
-  if (permissionsForRole(perms, user.role).finance !== 'edit') return { response: json({ error: 'Access denied' }, 403) };
-  return { user };
-}
 
 async function handleFinanceMultiPeriodXlsxPreviewContract(req, env, kind) {
-  const auth = await authorizeFinanceEditImport(req, env);
+  const auth = await authorizeChurchFinancialImport(req, env);
   if (auth.response) return auth.response;
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
@@ -1332,7 +1320,7 @@ async function handleFinanceMultiPeriodXlsxPreviewContract(req, env, kind) {
 }
 
 async function handleFinanceMultiPeriodXlsxCommitContract(req, env, kind) {
-  const auth = await authorizeFinanceEditImport(req, env);
+  const auth = await authorizeChurchFinancialImport(req, env);
   if (auth.response) return auth.response;
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
@@ -1370,9 +1358,8 @@ async function handleFinanceChurchMonthlyXlsxImportContract(req, env) {
   const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
   if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
 
-  const perms = await getRolePermissions(db);
-  const rolePerms = permissionsForRole(perms, user.role);
-  if (rolePerms.finance !== 'edit') return json({ error: 'Access denied' }, 403);
+  // Imports are admin-only in Finance (Andrew, 2026-09-25), matching the annual imports above.
+  if (user.role !== 'admin') return json({ error: 'Access denied: importing church financial data requires admin access' }, 403);
 
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
@@ -1403,9 +1390,8 @@ async function handleFinanceChurchActivityXlsxImportContract(req, env) {
   const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
   if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
 
-  const perms = await getRolePermissions(db);
-  const rolePerms = permissionsForRole(perms, user.role);
-  if (rolePerms.finance !== 'edit') return json({ error: 'Access denied' }, 403);
+  // Imports are admin-only in Finance (Andrew, 2026-09-25), matching the annual imports above.
+  if (user.role !== 'admin') return json({ error: 'Access denied: importing church financial data requires admin access' }, 403);
 
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
@@ -1435,9 +1421,8 @@ async function handleFinanceChurchBudgetMultiYearXlsxImportContract(req, env) {
   const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
   if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
 
-  const perms = await getRolePermissions(db);
-  const rolePerms = permissionsForRole(perms, user.role);
-  if (rolePerms.finance !== 'edit') return json({ error: 'Access denied' }, 403);
+  // Imports are admin-only in Finance (Andrew, 2026-09-25), matching the annual imports above.
+  if (user.role !== 'admin') return json({ error: 'Access denied: importing church financial data requires admin access' }, 403);
 
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
@@ -1469,9 +1454,8 @@ async function handleFinanceChurchBalancesMultiYearXlsxImportContract(req, env) 
   const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
   if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
 
-  const perms = await getRolePermissions(db);
-  const rolePerms = permissionsForRole(perms, user.role);
-  if (rolePerms.finance !== 'edit') return json({ error: 'Access denied' }, 403);
+  // Imports are admin-only in Finance (Andrew, 2026-09-25), matching the annual imports above.
+  if (user.role !== 'admin') return json({ error: 'Access denied: importing church financial data requires admin access' }, 403);
 
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }
@@ -1591,10 +1575,8 @@ async function handleFinanceDaycareChurchBudgetImportWriteContract(req, env) {
   const user = await db.prepare(`SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`).bind(email).first();
   if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
 
-  const perms = await getRolePermissions(db);
-  const rolePerms = permissionsForRole(perms, user.role);
-  const canEnterDaycare = ['finance', 'budget', 'compensation'].some((item) => rolePerms[item] === 'edit');
-  if (!canEnterDaycare) return json({ error: 'Access denied' }, 403);
+  // Imports are admin-only in Finance (Andrew, 2026-09-25).
+  if (user.role !== 'admin') return json({ error: 'Access denied: importing daycare budget data requires admin access' }, 403);
 
   let body;
   try { body = await req.json(); } catch { return json({ error: 'Invalid JSON body' }, 400); }

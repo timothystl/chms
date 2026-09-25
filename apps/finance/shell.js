@@ -991,15 +991,9 @@ function renderSectionBody(ctx) {
     // UI hiding is never authorization, the real gate is finance-church-actual-override-v1's own
     // role check on Connect's side, but there's no reason to show a form that will only 403.
     const canManageChurchReport = roleResult.ok && roleResult.role === 'admin';
-    // Looser gate for the Activity/Budget-by-Year multi-year .xlsx import forms on Multi-year
-    // trend -- unlike canManageChurchReport above, the legacy finance/church/activity-import(-
-    // preview)/finance/church/budget-multi-year-import(-preview) routes carry no isAdmin check of
-    // their own, only the same blanket "finance edit" ACCESS_GATE finance/daycare's own relayed
-    // forms already use (canRecordDaycareEntry below) -- verified directly against
-    // src/api-chms.js's source, not assumed. Any verified role may attempt it; Connect's own
-    // contract handler re-derives the real permission-matrix check independently of what this
-    // form shows or hides (UI hiding is never authorization).
-    const canImportChurchMultiYear = roleResult.ok;
+    // Every import is admin-only (Andrew, 2026-09-25); Connect's relay contracts enforce the same
+    // rule, so hiding the forms from other roles only avoids offering a guaranteed 403.
+    const canImportChurchMultiYear = roleResult.ok && roleResult.role === 'admin';
     return renderChurchPage(page.id, {
       churchReport: churchReportLive, churchTrendLive, canManageChurchReport, churchOverrideStatus, churchOverrideMessage,
       // Same admin-only gate as canManageChurchReport above -- the Budget vs. Actuals .xlsx import
@@ -1017,10 +1011,8 @@ function renderSectionBody(ctx) {
     // finance/church/balances/import(-preview) routes -- UI hiding is never authorization, the
     // real gate is finance-church-balances-xlsx-import-v1's own role check on Connect's side.
     const canManageBalanceImport = roleResult.ok && roleResult.role === 'admin';
-    // Looser gate for the multi-year .xlsx import form on Multi-year position -- the legacy
-    // finance/church/balances/multi-year-import(-preview) route carries no isAdmin check of its
-    // own either, same reasoning as canImportChurchMultiYear above.
-    const canImportBalanceMultiYear = roleResult.ok;
+    // Admin-only, like every import (see canImportChurchMultiYear above).
+    const canImportBalanceMultiYear = roleResult.ok && roleResult.role === 'admin';
     return renderBalancePage(page.id, {
       balanceSheet, balanceTrends, canManageBalanceImport, balanceXlsxImportStatus, balanceXlsxImportMessage,
       canImportBalanceMultiYear, balanceMultiYearXlsxImportStatus, balanceMultiYearXlsxImportMessage,
@@ -1044,6 +1036,8 @@ function renderSectionBody(ctx) {
     const canSyncDaycareRooms = roleResult.ok && roleResult.role === 'admin';
     return renderDaycarePage(page.id, {
       daycareReport: daycareReportLive, daycareEntries, daycareEditId, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage,
+      // Admin-only like every import (Andrew, 2026-09-25); Connect's relay enforces the same rule.
+      canImportDaycareChurchBudget: roleResult.ok && roleResult.role === 'admin',
       canManageDaycareAllocation, daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
       canManageDaycareBudgetOverride, daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
       daycareBulkEntryStatus, daycareBulkEntryMessage,

@@ -194,7 +194,7 @@ function renderDaycareEntryList(daycareEntries, daycareEditId, canManage) {
 }
 
 export function renderDaycarePage(pageId, {
-  daycareReport, daycareEntries = null, daycareEditId = null, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage,
+  daycareReport, daycareEntries = null, daycareEditId = null, canRecordDaycareEntry, canImportDaycareChurchBudget = false, daycareEntryStatus, daycareEntryMessage,
   canManageDaycareAllocation, daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
   canManageDaycareBudgetOverride, daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
   daycareBulkEntryStatus, daycareBulkEntryMessage,
@@ -221,7 +221,7 @@ export function renderDaycarePage(pageId, {
       ${fallbackNote}
     </section>${renderDaycareEntryList(daycareEntries, daycareEditId, canRecordDaycareEntry)}${canRecordDaycareEntry ? renderDaycareEntryForm(report.period, daycareEntryStatus, daycareEntryMessage) : ''}
     ${canRecordDaycareEntry ? renderDaycareBulkForm(daycareBulkEntryStatus, daycareBulkEntryMessage) : ''}
-    ${canRecordDaycareEntry ? renderDaycareChurchBudgetImportForm(daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage) : ''}`;
+    ${canImportDaycareChurchBudget ? renderDaycareChurchBudgetImportForm(daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage) : ''}`;
   }
   if (pageId === 'budget-comparison') {
     return `<section class="report" aria-label="Daycare Report budget comparison">
