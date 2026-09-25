@@ -47,6 +47,10 @@ This list began with the synthetic alpha; service files now also contain live re
 noted above. Consult their source and the page registry for current per-page behavior.
 
 - `shell.js` — Cloudflare Worker entry point and safe health endpoint.
+- `shell-layout.js` — v3 design shell: header with “Viewing as” (verified role or council preview), grouped sidebar filtered by verified role, page title, and the shared stylesheet.
+- `health-pages.js` — Financial Health's v3 Summary (default) and By-entity views; Full detail is the original page (`?view=detail`).
+- `facilities-service.js`, `facilities-pages.js`, `facilities-routes.js` — Facilities (asset register, service history, preventive maintenance, capital projects) in Finance's own tables from migration `0010_finance_facilities.sql`. Editing requires a verified admin, or a finance/staff role with Finance edit permission, and a same-origin form post. `fixtures/0013_synthetic_facilities.sql` is staging-only sample data. `deploy-finance.yml` applies pending D1 migrations before deploying.
+- `brand-assets.js` — self-hosted logo and Outfit/Figtree fonts, served from `/assets/*` so the CSP stays same-origin with no script.
 - `version.js` — intentional semantic prerelease version.
 - `migrations/` — Finance-only D1 migration ledger; never targets the shared Connect database.
 - `migration/` — Stage 1 data-migration tooling (copy-and-verify for the schema-matching production tables, plus finance_settings translation); a one-time admin script, never a Worker route, and not yet run against any real database.

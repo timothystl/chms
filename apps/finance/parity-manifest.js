@@ -11,9 +11,11 @@
 //                                 of guessing at data or hiding the nav entry.
 // `resolveFinanceSection()` and every permission check still key off the top-level `id`, exactly
 // as before PR #961 and the sub-page breakout -- `pages`/`group` are additive display metadata.
+const HR_PENDING = 'HR & Staff is new in this design. No personnel-record table exists in Finance yet; this page will show real records once that admin-only storage ships.';
+
 export const FINANCE_PARITY_SECTIONS = Object.freeze([
   {
-    id: 'health', label: 'Financial Health', group: 'Dashboard', permission: 'finance',
+    id: 'health', label: 'Financial Health', group: 'Financial Health', permission: 'finance',
     capabilities: ['KPI health', 'giving pace', 'cash runway', 'revenue and expense mix', 'entity overview', 'money flow'],
     pages: [{ id: 'overview', label: 'Are we okay?', status: 'live' }],
   },
@@ -38,6 +40,7 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
       { id: 'pledges', label: 'Pledges', status: 'unavailable', reason: 'There is no pledge table anywhere in Connect or Finance today. This is a new feature, not a missing report.' },
       { id: 'what-if', label: 'Giving what-if', status: 'unavailable', reason: 'Modeling depends on the Trends data above, which does not exist yet.' },
       { id: 'statements', label: 'Giving statements', status: 'unavailable', reason: 'Donor-level statements need donor-level records. The contract Finance consumes is aggregate-only on purpose -- this needs a deliberate, approved change to what Connect shares with Finance, not just a new page.' },
+      { id: 'nudges', label: 'Giving nudges', status: 'unavailable', reason: 'Nudges (first-time givers to thank, regular givers who have stopped) need donor-level gift history. Finance deliberately receives aggregate-only Giving, so this belongs in Connect beside the donor records.' },
     ],
   },
   {
@@ -97,6 +100,20 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
       { id: 'distributions', label: 'Distributions', status: 'live' },
       { id: 'debt', label: 'Debt payoff & future', status: 'unavailable', reason: 'The monthly property table has loan-payment and interest-expense columns, but the synthetic fixture leaves them empty and nothing populates them yet -- there is no loan schedule to project.' },
       { id: 'acquisition', label: 'Acquisition model', status: 'unavailable', reason: 'There is no purchase-price or pro-forma data structure for a hypothetical acquisition -- this is a new modeling feature, not a missing report.' },
+    ],
+  },
+  // Facilities is new in the v3 design: an asset register with service history, capital projects,
+  // and a preventive-maintenance schedule, stored in Finance's own tables (migration 0010,
+  // facilities-service.js).
+  {
+    id: 'facilities', label: 'Facilities', group: 'Facilities', permission: 'finance',
+    capabilities: ['asset register', 'service history', 'capital projects', 'preventive maintenance'],
+    pages: [
+      { id: 'overview', label: 'Overview', status: 'live' },
+      { id: 'assets', label: 'Assets', status: 'live' },
+      { id: 'service-history', label: 'Service history', status: 'live' },
+      { id: 'capital-projects', label: 'Capital projects', status: 'live' },
+      { id: 'preventive-maintenance', label: 'Preventive maintenance', status: 'live' },
     ],
   },
   // The Budget builder is real now too, via the connect.finance-budget.v1 contract (real planned
@@ -177,6 +194,22 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
   // approval, and reports as client-side tabs inside one page -- splitting it into separate
   // server routes would fight that existing, working structure rather than improve it.
   { id: 'payroll', label: 'Payroll', group: 'Payroll', permission: 'admin', capabilities: ['staff roster', 'hours and PTO entry', 'period approval', 'MDO hours integration', 'reports', 'CSV export', 'email the report', 'relayed live to Website, never stored in Finance'], pages: [{ id: 'workspace', label: 'Payroll', status: 'live' }] },
+  // HR & Staff is new in the v3 design and holds staff personnel records, so it is admin-only
+  // (the design's own label: admin and lead pastor only). No table exists yet.
+  {
+    id: 'hr', label: 'HR & Staff', group: 'HR & Staff', permission: 'admin',
+    capabilities: ['staff directory', 'org chart', 'performance reviews', 'background checks and certifications', 'required trainings', 'policies', 'benefits enrollment', 'volunteer screening'],
+    pages: [
+      { id: 'directory', label: 'Staff directory', status: 'unavailable', reason: HR_PENDING },
+      { id: 'org-chart', label: 'Org chart & job descriptions', status: 'unavailable', reason: HR_PENDING },
+      { id: 'reviews', label: 'Performance reviews', status: 'unavailable', reason: HR_PENDING },
+      { id: 'checks', label: 'Background checks & certs', status: 'unavailable', reason: HR_PENDING },
+      { id: 'trainings', label: 'Required trainings', status: 'unavailable', reason: HR_PENDING },
+      { id: 'policies', label: 'Policies & handbook', status: 'unavailable', reason: HR_PENDING },
+      { id: 'benefits', label: 'Benefits enrollment', status: 'unavailable', reason: HR_PENDING },
+      { id: 'volunteers', label: 'Volunteer screening', status: 'unavailable', reason: HR_PENDING },
+    ],
+  },
 ].map((section) => Object.freeze({
   ...section,
   capabilities: Object.freeze(section.capabilities),
@@ -195,9 +228,9 @@ export function resolveFinancePage(section, pageId) {
 
 // Explicit sidebar group order, independent of each section's position in FINANCE_PARITY_SECTIONS.
 const GROUP_ORDER = [
-  'Dashboard', 'Gift Entry', 'Giving', 'Charts', 'Church', 'Balance Sheet', 'Daycare',
-  'Commercial Property', 'Planning', 'Compensation', 'Payroll', 'QuickBooks', 'Board packet',
-  'Accounts & Data',
+  'Financial Health', 'Gift Entry', 'Giving', 'Charts', 'Church', 'Balance Sheet', 'Daycare',
+  'Commercial Property', 'Facilities', 'Planning', 'Compensation', 'Payroll', 'HR & Staff',
+  'QuickBooks', 'Board packet', 'Accounts & Data',
 ];
 
 export function groupFinanceSections(sections = FINANCE_PARITY_SECTIONS) {

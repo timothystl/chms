@@ -58,6 +58,8 @@ const DB_WRITE_ROUTE_IDS = new Set([
   'compensation-plan-save-v1', 'property-reserve-entry-v1', 'property-reserve-disbursement-entry-v1',
   'property-distribution-entry-v1', 'property-capital-ledger-entry-v1',
   'compensation-raise-plan-save-v1', 'compensation-council-draft-save-v1',
+  'facilities-asset-save-v1', 'facilities-service-log-v1', 'facilities-service-remove-v1',
+  'facilities-pm-save-v1', 'facilities-pm-done-v1', 'facilities-project-save-v1',
 ]);
 
 describe('Finance staging route manifest', () => {
@@ -65,7 +67,7 @@ describe('Finance staging route manifest', () => {
     const paths = FINANCE_ROUTE_MANIFEST.flatMap((route) => route.paths);
     expect(new Set(paths).size).toBe(paths.length);
     expect(paths).toEqual([
-      '/', '/index.html', '/health', '/api/v1/summary',
+      '/', '/index.html', '/health', '/assets/tlc-logo.png', '/assets/fonts/outfit.woff2', '/assets/fonts/figtree.woff2', '/api/v1/summary',
       '/api/v1/connect-giving-preview', '/api/v1/connect-giving-transport-evidence',
       '/api/v1/connect-giving-quick-entry', '/api/v1/budget-plan-save', '/api/v1/connect-budget-plan-write', '/api/v1/connect-compensation-plan-write',
       '/api/v1/connect-budget-generate', '/api/v1/connect-budget-generate-all', '/api/v1/connect-budget-commit', '/api/v1/connect-budget-plan-remove',
@@ -93,6 +95,8 @@ describe('Finance staging route manifest', () => {
       '/api/v1/connect-daycare-bulk-write', '/api/v1/connect-daycare-church-budget-import-write',
       '/api/v1/connect-daycare-entry-edit', '/api/v1/connect-daycare-entry-remove',
       '/api/v1/connect-daycare-sync', '/api/v1/connect-daycare-rooms-sync',
+      '/api/v1/facilities/asset-save', '/api/v1/facilities/service-log', '/api/v1/facilities/service-remove',
+      '/api/v1/facilities/pm-save', '/api/v1/facilities/pm-done', '/api/v1/facilities/project-save',
       '/api/summary', '/api/v1/payroll-relay-diagnostic',
       '/api/v1/payroll-hours-save', '/api/v1/payroll-period-approve',
       '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
@@ -153,7 +157,7 @@ describe('Finance staging route manifest', () => {
     expect(resolveFinanceRoute('/api/v1/summary')).toMatchObject({
       id: 'summary-v1', contract: 'finance.summary.v1', dataSource: 'synthetic-d1',
     });
-    expect(resolveFinanceRoute('/').optionalQueryBudgets).toEqual(['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'compensationPlanRaw', 'cashRunway']);
+    expect(resolveFinanceRoute('/').optionalQueryBudgets).toEqual(['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'compensationPlanRaw', 'cashRunway', 'facilities']);
     expect(resolveFinanceRoute('/api/v1/connect-giving-transport-evidence')).toMatchObject({
       id: 'giving-transport-evidence-v1', contract: 'finance.connect-giving-transport-evidence.v1', dataSource: 'synthetic-static',
     });
