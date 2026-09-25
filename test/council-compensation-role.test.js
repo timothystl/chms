@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { handleAdminApi } from '../src/api-admin.js';
 import { authCookieHeader } from '../src/auth.js';
+import { saveCouncilOverlay } from '../apps/finance/compensation-council-overlay.js';
 
 // Council gets a narrower, per-user slice of the Compensation Planner. Finance is three
 // independently grantable items for every configurable role (see financeSegItems in
@@ -205,29 +206,36 @@ describe('council role — Compensation Planner reads', () => {
 });
 
 describe('council role — saving the plan', () => {
-  it('saves only the raise-plan fields, into a key scoped to this username', async () => {
-    const r = await call('council', 'elder1', 'finance/planning/salary', 'PUT', {
+  // Council drafts are written by Finance's own writer now (apps/finance/compensation-council-overlay.js),
+  // straight into the same finance_settings row. This adapter gives it the in-memory database.
+  const financeDb = {
+    prepare(sql) {
+      return { bind: (...args) => ({ run: async () => sqlite.prepare(sql).run(...args) }) };
+    },
+  };
+  const saveDraft = (username, overlay) => saveCouncilOverlay(financeDb, username, overlay);
+
+  it('refuses council saves in Connect, pointing to Finance, and writes nothing', async () => {
+    const r = await call('council', 'elder1', 'finance/planning/salary', 'PUT', { compMethod: 'custom', compCustomPct: 4.25 });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatch(/saved in Finance/);
+    expect(sqlite.prepare("SELECT value FROM finance_settings WHERE key='finance_salary_planner_council_elder1'").get()).toBeFalsy();
+  });
+
+  it("Finance's writer keeps only the raise-plan fields, in the key Connect reads for this username", async () => {
+    await saveDraft('Elder1', {
       roster: [{ name: 'Smuggled Seed Edit', actualSalaryCents: 1 }],
       compMethod: 'custom', compCustomPct: 4.25, compBaselineRosterOnly: true,
-      compOverrides: { 0: '999999' },
-      targetCategory: 'Smuggled Category',
+      compOverrides: { 0: '999999' }, targetCategory: 'Smuggled Category',
     });
-    expect(r.status).toBe(200);
     const stored = JSON.parse(sqlite.prepare("SELECT value FROM finance_settings WHERE key='finance_salary_planner_council_elder1'").get().value);
-    expect(stored.compMethod).toBe('custom');
-    expect(stored.compCustomPct).toBe(4.25);
-    expect(stored.compBaselineRosterOnly).toBe(true);
-    // Everything outside COUNCIL_EDITABLE_FIELDS is dropped, even though the client sent it.
-    expect(stored.roster).toBeUndefined();
-    expect(stored.compOverrides).toBeUndefined();
-    expect(stored.targetCategory).toBeUndefined();
-    // And the shared admin/finance roster was never touched.
+    expect(stored).toEqual({ compMethod: 'custom', compCustomPct: 4.25, compBaselineRosterOnly: true });
     expect(sqlite.prepare("SELECT value FROM finance_settings WHERE key='finance_salary_planner'").get()).toBeFalsy();
   });
 
-  it('never lets a council save overwrite the real admin/finance plan', async () => {
+  it('never lets a council draft overwrite the real admin/finance plan', async () => {
     await call('admin', '', 'finance/planning/salary', 'PUT', { roster: [{ name: 'Admin Worker' }], compMethod: 'cola' });
-    await call('council', 'elder1', 'finance/planning/salary', 'PUT', { compMethod: 'custom', compCustomPct: 10 });
+    await saveDraft('elder1', { compMethod: 'custom', compCustomPct: 10 });
     const adminRead = await call('admin', '', 'finance/planning/salary', 'GET');
     expect(adminRead.body.data.roster[0].name).toBe('Admin Worker');
     expect(adminRead.body.data.compMethod).toBe('cola');
@@ -237,25 +245,24 @@ describe('council role — saving the plan', () => {
     await call('admin', '', 'finance/planning/salary', 'PUT', {
       roster: [{ name: 'Real Worker', actualSalaryCents: 5000000 }], compMethod: 'cola',
     });
-    await call('council', 'elder1', 'finance/planning/salary', 'PUT', { compMethod: 'custom', compScalePct: 90 });
+    await saveDraft('elder1', { compMethod: 'custom', compScalePct: 90 });
     const r = await call('council', 'elder1', 'finance/planning/salary', 'GET');
-    expect(r.body.data.roster[0].name).toBe('Real Worker');       // seed data: the real roster
+    expect(r.body.data.roster[0].name).toBe('Real Worker');
     expect(r.body.data.roster[0].actualSalaryCents).toBe(5000000);
-    expect(r.body.data.compMethod).toBe('custom');                // this member's own plan choice
+    expect(r.body.data.compMethod).toBe('custom');
     expect(r.body.data.compScalePct).toBe(90);
   });
 
   it('two council members never see or overwrite each other\'s plan', async () => {
     await call('admin', '', 'finance/planning/salary', 'PUT', { roster: [{ name: 'Real Worker' }], compMethod: 'cola' });
-    await call('council', 'elder1', 'finance/planning/salary', 'PUT', { compMethod: 'custom', compCustomPct: 2 });
-    await call('council', 'elder2', 'finance/planning/salary', 'PUT', { compMethod: 'scalepct', compScalePct: 80 });
+    await saveDraft('elder1', { compMethod: 'custom', compCustomPct: 2 });
+    await saveDraft('elder2', { compMethod: 'scalepct', compScalePct: 80 });
     const r1 = await call('council', 'elder1', 'finance/planning/salary', 'GET');
     const r2 = await call('council', 'elder2', 'finance/planning/salary', 'GET');
     expect(r1.body.data.compMethod).toBe('custom');
     expect(r1.body.data.compCustomPct).toBe(2);
     expect(r2.body.data.compMethod).toBe('scalepct');
     expect(r2.body.data.compScalePct).toBe(80);
-    // Both still see the same real roster underneath.
     expect(r1.body.data.roster[0].name).toBe('Real Worker');
     expect(r2.body.data.roster[0].name).toBe('Real Worker');
   });

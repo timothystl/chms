@@ -343,12 +343,14 @@ async function handleStaffRoleContract(req, env) {
   if (!email) return json({ error: 'Unauthorized' }, 401);
 
   const user = await env.DB.prepare(
-    `SELECT role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`
+    `SELECT username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`
   ).bind(email).first();
   if (!user) return json({ error: 'No matching active Connect account for this identity' }, 403);
 
   const permissions = permissionsForRole(await getRolePermissions(env.DB), user.role);
-  return json({ role: user.role, identity: email, permissions });
+  // username keys a council member's private raise-plan overlay, which Finance now writes itself
+  // (apps/finance/compensation-council-overlay.js).
+  return json({ role: user.role, identity: email, username: user.username || '', permissions });
 }
 
 // ── Giving quick-entry, relayed from Finance's own UI ───────────────────────

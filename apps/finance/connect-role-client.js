@@ -45,6 +45,8 @@ export async function fetchVerifiedRole(env, accessJwt) {
       ? { permissions: payload.permissions } : {}),
     ...(typeof payload.identity === 'string' && payload.identity.trim()
       ? { identity: payload.identity.trim().toLowerCase() } : {}),
+    ...(typeof payload.username === 'string' && payload.username.trim()
+      ? { username: payload.username.trim() } : {}),
   };
 }
 
