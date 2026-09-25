@@ -188,11 +188,9 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
   // payroll proxy and payroll/email and (now) push/payroll-ready routes the same way Giving
   // Entry relays to Connect (never stored in Finance) -- see payroll-section.js,
   // payroll-calc.js, payroll-proxy-client.js, payroll-email-client.js, and
-  // payroll-ready-client.js. Kept as one nav entry rather than split into the redesign's four
-  // sub-pages: renderPayrollSection() already implements staff roster, hours & PTO, period
-  // approval, and reports as client-side tabs inside one page -- splitting it into separate
-  // server routes would fight that existing, working structure rather than improve it.
-  { id: 'payroll', label: 'Payroll', group: 'Payroll', permission: 'admin', capabilities: ['staff roster', 'hours and PTO entry', 'period approval', 'MDO hours integration', 'reports', 'CSV export', 'email the report', 'relayed live to Website, never stored in Finance'], pages: [{ id: 'workspace', label: 'Payroll', status: 'live' }] },
+  // payroll-ready-client.js. Split into the v3 design's five pages (payroll-pages.js), all
+  // rendered from the same one live workspace read; old ?view= links map onto them.
+  { id: 'payroll', label: 'Payroll', group: 'Payroll', permission: 'admin', capabilities: ['staff roster', 'hours and PTO entry', 'period approval', 'MDO hours integration', 'reports', 'CSV export', 'email the report', 'relayed live to Website, never stored in Finance'], pages: [{ id: 'run', label: 'Run payroll', status: 'live' }, { id: 'staff', label: 'Staff entry', status: 'live' }, { id: 'mdo', label: 'Import from MDO', status: 'live' }, { id: 'report', label: 'Email / print', status: 'live' }, { id: 'history', label: 'History', status: 'live' }] },
   // HR & Staff is new in the v3 design and holds staff personnel records, so it is admin-only
   // (the design's own label: admin and lead pastor only). Church staff and key volunteers live
   // in Finance's own tables (migration 0011, hr-service.js); daycare staff stay in myMDO.

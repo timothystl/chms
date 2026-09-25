@@ -64,8 +64,53 @@ describe('Finance Payroll section — entry view', () => {
   it('appears in the workspace navigation', async () => {
     const res = await get(rpcEnv(), '/?section=payroll');
     const html = await res.text();
-    expect(html).toContain('href="/?section=payroll"');
-    expect(html).toContain('>Payroll<');
+    expect(html).toContain('>Payroll<span class="nav-count">5</span>');
+    for (const [page, label] of [['run', 'Run payroll'], ['staff', 'Staff entry'], ['mdo', 'Import from MDO'], ['report', 'Email / print'], ['history', 'History']]) {
+      expect(html).toContain(`href="/?section=payroll&amp;page=${page}"`);
+      expect(html).toContain(`>${label}</a>`);
+    }
+    expect(html).toContain('<h1 class="page-title">Run payroll</h1>');
+  });
+
+  it('maps older ?view= links onto the new pages', async () => {
+    expect(await (await get(rpcEnv(), '/?section=payroll&view=report')).text()).toContain('<h1 class="page-title">Email / print</h1>');
+    expect(await (await get(rpcEnv(), '/?section=payroll&view=staff-form&id=new')).text()).toContain('Add a person');
+  });
+
+  it('shows MDO staff, read live, on Import from MDO', async () => {
+    const env = rpcEnv({
+      payroll_get_mdo_staff: async () => new Response(JSON.stringify([{ id: 'm1', name: 'Childcare Carla', role: 'Teacher', pay_type: 'hourly', hourly_rate: 15 }]), { status: 200 }),
+      payroll_get_mdo_hours: async () => new Response(JSON.stringify([{ staff_id: 'm1', work_date: '2026-06-08', hours_worked: '10' }]), { status: 200 }),
+    });
+    const html = await (await get(env, '/?section=payroll&page=mdo&period=2026-06-08')).text();
+    expect(html).toContain('Childcare Carla');
+    expect(html).toContain('$15.00/hr');
+    expect(html).toContain('$150.00');
+    expect(html).toContain('Read live from myMDO');
+  });
+
+  it('lists church staff pay settings on Staff entry', async () => {
+    const html = await (await get(rpcEnv(), '/?section=payroll&page=staff')).text();
+    expect(html).toContain('Sarah Salary');
+    expect(html).toContain('$2,000.00');
+    expect(html).toContain('$20.00/hr');
+    expect(html).toContain('href="/?section=payroll&amp;page=staff&amp;view=staff-form&amp;id=new"');
+  });
+
+  it('shows approved periods and their frozen totals on History', async () => {
+    const env = rpcEnv({
+      payroll_get_year_totals: async () => new Response(JSON.stringify([
+        { period_start: '2026-06-08', approved_at: '2026-06-22T15:00:00Z', approved_by: 'office@timothystl.org', total_gross_cents: 240000 },
+        { period_start: '2026-06-22', approved_at: null, approved_by: null, total_gross_cents: null },
+      ]), { status: 200 }),
+    });
+    const html = await (await get(env, '/?section=payroll&page=history')).text();
+    expect(html).toContain('$2,400.00');
+    expect(html).toContain('1 approved period');
+    expect(html).toContain('office@timothystl.org');
+    expect(html).toContain('href="/?section=payroll&amp;page=report&amp;period=2026-06-08"');
+    const failed = await (await get(rpcEnv({ payroll_get_year_totals: async () => new Response('{"message":"down"}', { status: 500 }) }), '/?section=payroll&page=history')).text();
+    expect(failed).toContain('Payroll history could not be read');
   });
 
   it('renders the church and MDO roster with an editable hours/PTO form when the period is open', async () => {
@@ -78,7 +123,7 @@ describe('Finance Payroll section — entry view', () => {
     const html = await res.text();
     expect(html).toContain('Sarah Salary');
     expect(html).toContain('James Hourly');
-    expect(html).toContain('Childcare Carla');
+    expect(html).toContain('$150.00'); // Carla's MDO gross is in the MDO total
     expect(html).toContain('name="hours_2"');
     expect(html).toContain('name="pto_2"');
     expect(html).not.toContain('name="hours_1"'); // salaried: n/a, no input
