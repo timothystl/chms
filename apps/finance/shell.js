@@ -16,6 +16,7 @@ import { buildSummaryV1, FINANCE_SUMMARY_CONTRACT, readSyntheticSummary } from '
 import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.js';
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage } from './parity-manifest.js';
 import { HEALTH_STYLES, renderHealthByEntity, renderHealthSummary, renderHealthViewToggle, resolveHealthView } from './health-pages.js';
+import { ensureFinanceOwnedSchema } from './finance-owned-schema.js';
 import { FACILITIES_WRITERS, buildFacilitiesView, isoDay, readFacilities } from './facilities-service.js';
 import { canEditFacilities, describeFacilitiesStatus, handleFacilitiesWrite } from './facilities-routes.js';
 import { FACILITIES_STYLES, renderFacilitiesPage } from './facilities-pages.js';
@@ -3319,7 +3320,10 @@ export default {
           ? describePropertyMonthlyImportCsvError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
         const facilities = section.id === 'facilities'
-          ? await safeSyntheticRead(() => readFacilities(env.FINANCE_DB)) : null;
+          ? await safeSyntheticRead(async () => {
+            await ensureFinanceOwnedSchema(env.FINANCE_DB, 'facilities');
+            return readFacilities(env.FINANCE_DB);
+          }) : null;
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
