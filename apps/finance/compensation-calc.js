@@ -336,7 +336,7 @@ export function finComputeHealthPlanSingleClaimantDeltaCents(fromKey, toKey, spe
 // explicit premiumOverrides parameter (defaulting to {}, i.e. no override, same as an unset global
 // would resolve to) rather than reading a module-level global. The lookup logic itself --
 // override wins, else the quote's own figure -- is unchanged.
-function finCompPlanQuoteField(optionKey, field, premiumOverrides) {
+export function finCompPlanQuoteField(optionKey, field, premiumOverrides) {
   var ov = ((premiumOverrides || {})[optionKey] || {})[field];
   return ov != null ? ov : HEALTH_PLAN_QUOTE_2027.options[optionKey][field];
 }

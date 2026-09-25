@@ -38,7 +38,10 @@ import {
   postConnectChurchBudgetXlsxPreview, postConnectChurchBudgetXlsxCommit,
   postConnectChurchMultiPeriodXlsxPreview, postConnectChurchMultiPeriodXlsxCommit,
   postConnectChurchMonthlyXlsxImport, postConnectChurchActivityXlsxImport, postConnectChurchBudgetMultiYearXlsxImport,
+  fetchLiveFinanceChurchReport,
 } from './finance-church-report-client.js';
+import { projectCompensation } from './compensation-projection.js';
+import { defaultCompensationTargetYear } from './compensation-editor-pages.js';
 import {
   postConnectFinanceDaycareEntry, postConnectDaycareAllocationConfigWrite, postConnectDaycareBudgetOverrideWrite,
   postConnectDaycareBulkWrite, postConnectDaycareChurchBudgetImportWrite,
@@ -705,6 +708,26 @@ function describeDaycareRoomsSyncError(reason, message) {
   }
 }
 
+// The plan year the raise projection is for: ?plan_year=YYYY when given, else next year; the base
+// year it is compared against is the year before, as in legacy's Salary Planner.
+function compensationTargetYear(raw) {
+  const year = Number(raw);
+  return /^\d{4}$/.test(String(raw || '')) && year >= 2000 && year <= 2100 ? year : defaultCompensationTargetYear();
+}
+
+// Legacy's projection needs the base year's church ledger to resolve each worker's current pay
+// from their linked account. A ledger that cannot be read leaves the projection standing, with the
+// page saying which figures that affects; a projection that cannot be built is reported, not thrown.
+async function buildCompensationProjection(env, saved, { targetYear, councilView }) {
+  const baseYear = targetYear - 1;
+  const ledger = await fetchLiveFinanceChurchReport(env, baseYear);
+  try {
+    return { ok: true, ...projectCompensation({ saved, targetYear, baseYear, baseAccounts: ledger.ok ? ledger.report.accounts : null, councilView }) };
+  } catch (error) {
+    return { ok: false, message: error?.message || String(error) };
+  }
+}
+
 // Same shape as describeBudgetEntryError above, for postConnectFinanceCompensationWrite() /
 // fetchConnectSalaryPlannerState() failures.
 function describeCompensationEntryError(reason, message) {
@@ -850,6 +873,7 @@ function renderSectionBody(ctx) {
     compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage,
     budgetEntryStatus, budgetEntryMessage, payrollBundle,
     compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
+    compensationProjection,
     canManageBudgetPlan, planOpStatus, planOpMessage, planOpKind,
     baseProjectionEntryStatus, baseProjectionEntryMessage,
     churchOverrideStatus, churchOverrideMessage,
@@ -1190,6 +1214,7 @@ function renderSectionBody(ctx) {
       compensationPlanRaw, canEditCompensation, editIndex: compensationEditIndex,
       entryStatus: compensationEntryStatus, entryMessage: compensationEntryMessage,
       canEditCouncilOverlay: roleResult.ok && roleResult.role === 'council' && roleResult.permissions?.compensation === 'edit',
+      compensationProjection,
     });
   }
   if (section.id === 'quickbooks') {
@@ -3283,8 +3308,17 @@ export default {
         // needed here (unlike the resolvers above, which can).
         const canEditCompensation = roleResult.ok && (roleResult.role === 'admin' || roleResult.role === 'compensation');
         const canEditCouncilOverlay = roleResult.ok && roleResult.role === 'council' && roleResult.permissions?.compensation === 'edit';
-        const compensationPlanRaw = (section.id === 'compensation' && effectivePageId === 'plan' && (canEditCompensation || canEditCouncilOverlay))
+        // Plan and Council also show the raise projection (compensation-projection.js), so every
+        // role allowed into this section reads the saved plan there; Connect's contract applies the
+        // same role check and hides hideFromCouncil workers from council logins.
+        const compensationPlanRaw = (section.id === 'compensation' && ['plan', 'council'].includes(effectivePageId) && compensationRoleVerified)
           ? await fetchConnectSalaryPlannerState(env, request.headers.get('Cf-Access-Jwt-Assertion') || '') : null;
+        const compensationProjection = compensationPlanRaw && compensationPlanRaw.ok && compensationPlanRaw.data
+          ? await buildCompensationProjection(env, compensationPlanRaw.data, {
+            targetYear: compensationTargetYear(url.searchParams.get('plan_year')),
+            councilView: effectivePageId === 'council' || roleResult.role === 'council',
+          })
+          : null;
         const compensationEditIndex = (section.id === 'compensation' && effectivePageId === 'plan') ? (() => {
           const raw = url.searchParams.get('edit');
           if (raw === null) return null;
@@ -3504,6 +3538,7 @@ export default {
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, quickbooksOwn, quickbooksBudgets, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
+    compensationProjection,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
           planOpKind, planOpStatus, planOpMessage, baseProjectionEntryStatus, baseProjectionEntryMessage,
           churchOverrideStatus, churchOverrideMessage,

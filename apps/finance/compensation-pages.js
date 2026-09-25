@@ -4,6 +4,38 @@ import { buildCompensationBenefitsView } from './compensation-benefits-service.j
 import { escapeHtml, formatCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
 import { COUNCIL_COMP_METHODS, COUNCIL_COMP_METHOD_LABELS } from './compensation-council-overlay.js';
 import { renderCompensationPlanEditor } from './compensation-editor-pages.js';
+import { renderCouncilReport, renderProjectionSummary } from './compensation-council-report.js';
+
+// Which plan year the projection is for; a plain GET form, so the choice is a link like any other.
+function renderPlanYearForm(pageId, projection) {
+  const year = projection.model.targetYear;
+  return `<form method="GET" action="/" class="inline-form" aria-label="Plan year">
+    <input type="hidden" name="section" value="compensation"><input type="hidden" name="page" value="${pageId}">
+    <label for="plan-year-${pageId}">Plan year</label>
+    <input id="plan-year-${pageId}" type="number" name="plan_year" min="2000" max="2100" step="1" value="${year}">
+    <button type="submit">Show</button>
+    <small>Compared against FY${projection.model.baseYear}.</small>
+  </form>`;
+}
+
+function renderProjectionUnavailable(projection) {
+  return `<p class="status status-error">The raise projection could not be computed: ${escapeHtml(projection.message || 'unknown error')}.</p>`;
+}
+
+// The Plan page's projection under the editor or draft being shown.
+function renderPlanProjection(projection, { councilDraft, viewerRole }) {
+  if (!projection) return '';
+  if (!projection.ok) return renderProjectionUnavailable(projection);
+  const hidden = viewerRole === 'council' ? 0 : projection.model.roster.filter((w) => w && w.hideFromCouncil).length;
+  const notes = [];
+  if (hidden) notes.push(`Includes ${hidden} worker${hidden === 1 ? '' : 's'} hidden from council; the Council report leaves ${hidden === 1 ? 'that worker' : 'them'} out.`);
+  notes.push('Methods, rates and the health plan come from the saved plan; the Council page has the full report with benefits, market ranges and the recommended motion.');
+  return `${renderPlanYearForm('plan', projection)}${renderProjectionSummary(projection, {
+    heading: councilDraft ? 'Projected salaries under your draft' : 'Projected salaries',
+    badge: councilDraft ? 'Your draft · not the shared plan' : 'Computed from the saved plan',
+    note: notes.join(' '),
+  })}`;
+}
 
 export function renderCompensationRows(rows) {
   return rows.map((row) => `<tr><td>${escapeHtml(row.role_label)}</td><td>${formatCents(row.salary_cents)}</td><td>${formatCents(row.benefits_cents)}</td><td>${row.adjustment_pct.toFixed(1)}%</td></tr>`).join('');
@@ -59,6 +91,7 @@ export function renderCouncilOverlayEditor(plan, entryStatus, entryMessage) {
 export function renderCompensationPage(pageId, {
   compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, viewerRole,
   compensationPlanRaw, canEditCompensation, editIndex, entryStatus, entryMessage, canEditCouncilOverlay = false,
+  compensationProjection = null,
 }) {
   // The real roster editor (compensation-editor-pages.js) takes over the Plan page entirely for
   // the admin/compensation roles it's built for, whenever shell.js's own fetch-edit-resubmit
@@ -69,7 +102,8 @@ export function renderCompensationPage(pageId, {
   // synthetic `compensationReport` and throws on SYNTHETIC_UNAVAILABLE) because the editor never
   // reads the synthetic role-level report at all.
   if (pageId === 'plan' && canEditCompensation && compensationPlanRaw && compensationPlanRaw.ok) {
-    return renderCompensationPlanEditor(compensationPlanRaw.data, editIndex, entryStatus, entryMessage);
+    return renderCompensationPlanEditor(compensationPlanRaw.data, editIndex, entryStatus, entryMessage)
+      + renderPlanProjection(compensationProjection, { councilDraft: false, viewerRole });
   }
   const editUnavailableNote = (pageId === 'plan' && canEditCompensation && compensationPlanRaw && !compensationPlanRaw.ok)
     ? `<p class="status status-pending">Editing is unavailable right now: ${escapeHtml(compensationPlanRaw.message || compensationPlanRaw.reason || 'unknown error')}.</p>`
@@ -116,7 +150,12 @@ export function renderCompensationPage(pageId, {
       <p>The component total is ${formatCents(benefits.totalCents)} and must exactly match the benefits plan. No personal identities are included.</p>
     </section>`;
   }
+  if (pageId === 'council' && compensationProjection && compensationProjection.ok) {
+    return renderPlanYearForm('council', compensationProjection) + renderCouncilReport(compensationProjection);
+  }
   if (pageId === 'council') {
+    const projectionNote = compensationProjection ? renderProjectionUnavailable(compensationProjection)
+      : (compensationPlanRaw && !compensationPlanRaw.ok ? `<p class="status status-pending">The Council report needs the saved plan, which could not be read: ${escapeHtml(compensationPlanRaw.message || compensationPlanRaw.reason || 'unknown error')}. The aggregate snapshot is shown instead.</p>` : '');
     // Unlike Benchmarks/Benefits above, a real council rollup IS possible for the roles who
     // already see this same roster, per person, on the Plan page -- see
     // buildLiveCompensationCouncilSnapshot's own header comment in compensation-report-service.js
@@ -124,7 +163,7 @@ export function renderCompensationPage(pageId, {
     // weightedAdjustmentPct) it deliberately does not try to reconstruct.
     if (compensationReportLive && compensationReportLive.source === 'live') {
       const council = buildLiveCompensationCouncilSnapshot(compensationReportLive, viewerRole);
-      return `<section class="report" aria-label="Compensation Report council snapshot">
+      return `${projectionNote}<section class="report" aria-label="Compensation Report council snapshot">
         ${renderSectionHeading({ eyebrow: 'Council review snapshot', heading: 'Real roster decision context', badge: 'Live from Connect · review-only · not approved' })}
         ${renderKpiCards([
           { label: 'Workers on roster', value: String(council.workerCount), hint: viewerRole === 'council' ? 'Excludes any worker not shown to council' : 'Real per-person roster, aggregated' },
@@ -135,7 +174,7 @@ export function renderCompensationPage(pageId, {
       </section>`;
     }
     const council = buildCompensationCouncilSnapshot(buildCompensationReportView(compensationReport));
-    return `<section class="report" aria-label="Synthetic Compensation Report council snapshot">
+    return `${projectionNote}<section class="report" aria-label="Synthetic Compensation Report council snapshot">
       ${renderSectionHeading({ eyebrow: 'Council review snapshot', heading: 'Plan-level decision context', badge: 'Role-only · review-only · not approved' })}
       ${renderKpiCards([
         { label: 'Roles represented', value: String(council.roleCount), hint: 'No personal identities' },
@@ -170,9 +209,9 @@ export function renderCompensationPage(pageId, {
         { label: 'Entered current pay total', value: formatCents(totals.enteredCurrentPayCents), hint: 'Sum of hand-entered current-pay figures only' },
       ])}
       ${renderTable({ head: ['Name', 'Position', 'Current pay', 'Source'], rows: renderLiveCompensationWorkerRows(workers) })}
-      <p>Real, individually-identifiable compensation data -- restricted to the admin, council, and compensation roles. See Council snapshot for a real aggregate view, and Benefits &amp; taxes / Benchmarks for the still-synthetic, role-level rest of the compensation picture.</p>
+      <p>Real, individually-identifiable compensation data -- restricted to the admin, council, and compensation roles. See Council report for the full raise projection, and Benefits &amp; taxes / Benchmarks for the still-synthetic, role-level rest of the compensation picture.</p>
       ${editUnavailableNote}
-    </section>${councilEditor}`;
+    </section>${councilEditor}${renderPlanProjection(compensationProjection, { councilDraft: canEditCouncilOverlay, viewerRole })}`;
   }
   // Built only here, for the synthetic fallback: production Finance carries no fixture, so building
   // it earlier made the whole Plan page "unavailable" even when the live roster had loaded.
@@ -188,7 +227,7 @@ export function renderCompensationPage(pageId, {
       { label: 'Total compensation', value: formatCents(report.totals.totalCents), hint: 'No personal identities' },
     ])}
     ${renderTable({ head: ['Role', 'Salary', 'Benefits', 'Adjustment'], rows: renderCompensationRows(report.rows) })}
-    <p>See Benefits &amp; taxes, Benchmarks, and Council snapshot for the rest of the compensation picture.</p>
+    <p>See Benefits &amp; taxes, Benchmarks, and Council report for the rest of the compensation picture.</p>
     ${fallbackNote}
   </section>`;
 }
