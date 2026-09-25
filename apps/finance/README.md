@@ -23,7 +23,19 @@ Existing accounts and permissions remain in Connect, avoiding a second user dire
 The established imports, budget, compensation, and property edit relays stay active. Alternate
 native planning writers remain disabled because they use an incomplete parallel model; they
 are not needed to edit the authoritative records through the existing handlers. QuickBooks
-continues using its single existing connection, with no competing token refresh process.
+continues using its single existing connection, with no competing token refresh process. Finance now has
+its own QuickBooks connection and sync (`quickbooks-oauth-routes.js`), off until the cutover in
+[docs/QUICKBOOKS_FINANCE_CUTOVER.md](../../docs/QUICKBOOKS_FINANCE_CUTOVER.md) switches ownership.
+
+Council raise-plan drafts have their own writer in Finance (September 25): Compensation → Plan
+shows a council member with compensation edit access an editor for the legacy council fields, and
+`compensation-council-overlay-save-v1` (`compensation-council-overlay.js`) writes that member's
+`finance_salary_planner_council_<username>` row directly in Finance's database, where the storage
+cutover already placed it. Connect's council write paths now refuse and point to Finance; Connect's
+plan contract still reads the same row, so existing drafts carried over unchanged. The separate
+native `compensation-council-draft-service.js` model remains unused and disabled. The raise
+projection (proposed salaries per method) is not yet ported, so the editor sets the methods without
+showing their dollar effect.
 
 Remaining product gaps are distinct from storage cutover: some overview cards still use
 explicitly labeled fixture/unavailable fallbacks; compensation benchmark/benefit detail lacks a

@@ -8,6 +8,7 @@
 import { json, getAuthInfo } from './auth.js';
 import { resolveGeneralFundIds, resolveGeneralFundBudget, parseCsvRows } from './api-utils.js';
 import { getAuthorizeUrl, exchangeCodeForTokens, refreshTokens, revokeToken, makeQboClient, qboConfigured, buildQboTransactionUrl } from './quickbooks.js';
+import { quickbooksManagedByFinance } from './finance-storage.js';
 import { makeDaycareClient, daycareConfigured } from './daycare.js';
 import { ensureGivingYearRollups } from './giving-rollups.js';
 
@@ -20,6 +21,8 @@ async function getConnection(db) {
 // Refreshes the access token if it's expired or about to be (within 2 minutes), persisting
 // the new tokens. QBO rotates the refresh token on every use, so the old one must be replaced.
 async function ensureFreshAccessToken(env, db, conn) {
+  // Never refresh (and so rotate) Finance's token from Connect once Finance owns QuickBooks.
+  if (quickbooksManagedByFinance(env)) throw new Error('QuickBooks is managed in Finance');
   const expiresAtMs = conn.access_token_expires_at ? new Date(conn.access_token_expires_at).getTime() : 0;
   if (expiresAtMs - Date.now() > 2 * 60 * 1000) return conn;
   const refreshed = await refreshTokens(env, conn.refresh_token);
@@ -4261,16 +4264,10 @@ export async function applySalaryPlannerWrite(db, role, username, body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'Invalid payload', status: 400 };
   if (body.roster !== undefined && !Array.isArray(body.roster)) return { error: 'roster must be an array', status: 400 };
   if (role === 'council') {
-    if (!username) return { error: 'Access denied: this account has no username to save under', status: 403 };
-    // Only the raise-plan fields survive — the roster itself, reference figures, hand-typed
-    // overrides, target category and health-plan settings are silently dropped even if the
-    // caller sent them, so a modified request body can never smuggle a seed-data edit through.
-    const overlay = {};
-    for (const f of COUNCIL_EDITABLE_FIELDS) if (body[f] !== undefined) overlay[f] = body[f];
-    await db.prepare(
-      `INSERT INTO finance_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`
-    ).bind(councilPlannerKey(username), JSON.stringify(overlay)).run();
-    return { ok: true };
+    // Council drafts have their own writer in Finance now (Andrew, 2026-09-25):
+    // apps/finance/compensation-council-overlay.js saves the same finance_settings overlay row, and
+    // resolveSalaryPlannerState above still reads it. Refusing here keeps a single writer.
+    return { error: 'Council raise-plan drafts are now saved in Finance: open finance.timothystl.org, then Compensation → Plan.', status: 409 };
   }
   const key = role === 'compensation' ? SALARY_PLANNER_COMPENSATION_KEY : SALARY_PLANNER_KEY;
   await db.prepare(
@@ -4306,6 +4303,13 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   }
 
   // ── Begin OAuth: redirect the admin's browser to Intuit's consent screen ──
+  // QuickBooks belongs to Finance once QBO_MANAGED_BY_FINANCE is "1" (Andrew, 2026-09-25): every
+  // Connect QuickBooks action, including token refresh, stops here so Finance holds the only
+  // refresh token. Reads of the connection and report cache are routed to Finance's copy by
+  // finance-storage.js. See docs/QUICKBOOKS_FINANCE_CUTOVER.md.
+  if (seg.startsWith('finance/qb/') && quickbooksManagedByFinance(env)) {
+    return json({ error: 'QuickBooks is now managed in Finance: open finance.timothystl.org, then QuickBooks.', movedTo: 'https://finance.timothystl.org/?section=quickbooks' }, 409);
+  }
   if (seg === 'finance/qb/connect' && method === 'GET') {
     if (!isAdmin) return json({ error: 'Access denied: connecting QuickBooks requires admin access' }, 403);
     if (!qboConfigured(env)) return json({ error: 'QuickBooks is not configured. An admin must add QB_CLIENT_ID and QB_CLIENT_SECRET (see SECRETS.md).' }, 503);
@@ -4492,7 +4496,10 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     // second pass to conflict or duplicate with.
     const churchRows = [];
     if (profitAndLoss && profitAndLoss.Rows) {
-      const cols = (profitAndLoss.Columns && profitAndLoss.Columns.Column) || [];
+      // Column 0 is the account-name column (cells[0]); the extractors index years from cells[1],
+      // so they must be given the data columns only. Passing every column shifted each year onto
+      // the next year's figures.
+      const cols = ((profitAndLoss.Columns && profitAndLoss.Columns.Column) || []).slice(1);
       const colYears = cols.map(c => { const m = /(\d{4})/.exec(c.ColTitle || ''); const y = m ? parseInt(m[1], 10) : null; return (y === year) ? null : y; });
       flattenReportTree(profitAndLoss.Rows.Row, [], null, makeMultiYearExtractor(colYears), churchRows);
     }
@@ -4503,7 +4510,8 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     // collide in the UNIQUE(fiscal_year, period_month, category_path, source) constraint —
     // order relative to the annual flattens above doesn't matter for that reason.
     if (profitAndLossMonthly && profitAndLossMonthly.Rows) {
-      const monthCols = (profitAndLossMonthly.Columns && profitAndLossMonthly.Columns.Column) || [];
+      // Same for monthly columns: data columns only, or each month takes the next month's figure.
+      const monthCols = ((profitAndLossMonthly.Columns && profitAndLossMonthly.Columns.Column) || []).slice(1);
       const colPeriods = monthCols.map(c => parseMonthColTitle(c.ColTitle || ''));
       flattenReportTree(profitAndLossMonthly.Rows.Row, [], null, makeMonthlyExtractor(colPeriods), churchRows);
     }

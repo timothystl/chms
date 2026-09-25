@@ -69,6 +69,11 @@ import {
 } from './finance-budget-client.js';
 import { isBudgetPlanWritesEnabled, validateBudgetPlanRows, saveBudgetPlanRows } from './budget-plan-write-service.js';
 import { fetchConnectSalaryPlannerState, postConnectFinanceCompensationWrite } from './finance-compensation-client.js';
+import { buildCouncilOverlayFromForm, saveCouncilOverlay } from './compensation-council-overlay.js';
+import {
+  QB_PAGE, qbEnabled, readConnectionSummary as readQbConnectionSummary, listQuickbooksBudgets, handleConnect as handleQbConnect, handleCallback as handleQbCallback, handleDisconnect as handleQbDisconnect,
+  handleSync as handleQbSync, handleSyncYears as handleQbSyncYears, handleBudgetSelect as handleQbBudgetSelect,
+} from './quickbooks-oauth-routes.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
@@ -1114,10 +1119,14 @@ function renderSectionBody(ctx) {
       viewerRole: roleResult && roleResult.ok ? roleResult.role : null,
       compensationPlanRaw, canEditCompensation, editIndex: compensationEditIndex,
       entryStatus: compensationEntryStatus, entryMessage: compensationEntryMessage,
+      canEditCouncilOverlay: roleResult.ok && roleResult.role === 'council' && roleResult.permissions?.compensation === 'edit',
     });
   }
   if (section.id === 'quickbooks') {
-    return renderQuickbooksPage(page.id, { dataStatus, accountsReport });
+    return renderQuickbooksPage(page.id, {
+      dataStatus, accountsReport, quickbooksOwn: ctx.quickbooksOwn, quickbooksBudgets: ctx.quickbooksBudgets,
+      canManageQuickbooks: roleResult.ok && roleResult.role === 'admin', searchParams: ctx.searchParams,
+    });
   }
   if (section.id === 'packet') {
     return renderPacketPage({ churchReportLive, balanceSheetLive: balanceSheet, churchTrendLive, giving, givingSource });
@@ -1250,6 +1259,11 @@ async function runPropertyLedgerWrite(routeId, db, body) {
       throw new Error(`Unhandled property ledger write route: ${routeId}`);
   }
 }
+
+const QB_ROUTE_HANDLERS = {
+  'qb-connect-v1': handleQbConnect, 'qb-callback-v1': handleQbCallback, 'qb-disconnect-v1': handleQbDisconnect,
+  'qb-sync-v1': handleQbSync, 'qb-sync-years-v1': handleQbSyncYears, 'qb-budget-select-v1': handleQbBudgetSelect,
+};
 
 export default {
   async fetch(request, env) {
@@ -2764,6 +2778,29 @@ export default {
     // ── COMPENSATION PLANNER: per-council-member PRIVATE draft save -- council only. See
     // The identity comes only from Connect's verified role contract; a role-only older
     // response cannot authorize selecting a private draft row.
+    // Council's own raise-plan writer. The role, permission and username all come from Connect's
+    // verified staff-role contract; the visible roster comes from the same plan contract the page
+    // reads, so a per-worker index can only name a staff member council can actually see.
+    if (route.id === 'compensation-council-overlay-save-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      const back = (params) => response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ section: 'compensation', page: 'plan', ...params }).toString()}` } });
+      const roleResult = await fetchVerifiedRole(env, accessJwt);
+      if (!roleResult.ok || roleResult.role !== 'council' || roleResult.permissions?.compensation !== 'edit' || !roleResult.username) {
+        return back({ status: 'error', reason: 'access_denied', message: 'Only council members with compensation edit access can save a raise-plan draft' });
+      }
+      let form;
+      try { form = await request.formData(); } catch { return back({ status: 'error', reason: 'invalid_input' }); }
+      const plan = await fetchConnectSalaryPlannerState(env, accessJwt);
+      if (!plan.ok || !plan.data || !Array.isArray(plan.data.roster)) {
+        return back({ status: 'error', reason: plan.reason || 'plan_unavailable', message: 'The current plan could not be read, so nothing was saved' });
+      }
+      const built = buildCouncilOverlayFromForm(form, plan.data.roster.length);
+      if (built.error) return back({ status: 'error', reason: 'invalid_input', message: built.error });
+      const saved = await saveCouncilOverlay(env.FINANCE_DB, roleResult.username, built.overlay);
+      if (!saved.ok) return back({ status: 'error', reason: 'save_failed', message: saved.error });
+      return back({ status: 'ok' });
+    }
+
     if (route.id === 'compensation-council-draft-save-v1') {
       const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
       const enabled = await isCompensationPlanWriteEnabled(env, env.FINANCE_DB);
@@ -2837,6 +2874,15 @@ export default {
         }
         return response(JSON.stringify({ error: 'Write failed' }), { status: 500, headers: jsonHeaders });
       }
+    }
+
+    if (QB_ROUTE_HANDLERS[route.id]) {
+      if (!qbEnabled(env)) {
+        return response(null, { status: 303, headers: { Location: `${QB_PAGE}&qb=error&message=${encodeURIComponent('QuickBooks is not enabled in Finance yet.')}` } });
+      }
+      if (!env.FINANCE_DB) return response('Finance database unavailable', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      const roleResult = await fetchVerifiedRole(env, request.headers.get('Cf-Access-Jwt-Assertion') || '');
+      return QB_ROUTE_HANDLERS[route.id](request, url, env, env.FINANCE_DB, { isAdmin: roleResult.ok && roleResult.role === 'admin' });
     }
 
     if (FACILITIES_WRITERS[route.id]) {
@@ -3044,6 +3090,13 @@ export default {
           ? await safeSyntheticRead(() => resolveBudgetReport(env, env.FINANCE_DB)) : null;
         const accountsReport = ['accounts', 'quickbooks'].includes(section.id)
           ? await safeSyntheticRead(() => resolveAccountsReport(env, env.FINANCE_DB)) : null;
+        // Finance's own QuickBooks connection, once enabled (quickbooks-oauth-routes.js). The budget
+        // list is a live QuickBooks call, so it is fetched only when an admin asks for it.
+        const quickbooksOwn = section.id === 'quickbooks' && qbEnabled(env) && env.FINANCE_DB
+          ? await safeSyntheticRead(() => readQbConnectionSummary(env.FINANCE_DB)) : null;
+        const quickbooksBudgets = quickbooksOwn && quickbooksOwn.connected && url.searchParams.get('budgets') === '1'
+          && roleResult.ok && roleResult.role === 'admin'
+          ? await listQuickbooksBudgets(env, env.FINANCE_DB, {}).catch((e) => ({ ok: false, error: e.message })) : null;
         const dataStatus = ['data', 'health', 'quickbooks'].includes(section.id)
           ? await safeSyntheticRead(() => resolveDataStatus(env, env.FINANCE_DB)) : null;
         const compensationReport = section.id === 'compensation'
@@ -3070,7 +3123,8 @@ export default {
         // save route resubmits against -- it never throws, so no safeSyntheticRead wrapper is
         // needed here (unlike the resolvers above, which can).
         const canEditCompensation = roleResult.ok && (roleResult.role === 'admin' || roleResult.role === 'compensation');
-        const compensationPlanRaw = (section.id === 'compensation' && effectivePageId === 'plan' && canEditCompensation)
+        const canEditCouncilOverlay = roleResult.ok && roleResult.role === 'council' && roleResult.permissions?.compensation === 'edit';
+        const compensationPlanRaw = (section.id === 'compensation' && effectivePageId === 'plan' && (canEditCompensation || canEditCouncilOverlay))
           ? await fetchConnectSalaryPlannerState(env, request.headers.get('Cf-Access-Jwt-Assertion') || '') : null;
         const compensationEditIndex = (section.id === 'compensation' && effectivePageId === 'plan') ? (() => {
           const raw = url.searchParams.get('edit');
@@ -3274,7 +3328,7 @@ export default {
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
-          dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
+          dataStatus, quickbooksOwn, quickbooksBudgets, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
           planOpKind, planOpStatus, planOpMessage, baseProjectionEntryStatus, baseProjectionEntryMessage,

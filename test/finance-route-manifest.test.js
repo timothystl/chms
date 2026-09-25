@@ -57,10 +57,14 @@ const D1_WRITE_ROUTE_IDS = new Set([
 const DB_WRITE_ROUTE_IDS = new Set([
   'compensation-plan-save-v1', 'property-reserve-entry-v1', 'property-reserve-disbursement-entry-v1',
   'property-distribution-entry-v1', 'property-capital-ledger-entry-v1',
-  'compensation-raise-plan-save-v1', 'compensation-council-draft-save-v1',
+  'compensation-raise-plan-save-v1', 'compensation-council-draft-save-v1', 'compensation-council-overlay-save-v1',
   'facilities-asset-save-v1', 'facilities-service-log-v1', 'facilities-service-remove-v1',
   'facilities-pm-save-v1', 'facilities-pm-done-v1', 'facilities-project-save-v1',
+  'qb-disconnect-v1', 'qb-sync-v1', 'qb-sync-years-v1', 'qb-budget-select-v1',
 ]);
+// The two browser GETs of Finance's QuickBooks OAuth handshake: they store the CSRF state and the
+// connection row, so they are writers even though they answer GET.
+const QB_OAUTH_ROUTE_IDS = new Set(['qb-connect-v1', 'qb-callback-v1']);
 
 describe('Finance staging route manifest', () => {
   it('is a closed, unique inventory with isolated data sources, read-only except the declared live relays', () => {
@@ -106,7 +110,8 @@ describe('Finance staging route manifest', () => {
       '/api/v1/compensation-plan-save', '/api/v1/property-reserve-entry',
       '/api/v1/property-reserve-disbursement-entry', '/api/v1/property-distribution-entry',
       '/api/v1/property-capital-ledger-entry',
-      '/api/v1/compensation-raise-plan-save', '/api/v1/compensation-council-draft-save',
+      '/api/v1/compensation-raise-plan-save', '/api/v1/compensation-council-draft-save', '/api/v1/compensation-council-overlay-save',
+      '/api/v1/qb/connect', '/api/v1/qb/callback', '/api/v1/qb/disconnect', '/api/v1/qb/sync', '/api/v1/qb/sync-years', '/api/v1/qb/budget-select',
     ]);
     for (const route of FINANCE_ROUTE_MANIFEST) {
       if (WRITE_ROUTE_IDS.has(route.id)) {
@@ -137,6 +142,12 @@ describe('Finance staging route manifest', () => {
         expect(route.methods).toEqual(['POST']);
         expect(route.writer).toBe(true);
         expect(route.dataSource).toBe('d1-write');
+        continue;
+      }
+      if (QB_OAUTH_ROUTE_IDS.has(route.id)) {
+        expect(route.methods).toEqual(['GET']);
+        expect(route.writer).toBe(true);
+        expect(route.dataSource).toBe('quickbooks-oauth');
         continue;
       }
       if (DB_WRITE_ROUTE_IDS.has(route.id)) {
