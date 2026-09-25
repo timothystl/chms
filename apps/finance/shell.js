@@ -24,6 +24,9 @@ import { FACILITIES_WRITERS, buildFacilitiesView, isoDay, readFacilities } from 
 import { canEditFacilities, describeFacilitiesStatus, handleFacilitiesWrite } from './facilities-routes.js';
 import { FACILITIES_STYLES, renderFacilitiesPage } from './facilities-pages.js';
 import { SHELL_STYLES, collapseDuplicateHeading, identityInitials, renderSectionNav, renderViewingAs } from './shell-layout.js';
+import {
+  BOARD_PACKET_ITEMS, COVER_NOTE_MAX, printHref, renderBoardPacketPicker, renderPrintDocument, renderPrintFragment,
+} from './print-pages.js';
 import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-view-model.js';
 import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
 import {
@@ -1174,6 +1177,38 @@ function renderSectionBody(ctx) {
   </section>`;
 }
 
+// Print version of any page (print=1): the same section body inside a letter-size print document,
+// or just the titled fragment (fragment=1) when the board packet print is composing several pages.
+function renderPrintPage(ctx) {
+  const { metadata, section, pageId, printFragment } = ctx;
+  const page = resolveFinancePage(section, pageId);
+  let sectionBody;
+  try {
+    sectionBody = renderSectionBody(ctx);
+  } catch {
+    sectionBody = renderDataUnavailablePage({
+      eyebrow: section.label,
+      heading: page.label,
+      reason: 'This section could not be rendered because required data was unavailable for this request.',
+    });
+  }
+  const pageTitle = section.pages.length <= 1 ? section.label : page.label;
+  const fragment = renderPrintFragment({
+    eyebrow: section.group || section.label,
+    title: pageTitle,
+    bodyHtml: collapseDuplicateHeading(sectionBody, pageTitle),
+  });
+  if (printFragment) return fragment;
+  const back = new URLSearchParams([...new URLSearchParams(ctx.searchParams || '')].filter(([key]) => key !== 'print'));
+  return renderPrintDocument({
+    documentTitle: pageTitle,
+    backHref: `/?${back.toString()}`,
+    contentHtml: fragment,
+    release: `${metadata.version} · ${metadata.releaseChannel}`,
+    production: metadata.environment === 'production',
+  });
+}
+
 function renderShell(ctx) {
   const { metadata, section, pageId, givingSource, councilPreview, roleResult } = ctx;
   const page = resolveFinancePage(section, pageId);
@@ -1235,7 +1270,7 @@ function renderShell(ctx) {
       <div class="sidebar-foot">${production ? 'Production · Timothy Lutheran<br>Access verified through Connect' : 'Isolated staging environment<br>Test data may be present'}</div>
     </aside>
     <main>
-      <div class="page-head"><div><div class="eyebrow">${escapeHtml(group)}</div><h1 class="page-title">${escapeHtml(pageTitle)}</h1></div>${section.id === 'health' ? renderHealthViewToggle(resolveHealthView(ctx.healthView), { councilPreview }) : ''}</div>
+      <div class="page-head"><div><div class="eyebrow">${escapeHtml(group)}</div><h1 class="page-title">${escapeHtml(pageTitle)}</h1></div>${section.id === 'health' ? renderHealthViewToggle(resolveHealthView(ctx.healthView), { councilPreview }) : ''}<a class="print-link" href="${escapeHtml(printHref(ctx.searchParams))}">Print</a>${section.id === 'packet' ? ' <a class="print-link" href="/print/board-packet">Print board packet</a>' : ''}</div>
       ${roleNotice}
       ${councilNotice}
       ${sectionBody}
@@ -2929,6 +2964,53 @@ export default {
       }
     }
 
+    // Board packet print: a picker, then one document composed of a cover page and the chosen
+    // reports. Every piece is rendered by the shell route itself (print=1&fragment=1) with the
+    // viewer's own headers, so each keeps its own permission check; a refused or failed piece is
+    // named as left out rather than silently dropped.
+    if (route.id === 'print-board-packet') {
+      if (request.method === 'HEAD') return response(null, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      const html = { headers: { 'Content-Type': 'text/html; charset=utf-8' } };
+      const roleResult = await fetchVerifiedRole(env, request.headers.get('Cf-Access-Jwt-Assertion') || '');
+      const unverifiedAllowed = !roleResult.ok && env.ENVIRONMENT === 'staging' && roleResult.reason === 'not_configured';
+      if (!roleResult.ok && !unverifiedAllowed) {
+        return response('<!doctype html><p>Role verification failed; the board packet cannot be printed right now.</p>', { status: 403, ...html });
+      }
+      const allowed = BOARD_PACKET_ITEMS.filter((item) => unverifiedAllowed
+        || roleCanAccessSection(roleResult.role, resolveFinanceSection(item.section), roleResult.permissions));
+      const release = `${metadata.version} · ${metadata.releaseChannel}`;
+      const production = metadata.environment === 'production';
+      const include = url.searchParams.getAll('include').filter((key) => allowed.some((item) => item.key === key));
+      if (!include.length) {
+        return response(renderBoardPacketPicker({ items: allowed, release, production, message: url.searchParams.has('include') ? 'Choose at least one report you have access to.' : '' }), html);
+      }
+      const note = String(url.searchParams.get('note') || '').slice(0, COVER_NOTE_MAX).trim();
+      const renderPiece = async (section, page) => {
+        const pieceUrl = new URL('/', url.origin);
+        pieceUrl.search = new URLSearchParams({ section, page, print: '1', fragment: '1' }).toString();
+        try {
+          const res = await this.fetch(new Request(pieceUrl, { headers: request.headers }), env);
+          return res.status === 200 ? await res.text() : null;
+        } catch { return null; }
+      };
+      const pieces = [];
+      const cover = await renderPiece('packet', 'builder');
+      pieces.push(`${cover || ''}${note ? `<div class="print-cover-note">${escapeHtml(note)}</div>` : ''}`);
+      const leftOut = [];
+      for (const item of BOARD_PACKET_ITEMS.filter((entry) => include.includes(entry.key))) {
+        for (const page of item.pages) {
+          const piece = await renderPiece(item.section, page);
+          if (piece) pieces.push(`<div class="print-newpage">${piece}</div>`);
+          else leftOut.push(`${item.label} (${page})`);
+        }
+      }
+      const leftOutNote = leftOut.length ? `<p class="print-foot">Not included because it could not be rendered for you: ${escapeHtml(leftOut.join('; '))}.</p>` : '';
+      return response(renderPrintDocument({
+        documentTitle: 'Board packet', backHref: '/print/board-packet',
+        contentHtml: pieces.join('') + leftOutNote, release, production,
+      }), html);
+    }
+
     if (route.id === 'shell') {
       if (request.method === 'HEAD') return response(null, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
       try {
@@ -3354,7 +3436,9 @@ export default {
         const payrollBundle = section.id === 'payroll'
           ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
-        return response(renderShell({
+        const printMode = url.searchParams.get('print') === '1';
+        return response((printMode ? renderPrintPage : renderShell)({
+          printFragment: printMode && url.searchParams.get('fragment') === '1',
           healthView: url.searchParams.get('view'), facilities, hr, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,

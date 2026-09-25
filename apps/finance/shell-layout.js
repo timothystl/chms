@@ -115,6 +115,7 @@ export const SHELL_STYLES = `
     main { flex:999 1 620px; min-width:0; max-width:1320px; padding:24px clamp(16px,3vw,36px) 64px; }
     .page-head { display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap; }
     .page-head .eyebrow { font-size:12px; }
+    .page-head .print-link { font-size:13px; font-weight:600; color:var(--green, #1f6b45); text-decoration:none; border:1px solid currentColor; border-radius:6px; padding:4px 10px; }
     .page-title { margin:4px 0 0; font-size:32px; line-height:1.15; }
     .eyebrow { color:var(--gold-ink); font-size:11.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; }
     p { color:var(--muted); line-height:1.55; }
