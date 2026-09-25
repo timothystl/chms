@@ -135,6 +135,41 @@ export async function postConnectChurchBudgetXlsxImport(env, accessJwt, body) {
   return { ok: true, result: payload };
 }
 
+async function postConnectChurchBudgetXlsxStep(env, accessJwt, path, body) {
+  const binding = env.CONNECT_SERVICE;
+  const key = env.FINANCE_CONTRACT_API_KEY;
+  if (!binding || !key) return { ok: false, reason: 'not_configured' };
+  if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+  let res;
+  try {
+    res = await binding.fetch(new Request(`https://connect.timothystl.org${path}`, {
+      method: 'POST',
+      headers: {
+        'X-Contract-Key': key,
+        'Cf-Access-Jwt-Assertion': accessJwt,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+  }
+  let payload;
+  try { payload = await res.json(); } catch { return { ok: false, reason: 'invalid_json' }; }
+  if (!res.ok) return { ok: false, reason: 'http_error', status: res.status, message: payload?.error };
+  return { ok: true, result: payload };
+}
+
+export function postConnectChurchBudgetXlsxPreview(env, accessJwt, body) {
+  return postConnectChurchBudgetXlsxStep(env, accessJwt, '/api/contracts/finance-church-budget-xlsx-preview-v1', body);
+}
+
+export function postConnectChurchBudgetXlsxCommit(env, accessJwt, body) {
+  return postConnectChurchBudgetXlsxStep(env, accessJwt, '/api/contracts/finance-church-budget-xlsx-commit-v1', body);
+}
+
 // ── Real transport for connect.finance-church-monthly-xlsx-import-relay.v1 (a write) ───────────
 // Relays an uploaded "Profit and Loss by Month" .xlsx to Connect's own contract endpoint
 // (src/api-contracts-service.js), which parses AND persists it in one call -- see

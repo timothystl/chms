@@ -19,6 +19,7 @@ import { buildFinancialHealthView, FINANCE_HEALTH_DECISIONS } from './health-vie
 import { buildChurchReportView, buildLiveChurchReportView, readSyntheticChurchReport, resolveChurchReport, resolveChurchTrend } from './church-report-service.js';
 import {
   postConnectFinanceChurchActualOverride, postConnectChurchBudgetXlsxImport,
+  postConnectChurchBudgetXlsxPreview, postConnectChurchBudgetXlsxCommit,
   postConnectChurchMonthlyXlsxImport, postConnectChurchActivityXlsxImport, postConnectChurchBudgetMultiYearXlsxImport,
 } from './finance-church-report-client.js';
 import {
@@ -230,6 +231,21 @@ function bytesToBase64(bytes) {
   let binary = '';
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
+}
+
+function renderChurchBudgetImportPreview(preview) {
+  const rows = Array.isArray(preview.rows) ? preview.rows : [];
+  const body = rows.map((row, index) => `<tr>
+    <td><input type="checkbox" name="row" value="${escapeHtml(JSON.stringify(row))}" checked aria-label="Include ${escapeHtml(row.account_name || `row ${index + 1}`)}"></td>
+    <td>${escapeHtml(row.classification || '')}</td><td>${escapeHtml(row.category_path || '')}</td>
+    <td>${formatCents(row.own_actual_cents)}</td><td>${formatCents(row.own_budget_cents)}</td>
+  </tr>`).join('');
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Review Church Budget import · Timothy Finance</title><style>body{font:16px system-ui;margin:2rem auto;max-width:72rem;padding:0 1rem;color:#172019}table{border-collapse:collapse;width:100%;margin:1rem 0}th,td{border-bottom:1px solid #d9dfda;padding:.55rem;text-align:left}button{background:#1f6b45;color:white;border:0;border-radius:.45rem;padding:.7rem 1rem;font-weight:700}a{color:#1f6b45}.note{background:#f4f7f4;padding:1rem;border-radius:.5rem}</style></head><body>
+  <h1>Review Budget vs. Actuals import</h1><p class="note"><strong>No data has been changed.</strong> Review FY${escapeHtml(String(preview.fiscalYear))} from “${escapeHtml(preview.sheetName || 'uploaded workbook')}”. Uncheck anything that should not overwrite the current imported row.</p>
+  <form method="POST" action="/api/v1/connect-church-budget-xlsx-commit"><input type="hidden" name="fiscal_year" value="${escapeHtml(String(preview.fiscalYear))}">
+  <table><thead><tr><th>Include</th><th>Classification</th><th>Account</th><th>Actual</th><th>Budget</th></tr></thead><tbody>${body}</tbody></table>
+  <button type="submit">Import selected rows</button> <a href="/?section=church&amp;page=budget-actual">Cancel without importing</a></form></body></html>`;
 }
 
 // Same shape as describeChurchOverrideError above, for postConnectChurchBudgetXlsxImport() /
@@ -1557,6 +1573,42 @@ export default {
         return response(null, { status: 303, headers: { Location: '/?section=church&page=income-expense&status=ok' } });
       }
       const params = new URLSearchParams({ section: 'church', page: 'income-expense', status: 'error', reason: result.reason || 'unknown' });
+      if (result.message) params.set('message', String(result.message).slice(0, 200));
+      return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+    }
+
+    if (route.id === 'church-budget-xlsx-preview-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try { form = await request.formData(); }
+      catch { return response('Invalid upload', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }); }
+      const file = form.get('file');
+      if (!file || typeof file.arrayBuffer !== 'function') return response('No file uploaded', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      if (file.size > MAX_XLSX_UPLOAD_BYTES) return response('File too large (max 15 MB)', { status: 413, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      const fileBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+      const result = await postConnectChurchBudgetXlsxPreview(env, accessJwt, { file_base64: fileBase64 });
+      if (!result.ok) {
+        const params = new URLSearchParams({ section: 'church', page: 'budget-actual', status: 'error', reason: result.reason || 'unknown' });
+        if (result.message) params.set('message', String(result.message).slice(0, 200));
+        return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+      }
+      return response(renderChurchBudgetImportPreview(result.result), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+
+    if (route.id === 'church-budget-xlsx-commit-v1') {
+      const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+      let form;
+      try { form = await request.formData(); }
+      catch { return response('Invalid selection', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }); }
+      const rows = [];
+      try {
+        for (const value of form.getAll('row')) rows.push(JSON.parse(String(value)));
+      } catch {
+        return response('Invalid selected row', { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      }
+      const result = await postConnectChurchBudgetXlsxCommit(env, accessJwt, { fiscal_year: form.get('fiscal_year'), rows });
+      if (result.ok) return response(null, { status: 303, headers: { Location: '/?section=church&page=budget-actual&status=ok' } });
+      const params = new URLSearchParams({ section: 'church', page: 'budget-actual', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
