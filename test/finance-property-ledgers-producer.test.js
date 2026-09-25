@@ -72,6 +72,9 @@ describe('buildFinancePropertyLedgersV1', () => {
     expect(roofRow.capitalized).toBe(false);
 
     expect(result.totals).toEqual({ capitalCents: 988700, repairsCents: 77598 });
+    // Row ids travel so Finance can target the legacy per-row DELETE routes.
+    expect(result.capital[0].id).toBe(1);
+    expect(result.repairs.map((r) => r.id).sort()).toEqual([1, 2]);
   });
 
   it('answers with a valid, empty contract (not a 500) when nothing has been recorded for this property yet', async () => {

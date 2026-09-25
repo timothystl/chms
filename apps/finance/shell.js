@@ -55,6 +55,7 @@ import {
   buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers,
   resolvePropertyValuation, resolvePropertyReport, resolvePropertyReserves, resolvePropertyLedgers,
 } from './property-report-service.js';
+import { buildPropertyValuationMetaFromForm } from './property-valuation-form.js';
 import { resolveBudgetReport } from './budget-report-service.js';
 import {
   postConnectFinanceBudgetWrite, postConnectFinanceBudgetGenerate, postConnectFinanceBudgetGenerateAll,
@@ -2198,6 +2199,18 @@ export default {
         form = await request.formData();
       } catch {
         return response(null, { status: 303, headers: { Location: '/?section=property&status=error&reason=invalid_json' } });
+      }
+      if (form.get('valuation_form') === '1') {
+        const valuation = buildPropertyValuationMetaFromForm(form);
+        if (valuation.error) {
+          const params = new URLSearchParams({ section: 'property', page: 'valuation', status: 'error', reason: 'invalid_input', message: valuation.error });
+          return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+        }
+        const result = await postConnectPropertyMetaWrite(env, accessJwt, { valuation });
+        if (result.ok) return response(null, { status: 303, headers: { Location: '/?section=property&page=valuation&status=ok' } });
+        const params = new URLSearchParams({ section: 'property', page: 'valuation', status: 'error', reason: result.reason || 'unknown' });
+        if (result.message) params.set('message', String(result.message).slice(0, 200));
+        return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
       }
       const body = {};
       for (const section of ['property', 'valuation', 'loan', 'reserves', 'capital']) {

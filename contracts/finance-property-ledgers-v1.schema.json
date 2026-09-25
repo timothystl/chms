@@ -47,7 +47,8 @@
         "description": { "type": "string" },
         "checkRef": { "type": "string" },
         "project": { "type": "string" },
-        "sortOrder": { "type": "integer" }
+        "sortOrder": { "type": "integer" },
+        "id": { "type": "integer", "minimum": 1, "description": "Optional row primary key, used by Finance for per-row Remove actions." }
       }
     },
     "repairRow": {
@@ -60,7 +61,8 @@
         "description": { "type": "string" },
         "amountCents": { "type": ["integer", "null"], "description": "Null for an as-yet-unbilled or pending repair -- confirmed against real production rows on 2026-09-15." },
         "payee": { "type": "string" },
-        "capitalized": { "type": "boolean" }
+        "capitalized": { "type": "boolean" },
+        "id": { "type": "integer", "minimum": 1, "description": "Optional row primary key, used by Finance for per-row Remove actions." }
       }
     }
   }

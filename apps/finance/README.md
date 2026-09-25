@@ -766,6 +766,17 @@ All three are still fully real, directly POST-able write paths end to end -- sha
 contract handler, `route-manifest.js` entry, and a `shell.js` POST route -- just not yet linked
 from a form.
 
+*Update, September 25:* all three now have screens. `connect.finance-property-ledgers.v1` rows
+carry an optional `id` (optional so Connect and Finance releases interoperate in either order;
+deploy Finance first so a Connect release that adds ids is never refused by an older consumer),
+and Capital improvements / Work orders show an admin Delete on live rows that have one. Reserve &
+distribution lists live reserve disbursements with a Delete keyed on reserve key and period key.
+Valuation has an admin editor (rent roll, utility reimbursement, vacancy, operating costs,
+management fee, cap rate) that posts `valuation_form=1` to `property-meta-write-v1`; shell.js
+rebuilds legacy `finValSave`'s `valuation` section, including the computed outputs legacy's equity
+figure reads (`property-valuation-form.js`). Base-minimum reserve and capital-allowance settings
+remain legacy-only because no contract exposes them yet.
+
 Tests: nine contract tests (`test/finance-property-monthly-remove-contract.test.js`,
 `test/finance-property-distribution-remove-contract.test.js`,
 `test/finance-property-reserve-monthly-remove-contract.test.js`,
