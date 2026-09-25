@@ -55,7 +55,7 @@ import {
   postConnectChurchBalancesXlsxCommit, postConnectChurchBalancesMultiYearXlsxImport,
   postConnectChurchBalancesMultiYearXlsxPreview, postConnectChurchBalancesMultiYearXlsxCommit,
 } from './finance-balance-sheet-client.js';
-import { buildDaycareReportView, readSyntheticDaycareReport, resolveDaycareReport } from './daycare-report-service.js';
+import { buildDaycareReportView, buildLiveDaycareReportView, resolveDaycareReport } from './daycare-report-service.js';
 import { fetchLiveFinanceDaycareEntries } from './finance-daycare-entries-client.js';
 import {
   buildPropertyReportView, readSyntheticPropertyReport, readSyntheticPropertyReserves, readSyntheticPropertyLedgers,
@@ -789,7 +789,7 @@ function resolveIncomeVsBudget(churchReportLive) {
 }
 
 function renderEntityCards(entities) {
-  return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)}</span></div>`).join('');
+  return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)} · ${entity.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>`).join('');
 }
 
 function renderSectionBody(ctx) {
@@ -851,10 +851,8 @@ function renderSectionBody(ctx) {
     // Operating mix and Church operating bridge are now live-first too, reusing the same
     // churchReportLive result (and buildLiveFinancialMixView/buildLiveChurchReportView, the exact
     // functions Charts' revenue-mix/expense-mix/giving-pace pages already use -- see
-    // charts-pages.js) rather than a new resolver, contract, or read. Entity overview deliberately
-    // stays fully synthetic -- see the comment just above its own build below for why: the live
-    // Daycare/Property resolvers' shapes were investigated and found genuinely incompatible with
-    // it, not merely unwired.
+    // charts-pages.js) rather than a new resolver, contract, or read. Entity overview likewise
+    // uses the existing live-first resolvers and labels each entity's period and source.
     const health = buildFinancialHealthView(summary, giving, { churchReportLive, balanceSheetLive: balanceSheet });
     const isChurchLive = churchReportLive != null && !isSyntheticUnavailable(churchReportLive) && churchReportLive.source === 'live';
     // Reflects only Operating result/Financial position -- the two cards this badge has ever
@@ -873,44 +871,33 @@ function renderSectionBody(ctx) {
     const mix = isChurchLive
       ? buildLiveFinancialMixView(churchReportLive.accounts, churchReportLive.fiscalYear, churchReportLive.totals)
       : (isSyntheticUnavailable(churchReport) ? null : buildFinancialMixView(churchReport));
-    // `church` stays synthetic-only -- it feeds Entity overview below, which is a deliberate,
-    // investigated decision to NOT mix live and synthetic entities (see that comment). It is
-    // intentionally a separate variable from `churchForBridge` just below, which IS live-first.
-    const church = isSyntheticUnavailable(churchReport) ? null : buildChurchReportView(churchReport);
-    const daycareEntity = isSyntheticUnavailable(daycareReport) ? null : buildDaycareReportView(daycareReport);
-    const propertyEntity = isSyntheticUnavailable(propertyReport) ? null : buildPropertyReportView(propertyReport);
-    // Entity overview (church/daycare/property side by side) was investigated for the same
-    // live-first treatment and deliberately left fully synthetic:
-    //  - Daycare's live resolver (resolveDaycareReport/buildLiveDaycareReportView) reports one
-    //    whole-fiscal-year total, and its `period` is just String(fiscalYear) (e.g. "2026") --
-    //    buildEntityOverview's own validation requires a monthly `YYYY-MM` period for daycare/
-    //    property (confirmed against the synthetic fixture's own periods, e.g. "Daycare · 2026-01"
-    //    in this same page today). That is a genuine granularity mismatch, not a formatting
-    //    detail -- reformatting an annual total to look like one month would misrepresent it, and
-    //    "all three live" can therefore never actually happen with today's resolver shapes.
-    //  - Property's live resolver can carry null totalExpensesCents/netOperatingIncomeCents/
-    //    availableForDistributionCents/reserveBalanceCents per period (confirmed real production
-    //    behavior -- see property-report-service.js's resolvePropertyReport comment); summing those
-    //    into buildPropertyReportView's totals would silently produce NaN, and
-    //    buildEntityOverview's integer validation would then throw -- with no per-panel guard
-    //    around this specific call (unlike the null-checks above it), that throw would take down
-    //    the ENTIRE Financial Health section, not just this one card row.
-    //  - Since "all three live" can't occur today anyway, independently mixing (e.g. live Church
-    //    with synthetic Daycare/Property) was also rejected: renderEntityCards has no per-card
-    //    source label today, so three cards from two different sources would sit side by side with
-    //    no way for a reader to tell which are real Connect data -- exactly the misleading mix this
-    //    page's honest-degradation discipline exists to prevent.
-    // daycareReportLive/propertyReportLive are therefore also NOT resolved for 'health' in this
-    // request (no gate change above) -- there is nothing on this page that would use them yet, and
-    // fetching them anyway would only add unused query-budget cost.
+    const church = isChurchLive
+      ? { ...buildLiveChurchReportView(churchReportLive.accounts, churchReportLive.fiscalYear, churchReportLive.totals), source: 'live' }
+      : (isSyntheticUnavailable(churchReport) ? null : { ...buildChurchReportView(churchReport), source: 'synthetic-fallback' });
+    const daycareEntity = daycareReportLive && !isSyntheticUnavailable(daycareReportLive)
+      ? (daycareReportLive.source === 'live'
+        ? { ...buildLiveDaycareReportView(daycareReportLive.categories, daycareReportLive.fiscalYear, daycareReportLive.totals), source: 'live' }
+        : { ...buildDaycareReportView(daycareReportLive.rows, daycareReportLive.allocation), source: 'synthetic-fallback' })
+      : null;
+    // Monthly Property rows can legitimately omit expense fields. The contract's annual summary
+    // is reconciled and integer-valued, making it the safe live input for this comparison.
+    const propertyAnnual = propertyReportLive?.source === 'live' && Array.isArray(propertyReportLive.annualSummary)
+      ? propertyReportLive.annualSummary.at(-1) : null;
+    const propertyEntity = propertyAnnual
+      ? { periodStart: String(propertyAnnual.year), periodEnd: String(propertyAnnual.year), source: 'live', totals: {
+          revenueCents: propertyAnnual.totalRevenueCents,
+          expenseCents: propertyAnnual.totalExpensesCents,
+          netIncomeCents: propertyAnnual.netIncomeCents,
+        } }
+      : (propertyReportLive && !isSyntheticUnavailable(propertyReportLive) && !isSyntheticUnavailable(propertyReportLive.rows)
+        ? { ...buildPropertyReportView(propertyReportLive.rows), source: 'synthetic-fallback' } : null);
     const entities = (church && daycareEntity && propertyEntity)
       ? buildEntityOverview({ church, daycare: daycareEntity, property: propertyEntity })
       : null;
     // Church operating bridge prefers the live church view instead: buildOperatingBridge reads only
     // fiscalYear/totals.{incomeActualCents,expenseActualCents,actualNetCents}, which is exactly what
     // buildLiveChurchReportView's output already provides (see church-report-service.js) -- no
-    // live-aware wrapper needed here, the same direct reuse Charts' giving-pace page already relies
-    // on. Independent of `church` above (which stays synthetic-only for Entity overview).
+    // live-aware wrapper needed here, the same direct reuse Charts' giving-pace page already relies on.
     const churchForBridge = isChurchLive
       ? buildLiveChurchReportView(churchReportLive.accounts, churchReportLive.fiscalYear, churchReportLive.totals)
       : church;
@@ -3004,14 +2991,13 @@ export default {
         // directly here anymore.
         const balanceTrends = section.id === 'balance'
           ? await safeSyntheticRead(() => resolveBalanceSheetTrend(env, env.FINANCE_DB)) : null;
-        const daycareReport = section.id === 'health'
-          ? await safeSyntheticRead(() => readSyntheticDaycareReport(env.FINANCE_DB)) : null;
+        const daycareReport = null;
         // The 'daycare' section (Daycare Report itself) tries the real
         // connect.finance-daycare-report.v1 endpoint first and falls back to the same synthetic
         // fixture, labeled, via resolveDaycareReport -- same live-first pattern as Church Report's
-        // resolveChurchReport and Balance Sheet's resolveBalanceSheet above. 'health' keeps reading
-        // the plain synthetic rows above -- unchanged, out of scope for this contract.
-        const daycareReportLive = section.id === 'daycare'
+        // resolveChurchReport and Balance Sheet's resolveBalanceSheet above. Financial Health
+        // reuses this result for its source-labeled entity comparison.
+        const daycareReportLive = ['daycare', 'health'].includes(section.id)
           ? await safeSyntheticRead(() => resolveDaycareReport(env, env.FINANCE_DB)) : null;
         // Actuals detail lists the individual entries behind the live report (edit/remove parity with
         // legacy finRenderDaycare). A failed read just omits the list; the report still renders.
@@ -3036,14 +3022,14 @@ export default {
         // synthetic fixtures read just above, labeled -- same live-first pattern as Property
         // Valuation above. Only the 'property' section's own pages use propertyReportLive/
         // propertyLedgersLive; 'overview'/'health' keep reading the plain synthetic
-        // propertyReport/propertyLedgers above directly, unchanged and out of scope for this
-        // contract. propertyReport may itself already be SYNTHETIC_UNAVAILABLE here --
+        // propertyReport/propertyLedgers above directly. Financial Health reuses the operating
+        // result's reconciled annual summary. propertyReport may itself already be SYNTHETIC_UNAVAILABLE here --
         // resolvePropertyReport only threads it through as its own fallback's `rows`, it never
         // dereferences it, so this call still can't throw. propertyReservesLive is also computed
         // for 'charts' (its cash-reserve page's property-tax-reserve KPI prefers it, falling back
         // to the already-fetched synthetic `propertyReserves` array above) -- same shape as
         // churchReportLive's 'church'/'charts' split above.
-        const propertyReportLive = section.id === 'property'
+        const propertyReportLive = ['property', 'health'].includes(section.id)
           ? await safeSyntheticRead(() => resolvePropertyReport(env, propertyReport)) : null;
         const propertyReservesLive = ['property', 'charts'].includes(section.id)
           ? await safeSyntheticRead(() => resolvePropertyReserves(env)) : null;
