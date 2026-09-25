@@ -52,21 +52,17 @@ function loadPeople(resetPage) {
     _peopleTotal = d.total || 0;
     var people = d.people || [];
     renderPeopleDesktop(people);
-    renderPeopleCards(people);
     renderPeopleMobile(people);
     renderPeoplePager();
     updateFdCount();
     renderActiveFilterChips();
     updateFilterBadge();
-    if (_peopleViewMode === 'household') loadPeopleHouseholdView(resetPage);
   }).catch(function() {
     if (mySeq !== _pLoadSeq) return;
     _peopleTotal = 0;
-    renderPeopleDesktop([]);
-    renderPeopleCards([]);
+    renderPeopleDesktop([], true);
     renderPeopleMobile([]);
     renderPeoplePager();
-    setStatus('p-status','Error loading people.','err');
   });
 }
 function renderPeoplePager() {
@@ -74,13 +70,13 @@ function renderPeoplePager() {
   if (!el) return;
   var total = _peopleTotal, limit = peopleFilter.limit, offset = peopleFilter.offset;
   var from = offset + 1, to = Math.min(offset + limit, total);
-  var countHtml = '<span style="font-size:12px;color:var(--warm-gray);">Showing ' + from + '–' + to + ' of ' + total + ' people</span>';
+  var countHtml = total ? '<span style="font-size:14px;color:var(--muted);">Showing ' + from + '–' + to + ' of ' + total + ' people</span>' : '';
   var prevDisabled = offset === 0 ? ' disabled' : '';
   var nextDisabled = to >= total ? ' disabled' : '';
   var navHtml = total <= limit ? '' :
     '<div style="display:flex;gap:6px;">'
-    + '<button class="btn-secondary" style="padding:5px 12px;font-size:12px;"' + prevDisabled + ' onclick="peoplePage(-1)">&#8592; Prev</button>'
-    + '<button class="btn-secondary" style="padding:5px 12px;font-size:12px;"' + nextDisabled + ' onclick="peoplePage(1)">Next &#8594;</button>'
+    + '<button class="btn-secondary"' + prevDisabled + ' onclick="peoplePage(-1)">Previous</button>'
+    + '<button class="btn-secondary"' + nextDisabled + ' onclick="peoplePage(1)">Next</button>'
     + '</div>';
   el.innerHTML = countHtml + navHtml;
   // Mirror the count into the phone-only element near the search box. On a phone the pager is
@@ -105,161 +101,113 @@ function sortPeople(col) {
 function toggleArchiveView() {
   _archiveView = !_archiveView;
   var btn = document.getElementById('p-archive-btn');
-  if (btn) { btn.style.background = _archiveView ? 'var(--teal)' : ''; btn.style.color = _archiveView ? '#fff' : ''; }
+  if (btn) btn.setAttribute('aria-pressed', _archiveView ? 'true' : 'false');
   loadPeople(true);
 }
-function renderPeopleDesktop(people) {
+// Open Sky People list (OS2): one person per row — name, household, member type (plain text),
+// phone, email. Card and Household views were retired 2026-09-25 (Andrew's decision); the
+// Households tab is where household browsing lives.
+function personAvatarHtml(p, size) {
+  var isOrg = (p.member_type||'').toLowerCase() === 'organization';
+  size = size || 40;
+  var inner = isOrg
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/></svg>'
+    : (p.photo_url ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">' : initials(p.first_name, p.last_name));
+  return '<span class="dir-avatar' + (isOrg ? ' dir-avatar-org' : '') + '" style="width:' + size + 'px;height:' + size + 'px;" aria-hidden="true">' + inner + '</span>';
+}
+function personStatusBadge(p) {
+  if (p.status === 'archived') return ' <span class="os-badge os-badge-neutral">Archived</span>';
+  if (p.status === 'deceased' || p.deceased) return ' <span class="os-badge os-badge-neutral">Deceased</span>';
+  return '';
+}
+function renderPeopleDesktop(people, failed) {
   _loadedPeople = people;
   var c = document.getElementById('p-grid');
-  if (!people.length) { c.innerHTML = '<div class="empty" style="padding:40px 24px;"><div class="empty-icon">&#128100;</div>' + (_archiveView ? 'No archived people found' : 'No people found') + '</div>'; return; }
-  var isOrg, isSelected, displayName, avInner, avClass, clickHandler, trCls;
+  if (failed) {
+    c.innerHTML = '<div class="os-state" role="alert"><div class="os-state-title">People could not be loaded.</div>'
+      + '<div class="os-state-msg">Your search and filters have been kept. Try again in a moment.</div>'
+      + '<button class="btn-secondary" onclick="loadPeople()">Try again</button></div>';
+    return;
+  }
+  if (!people.length) {
+    var filtered = !!(peopleFilter.q || peopleFilter.tagIds.length || peopleFilter.missingFields.length || peopleFilter.gender || peopleFilter.ageRange || peopleFilter.householdSize || peopleFilter.sacrament);
+    c.innerHTML = '<div class="os-state"><div class="os-state-title">' + (_archiveView ? 'No archived people match.' : filtered ? 'No people match.' : 'No people yet.') + '</div>'
+      + '<div class="os-state-msg">' + (filtered ? 'Try another search, or clear the filters.' : (_archiveView ? 'Archived and deceased people will appear here.' : 'Add the first person to start the directory.')) + '</div>'
+      + (filtered ? '<button class="btn-secondary" onclick="clearPeopleSearchAndFilters()">Clear search and filters</button>' : '') + '</div>';
+    return;
+  }
   var rows = people.map(function(p) {
-    isOrg = (p.member_type||'').toLowerCase() === 'organization';
-    isSelected = _selectedPeople.has(p.id);
-    displayName = isOrg
+    var isOrg = (p.member_type||'').toLowerCase() === 'organization';
+    var isSelected = _selectedPeople.has(p.id);
+    var displayName = isOrg
       ? esc(p.first_name || p.last_name)
       : esc(p.last_name) + (p.last_name && p.first_name ? ', ' : '') + esc(p.first_name);
-    avInner = isOrg
-      ? '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:var(--warm-gray);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>'
-      : (p.photo_url ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">' : initials(p.first_name, p.last_name));
-    avClass = 'dir-avatar ' + (isOrg ? 'dir-avatar-org' : 'dir-avatar-' + (p.id % 5));
-    clickHandler = _selectMode
+    var clickHandler = _selectMode
       ? 'onclick="togglePersonSelect(' + p.id + ', this)"'
       : 'onclick="openPersonQuickView(' + p.id + ')"';
     var rowClsList = [];
     if (isSelected) rowClsList.push('dir-row-selected');
     if (p.id === _qvPersonId) rowClsList.push('dir-row-qv');
-    trCls = rowClsList.length ? ' class="' + rowClsList.join(' ') + '"' : '';
-    var statusPill = '';
-    if (p.status === 'archived') statusPill = ' <span style="font-size:.68rem;padding:1px 6px;border-radius:99px;background:#8b735522;color:#8b7355;border:1px solid #8b735544;vertical-align:middle;">archived</span>';
-    else if (p.status === 'deceased') statusPill = ' <span style="font-size:.68rem;padding:1px 6px;border-radius:99px;background:#6c757d22;color:#6c757d;border:1px solid #6c757d44;vertical-align:middle;">&#x271D; deceased</span>';
-    var contactHtml = (p.phone ? '<div class="dir-phone-main"><a href="tel:' + esc(p.phone.replace(/\D/g,'')) + '" onclick="event.stopPropagation()">' + esc(p.phone) + '</a></div>' : '')
-      + (p.email ? '<div class="dir-email-sub"><a href="mailto:' + esc(p.email) + '" onclick="event.stopPropagation()">' + esc(p.email) + '</a></div>' : '');
-    if (!contactHtml) contactHtml = '<span style="color:var(--faint);">—</span>';
-    return '<tr' + trCls + ' style="cursor:pointer;" ' + clickHandler + ' ondblclick="openPersonDetail(' + p.id + ')">'
-      + '<td style="width:36px;text-align:center;" onclick="event.stopPropagation()"><input type="checkbox" name="person-select"' + (isSelected ? ' checked' : '') + ' style="' + (_selectMode ? '' : 'display:none;') + '" onchange="togglePersonSelect(' + p.id + ',this.closest(&#39;tr&#39;))" onclick="event.stopPropagation()"></td>'
-      + '<td><div class="dir-name-cell"><div class="' + avClass + '">' + avInner + '</div><span class="dir-name-link">' + displayName + '</span>' + statusPill + '</div></td>'
+    var trCls = rowClsList.length ? ' class="' + rowClsList.join(' ') + '"' : '';
+    var phone = p.phone ? '<a href="tel:' + esc(p.phone.replace(/\D/g,'')) + '" onclick="event.stopPropagation()">' + esc(p.phone) + '</a>' : '<span class="dir-none">Not on file</span>';
+    var email = p.email ? '<a href="mailto:' + esc(p.email) + '" onclick="event.stopPropagation()">' + esc(p.email) + '</a>' : '<span class="dir-none">Not on file</span>';
+    var hh = p.household_name ? esc(p.household_name) : '<span class="dir-none">None</span>';
+    return '<tr' + trCls + ' ' + clickHandler + ' ondblclick="openPersonDetail(' + p.id + ')">'
+      + '<td class="dir-cb" onclick="event.stopPropagation()"' + (_selectMode ? '' : ' hidden') + '><input type="checkbox" name="person-select" aria-label="Select ' + displayName + '"' + (isSelected ? ' checked' : '') + ' onchange="togglePersonSelect(' + p.id + ',this.closest(&#39;tr&#39;))" onclick="event.stopPropagation()"></td>'
+      + '<th scope="row"><div class="dir-name-cell">' + personAvatarHtml(p) + '<button type="button" class="dir-name-link" aria-pressed="' + (p.id === _qvPersonId ? 'true' : 'false') + '">' + displayName + '</button>' + personStatusBadge(p) + '</div></th>'
+      + '<td class="dir-col-hh">' + hh + '</td>'
       + '<td>' + typeDotHtml(p.member_type) + '</td>'
-      + '<td class="dir-contact">' + contactHtml + '</td>'
+      + '<td class="dir-col-phone">' + phone + '</td>'
+      + '<td class="dir-col-email">' + email + '</td>'
       + '</tr>';
   }).join('');
-  var cbAll = '<input type="checkbox" id="p-check-all" style="' + (_selectMode ? '' : 'display:none;') + '" onchange="selectAllVisible(this.checked)">';
-  function sortTh(label, col) {
+  var cbAll = '<input type="checkbox" id="p-check-all" aria-label="Select everyone on this page" onchange="selectAllVisible(this.checked)">';
+  function sortTh(label, col, cls) {
     var active = peopleFilter.sort === col;
-    var arrow = active ? (peopleFilter.dir === 'asc' ? ' &#9650;' : ' &#9660;') : ' <span style="opacity:.3;">&#9650;</span>';
-    return '<th style="cursor:pointer;user-select:none;white-space:nowrap;" onclick="sortPeople(\'' + col + '\')">' + label + arrow + '</th>';
+    var dir = active ? (peopleFilter.dir === 'asc' ? 'ascending' : 'descending') : 'none';
+    var arrow = active ? (peopleFilter.dir === 'asc' ? ' &#8593;' : ' &#8595;') : '';
+    return '<th scope="col" aria-sort="' + dir + '"' + (cls ? ' class="' + cls + '"' : '') + '><button type="button" class="dir-sort" onclick="sortPeople(\'' + col + '\')">' + label + '<span aria-hidden="true">' + arrow + '</span></button></th>';
   }
-  c.innerHTML = '<table class="dir-table"><thead><tr>'
-    + '<th>' + cbAll + '</th>'
-    + sortTh('Name','last_name') + sortTh('Type','member_type') + '<th>Contact</th>'
+  c.innerHTML = '<table class="dir-table"><caption class="sr-only">People</caption><thead><tr>'
+    + '<th scope="col" class="dir-cb"' + (_selectMode ? '' : ' hidden') + '>' + cbAll + '</th>'
+    + sortTh('Name','last_name') + sortTh('Household','household','dir-col-hh') + sortTh('Member type','member_type')
+    + '<th scope="col" class="dir-col-phone">Phone</th><th scope="col" class="dir-col-email">Email</th>'
     + '</tr></thead><tbody>' + rows + '</tbody></table>';
 }
-// Card view (2b) — same data/interactions as the table, denser visual scan.
-function renderPeopleCards(people) {
-  var c = document.getElementById('p-card-grid');
-  if (!c) return;
-  if (!people.length) { c.innerHTML = '<div class="empty" style="padding:40px 24px;"><div class="empty-icon">&#128100;</div>' + (_archiveView ? 'No archived people found' : 'No people found') + '</div>'; return; }
-  c.innerHTML = '<div class="ppl-card-grid">' + people.map(function(p) {
-    var isOrg = (p.member_type||'').toLowerCase() === 'organization';
-    var isSelected = _selectedPeople.has(p.id);
-    var displayName = isOrg
-      ? esc(p.first_name || p.last_name)
-      : esc(p.first_name) + (p.first_name && p.last_name ? ' ' : '') + esc(p.last_name);
-    var avClass = 'dir-avatar ' + (isOrg ? 'dir-avatar-org' : 'dir-avatar-' + (p.id % 5));
-    var avInner = isOrg
-      ? '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:var(--warm-gray);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>'
-      : (p.photo_url ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" style="width:42px;height:42px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">' : initials(p.first_name, p.last_name));
-    var clickHandler = _selectMode ? 'togglePersonSelect(' + p.id + ', this)' : 'openPersonQuickView(' + p.id + ')';
-    var cb = _selectMode ? '<div class="ppl-card-cb">' + (isSelected ? '&#10003;' : '') + '</div>' : '';
-    var cardCls = 'ppl-card' + (isSelected ? ' selected' : '') + (p.id === _qvPersonId ? ' qv-active' : '');
-    return '<div class="' + cardCls + '" style="border-left-color:' + typeColor(p.member_type) + ';" onclick="' + clickHandler + '" ondblclick="openPersonDetail(' + p.id + ')">'
-      + cb
-      + '<div class="ppl-card-top"><div class="' + avClass + '" style="width:42px;height:42px;">' + avInner + '</div>'
-      + '<div style="min-width:0;"><div class="ppl-card-name">' + displayName + '</div><div>' + typeDotHtml(p.member_type, 7) + '</div></div></div>'
-      + (p.phone ? '<div class="ppl-card-phone">' + esc(p.phone) + '</div>' : '')
-      + (p.email ? '<div class="ppl-card-email">' + esc(p.email) + '</div>' : '')
-      + '</div>';
-  }).join('') + '</div>';
+function clearPeopleSearchAndFilters() {
+  var si = document.getElementById('p-search');
+  if (si) si.value = '';
+  peopleFilter.q = '';
+  clearAllFilters();
 }
-// ── Household view (RDS2b) — reuses the Households tab's card rendering
-// (renderHouseholds) and API, filtered by the People tab's own search box
-// and Members/All toggle. Paginated separately from List/Card since it's a
-// different dataset (households, not people).
-var _pHhOffset = 0, _pHhTotal = 0;
-function loadPeopleHouseholdView(resetPage) {
-  if (resetPage) _pHhOffset = 0;
-  var q = peopleFilter.q || '';
-  var mtParam = peopleFilter.mt === 'member' ? '&member_type=member' : '';
-  api('/admin/api/households?q=' + encodeURIComponent(q) + '&sort=name&limit=24&offset=' + _pHhOffset + mtParam).then(function(d) {
-    _pHhTotal = d.total || 0;
-    renderHouseholds(d.households || [], 'p-hh-grid');
-    renderPeopleHouseholdPager();
-  }).catch(function() {
-    var c = document.getElementById('p-hh-grid');
-    if (c) c.innerHTML = '<div class="empty"><div class="empty-icon">&#127968;</div>Error loading households.</div>';
-  });
-}
-function renderPeopleHouseholdPager() {
-  var el = document.getElementById('p-hh-pager');
-  if (!el) return;
-  var limit = 24, offset = _pHhOffset, total = _pHhTotal;
-  if (total <= limit) { el.innerHTML = '<span style="color:var(--warm-gray);font-size:.82rem;">' + total + ' household' + (total !== 1 ? 's' : '') + '</span>'; return; }
-  var from = offset + 1, to = Math.min(offset + limit, total);
-  el.innerHTML = '<button class="btn-secondary" style="padding:4px 10px;font-size:.8rem;" onclick="peopleHhPage(-1)" ' + (offset===0?'disabled':'') + '>&#8592; Prev</button>'
-    + '<span style="font-size:.82rem;color:var(--warm-gray);margin:0 10px;">' + from + '–' + to + ' of ' + total + '</span>'
-    + '<button class="btn-secondary" style="padding:4px 10px;font-size:.8rem;" onclick="peopleHhPage(1)" ' + (to>=total?'disabled':'') + '>Next &#8594;</button>';
-}
-function peopleHhPage(dir) {
-  _pHhOffset = Math.max(0, _pHhOffset + dir * 24);
-  loadPeopleHouseholdView();
-}
-// List/Card/Household toggle — persists the user's choice. List/Card re-render the
-// already-loaded person dataset (no refetch); Household fetches its own dataset.
-var _peopleViewMode = 'list';
-function initPeopleViewMode() {
-  try { _peopleViewMode = localStorage.getItem('peopleViewMode') || 'list'; } catch (e) {}
-  applyPeopleViewMode();
-}
-function setPeopleViewMode(mode) {
-  _peopleViewMode = mode;
-  try { localStorage.setItem('peopleViewMode', mode); } catch (e) {}
-  applyPeopleViewMode();
-}
-function applyPeopleViewMode() {
-  var listBtn = document.getElementById('p-view-list-btn');
-  var cardBtn = document.getElementById('p-view-card-btn');
-  var hhBtn = document.getElementById('p-view-household-btn');
-  var grid = document.getElementById('p-grid');
-  var cardGrid = document.getElementById('p-card-grid');
-  var hhView = document.getElementById('p-hh-view');
-  var pager = document.getElementById('p-pager');
-  var quickview = document.getElementById('ppl-quickview');
-  var isCard = _peopleViewMode === 'card';
-  var isHousehold = _peopleViewMode === 'household';
-  if (listBtn) listBtn.classList.toggle('active', !isCard && !isHousehold);
-  if (cardBtn) cardBtn.classList.toggle('active', isCard);
-  if (hhBtn) hhBtn.classList.toggle('active', isHousehold);
-  if (grid) grid.style.display = (isCard || isHousehold) ? 'none' : 'block';
-  if (cardGrid) cardGrid.style.display = isCard ? 'block' : 'none';
-  if (hhView) hhView.style.display = isHousehold ? 'flex' : 'none';
-  if (pager) pager.style.display = isHousehold ? 'none' : 'flex';
-  if (quickview) quickview.style.display = isHousehold ? 'none' : 'flex';
-  if (isHousehold) loadPeopleHouseholdView(true);
+// Phone: Members only / Archived / Select / Print directory sit behind "More" (CSS shows them
+// inline on wider screens and ignores this toggle there).
+function togglePeopleMoreTools() {
+  var el = document.getElementById('ppl-more-tools');
+  var btn = document.getElementById('p-more-btn');
+  if (!el || !btn) return;
+  var open = !el.classList.contains('open');
+  el.classList.toggle('open', open);
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 // ── Quick-view panel (RDS2 master-detail) — right-side preview shown on
 // row/card click instead of navigating straight to the full Person Profile.
 // "Full Profile" inside the panel still calls the existing openPersonDetail().
 var _qvPersonId = null;
-var _QV_EMPTY_HTML = '<div class="ppl-qv-empty">'
-  + '<svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>'
-  + '<div>Select a person to view details</div></div>';
+var _QV_EMPTY_HTML = '';
+function closePersonQuickView() {
+  _qvPersonId = null;
+  var el = document.getElementById('ppl-quickview');
+  if (el) { el.innerHTML = ''; el.classList.add('is-empty'); }
+  renderPeopleDesktop(_loadedPeople || []);
+}
 function openPersonQuickView(id) {
   _qvPersonId = id;
   renderPeopleDesktop(_loadedPeople || []);
-  renderPeopleCards(_loadedPeople || []);
   var el = document.getElementById('ppl-quickview');
   if (!el) return;
-  el.innerHTML = '<div class="ppl-qv-empty">Loading&#8230;</div>';
+  el.classList.remove('is-empty');
+  el.innerHTML = '<div class="ppl-qv-empty" role="status">Loading&#8230;</div>';
   api('/admin/api/people/' + id).then(function(p) {
     if (_qvPersonId !== id) return; // selection changed while this was in flight
     if (p && p.error) { el.innerHTML = '<div class="ppl-qv-empty">Could not load person.</div>'; return; }
@@ -273,36 +221,36 @@ function renderPersonQuickView(p) {
   if (!el) return;
   var isOrg = (p.member_type||'').toLowerCase() === 'organization';
   var name = isOrg ? esc(p.first_name || p.last_name) : (esc(p.first_name) + ' ' + esc(p.last_name)).trim();
-  var tint = avatarTint(p.id);
   var avInner = p.photo_url
     ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">'
     : initials(p.first_name, p.last_name);
   var hhLabel = p.household_display_name || p.household_name || 'Household';
-  var hhLink = p.household_id ? ' &middot; <a onclick="openHouseholdDetail(' + p.household_id + ')">' + esc(hhLabel) + '</a>' : '';
+  var hhLink = p.household_id ? ' <span aria-hidden="true">&middot;</span> <a href="#" onclick="event.preventDefault();openHouseholdDetail(' + p.household_id + ')">' + esc(hhLabel) + '</a>' : '';
   var contactRows = '';
   if (p.phone) contactRows += '<div class="ppl-qv-row"><a href="tel:' + esc(p.phone.replace(/\\D/g,'')) + '">' + esc(p.phone) + '</a></div>';
   if (p.email) contactRows += '<div class="ppl-qv-row"><a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a></div>';
-  if (!contactRows) contactRows = '<div class="ppl-qv-row" style="color:var(--faint);">No contact info on file</div>';
+  if (!contactRows) contactRows = '<div class="ppl-qv-row dir-none">No phone or email on file</div>';
   // Location: same address parts + static-map proxy as the full profile. Only rendered when
   // there's a usable address and the viewer can load the map (member role can't hit the proxy).
   var addrParts = [p.address1, p.city, ((p.state||'')+(p.zip ? ' '+p.zip : '')).trim()].filter(Boolean);
   var mapEnc = (addrParts.length >= 2 && _userRole !== 'member') ? encodeURIComponent(addrParts.join(', ')) : '';
   var locSection = '';
   if (mapEnc) {
-    locSection = '<div class="ppl-qv-section"><div class="ppl-qv-section-lbl">Location</div>'
+    locSection = '<div class="ppl-qv-section"><h3 class="ppl-qv-section-lbl">Location</h3>'
       + '<div class="ppl-qv-row" style="margin-bottom:8px;"><a href="https://maps.google.com/?q=' + mapEnc + '" target="_blank" rel="noopener">' + esc(addrParts.join(', ')) + '</a></div>'
-      + '<div id="ppl-qv-map" class="ppl-qv-map"><div style="padding:8px;font-size:12px;color:var(--warm-gray);">Loading map&#8230;</div></div></div>';
+      + '<div id="ppl-qv-map" class="ppl-qv-map"><div style="padding:8px;font-size:14px;color:var(--muted);">Loading map&#8230;</div></div></div>';
   }
-  el.innerHTML = '<div class="ppl-qv-avatar" style="background:' + tint.bg + ';color:' + tint.fg + ';">' + avInner + '</div>'
-    + '<div class="ppl-qv-name">' + name + '</div>'
+  el.innerHTML = '<div class="ppl-qv-head"><div class="ppl-qv-avatar">' + avInner + '</div>'
+    + '<button type="button" class="ppl-qv-close" onclick="closePersonQuickView()" aria-label="Close preview"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>'
+    + '<h2 class="ppl-qv-name">' + name + '</h2>'
     + '<div class="ppl-qv-meta">' + typeDotHtml(p.member_type) + hhLink + '</div>'
     + '<div class="ppl-qv-actions">'
-    + (p.phone ? '<a href="tel:' + esc(p.phone.replace(/\\D/g,'')) + '" style="background:var(--color-teal);color:var(--white);">Call</a>' : '<span style="background:var(--linen);color:var(--faint);cursor:default;">Call</span>')
-    + '<div onclick="openPersonDetail(' + p.id + ')" style="background:var(--linen);color:var(--color-navy);">Full Profile</div>'
+    + '<button type="button" class="btn-primary" onclick="openPersonDetail(' + p.id + ')">Open profile</button>'
+    + (p.phone ? '<a class="btn-secondary" href="tel:' + esc(p.phone.replace(/\\D/g,'')) + '">Call</a>' : '')
     + '</div>'
-    + '<div class="ppl-qv-section"><div class="ppl-qv-section-lbl">Contact</div>' + contactRows + '</div>'
+    + '<div class="ppl-qv-section"><h3 class="ppl-qv-section-lbl">Contact</h3>' + contactRows + '</div>'
     + locSection
-    + (p.household_id ? '<div class="ppl-qv-section"><div class="ppl-qv-section-lbl">Household</div><div class="ppl-qv-hh-names" id="ppl-qv-hh-chips">Loading&#8230;</div></div>' : '');
+    + (p.household_id ? '<div class="ppl-qv-section"><h3 class="ppl-qv-section-lbl">Household</h3><div class="ppl-qv-hh-names" id="ppl-qv-hh-chips">Loading&#8230;</div></div>' : '');
   if (mapEnc) loadQuickViewMap(p.id, mapEnc);
   if (p.household_id) loadQuickViewHousehold(p.household_id, p.id);
 }
@@ -337,8 +285,10 @@ function loadQuickViewHousehold(hhId, selfId) {
     chipsEl.innerHTML = members.map(function(m) {
       var mName = ((m.first_name||'')+' '+(m.last_name||'')).trim();
       var isSelf = m.id === selfId;
-      return '<div class="ppl-qv-hh-name' + (isSelf ? ' is-self' : '') + '" onclick="openPersonQuickView(' + m.id + ')">' + esc(mName || 'Unnamed') + '</div>';
-    }).join('') || '<span style="color:var(--faint);font-size:12px;">No other members</span>';
+      return isSelf
+        ? '<div class="ppl-qv-hh-name is-self" aria-current="true">' + esc(mName || 'Unnamed') + '</div>'
+        : '<button type="button" class="ppl-qv-hh-name" onclick="openPersonQuickView(' + m.id + ')">' + esc(mName || 'Unnamed') + '</button>';
+    }).join('') || '<span class="dir-none">No other members</span>';
   }).catch(function() {});
 }
 // ── MULTI-SELECT ──────────────────────────────────────────────────────
@@ -346,17 +296,18 @@ function toggleSelectMode() {
   _selectMode = !_selectMode;
   _selectedPeople.clear();
   var btn = document.getElementById('p-select-btn');
-  if (btn) btn.innerHTML = _selectMode ? '&#10005; Cancel Select' : '&#9745; Select';
+  if (btn) btn.setAttribute('aria-pressed', _selectMode ? 'true' : 'false');
   var bar = document.getElementById('p-bulk-bar');
   if (bar) bar.style.display = _selectMode ? 'flex' : 'none';
   if (_selectMode) {
     _qvPersonId = null;
     var qvEl = document.getElementById('ppl-quickview');
-    if (qvEl) qvEl.innerHTML = _QV_EMPTY_HTML;
+    if (qvEl) { qvEl.innerHTML = ''; qvEl.classList.add('is-empty'); }
+    var cnt = document.getElementById('p-bulk-count'); if (cnt) cnt.textContent = '0 selected';
     // Populate member type dropdown
     var sel = document.getElementById('p-bulk-mt');
     if (sel) {
-      sel.innerHTML = '<option value="">Change Member Type…</option>'
+      sel.innerHTML = '<option value="">Change member type…</option>'
         + _memberTypes.map(function(t) {
           var v = t.toLowerCase().replace(/\s+/g,'-');
           return '<option value="' + v + '">' + esc(t) + '</option>';
@@ -366,28 +317,25 @@ function toggleSelectMode() {
     renderBulkTagsPanel();
   }
   renderPeopleDesktop(_loadedPeople || []);
-  renderPeopleCards(_loadedPeople || []);
 }
 var _loadedPeople = [];
 function clearSelection() {
   _selectMode = false;
   _selectedPeople.clear();
   var btn = document.getElementById('p-select-btn');
-  if (btn) btn.innerHTML = '&#9745; Select';
+  if (btn) btn.setAttribute('aria-pressed', 'false');
   var bar = document.getElementById('p-bulk-bar');
   if (bar) bar.style.display = 'none';
   var panel = document.getElementById('p-bulk-tags-panel');
   if (panel) panel.style.display = 'none';
   renderPeopleDesktop(_loadedPeople || []);
-  renderPeopleCards(_loadedPeople || []);
 }
 function togglePersonSelect(id, el) {
   if (_selectedPeople.has(id)) _selectedPeople.delete(id); else _selectedPeople.add(id);
   var countEl = document.getElementById('p-bulk-count');
   if (countEl) countEl.textContent = _selectedPeople.size + ' selected';
-  // Full re-render keeps table row + card checkmark state in sync (lists are page-sized, cheap to redraw).
+  // Full re-render keeps the row checkmark state in sync (lists are page-sized, cheap to redraw).
   renderPeopleDesktop(_loadedPeople || []);
-  renderPeopleCards(_loadedPeople || []);
 }
 function selectAllVisible(checked) {
   (_loadedPeople || []).forEach(function(p) {
@@ -396,7 +344,6 @@ function selectAllVisible(checked) {
   var countEl = document.getElementById('p-bulk-count');
   if (countEl) countEl.textContent = _selectedPeople.size + ' selected';
   renderPeopleDesktop(_loadedPeople || []);
-  renderPeopleCards(_loadedPeople || []);
 }
 function applyBulkMemberType() {
   var mt = document.getElementById('p-bulk-mt').value;
@@ -526,13 +473,12 @@ function applyBulkTags() {
 }
 function renderPeopleMobile(people) {
   var c = document.getElementById('p-contact-list');
-  if (!people.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">&#128100;</div>' + (_archiveView ? 'No archived people found' : 'No people found') + '</div>'; return; }
+  if (!people.length) { c.innerHTML = '<div class="os-state"><div class="os-state-title">' + (_archiveView ? 'No archived people match.' : 'No people match.') + '</div><div class="os-state-msg">Try another search, or clear the filters.</div></div>'; return; }
   c.innerHTML = people.map(function(p) {
     var isOrg = (p.member_type||'').toLowerCase() === 'organization';
     var addr = [p.address1, p.city, p.state].filter(Boolean).join(', ');
     if (!addr && p.household_address) addr = p.household_address;
     var url = mapUrl(addr);
-    var tint = avatarTint(p.id);
     var avInner = p.photo_url
       ? '<img src="' + esc(photoSrc(p.photo_url)) + '" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + initials(p.first_name, p.last_name) + '\'">'
       : initials(p.first_name, p.last_name);
@@ -542,8 +488,8 @@ function renderPeopleMobile(people) {
       + (addr && url ? '<a href="' + esc(url) + '" class="c-btn c-btn-outline" target="_blank" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>Map</a>' : '')
       + '</div>';
     return '<div class="c-card" onclick="openPersonDetail(' + p.id + ')">'
-      + '<div class="c-avatar"' + (isOrg ? '' : ' style="background:' + tint.bg + ';color:' + tint.fg + ';"') + '>' + avInner + '</div>'
-      + '<div class="c-info"><div class="c-name">' + esc(p.first_name) + (p.last_name ? ' ' + esc(p.last_name) : '') + (p.deceased ? ' <span style="font-size:.72rem;color:var(--warm-gray);font-weight:400;">&#x271D; d. ' + (p.death_date||'') + '</span>' : '') + '</div>'
+      + '<div class="c-avatar">' + avInner + '</div>'
+      + '<div class="c-info"><div class="c-name">' + esc(p.first_name) + (p.last_name ? ' ' + esc(p.last_name) : '') + (p.deceased ? ' <span style="font-size:14px;color:var(--muted);font-weight:400;">Died ' + esc(p.death_date||'') + '</span>' : '') + '</div>'
       + '<div class="c-type">' + typeDotHtml(p.member_type, 7) + '</div>'
       + actions
       + '</div></div>';
@@ -704,7 +650,7 @@ function showProfile(p) {
       photoEl.innerHTML = '';
       photoEl.appendChild(img);
     } else if (isOrg) {
-      photoEl.innerHTML = '<svg viewBox="0 0 24 24" style="width:32px;height:32px;fill:none;stroke:var(--warm-gray);stroke-width:1.5"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/></svg>';
+      photoEl.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" style="width:36px;height:36px;fill:none;stroke:var(--muted);stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/></svg>';
       photoEl.style.background = 'var(--linen)';
     } else {
       var initials = ((p.first_name||'').charAt(0)+(p.last_name||'').charAt(0)).toUpperCase();
@@ -728,43 +674,28 @@ function showProfile(p) {
   var mt = p.member_type||'visitor';
   if (bdEl) {
     var statusHtml = '';
-    if (p.status === 'archived') statusHtml = ' <span style="font-size:.7rem;padding:2px 8px;border-radius:99px;background:#8b735522;color:#8b7355;border:1px solid #8b735544;">Archived</span>';
-    else if (p.status === 'deceased') statusHtml = ' <span style="font-size:.7rem;padding:2px 8px;border-radius:99px;background:#6c757d22;color:#6c757d;border:1px solid #6c757d44;">&#x271D; Deceased' + (p.death_date ? ' '+esc(p.death_date) : '') + '</span>';
+    if (p.status === 'archived') statusHtml = ' <span class="os-badge os-badge-neutral">Archived</span>';
+    else if (p.status === 'deceased') statusHtml = ' <span class="os-badge os-badge-neutral">Deceased' + (p.death_date ? ' ' + esc(fmtDate(p.death_date)) : '') + '</span>';
     bdEl.innerHTML = typeDotHtml(mt) + statusHtml;
   }
   var haEl = document.getElementById('pv-hdr-actions');
   if (haEl) {
     var telDigits = (p.phone||'').replace(/[^0-9]/g,'');
-    // Newsletter status/toggle moved to the Tags & Groups card (see pvfTagsBody).
-    haEl.innerHTML = (p.phone ? '<a class="pv2-hdr-btn" href="tel:'+telDigits+'">&#128222; Call</a>' : '')
-      + (p.phone ? '<a class="pv2-hdr-btn" href="sms:'+telDigits+'">&#128172; Text</a>' : '')
-      + (p.email ? '<a class="pv2-hdr-btn solid" href="mailto:'+esc(p.email)+'">&#9993; Email</a>' : '');
-  }
-  var saEl = document.getElementById('pv-status-actions');
-  if (saEl && permEdit('directory')) {
-    var pStatus = p.status || 'active';
-    var inviteBtn = (mt.toLowerCase() === 'member' && pStatus === 'active' && p.email)
-      ? '<button class="btn-secondary role-admin role-staff" style="font-size:.76rem;padding:3px 9px;color:var(--sky-steel);" onclick="sendConnectInvite('+p.id+')">&#128231; Invite to Connect</button>'
-      : '';
-    if (pStatus === 'active') {
-      saEl.innerHTML = inviteBtn
-        + '<button class="btn-secondary" style="font-size:.76rem;padding:3px 9px;color:var(--warm-gray);" onclick="archivePerson('+p.id+')">Archive</button>'
-        + '<button class="btn-secondary" style="font-size:.76rem;padding:3px 9px;color:var(--warm-gray);" onclick="markPersonDeceased('+p.id+')">Deceased</button>';
-    } else if (pStatus === 'archived') {
-      saEl.innerHTML = '<button class="btn-primary" style="font-size:.76rem;padding:3px 9px;background:var(--teal);" onclick="unarchivePerson('+p.id+')">Reactivate</button>';
-    } else if (pStatus === 'deceased') {
-      saEl.innerHTML = '<button class="btn-secondary" style="font-size:.76rem;padding:3px 9px;color:var(--warm-gray);" onclick="unarchivePerson('+p.id+')">Reactivate</button>';
-    }
+    var ic = function(d) { return '<svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic">' + d + '</svg>'; };
+    haEl.innerHTML = (p.phone ? '<a class="btn-secondary" href="tel:'+telDigits+'">' + ic('<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>') + 'Call</a>' : '')
+      + (p.phone ? '<a class="btn-secondary" href="sms:'+telDigits+'">' + ic('<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>') + 'Text</a>' : '')
+      + (p.email ? '<a class="btn-secondary" href="mailto:'+esc(p.email)+'">' + ic('<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>') + 'Email</a>' : '')
+      + pvMoreActionsHtml(p);
   }
   var hhEl = document.getElementById('pv-hh');
   if (hhEl) {
     var hhName = p.household_display_name || p.household_name;
     hhEl.innerHTML = hhName
-      ? '<span class="pv-meta-sep">&middot;</span> <span onclick="openHouseholdDetail('+p.household_id+')">'+esc(hhName)+'</span>'
+      ? '<span class="pv-meta-sep" aria-hidden="true">&middot;</span> <a href="#" onclick="event.preventDefault();openHouseholdDetail('+p.household_id+')">'+esc(hhName)+'</a>'
       : '';
   }
   var roleEl = document.getElementById('pv-role');
-  if (roleEl) roleEl.textContent = p.family_role ? ' \u00b7 '+p.family_role : '';
+  if (roleEl) roleEl.textContent = p.family_role ? ' \u00b7 '+pvRoleLabel(p.family_role) : '';
   // Info tab — redesigned single-screen card layout with sticky jump-nav + inline per-field edit.
   pvfRenderInfo(p);
   // The right-rail aside's content (giving summary, mark-seen, follow-ups) now lives in cards,
@@ -775,6 +706,71 @@ function showProfile(p) {
   if (ca) { ca.classList.remove('hv-mode', 'ov-mode'); ca.classList.add('pv-mode'); }
   showPvTab('info');
 }
+function pvRoleLabel(r) {
+  var m = { head:'Head of household', spouse:'Spouse', child:'Child', other:'Other' };
+  return m[String(r||'').toLowerCase()] || r;
+}
+// "More actions" menu on the person header (Open Sky decision 2026-09-25): the record-level
+// actions that used to be a row of small buttons, plus Print, Send statement and Breeze.
+function pvMoreActionsHtml(p) {
+  var items = [];
+  var mt = (p.member_type||'').toLowerCase();
+  var st = p.status || 'active';
+  var canEdit = permEdit('directory');
+  var isAdminStaff = _userRole === 'admin' || _userRole === 'staff';
+  if (canEdit && isAdminStaff && mt === 'member' && st === 'active' && p.email) items.push(['Invite to Connect', 'sendConnectInvite(' + p.id + ')']);
+  if ((_userRole === 'admin' || _userRole === 'finance') && p.email) items.push(['Send giving statement', 'sendGivingStatement(' + p.id + ',\'' + new Date().getFullYear() + '\')']);
+  if (canEdit && isAdminStaff) items.push(['Push to Breeze', 'pushPersonToBreeze(' + p.id + ')']);
+  items.push(['Print', 'window.print()']);
+  if (canEdit) {
+    if (st === 'active') {
+      items.push(['Archive', 'archivePerson(' + p.id + ')', true]);
+      items.push(['Mark deceased', 'markPersonDeceased(' + p.id + ')', true]);
+    } else {
+      items.push(['Reactivate', 'unarchivePerson(' + p.id + ')', true]);
+    }
+  }
+  return '<div class="pv-more">'
+    + '<button type="button" class="btn-secondary" id="pv-more-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="pv-more-menu" onclick="togglePvMoreMenu()">More actions'
+    + '<svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic"><path d="m6 9 6 6 6-6"/></svg></button>'
+    + '<div class="pv-more-menu" id="pv-more-menu" role="menu" hidden>'
+    + items.map(function(it, i) {
+        return (it[2] && !(items[i-1] && items[i-1][2]) ? '<div class="pv-more-sep" role="separator"></div>' : '')
+          + '<button type="button" role="menuitem" class="pv-more-item" onclick="closePvMoreMenu();' + it[1] + '">' + esc(it[0]) + '</button>';
+      }).join('')
+    + '</div></div>';
+}
+function togglePvMoreMenu() {
+  var m = document.getElementById('pv-more-menu');
+  if (!m) return;
+  if (m.hidden) {
+    m.hidden = false;
+    document.getElementById('pv-more-btn').setAttribute('aria-expanded', 'true');
+    var first = m.querySelector('.pv-more-item'); if (first) first.focus();
+  } else closePvMoreMenu(true);
+}
+function closePvMoreMenu(refocus) {
+  var m = document.getElementById('pv-more-menu');
+  var b = document.getElementById('pv-more-btn');
+  if (!m || m.hidden) return;
+  m.hidden = true;
+  if (b) { b.setAttribute('aria-expanded', 'false'); if (refocus) b.focus(); }
+}
+document.addEventListener('click', function(e) {
+  var wrap = e.target && e.target.closest ? e.target.closest('.pv-more') : null;
+  if (!wrap) closePvMoreMenu();
+});
+document.addEventListener('keydown', function(e) {
+  var m = document.getElementById('pv-more-menu');
+  if (!m || m.hidden) return;
+  if (e.key === 'Escape') { closePvMoreMenu(true); return; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    var items = Array.prototype.slice.call(m.querySelectorAll('.pv-more-item'));
+    var i = items.indexOf(document.activeElement);
+    i = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
+    items[i].focus(); e.preventDefault();
+  }
+});
 function pvRow(key, val) {
   return '<div class="pv-row"><div class="pv-row-key">'+key+'</div>'
     + '<div class="pv-row-val'+(val?'':' empty')+'">'+(val||'—')+'</div></div>';
@@ -829,11 +825,12 @@ function pvfBuildRegistry(p) {
     {id:'middle_name', label:'Middle name', type:'text', ph:'Middle'},
     {id:'gender', label:'Gender', type:'select', options:genderOpts},
     {id:'marital_status', label:'Marital status', type:'select', options:maritalOpts},
-    {id:'member_type', label:'Status', type:'select', options:mtOpts},
+    {id:'member_type', label:'Member type', type:'select', options:mtOpts},
     {id:'dob', label:'Birthdate', type:'date', sub:function(v){ return v ? (pvfYearsAgo(v).replace(' ago',' old')) : ''; }},
     {id:'phone', label:'Phone', type:'tel'},
     {id:'email', label:'Email', type:'email'},
     {id:'address1', label:'Street', type:'text'},
+    {id:'address2', label:'Apt / unit', type:'text'},
     {id:'city', label:'City', type:'text'},
     {id:'state', label:'State', type:'text'},
     {id:'zip', label:'ZIP', type:'text'},
@@ -842,6 +839,13 @@ function pvfBuildRegistry(p) {
     {id:'confirmed', label:'Confirmed', type:'select', options:sacramentOpts, blankVals:['0','']},
     {id:'confirmation_date', label:'Confirmation date', type:'date', sub:dateSub},
     {id:'anniversary_date', label:'Anniversary', type:'date', sub:dateSub},
+    {id:'envelope_number', label:'Envelope #', type:'text'},
+    {id:'public_directory', label:'In the directory', checkLabel:'Include in the member directory and printed directory', type:'check'},
+    {id:'dir_hide_address', label:'Hide address', checkLabel:'Hide address', type:'check'},
+    {id:'dir_hide_phone', label:'Hide phone', checkLabel:'Hide phone', type:'check'},
+    {id:'dir_hide_email', label:'Hide email', checkLabel:'Hide email', type:'check'},
+    {id:'dir_hide_dob', label:'Hide birthday', checkLabel:'Hide birthday', type:'check'},
+    {id:'dir_hide_anniversary', label:'Hide anniversary', checkLabel:'Hide anniversary', type:'check'},
   ];
   _pvFields = {};
   defs.forEach(function(d){ _pvFields[d.id] = d; });
@@ -860,34 +864,41 @@ function pvfDisplay(cfg, val) {
     return o ? o.label : String(val);
   }
   if (cfg.type === 'date') return fmtDate(val);
+  if (cfg.type === 'check') return String(val) === '1' ? 'Yes' : 'No';
   return String(val);
 }
-// Read-only cell HTML for one field (with hover pencil when editable).
+// Read-only row for one field. Editing is per SECTION now (OS3, 2026-09-25): the section's
+// Edit button swaps every field in the card into a form with one Save — see pvfSectionEdit.
 function pvfRowHtml(id) {
   var cfg = _pvFields[id]; if (!cfg) return '';
   var val = pvfRawVal(id);
   var disp = pvfDisplay(cfg, val);
   var empty = !disp;
-  var editable = pvfCanEdit();
   var sub = (cfg.sub && val) ? cfg.sub(val) : '';
-  var inner = '<div class="pv2-ro' + (editable ? ' editable' : '') + (empty ? ' empty' : '') + '"'
-    + (editable ? ' onclick="pvfStart(\'' + id + '\')"' : '') + '>'
-    + '<span>' + (empty ? 'Not set' : esc(disp)) + '</span>'
-    + (editable ? '<span class="pv2-pencil">✎ Edit</span>' : '')
-    + '</div>'
-    + (sub ? '<div class="pv2-sub">' + esc(sub) + '</div>' : '');
   return '<div class="pv2-frow"><div class="pv2-flabel">' + esc(cfg.label) + '</div>'
-    + '<div class="pv2-fval" id="pvf-' + id + '">' + inner + '</div></div>';
+    + '<div class="pv2-fval" id="pvf-' + id + '"><div class="pv2-ro' + (empty ? ' empty' : '') + '">'
+    + (empty ? 'Not on file' : esc(disp)) + '</div>'
+    + (sub ? '<div class="pv2-sub">' + esc(sub) + '</div>' : '')
+    + '</div></div>';
 }
-// Swap a field cell into its inline editor.
-function pvfStart(id) {
-  if (!pvfCanEdit()) return;
-  var cfg = _pvFields[id]; if (!cfg) return;
-  var cell = document.getElementById('pvf-' + id); if (!cell) return;
+// ── Section-level editing ──────────────────────────────────────────────
+// Each editable section is a list of registry field ids. Edit swaps the card body for a form,
+// Save PATCHes only the fields that changed in one request, and the card shows the Timothy
+// Workspace save states: Unsaved changes / Saving… / Saved / Not saved (edits kept).
+var _pvSections = {};
+var _pvSectionBodies = {};
+var _pvSectionOpen = {};
+function pvfInputHtml(id) {
+  var cfg = _pvFields[id]; if (!cfg) return '';
   var val = pvfRawVal(id);
-  var html;
+  var fid = 'pvse-' + id;
+  var onDirty = ' oninput="pvfSectionDirty(this)" onchange="pvfSectionDirty(this)"';
+  var ctl;
+  if (cfg.type === 'check') {
+    return '<label class="pv2-check"><input type="checkbox" id="' + fid + '"' + (String(val) === '1' ? ' checked' : '') + onDirty + '> ' + esc(cfg.checkLabel || cfg.label) + '</label>';
+  }
   if (cfg.type === 'select') {
-    html = '<select class="pv2-inp sel" id="pvfi-' + id + '" onchange="pvfCommit(\'' + id + '\')" onblur="pvfCommit(\'' + id + '\')">'
+    ctl = '<select class="pv2-inp sel" id="' + fid + '"' + onDirty + '>'
       + (cfg.options || []).map(function(o){
           return '<option value="' + esc(String(o.value)) + '"' + (String(o.value) === String(val) ? ' selected' : '') + '>' + esc(o.label) + '</option>';
         }).join('')
@@ -896,95 +907,133 @@ function pvfStart(id) {
     // A date picker can only hold a complete calendar date, so the precision select beside
     // it is what lets a record say "1994, month unknown" without inventing a January 1st.
     var prec = pmDatePrecision(val);
-    html = '<input class="pv2-inp" id="pvfi-' + id + '" type="date" value="' + esc(pmDateInputValue(val)) + '"'
-      + ' onblur="pvfDateBlur(\'' + id + '\')"'
-      + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}else if(event.key===\'Escape\'){pvfCancel(\'' + id + '\');}">'
-      + '<select class="pv2-inp sel pv2-prec" id="pvfi-' + id + '-prec" onchange="pmDatePrecChanged(\'pvfi-' + id + '\')" onblur="pvfDateBlur(\'' + id + '\')">'
+    ctl = '<div class="pv2-date-row"><input class="pv2-inp" id="' + fid + '" type="date" value="' + esc(pmDateInputValue(val)) + '"' + onDirty + '>'
+      + '<select class="pv2-inp sel pv2-prec" id="' + fid + '-prec" aria-label="' + esc(cfg.label) + ' precision" onchange="pmDatePrecChanged(\'' + fid + '\');pvfSectionDirty(this)">'
       + [['exact','Exact date'],['monthday','Month &amp; day only'],['year','Year only']].map(function(o){
           return '<option value="' + o[0] + '"' + (prec === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
         }).join('')
-      + '</select>';
+      + '</select></div>';
+  } else if (cfg.type === 'textarea') {
+    ctl = '<textarea class="pv2-inp" id="' + fid + '" rows="4"' + onDirty + '>' + esc(String(val)) + '</textarea>';
   } else {
-    html = '<input class="pv2-inp" id="pvfi-' + id + '" type="' + esc(cfg.type || 'text') + '" value="' + esc(String(val)) + '"'
-      + ' placeholder="' + esc(cfg.ph || cfg.label) + '" onblur="pvfCommit(\'' + id + '\')"'
-      + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}else if(event.key===\'Escape\'){pvfCancel(\'' + id + '\');}">';
+    ctl = '<input class="pv2-inp" id="' + fid + '" type="' + esc(cfg.type || 'text') + '" value="' + esc(String(val)) + '"'
+      + (cfg.ph ? ' placeholder="' + esc(cfg.ph) + '"' : '') + onDirty + (cfg.type === 'tel' ? ' onblur="formatPhoneOnBlur(this)"' : '') + '>';
   }
-  cell.innerHTML = html;
-  var el = document.getElementById('pvfi-' + id);
-  if (el) { el.focus(); if (el.select && cfg.type !== 'date') el.select(); }
+  return '<div class="pv2-edit-field"><label for="' + fid + '">' + esc(cfg.label) + '</label>' + ctl + '</div>';
 }
-// A date cell holds two controls, so tabbing from the picker to the precision select fires
-// blur — and committing there would tear the select out from under the click. Defer one
-// tick and only commit once focus has actually left the cell.
-function pvfDateBlur(id) {
-  setTimeout(function() {
-    var cell = document.getElementById('pvf-' + id);
-    var active = document.activeElement;
-    if (cell && active && cell.contains && cell.contains(active)) return;
-    if (document.getElementById('pvfi-' + id)) pvfCommit(id);
-  }, 0);
+function pvfReadInput(id) {
+  var cfg = _pvFields[id];
+  var el = document.getElementById('pvse-' + id);
+  if (!cfg || !el) return null;
+  if (cfg.type === 'check') return el.checked ? 1 : 0;
+  if (cfg.type === 'date') return pmReadDate('pvse-' + id, null);
+  return el.value;
 }
-// Swap the cell back to its read-only form.
-//
-// ⚠ Replacing the cell's contents removes whatever control is inside it, and if that
-// control still has focus the browser fires blur SYNCHRONOUSLY, part-way through the
-// assignment. That blur handler calls back into pvfCommit -> pvfCancel, which would set
-// innerHTML again while this assignment is still running — and Chrome throws
-// "The node to be removed is no longer a child of this node" out of the outer set.
-//
-// That exception is what surfaced as "Save failed. Please try again." on gender and
-// marital status, AFTER the PATCH had already succeeded: a <select> commits from its
-// onchange and so is still focused here, where a text input commits from onblur and is
-// not. Hence a re-entrancy guard rather than anything to do with the request.
-var _pvfRendering = {};
-function pvfCancel(id) {
-  if (_pvfRendering[id]) return;
-  var cell = document.getElementById('pvf-' + id);
-  if (!cell) return;
-  _pvfRendering[id] = true;
-  try {
-    cell.innerHTML = pvfRowHtml(id).replace(/^[\s\S]*?<div class="pv2-fval"[^>]*>/, '').replace(/<\/div>$/, '');
-  } finally {
-    _pvfRendering[id] = false;
+function pvfSectionEdit(secId) {
+  if (!pvfCanEdit()) return;
+  var ids = _pvSections[secId]; if (!ids) return;
+  var body = document.getElementById('pvf-body-' + secId); if (!body) return;
+  _pvSectionOpen[secId] = true;
+  var extra = secId === 'contact'
+    ? '<div class="pv2-edit-inline"><button type="button" class="btn-secondary" id="pvse-validate-btn" onclick="pvfValidateSectionAddress()">Validate address</button><span id="pvse-addr-status" role="status" class="pv2-edit-note"></span></div>'
+    : '';
+  body.innerHTML = '<form class="pv2-edit" onsubmit="event.preventDefault();pvfSectionSave(\'' + secId + '\')" data-sec="' + secId + '">'
+    + '<div class="pv2-edit-grid">' + ids.map(pvfInputHtml).join('') + '</div>'
+    + extra
+    + '<div class="pv2-edit-err" id="pvse-err-' + secId + '" role="alert" hidden></div>'
+    + '<div class="pv2-edit-actions">'
+    + '<span class="pv2-save-state" id="pvse-state-' + secId + '" aria-live="polite"></span>'
+    + '<button type="button" class="btn-secondary" onclick="pvfSectionCancel(\'' + secId + '\')">Cancel</button>'
+    + '<button type="submit" class="btn-primary" id="pvse-save-' + secId + '">Save changes</button>'
+    + '</div></form>';
+  var editBtn = document.getElementById('pvf-edit-' + secId); if (editBtn) editBtn.hidden = true;
+  var first = body.querySelector('input,select,textarea'); if (first) first.focus();
+}
+function pvfSectionDirty(el) {
+  var form = el && el.closest ? el.closest('form.pv2-edit') : null;
+  if (!form) return;
+  var st = document.getElementById('pvse-state-' + form.dataset.sec);
+  if (st && st.dataset.state !== 'saving') { st.dataset.state = 'dirty'; st.innerHTML = '<span class="os-badge os-badge-info">Unsaved changes</span>'; }
+}
+function pvfSectionRender(secId) {
+  var body = document.getElementById('pvf-body-' + secId);
+  if (body && _pvSectionBodies[secId]) body.innerHTML = _pvSectionBodies[secId](_currentPvPerson);
+  var editBtn = document.getElementById('pvf-edit-' + secId); if (editBtn) editBtn.hidden = false;
+}
+function pvfSectionCancel(secId) {
+  var st = document.getElementById('pvse-state-' + secId);
+  if (st && st.dataset.state === 'dirty' && !confirm('Discard your unsaved changes?')) return;
+  _pvSectionOpen[secId] = false;
+  pvfSectionRender(secId);
+  var editBtn = document.getElementById('pvf-edit-' + secId); if (editBtn) editBtn.focus();
+}
+function pvfSectionSave(secId) {
+  var ids = _pvSections[secId]; if (!ids) return;
+  var p = _currentPvPerson; if (!p) return;
+  var body = {}, changed = [];
+  ids.forEach(function(id) {
+    var v = pvfReadInput(id);
+    if (v === null) return;
+    if (String(v) !== String(pvfRawVal(id))) { body[id] = v; changed.push(id); }
+  });
+  var st = document.getElementById('pvse-state-' + secId);
+  var err = document.getElementById('pvse-err-' + secId);
+  var saveBtn = document.getElementById('pvse-save-' + secId);
+  if (secId === 'personal' && 'first_name' in body && !String(body.first_name).trim()) {
+    if (err) { err.hidden = false; err.textContent = 'Enter a first name.'; }
+    return;
   }
-}
-// Commit a single field: PATCH just that field, update local record, re-render cell + toast.
-var _pvfCommitting = {};
-function pvfCommit(id) {
-  var cfg = _pvFields[id]; if (!cfg) return;
-  if (_pvfCommitting[id]) return; // guard against onchange+onblur double-fire on selects
-  var inp = document.getElementById('pvfi-' + id);
-  if (!inp) return;
-  // pmReadDate turns the picker's placeholder date back into the stored sentinel, so a
-  // "year only" edit saves as 1994-00-00 rather than as 1 January 1994.
-  var newVal = cfg.type === 'date' ? pmReadDate('pvfi-' + id, null) : inp.value;
-  var oldVal = String(pvfRawVal(id));
-  if (String(newVal) === oldVal) { pvfCancel(id); return; }
-  _pvfCommitting[id] = true;
-  var body = {}; body[id] = newVal;
-  var p = _currentPvPerson;
+  if (!changed.length) { _pvSectionOpen[secId] = false; pvfSectionRender(secId); return; }
+  if (err) err.hidden = true;
+  if (st) { st.dataset.state = 'saving'; st.innerHTML = '<span class="os-badge os-badge-neutral">Saving…</span>'; }
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.setAttribute('aria-busy', 'true'); saveBtn.textContent = 'Saving…'; }
   api('/admin/api/people/' + p.id, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) })
     .then(function(r) {
-      // Cleared only AFTER pvfCancel: the re-render synchronously blurs the control it is
-      // replacing, and that blur re-enters pvfCommit. Clearing first let it through.
-      if (r && r.error) { alert('Save failed: ' + r.error); pvfCancel(id); _pvfCommitting[id] = false; return; }
-      _currentPvPerson[id] = newVal;
-      pvfCancel(id);
-      _pvfCommitting[id] = false;
+      if (r && r.error) throw new Error(r.error);
+      changed.forEach(function(id) {
+        // The server normalizes phone numbers and lowercases member type; mirror what it stores.
+        var v = body[id];
+        if (id === 'member_type') v = String(v).toLowerCase();
+        _currentPvPerson[id] = v;
+      });
+      _pvSectionOpen[secId] = false;
+      pvfSectionRender(secId);
       pvfToast();
-      // Header-affecting fields: re-render the whole profile header/badges.
-      if (['first_name','last_name','preferred_name','member_type','marital_status','family_role'].indexOf(id) >= 0) {
-        pvfRefreshHeader();
+      if (changed.some(function(id){ return ['first_name','last_name','preferred_name','member_type','family_role'].indexOf(id) >= 0; })) pvfRefreshHeader();
+      if (secId === 'contact') {
+        var loc = document.getElementById('pvf-body-location');
+        if (loc) { loc.innerHTML = pvfLocationBody(_currentPvPerson); if (document.getElementById('pv-map-' + p.id)) togglePersonMap(p.id); }
       }
-    }).catch(function(err) {
-      // Carry whatever reason there is. Reported as a bare "Save failed. Please try again."
-      // this was undiagnosable — and it also fires when the save SUCCEEDED but a later step
-      // in the .then threw, which reads to the user as data loss that didn't happen.
-      var why = err && err.message && err.message !== 'Unauthorized' ? '\n\n' + err.message : '';
-      alert('Save failed. Please try again.' + why);
-      pvfCancel(id);
-      _pvfCommitting[id] = false;
+      if (typeof loadPeople === 'function') loadPeople();
+    }).catch(function(e) {
+      if (st) { st.dataset.state = 'dirty'; st.innerHTML = '<span class="os-badge os-badge-warning">Not saved</span>'; }
+      if (err) { err.hidden = false; err.textContent = 'Changes were not saved. Your edits are still here.' + (e && e.message && e.message !== 'Unauthorized' ? ' (' + e.message + ')' : ''); }
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.removeAttribute('aria-busy'); saveBtn.textContent = 'Save changes'; }
     });
+}
+// USPS / Census address check for the Contact section form (fills the fields; nothing is saved
+// until Save changes).
+function pvfValidateSectionAddress() {
+  var btn = document.getElementById('pvse-validate-btn');
+  var status = document.getElementById('pvse-addr-status');
+  var g = function(id) { var el = document.getElementById('pvse-' + id); return el ? el.value.trim() : ''; };
+  if (!g('address1')) { if (status) status.textContent = 'Enter a street address first.'; return; }
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Checking…';
+  api('/admin/api/utils/validate-address', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ address1: g('address1'), address2: g('address2'), city: g('city'), state: g('state'), zip: g('zip') })
+  }).then(function(r) {
+    if (btn) btn.disabled = false;
+    if (!r.ok) { if (status) status.textContent = r.error || 'Could not validate this address.'; return; }
+    var set = function(id, v) { var el = document.getElementById('pvse-' + id); if (el) { el.value = v || ''; pvfSectionDirty(el); } };
+    set('address1', r.address1); set('address2', r.address2); set('city', r.city); set('state', r.state);
+    set('zip', r.zip + (r.zip4 ? '-' + r.zip4 : ''));
+    if (status) status.innerHTML = validateAddrResultMsg(r);
+  }).catch(function(e) {
+    if (btn) btn.disabled = false;
+    if (status) status.textContent = ((e && e.message) || 'Request failed') + '. Try again, or ask an administrator to configure address validation.';
+  });
 }
 var _pvToastTimer = null;
 function pvfToast() {
@@ -1017,11 +1066,11 @@ function pvfNewsletterRender(id, state, errNote) {
   var wrap = document.getElementById('pv-newsletter-wrap');
   if (wrap) {
     if (state === 'checking') {
-      wrap.innerHTML = '<button class="pv2-hdr-btn dashed" disabled>&#128240; Checking newsletter…</button>';
+      wrap.innerHTML = '<button type="button" class="pv2-toggle" disabled>Checking…</button>';
     } else if (state === 'on') {
-      wrap.innerHTML = '<button class="pv2-hdr-btn on" title="On the newsletter — click to remove" onclick="pvfNewsletterToggle(' + id + ',true)">&#9993; Newsletter &#10003;</button>';
+      wrap.innerHTML = '<button type="button" class="pv2-toggle" aria-pressed="true" title="On the newsletter list. Click to remove." onclick="pvfNewsletterToggle(' + id + ',true)">On the newsletter list</button>';
     } else {
-      wrap.innerHTML = '<button class="pv2-hdr-btn dashed" onclick="pvfNewsletterToggle(' + id + ',false)">&#128240; Add to newsletter</button>';
+      wrap.innerHTML = '<button type="button" class="pv2-toggle" aria-pressed="false" onclick="pvfNewsletterToggle(' + id + ',false)">Not on the list. Add</button>';
     }
   }
   var st = document.getElementById('pv-newsletter-status');
@@ -1079,31 +1128,36 @@ function pvfRefreshHeader() {
   var fnEl = document.getElementById('pv-fullname'); if (fnEl) fnEl.textContent = displayName || 'Unnamed';
   var tn = document.getElementById('pv-topbar-name'); if (tn) tn.textContent = displayName;
   var cr = document.getElementById('pvf-crumb'); if (cr) cr.textContent = displayName;
-  var roleEl = document.getElementById('pv-role'); if (roleEl) roleEl.textContent = p.family_role ? ' · ' + p.family_role : '';
+  var roleEl = document.getElementById('pv-role'); if (roleEl) roleEl.textContent = p.family_role ? ' · ' + pvRoleLabel(p.family_role) : '';
+  var bdEl = document.getElementById('pv-badge');
+  if (bdEl) { var st = bdEl.querySelector('.os-badge'); bdEl.innerHTML = typeDotHtml(p.member_type||'visitor') + (st ? ' ' + st.outerHTML : ''); }
 }
-// Generic section card wrapper.
+// Generic section card wrapper. opts.edit adds the section's Edit button (hidden while editing).
 function pvfCard(id, title, opts) {
   opts = opts || {};
-  return '<div class="pv2-card" id="pvf-sec-' + id + '"' + (opts.cls ? ' data-cls="' + opts.cls + '"' : '') + '>'
-    + '<div class="pv2-card-hd"><h3>' + esc(title) + '</h3><div class="sp"></div>'
+  var editBtn = (opts.edit && pvfCanEdit())
+    ? '<button type="button" class="btn-secondary pv2-card-btn" id="pvf-edit-' + id + '" onclick="pvfSectionEdit(\'' + id + '\')" aria-label="Edit ' + esc(title) + '"><svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>Edit</button>'
+    : '';
+  return '<section class="pv2-card" id="pvf-sec-' + id + '" aria-labelledby="pvf-h-' + id + '">'
+    + '<div class="pv2-card-hd"><h2 id="pvf-h-' + id + '">' + esc(title) + '</h2><div class="sp"></div>'
     + (opts.tag ? '<span class="pv2-card-hd-tag">' + esc(opts.tag) + '</span>' : '')
-    + (opts.headerBtns || '')
+    + (opts.headerBtns || '') + editBtn
     + '</div>'
     + '<div class="pv2-card-bd' + (opts.pad ? ' pad' : '') + '" id="pvf-body-' + id + '">' + (opts.body || '') + '</div>'
-    + '</div>';
+    + '</section>';
 }
 // ── Custom card bodies ─────────────────────────────────────────────────
 function pvfContactExtras(p) {
   var out = '';
   if (p.phone && _userRole !== 'member') {
-    out += '<div style="margin-top:6px;">' + (p.sms_opt_in
-      ? '<span id="pv-sms-badge" onclick="togglePVSms()" title="Click to opt out of SMS" style="cursor:pointer;font-size:11px;padding:2px 9px;border-radius:99px;background:var(--pale-sage);color:var(--sage);font-weight:600;">SMS ✓</span>'
-      : '<span id="pv-sms-badge" onclick="togglePVSms()" title="Click to opt in to SMS" style="cursor:pointer;font-size:11px;padding:2px 9px;border-radius:99px;background:var(--linen);color:var(--warm-gray);font-weight:600;">SMS off</span>') + '</div>';
+    out += '<div class="pv2-extra-row"><span class="pv2-flabel">Text messages</span>'
+      + '<button type="button" id="pv-sms-badge" class="pv2-toggle" aria-pressed="' + (p.sms_opt_in ? 'true' : 'false') + '" onclick="togglePVSms()"' + (permEdit('directory') ? '' : ' disabled') + '>'
+      + (p.sms_opt_in ? 'Birthday and anniversary texts on' : 'Birthday and anniversary texts off') + '</button></div>';
   }
-  if (p.household_id && (p.address1||'').trim() && _userRole !== 'member') {
-    out += '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">'
-      + '<button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;" onclick="applyAddressToHousehold(' + p.id + ',' + p.household_id + ')">Push address to household</button>'
-      + '<button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;" onclick="syncPersonAddrToHousehold(' + p.household_id + ')">&#8593; Sync to household</button></div>';
+  if (p.household_id && (p.address1||'').trim() && permEdit('directory')) {
+    out += '<div class="pv2-extra-actions">'
+      + '<button class="btn-secondary" onclick="applyAddressToHousehold(' + p.id + ',' + p.household_id + ')">Use this address for household members</button>'
+      + '<button class="btn-secondary" onclick="syncPersonAddrToHousehold(' + p.household_id + ')">Make this the household address</button></div>';
   }
   return out;
 }
@@ -1111,12 +1165,14 @@ function pvfFamilyBody(p) {
   if (p.household_id) {
     // "Role in household" (head/spouse/child/other) is inline-editable here;
     // the member list loads async into #pv-family-members below it.
-    return pvfRowHtml('family_role')
-      + '<div id="pv-family-members" style="color:var(--warm-gray);font-size:12px;margin-top:6px;">Loading…</div>';
+    var hhName = p.household_display_name || p.household_name || 'Household';
+    return '<a href="#" class="pv2-hh-name" onclick="event.preventDefault();openHouseholdDetail(' + p.household_id + ')">' + esc(hhName) + '</a>'
+      + '<div id="pv-family-members" class="pv2-muted" role="status">Loading…</div>';
   }
-  if (_userRole === 'member') return '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:6px 0;">No household linked</div>';
-  return '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:6px 0;">No household linked</div>'
-    + '<button class="pv2-adddash" onclick="createHouseholdForPerson(' + p.id + ',\'' + esc(p.last_name||'') + '\')">＋ Create household</button>';
+  if (_userRole === 'member') return '<p class="pv2-muted">No household linked.</p>';
+  if (!permEdit('directory')) return '<p class="pv2-muted">No household linked.</p>';
+  return '<p class="pv2-muted">No household linked.</p>'
+    + '<button class="btn-secondary" onclick="createHouseholdForPerson(' + p.id + ',\'' + esc(p.last_name||'') + '\')">Create household</button>';
 }
 var _pvfTagAddOpen = false;
 function pvfTagsBody(p) {
@@ -1125,11 +1181,11 @@ function pvfTagsBody(p) {
   // listing every unapplied tag inline.
   var chips = (p.tags||[]).map(function(t){
     return '<span class="pv2-chip">' + esc(t.name)
-      + (permEdit('directory') ? '<button class="pv2-chip-x" onclick="pvfRemoveTag(' + t.id + ')">✕</button>' : '')
+      + (permEdit('directory') ? '<button type="button" class="pv2-chip-x" onclick="pvfRemoveTag(' + t.id + ')" aria-label="Remove tag ' + esc(t.name) + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>' : '')
       + '</span>';
   }).join('');
   var out = '<div style="display:flex;flex-wrap:wrap;gap:8px;' + (chips ? 'margin-bottom:12px;' : '') + '">'
-    + (chips || '<span style="color:var(--faint);font-size:13px;font-style:italic;">No tags</span>') + '</div>';
+    + (chips || '<span class="pv2-muted">No tags yet.</span>') + '</div>';
   // Tag add/remove PATCHes people/{id} (see pvfAddTag/pvfRemoveTag), the same segment the
   // 'directory' item gates -- so this affordance follows it, not the coarser member/non-member
   // split (member is separately excluded since its directory level is forced 'none').
@@ -1137,13 +1193,13 @@ function pvfTagsBody(p) {
     var curIds = (p.tags||[]).map(function(t){ return t.id; });
     var avail = (typeof allTags !== 'undefined' ? allTags : []).filter(function(t){ return curIds.indexOf(t.id) < 0; });
     if (!avail.length) {
-      out += '<span style="color:var(--faint);font-size:12.5px;">All tags applied</span>';
+      out += '<span class="pv2-muted">Every tag is applied.</span>';
     } else {
-      out += '<button class="pv2-chip-add" onclick="pvfToggleAddTags()">' + (_pvfTagAddOpen ? '✕ Done' : '＋ Add tag') + '</button>';
+      out += '<button type="button" class="btn-secondary" aria-expanded="' + (_pvfTagAddOpen ? 'true' : 'false') + '" onclick="pvfToggleAddTags()">' + (_pvfTagAddOpen ? 'Done adding tags' : 'Add tag') + '</button>';
       if (_pvfTagAddOpen) {
         out += '<div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;">'
           + avail.map(function(t){
-              return '<button class="pv2-chip-add" onclick="pvfAddTag(' + t.id + ')">＋ ' + esc(t.name) + '</button>';
+              return '<button type="button" class="pv2-chip-add" onclick="pvfAddTag(' + t.id + ')">' + esc(t.name) + '</button>';
             }).join('')
           + '</div>';
       }
@@ -1152,9 +1208,9 @@ function pvfTagsBody(p) {
     // populated asynchronously by pvfNewsletterInit (called after render); it's
     // shown only when the person has an email.
     if (p.email) {
-      out += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--warm-gray-light,#e8e2d8);display:flex;flex-wrap:wrap;gap:8px;align-items:center;">'
+      out += '<div class="pv2-extra-row" style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);"><span class="pv2-flabel">Newsletter</span>'
         + '<span id="pv-newsletter-wrap" class="require-edit"></span>'
-        + '<span id="pv-newsletter-status" style="font-size:.75rem;color:var(--color-teal);"></span>'
+        + '<span id="pv-newsletter-status" role="status" class="pv2-edit-note"></span>'
         + '</div>';
     }
   }
@@ -1189,19 +1245,18 @@ function pvfRemoveTag(tagId) {
 }
 function pvfLocationBody(p) {
   var addrParts = [p.address1, p.city, ((p.state||'')+(p.zip ? ' '+p.zip : '')).trim()].filter(Boolean);
-  if (!addrParts.length) return '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:4px 0;">No address on file</div>';
+  if (!addrParts.length) return '<p class="pv2-muted">No address on file.</p>';
   var addrStr = addrParts.map(esc).join(', ');
-  var out = '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--warm-meta);margin-bottom:5px;">Home address</div>'
-    + '<div style="font-size:14.5px;color:var(--color-navy);line-height:1.45;">' + addrStr + '</div>';
+  var out = '<div style="font-size:15px;color:var(--text);line-height:1.5;">' + addrStr + '</div>';
   if (addrParts.length >= 2) {
     // Map is embedded on load (auto-opened by pvfRenderInfo); the button just toggles it.
-    out += '<div style="margin-top:10px;"><div id="pv-map-' + p.id + '" data-addr="' + encodeURIComponent(addrParts.join(', ')) + '" style="display:none;margin-top:2px;border-radius:10px;overflow:hidden;line-height:0;border:1px solid var(--warm-divider);"></div>'
-      + '<button id="pv-map-btn-' + p.id + '" class="btn-secondary" style="font-size:.72rem;padding:3px 9px;margin-top:8px;" onclick="togglePersonMap(' + p.id + ')">&#9654; Show Map</button></div>';
+    out += '<div style="margin-top:12px;"><div id="pv-map-' + p.id + '" data-addr="' + encodeURIComponent(addrParts.join(', ')) + '" style="display:none;margin-top:2px;border-radius:8px;overflow:hidden;line-height:0;border:1px solid var(--border);"></div>'
+      + '<button id="pv-map-btn-' + p.id + '" class="btn-secondary" style="margin-top:8px;" onclick="togglePersonMap(' + p.id + ')">Show map</button></div>';
   }
   return out;
 }
 function pvfGivingBody() {
-  return '<div id="pvf-giving-inner" style="color:var(--warm-gray);font-size:13px;">Loading…</div>';
+  return '<div id="pvf-giving-inner" class="pv2-muted" role="status">Loading…</div>';
 }
 function pvfRenderGivingCard(personId) {
   var el = document.getElementById('pvf-giving-inner');
@@ -1218,7 +1273,7 @@ function pvfRenderGivingCard(personId) {
       + '<div class="pv2-tile"><div class="pv2-tile-lbl">All time</div><div class="pv2-tile-val" style="color:var(--color-navy);">$' + (grandTotal/100).toFixed(2) + '</div></div>'
       + '</div>';
     if (recent.length) {
-      html += '<div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--warm-meta);margin-bottom:6px;">Recent gifts</div>';
+      html += '<h3 class="ppl-qv-section-lbl">Recent gifts</h3>';
       html += recent.map(function(g){
         return '<div class="pv2-gift"><div style="flex:1;min-width:0;">'
           + '<div style="font-weight:700;font-size:14px;color:var(--color-navy);">' + esc(g.fund_name || g.fund || 'Gift') + '</div>'
@@ -1226,22 +1281,22 @@ function pvfRenderGivingCard(personId) {
           + '<div style="font-weight:700;font-size:15px;color:var(--color-navy);">$' + ((g.amount||0)/100).toFixed(2) + '</div></div>';
       }).join('');
     } else {
-      html += '<div style="color:var(--faint);font-size:13px;font-style:italic;padding:4px 0;">No gifts recorded</div>';
+      html += '<p class="pv2-muted">No gifts recorded.</p>';
     }
-    html += '<div style="display:flex;gap:12px;justify-content:center;margin-top:12px;">'
-      + '<a href="#" onclick="showPvTab(\'giving\');return false;" style="font-size:13.5px;font-weight:700;">View full giving history →</a>'
-      + (entries.length ? '<a href="#" onclick="sendGivingStatement(' + personId + ',\'' + curYear + '\');return false;" style="font-size:13.5px;font-weight:700;">&#9993; Send statement</a>' : '')
+    html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;">'
+      + '<a href="#" onclick="showPvTab(\'giving\');return false;" style="font-weight:600;">Full giving history</a>'
+      + (entries.length ? '<a href="#" onclick="sendGivingStatement(' + personId + ',\'' + curYear + '\');return false;" style="font-weight:600;">Send statement</a>' : '')
       + '</div>';
     el.innerHTML = html;
-  }).catch(function(){ el.innerHTML = '<div style="color:var(--danger);font-size:13px;">Could not load giving.</div>'; });
+  }).catch(function(){ el.innerHTML = '<p class="pv2-muted" role="alert">Giving could not be loaded. Try again in a moment.</p>'; });
 }
 function pvfFollowupsBody(p) {
   var name = ((p.first_name||'')+' '+(p.last_name||'')).trim();
-  return '<div id="pvf-followup-list" style="color:var(--warm-gray);font-size:13px;margin-bottom:10px;">Loading…</div>'
+  return '<div id="pvf-followup-list" class="pv2-muted" style="margin-bottom:12px;">Loading…</div>'
     + (_userRole !== 'member'
         ? '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
-          + '<button class="btn-secondary" style="font-size:.78rem;padding:5px 11px;" onclick="markSeenToday(' + p.id + ')">&#10003; Mark Seen Today</button>'
-          + '<button class="btn-secondary" style="font-size:.78rem;padding:5px 11px;" onclick="openAddFollowUp(' + p.id + ',\'' + esc(name) + '\',\'pastoral_call\')">＋ Add follow-up</button>'
+          + '<button class="btn-secondary" onclick="openAddFollowUp(' + p.id + ',\'' + esc(name) + '\',\'pastoral_call\')">Add follow-up</button>'
+          + '<button class="btn-secondary" onclick="markSeenToday(' + p.id + ')">Mark seen today</button>'
           + '</div>'
         : '');
 }
@@ -1253,35 +1308,35 @@ function pvfRenderFollowups(personId) {
   api('/admin/api/followup?person_id=' + personId).then(function(d){
     var items = (d && d.items) ? d.items : (Array.isArray(d) ? d : []);
     var open = items.filter(function(i){ return !i.done && !i.completed_at && i.status !== 'done'; });
-    if (!open.length) { el.innerHTML = '<div style="color:var(--faint);font-size:13px;font-style:italic;">No open follow-ups</div>'; return; }
+    if (!open.length) { el.innerHTML = 'No open follow-ups.'; return; }
     el.innerHTML = open.map(function(i){
       var due = i.due_date ? 'Due ' + esc(fmtDate(i.due_date)) : '';
-      return '<div style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--warm-row-divider);">'
-        + '<div style="flex:1;min-width:0;"><div style="font-size:13.5px;color:var(--color-navy);">' + esc(i.notes || i.type || 'Follow-up') + '</div>'
-        + (due ? '<div style="font-size:12px;color:var(--faint);margin-top:2px;">' + due + '</div>' : '') + '</div></div>';
+      return '<div class="pv2-fu-item"><span class="os-badge os-badge-warning">Needs follow-up</span>'
+        + '<div style="flex:1;min-width:0;"><div style="font-weight:600;color:var(--text);">' + esc(i.notes || i.type || 'Follow-up') + '</div>'
+        + (due ? '<div style="font-size:14px;color:var(--muted);">' + due + '</div>' : '') + '</div></div>';
     }).join('');
-  }).catch(function(){ el.innerHTML = '<div style="color:var(--faint);font-size:12.5px;">Could not load follow-ups</div>'; });
+  }).catch(function(){ el.innerHTML = 'Follow-ups could not be loaded.'; });
 }
 function pvfNotesBody(p) {
   var has = (p.notes||'').trim();
   // PATCHes people/{id} on save (pvfSaveNotesInline) -- gated on 'directory' like the rest of
   // the inline profile editor, not just membership.
   if (!permEdit('directory')) {
-    return '<div style="font-size:14px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'
-      + (has ? esc(p.notes) : '<span style="color:var(--faint);font-style:italic;">No notes</span>') + '</div>';
+    return '<div style="white-space:pre-wrap;">'
+      + (has ? esc(p.notes) : '<span class="pv2-muted">No notes.</span>') + '</div>';
   }
-  return '<div class="pv2-note" onclick="pvfEditNotesInline()" style="cursor:text;">'
-    + '<div style="font-size:14px;color:var(--charcoal);white-space:pre-wrap;line-height:1.5;">'
-    + (has ? esc(p.notes) : '<span style="color:var(--faint);font-style:italic;">Click to add a note…</span>') + '</div></div>';
+  return '<div style="white-space:pre-wrap;margin-bottom:12px;">'
+    + (has ? esc(p.notes) : '<span class="pv2-muted">No notes.</span>') + '</div>'
+    + '<button type="button" class="btn-secondary" onclick="pvfEditNotesInline()">' + (has ? 'Edit note' : 'Add a note') + '</button>';
 }
 function pvfEditNotesInline() {
   if (!permEdit('directory')) return;
   var body = document.getElementById('pvf-body-notes'); if (!body) return;
   var p = _currentPvPerson;
-  body.innerHTML = '<textarea id="pvf-notes-ta" rows="4" class="pv2-inp" style="max-width:100%;resize:vertical;line-height:1.5;">' + esc(p.notes||'') + '</textarea>'
-    + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">'
-    + '<button class="btn-secondary" style="font-size:.78rem;" onclick="pvfCancelNotesInline()">Cancel</button>'
-    + '<button class="btn-primary" style="font-size:.78rem;" onclick="pvfSaveNotesInline()">Save note</button></div>';
+  body.innerHTML = '<label for="pvf-notes-ta" class="sr-only">Notes</label><textarea id="pvf-notes-ta" rows="5" class="pv2-inp" style="max-width:100%;resize:vertical;">' + esc(p.notes||'') + '</textarea>'
+    + '<div class="pv2-edit-actions">'
+    + '<button class="btn-secondary" onclick="pvfCancelNotesInline()">Cancel</button>'
+    + '<button class="btn-primary" onclick="pvfSaveNotesInline()">Save note</button></div>';
   var ta = document.getElementById('pvf-notes-ta'); if (ta) ta.focus();
 }
 function pvfCancelNotesInline() {
@@ -1299,79 +1354,77 @@ function pvfSaveNotesInline() {
       pvfToast();
     }).catch(function(){ alert('Save failed. Please try again.'); });
 }
-// Build + inject the whole redesigned Information panel, then load async card content.
+// Directory visibility, read-only summary (the flags themselves are edited as a section).
+function pvfDirectoryBody(p) {
+  if (String(p.public_directory) === '0') {
+    return '<p class="pv2-dir-line"><span class="os-badge os-badge-neutral">Not in the directory</span></p>'
+      + '<p class="pv2-dir-note">Hidden from the member directory and the printed directory.</p>';
+  }
+  var hidden = [['dir_hide_address','address'],['dir_hide_phone','phone'],['dir_hide_email','email'],['dir_hide_dob','birthday'],['dir_hide_anniversary','anniversary']]
+    .filter(function(f){ return String(p[f[0]]) === '1'; }).map(function(f){ return f[1]; });
+  return '<p class="pv2-dir-line"><span class="os-badge os-badge-success">In the directory</span></p>'
+    + '<p class="pv2-dir-note">' + (hidden.length ? 'Hidden from members: ' + esc(hidden.join(', ')) + '.' : 'Everything on file is shown to members.') + '</p>';
+}
+// Build + inject the Open Sky person page (OS3): a main column of sections, each editable as a
+// whole, and an aside with household, giving and location.
 function pvfRenderInfo(p) {
   var infoEl = document.getElementById('ptab-info');
   if (!infoEl) return;
   _pvfTagAddOpen = false; // start collapsed on each profile render
   pvfBuildRegistry(p);
   var isFinance = (_userRole === 'admin' || _userRole === 'finance');
-  var displayName = ((p.first_name||'')+' '+(p.last_name||'')).trim() || 'Unnamed';
-
+  var isMemberView = _userRole === 'member';
   // Hide the preferred-name row when it just repeats the first name (redundant).
   var _prefRedundant = (p.preferred_name||'').trim()
     && (p.preferred_name||'').trim().toLowerCase() === (p.first_name||'').trim().toLowerCase();
-  var nameCard = pvfCard('name', 'Name', { body:
-    pvfRowHtml('first_name') + pvfRowHtml('last_name')
-    + (_prefRedundant ? '' : pvfRowHtml('preferred_name')) + pvfRowHtml('middle_name') });
-  // gender, marital_status and dob are all absent from memberSafeView, so for a member this
-  // card was three empty rows under a "Personal" heading. Member type is the one field here a
-  // member does get, and it belongs in a directory.
-  var personalCard = _userRole === 'member'
-    ? pvfCard('personal', 'Personal', { body: pvfRowHtml('member_type') })
-    : pvfCard('personal', 'Personal', { body:
-        pvfRowHtml('gender') + pvfRowHtml('marital_status') + pvfRowHtml('member_type') + pvfRowHtml('dob') });
-  var contactCard = pvfCard('contact', 'Contact', { body:
-    pvfRowHtml('phone') + pvfRowHtml('email') + pvfRowHtml('address1') + pvfRowHtml('city') + pvfRowHtml('state') + pvfRowHtml('zip')
-    + pvfContactExtras(p) });
-  var addBtn = p.household_id
-    ? '<button class="btn-secondary require-edit" style="font-size:.72rem;padding:3px 9px;" onclick="openAddToHouseholdModal(' + p.household_id + ')">+ Add</button>'
-    : '';
-  var familyCard = pvfCard('family', 'Family & Household', { headerBtns: addBtn, body: pvfFamilyBody(p) });
+  function rows(ids) { return function() { return ids.map(pvfRowHtml).join(''); }; }
+  _pvSections = {}; _pvSectionBodies = {}; _pvSectionOpen = {};
+  function section(id, title, ids, bodyFn, opts) {
+    opts = opts || {};
+    _pvSections[id] = ids;
+    _pvSectionBodies[id] = bodyFn;
+    opts.edit = ids.length > 0;
+    opts.body = bodyFn(p);
+    return pvfCard(id, title, opts);
+  }
 
-  // Posts people/{id}/push-to-breeze -- same segment the 'directory' item gates server-side.
-  var breezeBtn = !permEdit('directory') ? ''
-    : '<button class="btn-secondary role-admin role-staff" style="font-size:.72rem;padding:3px 9px;" onclick="pushPersonToBreeze(' + p.id + ')">&#8679; Breeze</button>';
-  // Members get name / contact / family / location and nothing else. The server already strips
-  // the underlying data (memberSafeView), so these cards rendered as empty shells with real
-  // headings — which reads to a member as "the app is showing me Demographics, Tags,
-  // Follow-ups and Notes" whether or not any values appear. Giving was already gated this way
-  // on isFinance; these four simply never got the same treatment.
-  var isMemberView = _userRole === 'member';
-  var demoCard = isMemberView ? '' : pvfCard('church', 'Demographics', { headerBtns: breezeBtn, body:
-    pvfRowHtml('baptized') + pvfRowHtml('baptism_date')
-    + pvfRowHtml('confirmed') + pvfRowHtml('confirmation_date')
-    + pvfRowHtml('anniversary_date') });
-  var tagsCard = isMemberView ? '' : pvfCard('tags', 'Tags & Groups', { pad:true, body: pvfTagsBody(p) });
-  var locationCard = pvfCard('location', 'Location', { pad:true, body: pvfLocationBody(p) });
-  var givingCard = isFinance ? pvfCard('giving', 'Giving', { tag:'This year', pad:true, body: pvfGivingBody() }) : '';
+  var contactIds = ['phone','email','address1','address2','city','state','zip'];
+  var contactCard = section('contact', 'Contact', contactIds, function(pp){ return rows(contactIds)() + pvfContactExtras(pp); });
+  // gender, marital_status and dob are all absent from memberSafeView, so a member sees just
+  // the member type here — the one Personal field that belongs in a directory.
+  var personalIds = isMemberView ? ['member_type']
+    : ['first_name','last_name'].concat(_prefRedundant ? [] : ['preferred_name']).concat(['middle_name','member_type','family_role','gender','marital_status','dob']);
+  var personalEditIds = ['first_name','last_name','preferred_name','middle_name','member_type','family_role','gender','marital_status','dob'];
+  var personalCard = section('personal', 'Personal', isMemberView ? [] : personalEditIds, rows(personalIds));
+  // Members get contact / personal (member type) / household / location and nothing else. The
+  // server already strips the underlying data (memberSafeView); these cards would otherwise
+  // render as empty shells with real headings.
+  var churchIds = ['baptized','baptism_date','confirmed','confirmation_date','anniversary_date','envelope_number'];
+  var demoCard = isMemberView ? '' : section('church', 'Church life', churchIds, rows(churchIds));
+  var tagsCard = isMemberView ? '' : pvfCard('tags', 'Tags', { pad:true, body: pvfTagsBody(p) });
+  var dirIds = ['public_directory','dir_hide_address','dir_hide_phone','dir_hide_email','dir_hide_dob','dir_hide_anniversary'];
+  var dirCard = isMemberView ? '' : section('directory', 'Directory visibility', dirIds, pvfDirectoryBody, { pad:true });
   var followCard = isMemberView ? '' : pvfCard('followups', 'Follow-ups', { pad:true, body: pvfFollowupsBody(p) });
-  var notesCard = isMemberView ? '' : pvfCard('notes', 'Notes', { body: pvfNotesBody(p) });
+  var notesCard = isMemberView ? '' : pvfCard('notes', 'Notes', { pad:true, body: pvfNotesBody(p) });
 
-  var navDefs = [['name','Name'],['personal','Personal'],['contact','Contact'],['family','Family']];
-  if (!isMemberView) navDefs.push(['church','Demographics'],['tags','Tags & Groups']);
-  navDefs.push(['location','Location']);
-  if (isFinance) navDefs.push(['giving','Giving']);
-  if (!isMemberView) navDefs.push(['followups','Follow-ups'],['notes','Notes']);
-  var navHtml = '<div class="pv2-nav-lbl">Jump to</div>'
-    + navDefs.map(function(n){ return '<button class="pv2-nav-btn" data-sec="' + n[0] + '" onclick="pvfGo(\'' + n[0] + '\')">' + esc(n[1]) + '</button>'; }).join('');
+  var addBtn = (p.household_id && permEdit('directory'))
+    ? '<button class="btn-secondary pv2-card-btn" onclick="openAddToHouseholdModal(' + p.household_id + ')">Add member</button>'
+    : '';
+  var familyCard = pvfCard('family', 'Household', { headerBtns: addBtn, pad:true, body: pvfFamilyBody(p) });
+  var locationCard = pvfCard('location', 'Location', { pad:true, body: pvfLocationBody(p) });
+  var givingCard = isFinance ? pvfCard('giving', 'Giving', { tag: String(new Date().getFullYear()), pad:true, body: pvfGivingBody() }) : '';
 
-  infoEl.innerHTML = '<div style="max-width:1120px;margin:0 auto;">'
-    + '<div class="pv2-crumb">People <span style="opacity:.5">/</span> <b id="pvf-crumb">' + esc(displayName) + '</b></div>'
-    + '<div class="pv2-body">'
-    + pvfNavSelectHtml(navDefs, 'pvf-sec-')
-    + '<nav class="pv2-nav">' + navHtml + '</nav>'
-    + '<div class="pv2-grid">'
-    + '<div class="pv2-col">' + nameCard + personalCard + contactCard + familyCard + '</div>'
-    + '<div class="pv2-col">' + demoCard + tagsCard + locationCard + givingCard + followCard + notesCard + '</div>'
-    + '</div></div></div>';
+  infoEl.innerHTML = '<div class="pv2-layout">'
+    + '<div class="pv2-main">' + contactCard + personalCard + demoCard + tagsCard + dirCard + followCard + notesCard + '</div>'
+    + '<aside class="pv2-aside" aria-label="Household, giving and location">' + familyCard + givingCard + locationCard + '</aside>'
+    + '</div>';
 
   if (p.household_id) loadPvFamily(p.household_id, p.id);
   if (isFinance) pvfRenderGivingCard(p.id);
   // /admin/api/followup is outside the member allowlist, so for a member this was a guaranteed
   // 403 on every profile open — and there is no Follow-ups card to fill any more either way.
   if (!isMemberView) pvfRenderFollowups(p.id);
-  // Newsletter control now lives in the Tags & Groups card — populate it after render.
+  // Newsletter control lives in the Tags card — populate it after render.
   if (p.email && _userRole !== 'member') pvfNewsletterInit(p.id);
   // Auto-embed the map (togglePersonMap opens the hidden container + loads the static map).
   if (document.getElementById('pv-map-' + p.id)) togglePersonMap(p.id);
@@ -1407,26 +1460,26 @@ function loadPvFamily(hhId, selfId) {
   if (!el) return;
   api('/admin/api/households/'+hhId).then(function(d) {
     var members = (d && d.members) ? d.members : [];
-    if (!members.length) { el.innerHTML = '<div style="color:var(--faint);font-size:12px;font-style:italic;">No members found</div>'; return; }
+    if (!members.length) { el.innerHTML = 'No members found.'; return; }
+    el.classList.remove('pv2-muted');
     el.innerHTML = members.map(function(m) {
       var mName = ((m.first_name||'')+' '+(m.last_name||'')).trim();
       var ini = ((m.first_name||'').charAt(0)+(m.last_name||'').charAt(0)).toUpperCase();
-      var mTint = avatarTint(m.id);
       var meta = m.family_role ? m.family_role.charAt(0).toUpperCase()+m.family_role.slice(1) : '';
       var isSelf = m.id === selfId;
       return '<div class="pv-family-member">'
-        + '<div class="pv-family-avatar" style="background:'+mTint.bg+';color:'+mTint.fg+';">'+ini+'</div>'
-        + '<div style="flex:1;">'
+        + '<div class="pv-family-avatar">'+ini+'</div>'
+        + '<div style="flex:1;min-width:0;">'
         + (isSelf
-            ? '<div class="pv-family-name" style="opacity:.6;">'+esc(mName)+'</div>'
-            : '<div class="pv-family-name" onclick="openPersonDetail('+m.id+')" style="cursor:pointer;color:var(--color-teal);">'+esc(mName)+'</div>')
-        + (meta ? '<div class="pv-family-meta">'+esc(meta)+'</div>' : '')
+            ? '<div class="pv-family-name" aria-current="true">'+esc(mName)+'</div>'
+            : '<button type="button" class="pv-family-name pv-family-link" onclick="openPersonDetail('+m.id+')">'+esc(mName)+'</button>')
         + '</div>'
+        + (meta ? '<div class="pv-family-meta">'+esc(meta)+'</div>' : '')
         + '</div>';
     }).join('')
-    + '<div style="margin-top:8px;"><button class="btn-secondary" style="font-size:.75rem;padding:3px 9px;" onclick="editHouseholdById('+hhId+')">&#9998; Edit Household Details</button></div>';
+    + (permEdit('directory') ? '<div style="margin-top:12px;"><button class="btn-secondary" onclick="editHouseholdById('+hhId+')">Edit household</button></div>' : '');
   }).catch(function(){
-    el.innerHTML = '<div style="color:var(--faint);font-size:12px;">Could not load family</div>';
+    el.innerHTML = 'Household members could not be loaded.';
   });
 }
 function closeProfile() {
@@ -1502,10 +1555,10 @@ function togglePvPhotoMenu(e) {
   if (!menu) return;
   if (menu.style.display !== 'none') { closePvPhotoMenu(); return; }
   var items = [];
-  items.push('<button onclick="closePvPhotoMenu();triggerPhotoUpload()">&#128247; ' + (_pvPhotoState.hasPhoto ? 'Replace photo' : 'Upload photo') + '</button>');
-  if (_pvPhotoState.hasHousehold) items.push('<button onclick="closePvPhotoMenu();openPVPhotoPicker()">&#128100; Use a family photo</button>');
-  if (_pvPhotoState.hasPhoto) items.push('<button onclick="closePvPhotoMenu();recropPersonPhoto()">&#9986; Re-crop</button>');
-  if (_pvPhotoState.hasPhoto) items.push('<button class="danger" onclick="closePvPhotoMenu();removePersonPhoto()">&times; Remove photo</button>');
+  items.push('<button onclick="closePvPhotoMenu();triggerPhotoUpload()">' + (_pvPhotoState.hasPhoto ? 'Replace photo' : 'Upload photo') + '</button>');
+  if (_pvPhotoState.hasHousehold) items.push('<button onclick="closePvPhotoMenu();openPVPhotoPicker()">Use a family photo</button>');
+  if (_pvPhotoState.hasPhoto) items.push('<button onclick="closePvPhotoMenu();recropPersonPhoto()">Re-crop photo</button>');
+  if (_pvPhotoState.hasPhoto) items.push('<button class="danger" onclick="closePvPhotoMenu();removePersonPhoto()">Remove photo</button>');
   menu.innerHTML = items.join('');
   menu.style.display = 'block';
   setTimeout(function() { document.addEventListener('click', _pvPhotoMenuOutside); }, 0);
@@ -1615,17 +1668,8 @@ function togglePVSms() {
     p.sms_opt_in = nextOptIn;
     var badge = document.getElementById('pv-sms-badge');
     if (badge) {
-      if (nextOptIn) {
-        badge.style.background = '#e8f3ec';
-        badge.style.color = '#3a7a55';
-        badge.textContent = 'SMS ✓';
-        badge.title = 'Click to opt out of SMS';
-      } else {
-        badge.style.background = '#f0eee8';
-        badge.style.color = '#998877';
-        badge.textContent = 'SMS off';
-        badge.title = 'Click to opt in to SMS';
-      }
+      badge.setAttribute('aria-pressed', nextOptIn ? 'true' : 'false');
+      badge.textContent = nextOptIn ? 'Birthday and anniversary texts on' : 'Birthday and anniversary texts off';
     }
   }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
 }
@@ -2060,7 +2104,6 @@ function showPvTab(name) {
     p.classList.toggle('active', p.id === 'ptab-'+name);
   });
   if (name === 'giving' && _currentPvPerson) loadPvGiving(_currentPvPerson.id);
-  if (name === 'attendance' && _currentPvPerson) loadPvAttendance(_currentPvPerson.id);
 }
 function loadPvGiving(personId) {
   var el = document.getElementById('ptab-giving');
@@ -2198,7 +2241,7 @@ function renderPvGiving(filterYear) {
   var toolbar = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">'
     + '<select style="font-size:.85rem;padding:4px 8px;border-radius:6px;border:1px solid var(--border);" onchange="renderPvGiving(this.value)">'+yearOpts+'</select>'
     + '<a href="/admin/api/reports/giving-statement?person_id='+personId+'&year='+statYear+'&format=csv" target="_blank" class="btn-secondary" style="font-size:.8rem;padding:5px 12px;text-decoration:none;">&#8595; CSV</a>'
-    + '<button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="sendGivingStatement('+personId+',\''+statYear+'\')">&#9993; Email Statement</button>'
+    + '<button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;" onclick="sendGivingStatement('+personId+',\''+statYear+'\')">Email statement</button>'
     + '</div>';
   el.innerHTML = '<div style="padding:16px;">'
     + toolbar
@@ -2284,28 +2327,28 @@ function sendGivingStatement(personId, year) {
     var name = ((p.first_name||'')+' '+(p.last_name||'')).trim() || 'Friend';
     var total = d.entries.reduce(function(s,e){return s+(e.amount||0);},0);
     var tRows = d.entries.map(function(e){
-      return '<tr><td style="padding:5px 10px;border-bottom:1px solid #eee;">'+(e.gift_date||'')+'</td>'
-        +'<td style="padding:5px 10px;border-bottom:1px solid #eee;">'+esc(e.fund_name||'')+'</td>'
-        +'<td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:right;">$'+((e.amount||0)/100).toFixed(2)+'</td>'
-        +'<td style="padding:5px 10px;border-bottom:1px solid #eee;color:#777;">'+esc(e.method||'')+'</td></tr>';
+      return '<tr><td style="padding:5px 10px;border-bottom:1px solid var(--border);">'+(e.gift_date||'')+'</td>'
+        +'<td style="padding:5px 10px;border-bottom:1px solid var(--border);">'+esc(e.fund_name||'')+'</td>'
+        +'<td style="padding:5px 10px;border-bottom:1px solid var(--border);text-align:right;">$'+((e.amount||0)/100).toFixed(2)+'</td>'
+        +'<td style="padding:5px 10px;border-bottom:1px solid var(--border);color:var(--muted);">'+esc(e.method||'')+'</td></tr>';
     }).join('');
     var htmlBody = '<html><body style="font-family:Georgia,serif;max-width:620px;margin:0 auto;padding:24px;color:#222;">'
       +'<h2 style="color:#0A3C5C;margin-bottom:4px;">'+esc(year)+' Giving Statement</h2>'
-      +'<p style="color:#555;font-size:13px;">Timothy Lutheran Church &bull; St. Louis, MO</p>'
+      +'<p style="color:var(--muted);font-size:13px;">Timothy Lutheran Church &bull; St. Louis, MO</p>'
       +'<p>Dear '+esc(name)+',</p>'
       +'<p>Thank you for your generous giving to Timothy Lutheran Church. Below is a summary of your contributions for '+esc(year)+':</p>'
       +'<table style="width:100%;border-collapse:collapse;font-size:13px;margin:16px 0;">'
-      +'<thead><tr style="background:#EDF5F8;">'
+      +'<thead><tr style="background:var(--info-bg);">'
       +'<th style="padding:8px 10px;text-align:left;font-weight:600;">Date</th>'
       +'<th style="padding:8px 10px;text-align:left;font-weight:600;">Fund</th>'
       +'<th style="padding:8px 10px;text-align:right;font-weight:600;">Amount</th>'
       +'<th style="padding:8px 10px;text-align:left;font-weight:600;">Method</th>'
       +'</tr></thead>'
       +'<tbody>'+tRows+'</tbody>'
-      +'<tfoot><tr style="font-weight:700;"><td colspan="2" style="padding:8px 10px;border-top:2px solid #ccc;">Total Contributions</td>'
-      +'<td style="padding:8px 10px;border-top:2px solid #ccc;text-align:right;">$'+(total/100).toFixed(2)+'</td><td></td></tr></tfoot>'
+      +'<tfoot><tr style="font-weight:700;"><td colspan="2" style="padding:8px 10px;border-top:2px solid var(--border);">Total Contributions</td>'
+      +'<td style="padding:8px 10px;border-top:2px solid var(--border);text-align:right;">$'+(total/100).toFixed(2)+'</td><td></td></tr></tfoot>'
       +'</table>'
-      +'<p style="font-size:12px;color:#666;">No goods or services were provided in exchange for these contributions. Please retain this statement for your tax records.</p>'
+      +'<p style="font-size:12px;color:var(--muted);">No goods or services were provided in exchange for these contributions. Please retain this statement for your tax records.</p>'
       +'</body></html>';
     api('/admin/api/giving/send-statement', {
       method: 'POST',
@@ -2456,14 +2499,13 @@ function submitPvQuickGift() {
     loadPvGiving(_currentPvPerson.id);
   }).catch(function(){ errEl.textContent = 'Error saving gift.'; errEl.style.display='block'; });
 }
-function loadPvAttendance(personId) {
-  var el = document.getElementById('ptab-attendance');
-  if (!el) return;
-  el.innerHTML = '<div style="padding:20px;color:var(--warm-gray);">Attendance data coming soon.</div>';
-}
 function openPersonEdit(p) {
   var isNew = !p || !p.id;
-  document.getElementById('person-modal-title').textContent = isNew ? 'Add Person' : p.first_name + ' ' + p.last_name;
+  document.getElementById('person-modal-title').textContent = isNew ? 'Add person' : p.first_name + ' ' + p.last_name;
+  // New people get the short form (name, contact, member type, household); the rest is edited
+  // section by section on the profile. An existing record still gets every field.
+  var pmEl = document.getElementById('person-modal'); if (pmEl) pmEl.classList.toggle('pm-full', !isNew);
+  var pmSave = document.getElementById('pm-save-btn'); if (pmSave) pmSave.textContent = isNew ? 'Add person' : 'Save';
   document.getElementById('pm-id').value = isNew ? '' : p.id;
   // Prefill from a partial object even when adding new (p.id absent) — e.g. converting a
   // website contact-form follow-up item into a real person. isNew still governs every OTHER
@@ -2636,19 +2678,19 @@ function savePerson() {
     tag_ids: getSelectedTagIds()
   };
   if (!data.first_name || (!isOrg && !data.last_name)) { alert(isOrg ? 'Name is required.' : 'First and last name are required.'); return; }
-  var saveBtn = document.querySelector('#person-modal .btn-primary');
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
-  function reEnablePersonSave() { if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; } }
+  var saveBtn = document.getElementById('pm-save-btn');
+  var saveLabel = saveBtn ? saveBtn.textContent : 'Save';
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.setAttribute('aria-busy', 'true'); saveBtn.textContent = 'Saving…'; }
+  function reEnablePersonSave() { if (saveBtn) { saveBtn.disabled = false; saveBtn.removeAttribute('aria-busy'); saveBtn.textContent = saveLabel; } }
   var url = id ? '/admin/api/people/' + id : '/admin/api/people';
   var meth = id ? 'PUT' : 'POST';
   api(url, {method:meth, headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(r) {
     if (r.ok) {
       reEnablePersonSave();
       closeModal('person-modal');
-      var pvId = _currentPvPerson ? (_currentPvPerson.id || r.id) : null;
-      if (pvId) {
-        api('/admin/api/people/' + pvId).then(function(p) { showProfile(p); });
-      }
+      // A new person lands on their profile, where every other section is filled in (OS3).
+      var pvId = !id ? r.id : (_currentPvPerson ? (_currentPvPerson.id || r.id) : null);
+      if (pvId) openPersonDetail(pvId);
       loadPeople();
     } else { reEnablePersonSave(); alert('Error saving: ' + (r.error||'unknown')); }
   }).catch(function() { reEnablePersonSave(); alert('Error saving. Please try again.'); });
@@ -2707,12 +2749,12 @@ function validateAddrResultMsg(r) {
   var dpv = r.dpvConfirmation;
   var isCensus = r.source === 'census';
   var note = isCensus ? ' (via Census geocoder — no USPS/Lob key configured; ask an admin to add one for confirmed deliverability)' : '';
-  if (dpv === 'Y') return '<span style="color:var(--sage);">&#10003; Confirmed deliverable' + note + '</span>';
-  if (dpv === 'S') return '<span style="color:var(--color-gold);">&#9888; Primary confirmed — apt/suite info needed' + note + '</span>';
-  if (dpv === 'D') return '<span style="color:var(--color-gold);">&#9888; Primary confirmed — secondary not matched' + note + '</span>';
+  if (dpv === 'Y') return '<span class="os-badge os-badge-success">Deliverable</span> <span>Confirmed deliverable' + note + '</span>';
+  if (dpv === 'S') return '<span class="os-badge os-badge-warning">Needs review</span> <span>Street confirmed; add the apartment or suite' + note + '</span>';
+  if (dpv === 'D') return '<span class="os-badge os-badge-warning">Needs review</span> <span>Street confirmed; the apartment or suite did not match' + note + '</span>';
   return isCensus
-    ? '<span style="color:var(--danger);">&#10005; Address not matched by the Census geocoder' + note + '</span>'
-    : '<span style="color:var(--danger);">&#10005; Address not found by USPS</span>';
+    ? '<span class="os-badge os-badge-neutral">Not matched</span> <span>The Census geocoder did not match this address' + note + '</span>'
+    : '<span class="os-badge os-badge-neutral">Not found</span> <span>USPS did not find this address</span>';
 }
 function validatePersonAddress() {
   var btn = document.getElementById('pm-addr-validate-btn');
@@ -2821,7 +2863,7 @@ function togglePersonMap(personId) {
   if (!el) return;
   if (el.style.display === 'none') {
     el.style.display = '';
-    if (btn) btn.textContent = '▼ Hide Map';
+    if (btn) btn.textContent = 'Hide map';
     if (el.dataset.loaded) return;
     // Members get the maps link rather than the paid embedded map — see loadQuickViewMap.
     if (_userRole === 'member') {
@@ -2840,11 +2882,11 @@ function togglePersonMap(personId) {
     img.onerror = function() {
       showMapError(el, el.dataset.addr);
     };
-    el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--warm-gray);">Loading map…</div>';
+    el.innerHTML = '<div style="padding:8px;font-size:14px;color:var(--muted);">Loading map…</div>';
     img.src = '/admin/api/utils/static-map?address=' + encodeURIComponent(addr);
   } else {
     el.style.display = 'none';
-    if (btn) btn.textContent = '&#9654; Show Map';
+    if (btn) btn.textContent = 'Show map';
   }
 }
 

@@ -122,6 +122,6 @@ describe('The app shell itself (.app-shell/.content-area) doesn\'t re-clip print
 
   it('the screen-only .app-shell/.content-area rules (the fixed-viewport flex shell) are untouched — this is a print-only reset, not a removal', () => {
     expect(HTML_HEAD).toMatch(/\.app-shell\{display:flex;height:100vh;height:100dvh;\}/);
-    expect(HTML_HEAD).toMatch(/\.content-area\{flex:1;display:flex;flex-direction:column;overflow:hidden;margin-left:0;\}/);
+    expect(HTML_HEAD).toMatch(/\.content-area\{flex:1;display:flex;flex-direction:column;overflow:hidden;margin-left:var\(--sidebar-width\);min-width:0;\}/);
   });
 });

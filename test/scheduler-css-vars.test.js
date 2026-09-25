@@ -41,19 +41,21 @@ describe('the embedded Scheduler never references an undefined CSS custom proper
     expect(undeclared).toEqual([]);
   });
 
-  it('the nine originally-missing tokens are declared with their original Scheduler values', () => {
-    // Pinned to the exact values scheduler-html.js's own (now-stripped-on-embed) :root
-    // declared, so this fix cannot silently drift the colors while staying "defined".
+  it('the nine originally-missing tokens are declared, on the Open Sky palette', () => {
+    // Originally pinned to the exact values scheduler-html.js's own (now-stripped-on-embed)
+    // :root declared. The Timothy Workspace "Open Sky" redesign (2026-09) deliberately moved the
+    // status/error ones onto the design system's tokens; pinned again here so they cannot
+    // silently drift or go undefined.
     const expected = {
       '--honey': '#E8C070',
       '--soft-sage': '#9AB89E',
-      '--on-pale-gold': '#5a3a00',
-      '--on-pale-sage': '#1a3d1f',
-      '--on-error-bg': '#7a1f1f',
-      '--error-bg': '#FAEAEA',
-      '--error-border': '#D4726A',
-      '--danger-btn': '#B85C3A',
-      '--danger-hover': '#A04A2A',
+      '--on-pale-gold': 'var\\(--warning\\)',
+      '--on-pale-sage': 'var\\(--success\\)',
+      '--on-error-bg': 'var\\(--error\\)',
+      '--error-bg': '#FDEEE8',
+      '--error-border': 'var\\(--error\\)',
+      '--danger-btn': 'var\\(--error\\)',
+      '--danger-hover': '#83221D',
     };
     for (const [name, value] of Object.entries(expected)) {
       const re = new RegExp(name.replace('--', '\\-\\-') + '\\s*:\\s*' + value, 'i');

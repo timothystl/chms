@@ -60,10 +60,10 @@ header .header-text h1 { font-size: 1.05rem; font-weight: 700; line-height: 1.2;
 header .header-text .church-name { font-size: 0.75rem; color: var(--amber); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; font-weight: 700; }
 header .header-text p { font-size: 0.82rem; color: var(--warm-gray); margin-top: 2px; }
 
-.tabs { display: flex; background: var(--steel-anchor); flex-wrap: wrap; border-bottom: 3px solid var(--amber); }
-.tab-btn { padding: 12px 24px; background: none; border: none; color: rgba(255,255,255,0.7); font-size: 0.88rem; font-weight: 700; font-family: var(--font-body); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -3px; transition: all 0.15s; white-space: nowrap; }
-.tab-btn.active { color: white; border-bottom-color: var(--amber); background: rgba(255,255,255,0.1); }
-.tab-btn:hover:not(.active) { color: white; background: rgba(255,255,255,0.1); }
+.tabs { display: flex; background: var(--white); flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+.tab-btn { padding: 12px 24px; background: none; border: none; color: var(--warm-gray); font-size: 0.88rem; font-weight: 700; font-family: var(--font-body); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; transition: all 0.15s; white-space: nowrap; }
+.tab-btn.active { color: var(--teal); border-bottom-color: var(--teal); background: none; }
+.tab-btn:hover:not(.active) { color: var(--teal); background: var(--blue-mist); }
 
 .tab-content { display: none; padding: 24px; max-width: 1100px; margin: 0 auto; }
 .tab-content.active { display: block; }

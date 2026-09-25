@@ -161,7 +161,7 @@ export async function handleAdminLogin(req, env) {
   let body; try { body = await req.text(); } catch { body = ''; }
   const params = new URLSearchParams(body);
   const loginRetryHtml = (msg) => LOGIN_HTML
-    .replace('<!--ERROR-->', '<p style="color:#c0392b;margin-bottom:1rem;">' + msg + '</p>');
+    .replace('<!--ERROR-->', '<p role="alert" style="color:#A12B24;background:#FDEEE8;border-radius:8px;padding:10px 12px;margin-bottom:16px;">' + msg + '</p>');
 
   // P22-E: fail CLOSED, not open, when the KV binding backing rate limiting is missing —
   // brute-force protection that silently disables itself on a misconfigured environment is

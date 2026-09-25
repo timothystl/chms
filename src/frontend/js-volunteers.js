@@ -97,7 +97,7 @@ function volRenderSignupsList() {
           : '<span style="font-size:.72rem;color:var(--warm-gray);">Not in People</span>';
         // Contact count badge
         var contactBadge = s.contact_count > 0
-          ? '<span style="font-size:.72rem;background:rgba(39,174,96,.1);color:#1a7a3a;border:1px solid rgba(39,174,96,.25);border-radius:6px;padding:1px 7px;" title="Last: ' + esc((s.contacted_at||'').slice(0,10)) + '">✉ ' + s.contact_count + '×</span>'
+          ? '<span style="font-size:.72rem;background:rgba(39,174,96,.1);color:var(--success);border:1px solid rgba(39,174,96,.25);border-radius:6px;padding:1px 7px;" title="Last: ' + esc((s.contacted_at||'').slice(0,10)) + '">✉ ' + s.contact_count + '×</span>'
           : '';
         var status = s.status || 'new';
         var statusSelect = '<select class="status-pill status-' + status + '" onchange="volSetSignupStatus(' + s.id + ',this.value)" onclick="event.stopPropagation()">'
@@ -117,9 +117,9 @@ function volRenderSignupsList() {
           + (s.email ? '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;color:var(--teal);border-color:rgba(46,126,166,.3);" data-sig-id="' + s.id + '" data-sig-name="' + esc(s.name) + '" data-sig-email="' + esc(s.email) + '" data-sig-ministry="' + esc(s.ministry) + '" onclick="volOpenSendEmail(this)">✉ Email</button>' : '')
           + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;color:var(--danger);border-color:rgba(192,57,43,.3);" onclick="volDeleteSignup(' + s.id + ')">Remove</button>'
           + '</div></div>'
-          + (meta.length ? '<div style="font-size:.82rem;color:#4A4860;margin-top:6px;line-height:1.6;">' + meta.join(' &nbsp;&bull;&nbsp; ') + '</div>' : '')
+          + (meta.length ? '<div style="font-size:.82rem;color:var(--muted);margin-top:6px;line-height:1.6;">' + meta.join(' &nbsp;&bull;&nbsp; ') + '</div>' : '')
           + (roles.length ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">' + roles.map(function(r){ return '<span style="background:rgba(30,45,74,.07);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:.78rem;">' + esc(r) + '</span>'; }).join('') + '</div>' : '')
-          + (s.notes ? '<div style="font-size:.82rem;color:#6A6880;font-style:italic;margin-top:4px;">"' + esc(s.notes) + '"</div>' : '')
+          + (s.notes ? '<div style="font-size:.82rem;color:var(--muted);font-style:italic;margin-top:4px;">"' + esc(s.notes) + '"</div>' : '')
           + '</div>';
       }).join('');
 }
@@ -138,8 +138,8 @@ function volDupGroupRowsHtml(rows, labelField) {
   return rows.map(function(s) {
     var roles = Array.isArray(s.roles) ? s.roles : [];
     var label = labelField === 'email' ? (s.email || '') : (s.name || '');
-    return '<div style="font-size:.8rem;color:#444;padding:2px 0;">' + esc(label) + (roles.length ? ' • ' + roles.map(esc).join(', ') : '')
-      + ' <span style="color:#aaa;">' + esc((s.created_at || '').slice(0, 10)) + '</span>'
+    return '<div style="font-size:.8rem;color:var(--text);padding:2px 0;">' + esc(label) + (roles.length ? ' • ' + roles.map(esc).join(', ') : '')
+      + ' <span style="color:var(--muted);">' + esc((s.created_at || '').slice(0, 10)) + '</span>'
       + ' <button class="btn-secondary" style="font-size:.72rem;padding:1px 7px;margin-left:6px;color:var(--danger);" onclick="volDeleteSignup(' + s.id + ')">Remove</button></div>';
   }).join('');
 }
@@ -162,7 +162,7 @@ function volRenderDuplicatesPanel() {
       var listEl = document.getElementById('vol-duplicates-list');
       if (!listEl) { if (panel) panel.style.display = ''; return; }
       if (!groups.length && !possible.length) {
-        listEl.innerHTML = '<p style="font-size:.88rem;color:#6a6a6a;">No duplicate sign-ups found.</p>';
+        listEl.innerHTML = '<p style="font-size:.88rem;color:var(--muted);">No duplicate sign-ups found.</p>';
         if (panel) panel.style.display = '';
         return;
       }
@@ -170,9 +170,9 @@ function volRenderDuplicatesPanel() {
       if (groups.length) {
         html += groups.map(function(g) {
           var ids = g.signups.map(function(s) { return s.id; }).join(',');
-          return '<div style="margin-bottom:10px;padding:8px 10px;background:#fff;border-radius:8px;border:1px solid #e8d0a0;">'
+          return '<div style="margin-bottom:10px;padding:8px 10px;background:#fff;border-radius:8px;border:1px solid var(--border);">'
             + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px;">'
-            + '<div style="font-weight:600;font-size:.85rem;color:#8a5000;">' + esc(g.email) + ' — ' + g.count + ' sign-ups for ' + esc(volDupGroupWhere(g)) + '</div>'
+            + '<div style="font-weight:600;font-size:.85rem;color:var(--warning);">' + esc(g.email) + ' — ' + g.count + ' sign-ups for ' + esc(volDupGroupWhere(g)) + '</div>'
             + '<button class="btn-secondary" style="font-size:.72rem;padding:2px 9px;" onclick="volMergeSignupIds(\'' + ids + '\')">Merge</button>'
             + '</div>'
             + volDupGroupRowsHtml(g.signups, 'name')
@@ -180,13 +180,13 @@ function volRenderDuplicatesPanel() {
         }).join('');
       }
       if (possible.length) {
-        html += '<h4 style="font-size:.85rem;font-weight:600;color:#8a5000;margin:14px 0 8px;">Possible duplicates — same name, different email</h4>'
-          + '<p style="font-size:.76rem;color:#8a5000;margin:-4px 0 10px;">A shared name isn\'t proof of a shared person — check the emails before merging.</p>'
+        html += '<h4 style="font-size:.85rem;font-weight:600;color:var(--warning);margin:14px 0 8px;">Possible duplicates — same name, different email</h4>'
+          + '<p style="font-size:.76rem;color:var(--warning);margin:-4px 0 10px;">A shared name isn\'t proof of a shared person — check the emails before merging.</p>'
           + possible.map(function(g) {
             var ids = g.signups.map(function(s) { return s.id; }).join(',');
-            return '<div style="margin-bottom:10px;padding:8px 10px;background:#fff;border-radius:8px;border:1px solid #e0c0c0;">'
+            return '<div style="margin-bottom:10px;padding:8px 10px;background:#fff;border-radius:8px;border:1px solid var(--error-bg);">'
               + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px;">'
-              + '<div style="font-weight:600;font-size:.85rem;color:#8a5000;">' + esc(g.name) + ' — ' + g.count + ' sign-ups for ' + esc(volDupGroupWhere(g)) + '</div>'
+              + '<div style="font-weight:600;font-size:.85rem;color:var(--warning);">' + esc(g.name) + ' — ' + g.count + ' sign-ups for ' + esc(volDupGroupWhere(g)) + '</div>'
               + '<button class="btn-secondary" style="font-size:.72rem;padding:2px 9px;" onclick="volMergeSignupIds(\'' + ids + '\')">Merge</button>'
               + '</div>'
               + volDupGroupRowsHtml(g.signups, 'email')
@@ -489,7 +489,7 @@ function volRenderTemplates() {
     return '<div class="vol-tpl-row">'
       + '<div style="min-width:0;">'
       + '<div style="font-weight:600;font-size:.88rem;">' + esc(t.name) + ministryLabel + '</div>'
-      + '<div style="font-size:.8rem;color:#6A6880;margin-top:2px;">' + esc(t.subject) + '</div>'
+      + '<div style="font-size:.8rem;color:var(--muted);margin-top:2px;">' + esc(t.subject) + '</div>'
       + '</div>'
       + '<div style="display:flex;gap:5px;flex-shrink:0;">'
       + '<button class="btn-secondary" style="font-size:.75rem;padding:2px 8px;" onclick="volEditTemplate(' + t.id + ')">Edit</button>'

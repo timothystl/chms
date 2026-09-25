@@ -5,42 +5,42 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 
 <!-- ═══ PEOPLE TAB ═══ -->
 <div id="tab-people" class="tab-panel">
-  <div class="toolbar">
-    <div class="search-wrap"><input type="search" id="p-search" placeholder="Search name, email, phone…" oninput="debouncePeople()"></div>
-    <div class="view-toggle" title="Switch between list, card, and household view">
-      <button id="p-view-list-btn" class="active" onclick="setPeopleViewMode('list')">&#9776; List</button>
-      <button id="p-view-card-btn" onclick="setPeopleViewMode('card')">&#9638; Card</button>
-      <button id="p-view-household-btn" onclick="setPeopleViewMode('household')">&#8962; Household</button>
-    </div>
-    <button class="btn-secondary" id="p-filter-btn" onclick="toggleFilterDrawer()" style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
-      <svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;flex-shrink:0;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+  <div class="ppl-toolbar">
+    <div class="search-wrap ppl-search"><label for="p-search" class="sr-only">Search people</label><input type="search" id="p-search" placeholder="Search name, email, phone, or envelope" oninput="debouncePeople()"></div>
+    <button class="btn-secondary" id="p-filter-btn" onclick="toggleFilterDrawer()" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/></svg>
       Filters
-      <span id="p-filter-count" style="display:none;background:var(--teal);color:var(--white);border-radius:99px;padding:1px 7px;font-size:.72rem;font-weight:700;"></span>
+      <span id="p-filter-count" class="ppl-count-badge" style="display:none;"></span>
     </button>
-    <button class="btn-secondary no-member" id="p-members-btn" onclick="toggleMemberFilter()" title="Toggle between Members only and all types" style="margin-left:auto;">Members</button>
-    <button class="btn-secondary no-member" id="p-select-btn" onclick="toggleSelectMode()">&#9745; Select</button>
-    <button class="btn-secondary no-member" id="p-archive-btn" onclick="toggleArchiveView()" title="View archived &amp; deceased people">Archived</button>
-    <button class="btn-secondary no-member" onclick="printDirectory()" title="Print directory">&#128438; Directory</button>
-    <button class="btn-primary require-edit" onclick="openPersonEdit(null)">+ Add Person</button>
+    <button class="btn-secondary ppl-more-toggle no-member" id="p-more-btn" onclick="togglePeopleMoreTools()" aria-expanded="false" aria-controls="ppl-more-tools">More</button>
+    <div class="ppl-more-tools" id="ppl-more-tools">
+      <button class="btn-secondary no-member" id="p-members-btn" onclick="toggleMemberFilter()" aria-pressed="true" title="Show members only, or every member type">Members only</button>
+      <button class="btn-secondary no-member" id="p-archive-btn" onclick="toggleArchiveView()" aria-pressed="false" title="Show archived and deceased people">Archived</button>
+      <button class="btn-secondary no-member" id="p-select-btn" onclick="toggleSelectMode()" aria-pressed="false">Select</button>
+      <button class="btn-secondary no-member" onclick="printDirectory()">Print directory</button>
+    </div>
+    <button class="btn-primary require-edit ppl-add-btn" onclick="openPersonEdit(null)"><svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Add person</button>
   </div>
   <!-- Active filter chips -->
-  <div id="p-active-filters" style="display:none;padding:0 16px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;"></div>
+  <div id="p-active-filters" class="ppl-active-filters" style="display:none;"></div>
   <!-- Bulk action bar (visible when Select mode is active) -->
-  <div id="p-bulk-bar" style="display:none;position:sticky;bottom:0;z-index:500;background:var(--steel-anchor);color:var(--white);padding:10px 16px;display:none;align-items:center;gap:10px;flex-wrap:wrap;">
-    <span id="p-bulk-count" style="font-size:.9rem;font-weight:700;">0 selected</span>
-    <div style="flex:1;"></div>
-    <select id="p-bulk-mt" style="padding:5px 8px;border-radius:6px;border:none;font-size:.85rem;background:var(--white);color:var(--charcoal);">
-      <option value="">Change Member Type…</option>
-    </select>
-    <button class="btn-sm" onclick="applyBulkMemberType()" style="background:var(--white);color:var(--steel-anchor);">Apply</button>
-    <button class="btn-sm" onclick="openBulkTagsPanel()" style="background:var(--white);color:var(--steel-anchor);">&#9881; Tags</button>
-    <button class="btn-sm" onclick="openBulkCommPanel()" style="background:var(--white);color:var(--steel-anchor);">&#9993; Comms</button>
-    <button class="btn-sm" onclick="openBulkSacramentPanel()" style="background:var(--white);color:var(--steel-anchor);">&#10010; Sacraments</button>
-    <button class="btn-sm" onclick="clearSelection()" style="background:rgba(255,255,255,.2);color:var(--white);">Cancel</button>
+  <div id="p-bulk-bar" class="ppl-bulk-bar" role="region" aria-label="Bulk actions" style="display:none;">
+    <span id="p-bulk-count" class="ppl-bulk-count" aria-live="polite">0 selected</span>
+    <div class="ppl-bulk-actions">
+      <label for="p-bulk-mt" class="sr-only">Change member type</label>
+      <select id="p-bulk-mt" class="ppl-bulk-select">
+        <option value="">Change member type…</option>
+      </select>
+      <button class="btn-secondary" onclick="applyBulkMemberType()">Apply</button>
+      <button class="btn-secondary" onclick="openBulkTagsPanel()">Tags</button>
+      <button class="btn-secondary" onclick="openBulkCommPanel()">Communications</button>
+      <button class="btn-secondary" onclick="openBulkSacramentPanel()">Sacraments</button>
+      <button class="btn-secondary" onclick="clearSelection()">Done</button>
+    </div>
   </div>
   <!-- Bulk sacrament-flag mini-panel -->
-  <div id="p-bulk-sacrament-panel" style="display:none;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin:4px 0 8px;">
-    <div style="font-size:.78rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;margin-bottom:8px;">Bulk Sacramental Status</div>
+  <div id="p-bulk-sacrament-panel" class="ppl-bulk-panel" style="display:none;">
+    <h3 class="ppl-panel-title">Sacraments for selected people</h3>
     <div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">For all selected people, mark them as baptized and/or confirmed (date unknown). Use after filtering by missing baptism/confirmation date.</div>
     <div style="display:flex;flex-wrap:wrap;gap:24px;margin-bottom:12px;">
       <div style="display:flex;flex-direction:column;gap:6px;font-size:.88rem;">
@@ -57,13 +57,13 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
     </div>
     <div style="display:flex;gap:8px;">
-      <button class="btn-primary" style="font-size:.82rem;padding:5px 12px;" onclick="applyBulkSacrament()">Apply</button>
-      <button class="btn-secondary" style="font-size:.82rem;padding:5px 12px;" onclick="document.getElementById(&#39;p-bulk-sacrament-panel&#39;).style.display=&#39;none&#39;">Cancel</button>
+      <button class="btn-primary" onclick="applyBulkSacrament()">Apply</button>
+      <button class="btn-secondary" onclick="document.getElementById(&#39;p-bulk-sacrament-panel&#39;).style.display=&#39;none&#39;">Cancel</button>
     </div>
   </div>
   <!-- Bulk communications opt-in/out mini-panel -->
-  <div id="p-bulk-comm-panel" style="display:none;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin:4px 0 8px;">
-    <div style="font-size:.78rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;margin-bottom:8px;">Bulk Communications Opt-In</div>
+  <div id="p-bulk-comm-panel" class="ppl-bulk-panel" style="display:none;">
+    <h3 class="ppl-panel-title">Communications for selected people</h3>
     <div style="display:flex;flex-wrap:wrap;gap:24px;margin-bottom:12px;">
       <div style="display:flex;flex-direction:column;gap:6px;font-size:.88rem;">
         <div style="font-weight:700;color:var(--charcoal);">SMS (text messages)</div>
@@ -78,18 +78,18 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
     </div>
     <div style="display:flex;gap:8px;">
-      <button class="btn-primary" style="font-size:.82rem;padding:5px 12px;" onclick="applyBulkComm()">Apply</button>
-      <button class="btn-secondary" style="font-size:.82rem;padding:5px 12px;" onclick="document.getElementById(&#39;p-bulk-comm-panel&#39;).style.display=&#39;none&#39;">Cancel</button>
+      <button class="btn-primary" onclick="applyBulkComm()">Apply</button>
+      <button class="btn-secondary" onclick="document.getElementById(&#39;p-bulk-comm-panel&#39;).style.display=&#39;none&#39;">Cancel</button>
     </div>
   </div>
   <!-- Bulk tags mini-panel -->
-  <div id="p-bulk-tags-panel" style="display:none;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin:4px 0 8px;">
-    <div style="font-size:.78rem;font-weight:700;color:var(--warm-gray);text-transform:uppercase;margin-bottom:8px;">Bulk Tag Management</div>
+  <div id="p-bulk-tags-panel" class="ppl-bulk-panel" style="display:none;">
+    <h3 class="ppl-panel-title">Tags for selected people</h3>
     <div id="p-bulk-tags-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
-    <div style="font-size:.75rem;color:var(--warm-gray);margin-bottom:6px;">&#9679; = add to all &nbsp; &#9675; = remove from all &nbsp; (empty = no change)</div>
+    <div style="font-size:14px;color:var(--muted);margin-bottom:8px;">Click a tag to cycle: add to all, remove from all, no change.</div>
     <div style="display:flex;gap:8px;">
-      <button class="btn-primary" style="font-size:.82rem;padding:5px 12px;" onclick="applyBulkTags()">Apply Tags</button>
-      <button class="btn-secondary" style="font-size:.82rem;padding:5px 12px;" onclick="document.getElementById(&#39;p-bulk-tags-panel&#39;).style.display=&#39;none&#39;">Cancel</button>
+      <button class="btn-primary" onclick="applyBulkTags()">Apply tags</button>
+      <button class="btn-secondary" onclick="document.getElementById(&#39;p-bulk-tags-panel&#39;).style.display=&#39;none&#39;">Cancel</button>
     </div>
   </div>
   <div id="p-status" class="status-msg"></div>
@@ -97,27 +97,14 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
        so on a phone there was no way to see how many results a search returned without
        scrolling to the bottom of 25 cards. Populated by renderPeoplePager(). -->
   <div id="p-count-mobile"></div>
-  <!-- Master-detail: list (List/Card view) on the left, quick-view panel on the right (RDS2) -->
+  <!-- Master-detail: list on the left, quick-view panel on the right (shown once a row is chosen) -->
   <div class="ppl-master-detail">
     <div class="ppl-list-col">
-      <!-- Desktop list (table) view -->
       <div id="p-grid"></div>
-      <!-- Desktop card view -->
-      <div id="p-card-grid"></div>
-      <!-- Household view (RDS2b) — reuses the Households tab's card grid -->
-      <div id="p-hh-view" style="display:none;flex-direction:column;flex:1;min-height:0;">
-        <div id="p-hh-grid" class="card-grid" style="flex:1;min-height:0;overflow-y:auto;padding:2px 2px 0;"></div>
-        <div id="p-hh-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;flex-shrink:0;"></div>
-      </div>
       <!-- Pagination -->
       <div id="p-pager" style="display:flex;align-items:center;justify-content:center;padding:16px 0;gap:8px;"></div>
     </div>
-    <div class="ppl-quickview" id="ppl-quickview">
-      <div class="ppl-qv-empty">
-        <svg viewBox="0 0 24 24" style="width:38px;height:38px;fill:none;stroke:currentColor;stroke-width:1.5;opacity:.35;"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-        <div>Select a person to view details</div>
-      </div>
-    </div>
+    <aside class="ppl-quickview is-empty" id="ppl-quickview" aria-label="Person preview"></aside>
   </div>
   <!-- Mobile contact list -->
   <div class="contact-list" id="p-contact-list"></div>
@@ -516,7 +503,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
       <div class="import-status" id="giving-sync-status"></div>
-      <pre id="giving-sync-diagnostics" style="display:none;margin-top:10px;padding:10px;background:#f4f0ea;border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
+      <pre id="giving-sync-diagnostics" style="display:none;margin-top:10px;padding:10px;background:var(--page);border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
       <div style="margin-top:12px;">
         <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
@@ -533,7 +520,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <p style="margin:0 0 8px;"><strong>Processor Fee Check</strong> — Ask the Breeze API whether it returns a per-payment fee / net / deposit field. Answers whether native giving can capture the processor fee straight from Breeze, or whether it has to come from a report import.</p>
         <button class="btn-secondary" onclick="runBreezeFeeCheck()">&#128269; Check for Fee Field</button>
         <div class="import-status" id="breeze-fee-check-status"></div>
-        <pre id="breeze-fee-check-out" style="display:none;margin-top:10px;padding:10px;background:#f4f0ea;border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
+        <pre id="breeze-fee-check-out" style="display:none;margin-top:10px;padding:10px;background:var(--page);border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
       </div>
     </div>
     <!-- Letter Template Card -->
@@ -919,14 +906,14 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div class="import-status" id="breeze-name-status" style="margin-top:4px;"></div>
       <div id="breeze-diag" style="display:none;margin-top:10px;font-size:.78rem;font-family:monospace;background:var(--linen);padding:10px;border-radius:6px;white-space:pre-wrap;"></div>
 
-      <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,var(--border));">
       <h4 style="font-size:.9rem;margin:0 0 6px;">Link Existing People to Breeze</h4>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">For someone you added here in Connect who later got their own Breeze record (e.g. once they gave), a plain <strong>Sync People</strong> would create a duplicate — it only matches on Breeze ID. This finds Breeze people who aren&rsquo;t linked yet and suggests a matching Connect person (by email, then name). Review each and click <strong>Link</strong> — it just connects the two records and keeps all your Connect data; future syncs then update that person normally.</p>
       <button class="btn-secondary" onclick="loadBreezeUnlinked()" style="margin-bottom:10px;">&#128279; Find People to Link</button>
       <div id="breeze-link-area"></div>
       <div class="import-status" id="breeze-link-status"></div>
 
-      <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,var(--border));">
       <h4 style="font-size:.9rem;margin:0 0 6px;">Fund Names</h4>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">After the giving sync, imported funds may show as "Breeze Fund XXXXXXX". Use <strong>Auto-Fix from Breeze</strong> to look up the real names directly from Breeze and rename them automatically. If any funds still have placeholder names after that, use the manual mapping tool below.</p>
       <button class="btn-primary" onclick="fixFundNames()" style="margin-bottom:8px;">&#128260; Auto-Fix Fund Names from Breeze</button>
@@ -939,7 +926,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <button class="btn-secondary" onclick="loadFundMapping()" style="margin-bottom:10px;">Load Fund Mapping</button>
       <div id="fund-map-area" style="display:none;">
         <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:10px;" id="fund-map-table">
-          <thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Breeze Fund</th><th style="padding:4px 8px;">Gifts</th><th style="padding:4px 8px;">Total</th><th style="padding:4px 8px;">Map to &rarr;</th></tr></thead>
+          <thead><tr style="text-align:left;border-bottom:1px solid var(--border);"><th style="padding:4px 8px;">Breeze Fund</th><th style="padding:4px 8px;">Gifts</th><th style="padding:4px 8px;">Total</th><th style="padding:4px 8px;">Map to &rarr;</th></tr></thead>
           <tbody id="fund-map-rows"></tbody>
         </table>
         <button class="btn-primary" onclick="applyFundMapping()">Apply Mapping</button>
@@ -1158,7 +1145,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <h2 style="font-size:1.1rem;font-weight:700;color:var(--charcoal);">Volunteers</h2>
     </div>
 
-    <div class="vol-shell" style="display:flex;align-items:flex-start;gap:0;background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);overflow:hidden;margin-bottom:28px;">
+    <div class="vol-shell" style="display:flex;align-items:flex-start;gap:0;background:var(--white);border-radius:20px;box-shadow:0 0 0 1px var(--border);overflow:hidden;margin-bottom:28px;">
       <!-- Sub-nav: Signups / Ministry Roles / Events -->
       <div id="vol-subnav" class="vol-subnav">
         <button class="vol-subtab-btn active" onclick="volShowSection('signups',this)">Signups</button>
@@ -1181,9 +1168,9 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
             <a id="vol-export-link" href="/admin/api/export.csv" class="btn-secondary" style="font-size:.8rem;" download>Export CSV</a>
           </div>
         </div>
-        <div id="vol-duplicates-panel" style="display:none;background:#fff8f0;border:1px solid #e0b060;border-radius:10px;padding:14px;margin-bottom:12px;">
-          <h4 style="font-size:.9rem;font-weight:600;color:#8a5000;margin-bottom:10px;">Duplicate sign-ups</h4>
-          <p style="font-size:.78rem;color:#8a5000;margin:-4px 0 10px;">Two rows here for the same event, or the same off-event ministry interest, are the "locked out and had to sign up twice" duplicates from before sign-ups started merging automatically — "Merge Duplicate Sign-ups…" above consolidates every one at once, or click Merge on just one group below. Two rows for genuinely <em>different</em> events are not duplicates and are left alone either way. A second section below lists sign-ups sharing a name but not an email — check those before merging, since a shared name isn't proof of a shared person.</p>
+        <div id="vol-duplicates-panel" style="display:none;background:var(--page);border:1px solid #e0b060;border-radius:10px;padding:14px;margin-bottom:12px;">
+          <h4 style="font-size:.9rem;font-weight:600;color:var(--warning);margin-bottom:10px;">Duplicate sign-ups</h4>
+          <p style="font-size:.78rem;color:var(--warning);margin:-4px 0 10px;">Two rows here for the same event, or the same off-event ministry interest, are the "locked out and had to sign up twice" duplicates from before sign-ups started merging automatically — "Merge Duplicate Sign-ups…" above consolidates every one at once, or click Merge on just one group below. Two rows for genuinely <em>different</em> events are not duplicates and are left alone either way. A second section below lists sign-ups sharing a name but not an email — check those before merging, since a shared name isn't proof of a shared person.</p>
           <div id="vol-duplicates-list"></div>
         </div>
         <div id="vol-status-pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>
@@ -1279,7 +1266,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <h3 style="font-size:1rem;font-weight:700;color:var(--charcoal);">Link to Person Record</h3>
       <button onclick="closeModal('vol-link-person-modal')" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--warm-gray);">✕</button>
     </div>
-    <div style="font-size:.85rem;color:#4A4860;margin-bottom:10px;">Signup: <strong id="vol-link-signup-name"></strong></div>
+    <div style="font-size:.85rem;color:var(--muted);margin-bottom:10px;">Signup: <strong id="vol-link-signup-name"></strong></div>
     <!-- Current link -->
     <div id="vol-link-current" style="display:none;background:rgba(46,126,166,.08);border:1px solid rgba(46,126,166,.2);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:.83rem;display:flex;align-items:center;justify-content:space-between;gap:8px;">
       <span>Currently linked: <strong id="vol-link-current-name"></strong> <span style="color:var(--warm-gray);">#<span id="vol-link-current-id"></span></span></span>
@@ -1305,7 +1292,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <h3 style="font-size:1rem;font-weight:700;color:var(--charcoal);">Send Outreach Email</h3>
       <button onclick="closeModal('vol-send-email-modal')" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--warm-gray);">✕</button>
     </div>
-    <div style="font-size:.82rem;color:#4A4860;margin-bottom:12px;">To: <strong id="vol-send-to"></strong></div>
+    <div style="font-size:.82rem;color:var(--muted);margin-bottom:12px;">To: <strong id="vol-send-to"></strong></div>
     <!-- Template picker -->
     <div style="margin-bottom:10px;">
       <label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">Start from a template</label>
@@ -1336,7 +1323,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 <div id="vol-shift-modal" class="modal-overlay" style="background:rgba(30,45,74,.35);" onclick="if(event.target===this)closeModal('vol-shift-modal')">
   <div class="modal ev-fields" style="max-width:440px;width:95%;padding:24px;gap:14px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <h3 id="vol-shift-modal-title" style="font-family:'Lora',serif;font-weight:600;font-size:1.05rem;color:var(--color-navy);margin:0;">Edit shift</h3>
+      <h3 id="vol-shift-modal-title" style="font-family:var(--font-head);font-weight:600;font-size:1.05rem;color:var(--color-navy);margin:0;">Edit shift</h3>
       <span id="vol-shift-day-label" style="font-size:.72rem;color:var(--ev-muted);"></span>
     </div>
     <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">Shift name</label><input type="text" id="vol-shift-name"></div>
@@ -1352,7 +1339,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <div id="vol-shift-filled-hint" style="font-size:.72rem;color:var(--ev-muted);margin:-6px 0 2px;"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
-      <a href="javascript:void(0)" id="vol-shift-delete" style="color:#c0392b;font-size:.78rem;font-weight:600;text-decoration:none;cursor:pointer;" onclick="volDeleteShift()">Delete shift</a>
+      <a href="javascript:void(0)" id="vol-shift-delete" style="color:var(--error);font-size:.78rem;font-weight:600;text-decoration:none;cursor:pointer;" onclick="volDeleteShift()">Delete shift</a>
       <div style="display:flex;gap:8px;">
         <button class="ev-btn-secondary" onclick="closeModal('vol-shift-modal')">Cancel</button>
         <button class="ev-btn-primary" onclick="volSaveShift()">Save shift</button>
@@ -1367,13 +1354,9 @@ export const HTML_TABS_2 = String.raw`
 <!-- ═══ PROFILE VIEW ═══ -->
 <div id="profile-view">
   <div class="topbar">
-    <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-    <span class="topbar-back" onclick="closeProfile()">&#8592; People</span>
-    <span id="pv-topbar-name" style="font-size:15px;font-weight:500;color:var(--charcoal);margin-left:8px;"></span>
-    <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
-      <div id="pv-status-actions" style="display:flex;gap:6px;align-items:center;"></div>
-      <button class="btn-secondary" onclick="window.print()">Print</button>
-    </div>
+    <button class="hamburger" onclick="openSidebar()" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg><span>Menu</span></button>
+    <a href="#" class="topbar-back" onclick="event.preventDefault();closeProfile()"><svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>People</a>
+    <span id="pv-topbar-name" class="pv-topbar-name"></span>
   </div>
   <div class="pv-body">
     <div class="pv-hdr">
@@ -1389,7 +1372,7 @@ export const HTML_TABS_2 = String.raw`
       </div>
       <input type="file" id="pv-photo-input" accept="image/*" style="display:none;" onchange="handlePhotoFileSelected(this)">
       <div class="pv-hdr-info">
-        <div class="pv-fullname" id="pv-fullname"></div>
+        <h1 class="pv-fullname" id="pv-fullname"></h1>
         <div class="pv-meta">
           <span id="pv-badge"></span>
           <span id="pv-hh" class="pv-hh-link"></span>
@@ -1398,17 +1381,16 @@ export const HTML_TABS_2 = String.raw`
       </div>
       <div class="pv-hdr-actions" id="pv-hdr-actions"></div>
     </div>
-    <div class="pv-tabs">
-      <div class="pv-tab active" data-ptab="info" onclick="showPvTab('info')">Information</div>
-      <div class="pv-tab require-finance require-giving-named" data-ptab="giving" onclick="showPvTab('giving')">Giving</div>
-      <div class="pv-tab" data-ptab="attendance" onclick="showPvTab('attendance')">Attendance</div>
+    <div class="pv-tabs" role="tablist" aria-label="Person sections">
+      <button type="button" role="tab" class="pv-tab active" data-ptab="info" onclick="showPvTab('info')">Information</button>
+      <button type="button" role="tab" class="pv-tab require-finance require-giving-named" data-ptab="giving" onclick="showPvTab('giving')">Giving</button>
     </div>
     <div class="pv-layout">
       <div class="pv-main">
         <div id="ptab-info" class="ptab-panel active"></div>
         <div id="ptab-giving" class="ptab-panel require-giving-named">
           <div style="padding:16px 0 0;" class="require-finance">
-            <button class="btn-primary" onclick="togglePvQuickGift()" id="pv-gift-btn">+ Add Gift</button>
+            <button class="btn-primary" onclick="togglePvQuickGift()" id="pv-gift-btn">Add gift</button>
             <div id="pv-quick-gift" style="display:none;margin-top:12px;background:var(--linen);border-radius:10px;padding:16px;">
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
                 <div class="field"><label>Date</label><input type="date" id="pv-gift-date" name="pv-gift-date" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;"></div>
@@ -1421,7 +1403,7 @@ export const HTML_TABS_2 = String.raw`
                 <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" id="pv-gift-notes" name="pv-gift-notes" placeholder="Optional note…" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;"></div>
               </div>
               <div style="display:flex;gap:8px;">
-                <button class="btn-primary" onclick="submitPvQuickGift()">Save Gift</button>
+                <button class="btn-primary" onclick="submitPvQuickGift()">Save gift</button>
                 <button class="btn-secondary" onclick="togglePvQuickGift()">Cancel</button>
               </div>
               <div id="pv-gift-err" style="color:var(--danger);font-size:.82rem;margin-top:6px;display:none;"></div>
@@ -1429,14 +1411,11 @@ export const HTML_TABS_2 = String.raw`
           </div>
           <div id="pv-giving-content" style="color:var(--warm-gray);font-size:13px;padding:20px 0;">Loading giving history…</div>
         </div>
-        <div id="ptab-attendance" class="ptab-panel">
-          <div style="color:var(--warm-gray);font-size:13px;padding:20px 0;">Attendance records for this person will appear here.</div>
-        </div>
       </div>
       <div class="pv-aside" id="pv-aside"></div>
     </div>
   </div>
-  <div class="pv2-toast" id="pv2-toast"><span class="ck">&#10003;</span> Changes saved</div>
+  <div class="pv2-toast" id="pv2-toast" role="status" aria-live="polite">Saved</div>
 </div>
 
 <!-- ═══ HOUSEHOLD VIEW ═══ -->
@@ -1580,7 +1559,7 @@ export const HTML_TABS_2 = String.raw`
               Base school year: <input type="number" id="tap-cfg-base_school_year" min="2000" max="2100" step="1" style="width:80px;">
               <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveConfigField('base_school_year')">Save</button>
             </span>
-            <p style="font-size:.72rem;color:#8A7440;margin:0;">&#9888; This is the "current" year (offset 0) everywhere on this tab &mdash; advance it once a year, at rollover, not for any other reason. Changing it reloads the whole planner.</p>
+            <p style="font-size:.72rem;color:var(--warning);margin:0;">&#9888; This is the "current" year (offset 0) everywhere on this tab &mdash; advance it once a year, at rollover, not for any other reason. Changing it reloads the whole planner.</p>
           </div>
         </div>
       </section>
@@ -1596,7 +1575,7 @@ export const HTML_TABS_2 = String.raw`
               <span class="tap-gauge-text" id="tap-total-gauge-text">–</span>
               <span id="tap-total-gauge-cap">Total Timothy Aid Budget: –</span>
             </div>
-            <div id="tap-total-pipeline-note" style="font-size:.72rem;color:#8A7440;margin-top:4px;display:none;"></div>
+            <div id="tap-total-pipeline-note" style="font-size:.72rem;color:var(--warning);margin-top:4px;display:none;"></div>
           </div>
           <div class="tap-controls">
             <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;">
@@ -1612,7 +1591,7 @@ export const HTML_TABS_2 = String.raw`
           <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">Each slider sets the family's assigned share of the total tuition bill — outside scholarships apply against that share first. Timothy commits at least $2,000/student. Project a future year and the roster moves: grades advance, 8th graders graduate into the LHS planner, and 12th graders age out. Editing outside aid, family share, or LHS award while viewing a year other than the current one pins that year's numbers without touching any other year.</p>
 
           <div class="tap-pipeline-box">
-            <h4>Kids in the Pipeline <span style="font-weight:400;font-size:.7rem;color:#8A7440;">— not yet enrolled, tracked by birth year</span></h4>
+            <h4>Kids in the Pipeline <span style="font-weight:400;font-size:.7rem;color:var(--warning);">— not yet enrolled, tracked by birth year</span></h4>
             <div id="tap-pipeline-list"></div>
             <div class="tap-pipeline-form">
               <input type="text" id="tap-pipe-family" placeholder="Family name" style="width:150px;">
@@ -1653,7 +1632,7 @@ export const HTML_TABS_2 = String.raw`
               <span class="tap-gauge-text" id="tap-k8-gauge-text">–</span>
               <span id="tap-k8-gauge-cap">Budget: –</span>
             </div>
-            <div id="tap-k8-pipeline-note" style="font-size:.72rem;color:#8A7440;margin-top:4px;display:none;"></div>
+            <div id="tap-k8-pipeline-note" style="font-size:.72rem;color:var(--warning);margin-top:4px;display:none;"></div>
           </div>
 
           <div style="overflow-x:auto;">
@@ -1687,7 +1666,7 @@ export const HTML_TABS_2 = String.raw`
               <span class="tap-gauge-text" id="tap-lhs-gauge-text">–</span>
               <span id="tap-lhs-gauge-cap">Standard rate: –</span>
             </div>
-            <div id="tap-lhs-pipeline-note" style="font-size:.72rem;color:#8A7440;margin-top:4px;display:none;"></div>
+            <div id="tap-lhs-pipeline-note" style="font-size:.72rem;color:var(--warning);margin-top:4px;display:none;"></div>
           </div>
           <div style="overflow-x:auto;">
           <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
@@ -1813,42 +1792,42 @@ export const HTML_TABS_2 = String.raw`
 </div><!-- /content-area -->
 
 <!-- ═══ PEOPLE FILTER DRAWER ═══ -->
-<div id="people-filter-overlay" onclick="closeFilterDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:1100;"></div>
-<div id="people-filter-drawer" style="display:none;position:fixed;right:0;top:0;bottom:0;width:300px;max-width:90vw;background:var(--white);box-shadow:-4px 0 24px rgba(0,0,0,.18);z-index:1101;flex-direction:column;overflow:hidden;">
-  <div style="display:flex;align-items:center;padding:16px 18px;border-bottom:1px solid var(--border);flex-shrink:0;">
-    <span style="font-size:16px;font-weight:700;flex:1;">Filters</span>
-    <button onclick="clearAllFilters()" style="font-size:.78rem;color:var(--teal);background:none;border:none;cursor:pointer;font-weight:600;padding:4px 8px;">Clear All</button>
-    <button onclick="closeFilterDrawer()" style="background:none;border:none;cursor:pointer;font-size:22px;color:var(--warm-gray);line-height:1;margin-left:4px;">&#215;</button>
+<div id="people-filter-overlay" onclick="closeFilterDrawer()" style="display:none;position:fixed;inset:0;background:var(--backdrop);z-index:1100;"></div>
+<div id="people-filter-drawer" role="dialog" aria-modal="true" aria-labelledby="fd-title" style="display:none;position:fixed;right:0;top:0;bottom:0;width:340px;max-width:90vw;background:var(--surface);border-left:1px solid var(--border);z-index:1101;flex-direction:column;overflow:hidden;">
+  <div style="display:flex;align-items:center;gap:8px;padding:16px 20px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <h2 id="fd-title" style="font-size:20px;font-weight:700;color:var(--brand-ink);flex:1;">Filters</h2>
+    <button type="button" class="os-link-btn" onclick="clearAllFilters()">Clear all</button>
+    <button type="button" class="ppl-qv-close" onclick="closeFilterDrawer()" aria-label="Close filters" style="margin:0;"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
   </div>
   <div style="flex:1;overflow-y:auto;padding:16px 18px;">
     <div style="margin-bottom:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Sort By</div>
+      <h3 class="ppl-qv-section-lbl">Sort by</h3>
       <div id="fd-sort"></div>
     </div>
     <div style="margin-bottom:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Member Type</div>
+      <h3 class="ppl-qv-section-lbl">Member type</h3>
       <div id="fd-member-types"></div>
     </div>
     <div>
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Tags</div>
+      <h3 class="ppl-qv-section-lbl">Tags</h3>
       <div id="fd-tags"></div>
     </div>
     <div style="margin-top:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Gender</div>
+      <h3 class="ppl-qv-section-lbl">Gender</h3>
       <div id="fd-gender"></div>
     </div>
     <div style="margin-top:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Age Range</div>
+      <h3 class="ppl-qv-section-lbl">Age Range</h3>
       <div id="fd-age-range"></div>
     </div>
     <div style="margin-top:20px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warm-gray);margin-bottom:10px;">Missing Field</div>
+      <h3 class="ppl-qv-section-lbl">Missing information</h3>
       <div id="fd-missing"></div>
     </div>
   </div>
   <div style="padding:14px 18px;border-top:1px solid var(--border);flex-shrink:0;">
-    <div id="fd-result-count" style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;text-align:center;"></div>
-    <button class="btn-primary" style="width:100%;padding:10px;" onclick="closeFilterDrawer()">Done</button>
+    <div id="fd-result-count" role="status" style="font-size:14px;color:var(--muted);margin-bottom:10px;text-align:center;"></div>
+    <button class="btn-primary" style="width:100%;" onclick="closeFilterDrawer()">Show results</button>
   </div>
 </div>
 
@@ -1967,28 +1946,30 @@ export const HTML_TABS_2 = String.raw`
   </div>
 </div>
 <!-- Person edit modal -->
-<div class="modal-overlay" id="person-modal">
-  <div class="modal">
-    <h2 id="person-modal-title">Add Person</h2>
+<div class="modal-overlay os-drawer-overlay" id="person-modal">
+  <div class="modal os-drawer" role="dialog" aria-modal="true" aria-labelledby="person-modal-title">
+    <h2 id="person-modal-title">Add person</h2>
+    <p class="os-drawer-intro">Add the essentials now. Everything else can be filled in on their profile.</p>
     <input type="hidden" id="pm-id">
     <div class="modal-section">Name</div>
     <div id="pm-name-2col" class="modal-2col">
-      <div class="field"><label>First Name</label><input type="text" id="pm-first" name="pm-first"></div>
-      <div class="field"><label>Last Name</label><input type="text" id="pm-last" name="pm-last"></div>
+      <div class="field"><label for="pm-first">First name</label><input type="text" id="pm-first" name="pm-first" autocomplete="off"></div>
+      <div class="field"><label for="pm-last">Last name</label><input type="text" id="pm-last" name="pm-last" autocomplete="off"></div>
     </div>
     <div id="pm-name-1col" style="display:none;">
       <div class="field"><label>Name</label><input type="text" id="pm-org-name" name="pm-org-name" style="width:100%;"></div>
     </div>
-    <div id="pm-name-2col-b" class="modal-2col">
+    <div id="pm-name-2col-b" class="modal-2col pm-extra">
       <div class="field"><label>Middle Name</label><input type="text" id="pm-middle" name="pm-middle"></div>
       <div class="field"><label>Preferred Name (goes by)</label><input type="text" id="pm-preferred" name="pm-preferred" placeholder="e.g. Jack"></div>
     </div>
     <div class="modal-section">Contact</div>
     <div class="modal-2col">
-      <div class="field"><label>Email</label><input type="email" id="pm-email" name="pm-email"></div>
-      <div class="field"><label>Phone</label><input type="tel" id="pm-phone" name="pm-phone" onblur="formatPhoneOnBlur(this)" placeholder="(314) 555-0100"></div>
+      <div class="field"><label for="pm-email">Email</label><input type="email" id="pm-email" name="pm-email"></div>
+      <div class="field"><label for="pm-phone">Phone</label><input type="tel" id="pm-phone" name="pm-phone" onblur="formatPhoneOnBlur(this)" placeholder="(314) 555-0100"></div>
     </div>
-    <div style="margin:-4px 0 8px;"><label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer;"><input type="checkbox" id="pm-sms-opt-in"> Opt in to birthday &amp; anniversary texts (SMS)</label></div>
+    <div class="pm-extra" style="margin:-4px 0 8px;"><label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer;"><input type="checkbox" id="pm-sms-opt-in"> Opt in to birthday &amp; anniversary texts (SMS)</label></div>
+    <div class="pm-extra">
     <div class="modal-section" id="pm-addr-section">Address <span id="pm-addr-hint" style="font-weight:400;text-transform:none;">(leave blank to use household address)</span></div>
     <div class="field" style="margin-bottom:8px;"><label>Street</label><input type="text" id="pm-addr1" name="pm-addr1" placeholder="123 Main St"></div>
     <div class="field" style="margin-bottom:8px;"><label>Apt / Unit</label><input type="text" id="pm-addr2" name="pm-addr2" placeholder="Apt 1S, Unit B, Suite 200…"></div>
@@ -2000,20 +1981,21 @@ export const HTML_TABS_2 = String.raw`
       <button type="button" id="pm-addr-validate-btn" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="validatePersonAddress()">Validate Address</button>
       <span id="pm-addr-validate-status" style="font-size:.78rem;"></span>
     </div>
-    <div class="modal-section">Church Info</div>
+    </div>
+    <div class="modal-section">Church</div>
     <div class="modal-2col">
-      <div class="field"><label>Member Type</label>
+      <div class="field"><label for="pm-type">Member type</label>
         <select id="pm-type" name="pm-type" onchange="updatePersonNameMode()"><!-- populated dynamically by openPersonEdit() from _memberTypes --></select>
       </div>
-      <div class="field" id="pm-role-field"><label>Family Role</label>
+      <div class="field" id="pm-role-field"><label for="pm-role">Role in household</label>
         <select id="pm-role" name="pm-role"><option value="">—</option><option value="head">Head</option><option value="spouse">Spouse</option><option value="child">Child</option><option value="other">Other</option></select>
       </div>
     </div>
-    <div class="field" id="pm-hh-field" style="margin-bottom:8px;"><label>Household</label>
+    <div class="field" id="pm-hh-field" style="margin-bottom:8px;"><label for="pm-hh-search">Household</label>
       <div class="ac-wrap"><input type="text" id="pm-hh-search" name="pm-hh-search" placeholder="Search household…" oninput="acHouseholdSearch()"><div class="ac-dropdown" id="pm-hh-ac"></div></div>
       <input type="hidden" id="pm-hh-id">
     </div>
-    <div id="pm-dates-section">
+    <div id="pm-dates-section" class="pm-extra">
       <div class="modal-section">Demographics</div>
       <div class="modal-2col">
         <div class="field"><label>Gender</label>
@@ -2089,6 +2071,7 @@ export const HTML_TABS_2 = String.raw`
         </div>
       </div>
     </div>
+    <div class="pm-extra">
     <div class="modal-section">Tags</div>
     <div class="tag-picker" id="pm-tag-picker"></div>
     <div class="modal-section">Church Records</div>
@@ -2098,10 +2081,11 @@ export const HTML_TABS_2 = String.raw`
     </div>
     <div class="modal-section">Notes</div>
     <div class="field"><textarea id="pm-notes" name="pm-notes" rows="2" style="resize:vertical;"></textarea></div>
+    </div>
     <div class="modal-actions">
       <button class="btn-danger" id="pm-del-btn" onclick="deletePerson()" style="margin-right:auto;display:none;">Delete</button>
       <button class="btn-secondary" onclick="closeModal('person-modal')">Cancel</button>
-      <button class="btn-primary" onclick="savePerson()">Save</button>
+      <button class="btn-primary" id="pm-save-btn" onclick="savePerson()">Add person</button>
     </div>
   </div>
 </div>
@@ -2253,7 +2237,7 @@ export const HTML_TABS_2 = String.raw`
 <div class="modal-overlay" id="crop-modal">
   <div class="modal" style="max-width:640px;padding:20px;">
     <h2 style="margin-bottom:12px;">Crop Profile Photo</h2>
-    <div id="crop-canvas-wrap" style="text-align:center;background:#222;border-radius:8px;overflow:auto;max-height:60vh;line-height:0;user-select:none;">
+    <div id="crop-canvas-wrap" style="text-align:center;background:var(--text);border-radius:8px;overflow:auto;max-height:60vh;line-height:0;user-select:none;">
       <canvas id="crop-canvas" style="cursor:crosshair;touch-action:none;display:inline-block;"
         onmousedown="cropMouseDown(event)"
         onmousemove="cropMouseMove(event)"

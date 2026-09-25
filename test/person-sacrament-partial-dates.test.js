@@ -307,10 +307,8 @@ describe('the yes/no control', () => {
 });
 
 // ── The live profile: the pvf* field registry ────────────────────────────
-// The card-based profile edits one field at a time through pvfStart/pvfCommit. An older
-// set of whole-card editors (pvEditDemo & co.) used to sit alongside it writing full-row
-// PUTs; their containers had already been dropped from the markup, so they were dead and
-// have been removed. These tests target the renderer that is actually on screen.
+// The card-based profile renders read-only rows from this registry and edits a whole section
+// at a time (pvfSectionEdit / pvfSectionSave). These tests target the renderer on screen.
 function seedProfile(ctx, over) {
   ctx._userRole = 'admin';
   ctx._currentPvPerson = Object.assign({
@@ -341,36 +339,43 @@ describe('baptized / confirmed are editable on the live profile', () => {
     }
   });
 
-  it('renders No as No, and "not recorded" as the card\'s usual Not set', () => {
+  it('renders No as No, and "not recorded" as the card\'s usual Not on file', () => {
     const ctx = makeCtx();
     seedProfile(ctx, { baptized: 2, confirmed: 0 });
     expect(ctx.pvfRowHtml('baptized')).toContain('>No<');
     // 0 is a real stored value; without the blankVals guard it would print "Not recorded"
     // as though someone had answered.
-    expect(ctx.pvfRowHtml('confirmed')).toContain('Not set');
+    expect(ctx.pvfRowHtml('confirmed')).toContain('Not on file');
   });
 
-  it('PATCHes just that field when answered', async () => {
+  it('PATCHes just the changed field when the section is saved', async () => {
     const ctx = makeCtx();
     seedProfile(ctx);
-    ctx.__el('pvf-baptized');
-    ctx.pvfStart('baptized');
-    ctx.__el('pvfi-baptized').value = '2';
-    ctx.pvfCommit('baptized');
+    openChurchSection(ctx);
+    ctx.__el('pvse-baptized').value = '2';
+    ctx.__el('pvse-confirmed').value = '0'; // unchanged — must not be sent
+    ctx.pvfSectionSave('church');
     await new Promise(r => setTimeout(r, 10));
-    const call = ctx.__calls.at(-1);
-    expect(call.opts.method).toBe('PATCH');
+    const call = ctx.__calls.find(c => c.opts && c.opts.method === 'PATCH');
+    expect(call.path).toBe('/admin/api/people/42');
     expect(JSON.parse(call.opts.body)).toEqual({ baptized: '2' });
   });
 });
 
-describe('the live date editor carries a precision', () => {
+// OS3 (2026-09-25): editing is per section — the Edit button opens every field in the card and
+// one Save sends a single PATCH of whatever changed.
+function openChurchSection(ctx) {
+  ctx.__el('pvf-body-church');
+  ctx._pvSections = { church: ['baptized', 'baptism_date', 'confirmed', 'confirmation_date', 'anniversary_date'] };
+  ctx.pvfSectionEdit('church');
+  return ctx.__store['pvf-body-church'].innerHTML;
+}
+
+describe('the section date editor carries a precision', () => {
   it('offers all three precisions and preselects the stored one', () => {
     const ctx = makeCtx();
     seedProfile(ctx, { baptism_date: '1994-00-00' });
-    ctx.__el('pvf-baptism_date');
-    ctx.pvfStart('baptism_date');
-    const html = ctx.__store['pvf-baptism_date'].innerHTML;
+    const html = openChurchSection(ctx);
     expect(html).toContain('Month &amp; day only');
     expect(html).toContain('value="year" selected');
     // The picker cannot hold 1994-00-00, so a placeholder stands in.
@@ -380,52 +385,36 @@ describe('the live date editor carries a precision', () => {
   it('saves a year-only edit as the sentinel, not as 1 January', async () => {
     const ctx = makeCtx();
     seedProfile(ctx, { baptism_date: '' });
-    ctx.__el('pvf-baptism_date');
-    ctx.pvfStart('baptism_date');
-    ctx.__el('pvfi-baptism_date').value = '1994-01-01';
-    ctx.__el('pvfi-baptism_date-prec').value = 'year';
-    ctx.pvfCommit('baptism_date');
+    openChurchSection(ctx);
+    ctx.__el('pvse-baptism_date').value = '1994-01-01';
+    ctx.__el('pvse-baptism_date-prec').value = 'year';
+    ctx.pvfSectionSave('church');
     await new Promise(r => setTimeout(r, 10));
-    expect(JSON.parse(ctx.__calls.at(-1).opts.body)).toEqual({ baptism_date: '1994-00-00' });
+    expect(JSON.parse(ctx.__calls.find(c => c.opts && c.opts.method === 'PATCH').opts.body)).toEqual({ baptism_date: '1994-00-00' });
   });
 
   it('saves a month/day-only edit as the year-unknown sentinel', async () => {
     const ctx = makeCtx();
     seedProfile(ctx, { baptism_date: '' });
-    ctx.__el('pvf-baptism_date');
-    ctx.pvfStart('baptism_date');
-    ctx.__el('pvfi-baptism_date').value = '2000-07-31';
-    ctx.__el('pvfi-baptism_date-prec').value = 'monthday';
-    ctx.pvfCommit('baptism_date');
+    openChurchSection(ctx);
+    ctx.__el('pvse-baptism_date').value = '2000-07-31';
+    ctx.__el('pvse-baptism_date-prec').value = 'monthday';
+    ctx.pvfSectionSave('church');
     await new Promise(r => setTimeout(r, 10));
-    expect(JSON.parse(ctx.__calls.at(-1).opts.body)).toEqual({ baptism_date: '0001-07-31' });
+    expect(JSON.parse(ctx.__calls.find(c => c.opts && c.opts.method === 'PATCH').opts.body)).toEqual({ baptism_date: '0001-07-31' });
   });
 
-  it('does not commit while focus is still inside the cell', async () => {
-    // The date cell holds two controls; tabbing from picker to precision fires blur, and
-    // committing there would tear the select out from under the click.
+  it('sends nothing until Save, and nothing at all when no field changed', async () => {
     const ctx = makeCtx();
-    seedProfile(ctx, { baptism_date: '' });
-    const cell = ctx.__el('pvf-baptism_date');
-    ctx.pvfStart('baptism_date');
-    const prec = ctx.__el('pvfi-baptism_date-prec');
-    // A CHANGED value, or pvfCommit would return early on its own and the guard would
-    // never be the reason nothing was sent — which is how the first version of this test
-    // passed against a deliberately removed guard.
-    ctx.__el('pvfi-baptism_date').value = '2000-07-31';
-    prec.value = 'monthday';
-    cell.contains = (n) => n === prec;
-
-    ctx.document.activeElement = prec;
-    ctx.pvfDateBlur('baptism_date');
+    seedProfile(ctx, { baptism_date: '1994-00-00' });
+    openChurchSection(ctx);
+    ctx.__el('pvse-baptism_date').value = '1994-01-01';
+    ctx.__el('pvse-baptism_date-prec').value = 'year';
     await new Promise(r => setTimeout(r, 10));
     expect(ctx.__calls.length).toBe(0);
-
-    ctx.document.activeElement = null;
-    ctx.pvfDateBlur('baptism_date');
+    ctx.pvfSectionSave('church');
     await new Promise(r => setTimeout(r, 10));
-    expect(ctx.__calls.length).toBe(1);
-    expect(JSON.parse(ctx.__calls[0].opts.body)).toEqual({ baptism_date: '0001-07-31' });
+    expect(ctx.__calls.filter(c => c.opts && c.opts.method === 'PATCH').length).toBe(0);
   });
 });
 
@@ -442,101 +431,52 @@ describe('a partial date never claims an elapsed time', () => {
   });
 });
 
-describe('committing a select does not crash re-rendering its own cell', () => {
-  // The reported "Save failed" on gender and marital status was this, and the PATCH had
-  // already succeeded. Replacing the cell removes the still-focused <select>, the browser
-  // fires blur synchronously mid-assignment, that blur re-enters pvfCommit -> pvfCancel,
-  // and the nested innerHTML set throws "The node to be removed is no longer a child of
-  // this node". A <select> commits from onchange so it is still focused; a text input
-  // commits from onblur and is not — which is why only the two selects were reported.
-  // `onReplace` stands in for the browser's synchronous blur: assigning innerHTML removes
-  // the focused control, and the blur handler runs before the assignment finishes.
-  // Throwing on a nested assignment is what a real DOM does here.
-  function cellThatBlursOnRerender(ctx, id, onReplace) {
-    const cell = ctx.__el('pvf-' + id);
-    let depth = 0, maxDepth = 0, raw = '';
-    Object.defineProperty(cell, 'innerHTML', {
-      configurable: true,
-      get() { return raw; },
-      set(v) {
-        depth++; maxDepth = Math.max(maxDepth, depth);
-        if (depth > 1) { depth--; throw new Error('The node to be removed is no longer a child of this node'); }
-        raw = v;
-        try { onReplace(); } finally { depth--; }
-      },
-    });
-    return () => maxDepth;
-  }
+// The per-field editor these replaced committed on blur, which is where the reported
+// re-entrant "Save failed" came from. Section saving commits only from Save, so what is left
+// to pin is that a save updates the record and a failed one keeps the edits and says why.
+function openPersonalSection(ctx) {
+  ctx.__el('pvf-body-personal');
+  ctx._pvSections = { personal: ['first_name', 'last_name', 'gender', 'marital_status'] };
+  ctx.pvfSectionEdit('personal');
+}
 
-  it('pvfCancel refuses to re-enter itself mid-assignment', () => {
-    // Targets the pvfCancel guard on its own. The re-entrant call is what the reported
-    // DOMException came out of, so it must be stopped here and not only upstream.
+describe('saving a section', () => {
+  it('updates the local record once the server confirms', async () => {
     const ctx = makeCtx();
     seedProfile(ctx);
-    const maxDepth = cellThatBlursOnRerender(ctx, 'gender', () => ctx.pvfCancel('gender'));
-    expect(() => ctx.pvfCancel('gender')).not.toThrow();
-    expect(maxDepth()).toBe(1);
-  });
-
-  it('holds the commit guard up across the re-render', async () => {
-    // Targets the ordering on its own: the guard used to be cleared before pvfCancel, so
-    // the blur that pvfCancel triggers re-entered pvfCommit instead of being turned away.
-    const ctx = makeCtx();
-    seedProfile(ctx);
-    let guardDuringRender = null;
-    cellThatBlursOnRerender(ctx, 'gender', () => { guardDuringRender = ctx._pvfCommitting.gender; });
-    ctx.pvfStart('gender');
-    ctx.__el('pvfi-gender').value = 'Female';
-    ctx.pvfCommit('gender');
-    await new Promise(r => setTimeout(r, 10));
-    expect(guardDuringRender).toBe(true);
-  });
-
-  it('completes the whole commit without alerting', async () => {
-    const ctx = makeCtx();
-    seedProfile(ctx);
-    const maxDepth = cellThatBlursOnRerender(ctx, 'gender', () => ctx.pvfCommit('gender'));
-    ctx.pvfStart('gender');
-    ctx.__el('pvfi-gender').value = 'Female';
-    ctx.pvfCommit('gender');
+    openPersonalSection(ctx);
+    ctx.__el('pvse-gender').value = 'Female';
+    ctx.pvfSectionSave('personal');
     await new Promise(r => setTimeout(r, 10));
     expect(ctx.__alerts).toEqual([]);
-    expect(maxDepth()).toBe(1);
     expect(ctx._currentPvPerson.gender).toBe('Female');
   });
 
-  it('leaves the field committable again afterwards', async () => {
-    // The guard is cleared after the re-render, not before — but it must still be cleared,
-    // or the field would silently refuse every later edit.
+  it('keeps the edits and includes the reason when the save fails', async () => {
     const ctx = makeCtx();
     seedProfile(ctx);
-    cellThatBlursOnRerender(ctx, 'gender', () => ctx.pvfCommit('gender'));
-    ctx.pvfStart('gender');
-    ctx.__el('pvfi-gender').value = 'Female';
-    ctx.pvfCommit('gender');
-    await new Promise(r => setTimeout(r, 10));
-
-    ctx.__el('pvfi-gender').value = 'Male';
-    ctx.pvfCommit('gender');
-    await new Promise(r => setTimeout(r, 10));
-    expect(ctx._currentPvPerson.gender).toBe('Male');
-    expect(ctx.__calls.length).toBe(2);
-  });
-});
-
-describe('the inline editor surfaces why a save failed', () => {
-  it('includes the reason instead of a bare "Save failed"', async () => {
-    const ctx = makeCtx();
-    seedProfile(ctx);
-    ctx.__el('pvf-gender');
-    ctx.pvfStart('gender');
-    ctx.__el('pvfi-gender').value = 'Female';
-    // Not JSON — which is exactly the shape that reaches the catch and produced the
-    // reasonless alert that was reported.
+    openPersonalSection(ctx);
+    ctx.__el('pvse-gender').value = 'Female';
+    const err = ctx.__el('pvse-err-personal');
+    // Not JSON — the shape that used to produce a reasonless "Save failed".
     ctx.fetch = () => Promise.resolve({ ok: false, status: 500, json: () => Promise.reject(new Error('Unexpected token < in JSON')) });
-    ctx.pvfCommit('gender');
+    ctx.pvfSectionSave('personal');
     await new Promise(r => setTimeout(r, 10));
-    expect(ctx.__alerts.join('')).toContain('Unexpected token');
+    expect(err.textContent).toContain('Your edits are still here');
+    expect(err.textContent).toContain('Unexpected token');
+    expect(ctx._currentPvPerson.gender).toBe('');
+    expect(ctx.__store['pvse-gender'].value).toBe('Female');
+  });
+
+  it('refuses to save a blank first name', () => {
+    const ctx = makeCtx();
+    seedProfile(ctx);
+    openPersonalSection(ctx);
+    ctx.__el('pvse-first_name').value = '  ';
+    const err = ctx.__el('pvse-err-personal');
+    ctx.pvfSectionSave('personal');
+    expect(err.textContent).toBe('Enter a first name.');
+    expect(ctx.__calls.length).toBe(0);
   });
 });
 
