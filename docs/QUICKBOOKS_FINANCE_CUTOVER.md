@@ -2,6 +2,8 @@
 
 Decision (Andrew, September 25, 2026): Finance owns the QuickBooks connection.
 
+Status: steps 1–4 were completed September 25, 2026, and both switches are set to `"1"` (step 5).
+
 ## Design
 
 - Finance's handlers are in `apps/finance/quickbooks-oauth-routes.js`, and its sync writes Finance's database only:

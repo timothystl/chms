@@ -60,7 +60,7 @@
     "RELEASE_SHA": "unreleased",
     // QuickBooks is owned by Finance once this is "1" (see docs/QUICKBOOKS_FINANCE_CUTOVER.md).
     // FINANCE_QB_CLIENT_ID / FINANCE_QB_CLIENT_SECRET are Worker secrets, never listed here.
-    "FINANCE_QB_ENABLED": "0",
+    "FINANCE_QB_ENABLED": "1",
     "FINANCE_QB_ENVIRONMENT": "production"
   },
 
