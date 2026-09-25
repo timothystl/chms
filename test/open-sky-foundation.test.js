@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { HTML_HEAD } from '../src/frontend/html-head.js';
 import { MOBILE_ADMIN_HTML } from '../src/mobile-admin-html.js';
 import { LOGIN_HTML } from '../src/html-templates.js';
+import { JS_PEOPLE } from '../src/frontend/js-people.js';
+import { JS_CORE } from '../src/frontend/js-core.js';
+import { HTML_TABS_1, HTML_TABS_2 } from '../src/frontend/html-tabs.js';
 
 // OS1 (2026-09-25): Connect's staff shell moved onto Timothy Workspace v1.0 "Open Sky".
 // These pin the parts of that foundation a later edit could quietly undo.
@@ -59,5 +62,49 @@ describe('OS1 — shell', () => {
     const divItems = nav.match(/<div [^>]*class="s-item[^"]*"/g) || [];
     expect(divItems.length).toBeGreaterThan(10);
     for (const tag of divItems) expect(tag).toContain('tabindex="0"');
+  });
+});
+
+// OS2/OS3 (2026-09-25): the People list and person page decisions made with Andrew.
+
+describe('OS2 — People list', () => {
+  it('retires the Card and Household views', () => {
+    expect(HTML_TABS_1).not.toMatch(/p-view-card-btn|p-view-household-btn|id="p-card-grid"|id="p-hh-view"/);
+    expect(JS_PEOPLE).not.toMatch(/function renderPeopleCards|function setPeopleViewMode/);
+  });
+
+  it('lists name, household, member type, phone and email', () => {
+    for (const col of ["sortTh('Name'", "sortTh('Household'", "sortTh('Member type'", '>Phone</th>', '>Email</th>']) {
+      expect(JS_PEOPLE).toContain(col);
+    }
+  });
+
+  it('shows member type as plain text, not a colored dot', () => {
+    const fn = JS_CORE.slice(JS_CORE.indexOf('function typeDotHtml'), JS_CORE.indexOf('function typeDotHtml') + 400);
+    expect(fn).not.toContain('type-dot');
+    expect(fn).toContain('type-label');
+  });
+
+  it('keeps the preview hidden until someone is chosen', () => {
+    expect(HTML_TABS_1).toMatch(/class="ppl-quickview is-empty" id="ppl-quickview"/);
+  });
+});
+
+describe('OS3 — person page', () => {
+  it('edits by section with one Save, not field by field', () => {
+    expect(JS_PEOPLE).toContain('function pvfSectionEdit');
+    expect(JS_PEOPLE).toContain('function pvfSectionSave');
+    expect(JS_PEOPLE).not.toContain('function pvfStart');
+  });
+
+  it('has a More actions menu and no Attendance tab', () => {
+    expect(JS_PEOPLE).toContain('function pvMoreActionsHtml');
+    expect(HTML_TABS_2 + HTML_TABS_1).not.toContain('id="ptab-attendance"');
+  });
+
+  it('adds a person through the short form, extra sections hidden', () => {
+    const all = HTML_TABS_1 + HTML_TABS_2;
+    expect(all).toMatch(/id="pm-dates-section" class="pm-extra"/);
+    expect(STYLE).toContain('#person-modal:not(.pm-full) .pm-extra{display:none!important;}');
   });
 });

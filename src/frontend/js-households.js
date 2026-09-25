@@ -42,7 +42,7 @@ function hhPage(dir) {
 function renderHouseholds(rows, targetId) {
   var c = document.getElementById(targetId || 'h-grid');
   if (!c) return;
-  if (!rows.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">&#127968;</div>No households found</div>'; return; }
+  if (!rows.length) { c.innerHTML = '<div class="os-state"><div class="os-state-title">No households match.</div><div class="os-state-msg">Try another search, or choose All.</div></div>'; return; }
   c.innerHTML = rows.map(function(h) {
     var addr = [h.address1, h.city, h.state].filter(Boolean).join(', ');
     var photo = h.photo_url
@@ -649,8 +649,8 @@ function hvfRenderInfo(h, members, dispName) {
   var isFinance = (_userRole === 'admin' || _userRole === 'finance');
 
   var iconHtml = h.photo_url
-    ? '<img src="'+esc(photoSrc(h.photo_url))+'" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:12px;" onerror="this.parentNode.innerHTML=&#39;&#127968;&#39;">'
-    : '&#127968;';
+    ? '<img src="'+esc(photoSrc(h.photo_url))+'" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:12px;" onerror="this.style.display=&#39;none&#39;">'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true" style="width:36px;height:36px;fill:none;stroke:var(--muted);stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
   var addr = [h.address1, h.city, h.state && h.zip ? h.state + ' ' + h.zip : (h.state || h.zip || '')].filter(Boolean).join(', ');
   var hdr = '<div class="hv-hdr"><div class="hv-icon-tile">' + iconHtml + '</div>'
     + '<div style="flex:1;min-width:0;"><div class="hv-name">' + esc(dispName) + '</div>'

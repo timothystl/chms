@@ -84,8 +84,19 @@ Serve/website pages and all MDO products are out of its scope. Decisions taken w
   focus returns); Lucide outline nav icons inlined; flat bordered cards; Open Sky buttons, fields
   and a never-removed 3px focus ring; login page, phone shell, manifest, Volunteers sub-nav and the
   Scheduler tab bar restyled. Printed letters/certificates/email bodies intentionally unchanged.
-- [ ] **OS2 — People list** to the Open Sky Connect profile (decisions above).
-- [ ] **OS3 — Person page and household/organization pages** (section-level editing, More actions).
+- [x] **OS2 — People list (2026-09-25).** Rows of name / household / member type (text) / phone /
+  email with sortable headers; Card and Household views retired; toolbar of search, Filters,
+  Members only / Archived / Select / Print directory toggles (behind "More" on phones) and Add
+  person; preview panel appears only when a person is chosen (map + household kept); filters
+  drawer is a labelled dialog; bulk actions unchanged in behavior.
+- [x] **OS3 — Person page (2026-09-25).** Header with photo, name, member type, household, role,
+  Call / Text / Email and a "More actions" menu (Invite, Send statement, Breeze, Print, Archive,
+  Mark deceased, Reactivate). Sections Contact, Personal, Church life (incl. envelope #), Tags,
+  Directory visibility, Follow-ups, Notes; aside Household, Giving, Location. Each section edits as
+  a whole (one PATCH of the changed fields, Unsaved / Saving / Saved / Not saved states, address
+  validation in Contact). Attendance tab removed. Add person is a short side panel that opens the
+  new profile. Still open for OS4: household and organization pages keep their per-field editing
+  and jump-to rail (they already share the new card styling).
 - [ ] **OS4 — Remaining Connect screens** (Giving, Attendance, Reports, Register, Volunteers,
   Settings, Tuition Aid, Scheduler embed) and emoji removal; printouts decided separately.
 - [ ] **OS5 — Home** once the agenda/"needs attention" content is decided.

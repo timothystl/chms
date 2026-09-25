@@ -1354,13 +1354,9 @@ export const HTML_TABS_2 = String.raw`
 <!-- ═══ PROFILE VIEW ═══ -->
 <div id="profile-view">
   <div class="topbar">
-    <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-    <span class="topbar-back" onclick="closeProfile()">&#8592; People</span>
-    <span id="pv-topbar-name" style="font-size:15px;font-weight:500;color:var(--charcoal);margin-left:8px;"></span>
-    <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
-      <div id="pv-status-actions" style="display:flex;gap:6px;align-items:center;"></div>
-      <button class="btn-secondary" onclick="window.print()">Print</button>
-    </div>
+    <button class="hamburger" onclick="openSidebar()" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg><span>Menu</span></button>
+    <a href="#" class="topbar-back" onclick="event.preventDefault();closeProfile()"><svg viewBox="0 0 24 24" aria-hidden="true" class="btn-ic"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>People</a>
+    <span id="pv-topbar-name" class="pv-topbar-name"></span>
   </div>
   <div class="pv-body">
     <div class="pv-hdr">
@@ -1376,7 +1372,7 @@ export const HTML_TABS_2 = String.raw`
       </div>
       <input type="file" id="pv-photo-input" accept="image/*" style="display:none;" onchange="handlePhotoFileSelected(this)">
       <div class="pv-hdr-info">
-        <div class="pv-fullname" id="pv-fullname"></div>
+        <h1 class="pv-fullname" id="pv-fullname"></h1>
         <div class="pv-meta">
           <span id="pv-badge"></span>
           <span id="pv-hh" class="pv-hh-link"></span>
@@ -1385,17 +1381,16 @@ export const HTML_TABS_2 = String.raw`
       </div>
       <div class="pv-hdr-actions" id="pv-hdr-actions"></div>
     </div>
-    <div class="pv-tabs">
-      <div class="pv-tab active" data-ptab="info" onclick="showPvTab('info')">Information</div>
-      <div class="pv-tab require-finance require-giving-named" data-ptab="giving" onclick="showPvTab('giving')">Giving</div>
-      <div class="pv-tab" data-ptab="attendance" onclick="showPvTab('attendance')">Attendance</div>
+    <div class="pv-tabs" role="tablist" aria-label="Person sections">
+      <button type="button" role="tab" class="pv-tab active" data-ptab="info" onclick="showPvTab('info')">Information</button>
+      <button type="button" role="tab" class="pv-tab require-finance require-giving-named" data-ptab="giving" onclick="showPvTab('giving')">Giving</button>
     </div>
     <div class="pv-layout">
       <div class="pv-main">
         <div id="ptab-info" class="ptab-panel active"></div>
         <div id="ptab-giving" class="ptab-panel require-giving-named">
           <div style="padding:16px 0 0;" class="require-finance">
-            <button class="btn-primary" onclick="togglePvQuickGift()" id="pv-gift-btn">+ Add Gift</button>
+            <button class="btn-primary" onclick="togglePvQuickGift()" id="pv-gift-btn">Add gift</button>
             <div id="pv-quick-gift" style="display:none;margin-top:12px;background:var(--linen);border-radius:10px;padding:16px;">
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
                 <div class="field"><label>Date</label><input type="date" id="pv-gift-date" name="pv-gift-date" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;"></div>
@@ -1408,7 +1403,7 @@ export const HTML_TABS_2 = String.raw`
                 <div class="field" style="grid-column:1/-1;"><label>Notes</label><input type="text" id="pv-gift-notes" name="pv-gift-notes" placeholder="Optional note…" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:7px;font-size:.88rem;"></div>
               </div>
               <div style="display:flex;gap:8px;">
-                <button class="btn-primary" onclick="submitPvQuickGift()">Save Gift</button>
+                <button class="btn-primary" onclick="submitPvQuickGift()">Save gift</button>
                 <button class="btn-secondary" onclick="togglePvQuickGift()">Cancel</button>
               </div>
               <div id="pv-gift-err" style="color:var(--danger);font-size:.82rem;margin-top:6px;display:none;"></div>
@@ -1416,14 +1411,11 @@ export const HTML_TABS_2 = String.raw`
           </div>
           <div id="pv-giving-content" style="color:var(--warm-gray);font-size:13px;padding:20px 0;">Loading giving history…</div>
         </div>
-        <div id="ptab-attendance" class="ptab-panel">
-          <div style="color:var(--warm-gray);font-size:13px;padding:20px 0;">Attendance records for this person will appear here.</div>
-        </div>
       </div>
       <div class="pv-aside" id="pv-aside"></div>
     </div>
   </div>
-  <div class="pv2-toast" id="pv2-toast"><span class="ck">&#10003;</span> Changes saved</div>
+  <div class="pv2-toast" id="pv2-toast" role="status" aria-live="polite">Saved</div>
 </div>
 
 <!-- ═══ HOUSEHOLD VIEW ═══ -->
@@ -1954,28 +1946,30 @@ export const HTML_TABS_2 = String.raw`
   </div>
 </div>
 <!-- Person edit modal -->
-<div class="modal-overlay" id="person-modal">
-  <div class="modal">
-    <h2 id="person-modal-title">Add Person</h2>
+<div class="modal-overlay os-drawer-overlay" id="person-modal">
+  <div class="modal os-drawer" role="dialog" aria-modal="true" aria-labelledby="person-modal-title">
+    <h2 id="person-modal-title">Add person</h2>
+    <p class="os-drawer-intro">Add the essentials now. Everything else can be filled in on their profile.</p>
     <input type="hidden" id="pm-id">
     <div class="modal-section">Name</div>
     <div id="pm-name-2col" class="modal-2col">
-      <div class="field"><label>First Name</label><input type="text" id="pm-first" name="pm-first"></div>
-      <div class="field"><label>Last Name</label><input type="text" id="pm-last" name="pm-last"></div>
+      <div class="field"><label for="pm-first">First name</label><input type="text" id="pm-first" name="pm-first" autocomplete="off"></div>
+      <div class="field"><label for="pm-last">Last name</label><input type="text" id="pm-last" name="pm-last" autocomplete="off"></div>
     </div>
     <div id="pm-name-1col" style="display:none;">
       <div class="field"><label>Name</label><input type="text" id="pm-org-name" name="pm-org-name" style="width:100%;"></div>
     </div>
-    <div id="pm-name-2col-b" class="modal-2col">
+    <div id="pm-name-2col-b" class="modal-2col pm-extra">
       <div class="field"><label>Middle Name</label><input type="text" id="pm-middle" name="pm-middle"></div>
       <div class="field"><label>Preferred Name (goes by)</label><input type="text" id="pm-preferred" name="pm-preferred" placeholder="e.g. Jack"></div>
     </div>
     <div class="modal-section">Contact</div>
     <div class="modal-2col">
-      <div class="field"><label>Email</label><input type="email" id="pm-email" name="pm-email"></div>
-      <div class="field"><label>Phone</label><input type="tel" id="pm-phone" name="pm-phone" onblur="formatPhoneOnBlur(this)" placeholder="(314) 555-0100"></div>
+      <div class="field"><label for="pm-email">Email</label><input type="email" id="pm-email" name="pm-email"></div>
+      <div class="field"><label for="pm-phone">Phone</label><input type="tel" id="pm-phone" name="pm-phone" onblur="formatPhoneOnBlur(this)" placeholder="(314) 555-0100"></div>
     </div>
-    <div style="margin:-4px 0 8px;"><label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer;"><input type="checkbox" id="pm-sms-opt-in"> Opt in to birthday &amp; anniversary texts (SMS)</label></div>
+    <div class="pm-extra" style="margin:-4px 0 8px;"><label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer;"><input type="checkbox" id="pm-sms-opt-in"> Opt in to birthday &amp; anniversary texts (SMS)</label></div>
+    <div class="pm-extra">
     <div class="modal-section" id="pm-addr-section">Address <span id="pm-addr-hint" style="font-weight:400;text-transform:none;">(leave blank to use household address)</span></div>
     <div class="field" style="margin-bottom:8px;"><label>Street</label><input type="text" id="pm-addr1" name="pm-addr1" placeholder="123 Main St"></div>
     <div class="field" style="margin-bottom:8px;"><label>Apt / Unit</label><input type="text" id="pm-addr2" name="pm-addr2" placeholder="Apt 1S, Unit B, Suite 200…"></div>
@@ -1987,20 +1981,21 @@ export const HTML_TABS_2 = String.raw`
       <button type="button" id="pm-addr-validate-btn" class="btn-secondary" style="font-size:.78rem;padding:3px 10px;" onclick="validatePersonAddress()">Validate Address</button>
       <span id="pm-addr-validate-status" style="font-size:.78rem;"></span>
     </div>
-    <div class="modal-section">Church Info</div>
+    </div>
+    <div class="modal-section">Church</div>
     <div class="modal-2col">
-      <div class="field"><label>Member Type</label>
+      <div class="field"><label for="pm-type">Member type</label>
         <select id="pm-type" name="pm-type" onchange="updatePersonNameMode()"><!-- populated dynamically by openPersonEdit() from _memberTypes --></select>
       </div>
-      <div class="field" id="pm-role-field"><label>Family Role</label>
+      <div class="field" id="pm-role-field"><label for="pm-role">Role in household</label>
         <select id="pm-role" name="pm-role"><option value="">—</option><option value="head">Head</option><option value="spouse">Spouse</option><option value="child">Child</option><option value="other">Other</option></select>
       </div>
     </div>
-    <div class="field" id="pm-hh-field" style="margin-bottom:8px;"><label>Household</label>
+    <div class="field" id="pm-hh-field" style="margin-bottom:8px;"><label for="pm-hh-search">Household</label>
       <div class="ac-wrap"><input type="text" id="pm-hh-search" name="pm-hh-search" placeholder="Search household…" oninput="acHouseholdSearch()"><div class="ac-dropdown" id="pm-hh-ac"></div></div>
       <input type="hidden" id="pm-hh-id">
     </div>
-    <div id="pm-dates-section">
+    <div id="pm-dates-section" class="pm-extra">
       <div class="modal-section">Demographics</div>
       <div class="modal-2col">
         <div class="field"><label>Gender</label>
@@ -2076,6 +2071,7 @@ export const HTML_TABS_2 = String.raw`
         </div>
       </div>
     </div>
+    <div class="pm-extra">
     <div class="modal-section">Tags</div>
     <div class="tag-picker" id="pm-tag-picker"></div>
     <div class="modal-section">Church Records</div>
@@ -2085,10 +2081,11 @@ export const HTML_TABS_2 = String.raw`
     </div>
     <div class="modal-section">Notes</div>
     <div class="field"><textarea id="pm-notes" name="pm-notes" rows="2" style="resize:vertical;"></textarea></div>
+    </div>
     <div class="modal-actions">
       <button class="btn-danger" id="pm-del-btn" onclick="deletePerson()" style="margin-right:auto;display:none;">Delete</button>
       <button class="btn-secondary" onclick="closeModal('person-modal')">Cancel</button>
-      <button class="btn-primary" onclick="savePerson()">Save</button>
+      <button class="btn-primary" id="pm-save-btn" onclick="savePerson()">Add person</button>
     </div>
   </div>
 </div>

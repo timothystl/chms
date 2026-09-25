@@ -12,26 +12,27 @@ import { HTML_TABS_1 } from '../src/frontend/html-tabs.js';
 // isFinance; these four never got the same treatment.
 
 describe('profile cards a member must not see', () => {
-  it('gates Demographics, Tags, Follow-ups and Notes on the member role', () => {
-    for (const v of ['demoCard', 'tagsCard', 'followCard', 'notesCard']) {
+  it('gates Church life, Tags, Directory visibility, Follow-ups and Notes on the member role', () => {
+    for (const v of ['demoCard', 'tagsCard', 'dirCard', 'followCard', 'notesCard']) {
       const m = JS_PEOPLE.match(new RegExp('var ' + v + ' = ([^;]*)'));
       expect(m, v + ' should exist').toBeTruthy();
       expect(m[1], v + ' should be gated on isMemberView').toMatch(/isMemberView/);
     }
   });
 
-  it('keeps Name, Contact, Family and Location ungated — that is the directory', () => {
-    for (const v of ['nameCard', 'contactCard', 'familyCard', 'locationCard']) {
+  it('keeps Contact, Personal, Household and Location ungated — that is the directory', () => {
+    for (const v of ['contactCard', 'personalCard', 'familyCard', 'locationCard']) {
       const m = JS_PEOPLE.match(new RegExp('var ' + v + ' = ([^;]*)'));
       expect(m, v).toBeTruthy();
-      expect(m[1], v + ' should NOT be member-gated').not.toMatch(/isMemberView \?/);
+      // A gated card reads `isMemberView ? '' : …`; Personal legitimately checks isMemberView
+      // to drop its Edit button, which still renders the card.
+      expect(m[1], v + ' should NOT be member-gated').not.toMatch(/isMemberView \? ''/);
     }
   });
 
-  it('drops the gated sections from the jump-to nav as well as the cards', () => {
-    // A nav button pointing at a card that no longer renders is a dead link.
-    expect(JS_PEOPLE).toMatch(/if \(!isMemberView\) navDefs\.push\(\['church'/);
-    expect(JS_PEOPLE).toMatch(/if \(!isMemberView\) navDefs\.push\(\['followups'/);
+  it('gives a member no Edit button on the one section they do see', () => {
+    // Personal's editable field list is empty for a member, so pvfCard draws no Edit button.
+    expect(JS_PEOPLE).toMatch(/section\('personal', 'Personal', isMemberView \? \[\] : personalEditIds/);
   });
 
   it('does not request follow-ups for a member — that endpoint 403s for them', () => {
@@ -40,8 +41,8 @@ describe('profile cards a member must not see', () => {
 
   it('shows members only member_type on the Personal card, not blank stripped rows', () => {
     // gender / marital_status / dob are all absent from memberSafeView.
-    const m = JS_PEOPLE.match(/var personalCard = ([\s\S]{0,400})/);
-    expect(m[1]).toMatch(/_userRole === 'member'/);
+    const m = JS_PEOPLE.match(/var personalIds = ([\s\S]{0,200})/);
+    expect(m[1]).toMatch(/^isMemberView \? \['member_type'\]/);
   });
 });
 
