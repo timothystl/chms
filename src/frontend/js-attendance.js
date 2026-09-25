@@ -47,9 +47,10 @@ function attRenderAll() {
 
 // ── Data model ───────────────────────────────────────────────────────
 // One row per Sunday date, combining the 08:00 and 10:45 service records (if present).
-function attSundayMap() {
+// services defaults to the Attendance tab's wide load; Home passes its own short window.
+function attSundayMap(services) {
   var map = {};
-  (_loadedServices || []).forEach(function(s) {
+  (services || _loadedServices || []).forEach(function(s) {
     if (s.service_type !== 'sunday') return;
     if (!map[s.service_date]) map[s.service_date] = { date: s.service_date, att8: 0, att1045: 0, id8: null, id1045: null, name: '', notes: '' };
     var row = map[s.service_date];
@@ -94,9 +95,9 @@ function attTotalOnDate(date) {
 // ── Still to enter (This Week entry card) ───────────────────────────────
 // Every 8:00/10:45 leg with no recorded count, from 8 weeks back through the upcoming
 // Sunday (inclusive), so the imminent Sunday shows even before it happens.
-function attComputeStillToEnter() {
+function attComputeStillToEnter(map) {
   var today = new Date().toISOString().slice(0, 10);
-  var map = attSundayMap();
+  map = map || attSundayMap();
   var lookbackWeeks = 8;
   var next = new Date(attNextSundayOnOrAfter(today) + 'T00:00:00');
   var start = new Date(next);
@@ -183,8 +184,13 @@ function attSaveEntry() {
   if (!date) return;
   var a8 = parseInt((document.getElementById('att-entry-8') || {}).value) || 0;
   var a1045 = parseInt((document.getElementById('att-entry-1045') || {}).value) || 0;
-  var map = attSundayMap();
-  var row = map[date];
+  attSaveSunday(date, a8, a1045, attSundayMap()[date]).then(function() {
+    loadAttendance().then(function() { attEntryLoad(attNextToRecordDate()); });
+  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
+}
+// Saves one Sunday's 8:00 and 10:45 counts. row is that date's attSundayMap() entry, if any.
+// Shared by the Attendance tab and Home. Resolves only when every write succeeded.
+function attSaveSunday(date, a8, a1045, row) {
   var saves = [];
   if (row && (row.id8 || row.id1045)) {
     // Existing rows for this date — update in place rather than calling bulk-sunday, which
@@ -196,13 +202,10 @@ function attSaveEntry() {
   } else {
     saves.push(api('/admin/api/attendance/bulk-sunday', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ service_date: date, service_name: (row && row.name) || '', att_8: a8, att_1045: a1045 }) }));
   }
-  // Not a per-call .catch: these promises are aggregated by Promise.all below, and a
-  // per-call catch that swallows its own rejection would make Promise.all resolve as if
-  // every save succeeded even when one genuinely failed (the exact "reports success on
-  // failure" bug this whole pass exists to close). One catch on the aggregate instead.
-  Promise.all(saves).then(function() {
-    loadAttendance().then(function() { attEntryLoad(attNextToRecordDate()); });
-  }).catch(function(err) { if (err.message !== 'Unauthorized') alert('Error: ' + err.message); });
+  // Not a per-call .catch: a per-call catch that swallows its own rejection would make
+  // Promise.all resolve as if every save succeeded even when one genuinely failed. Callers
+  // put one catch on the aggregate instead.
+  return Promise.all(saves);
 }
 
 // ── Pulse card ───────────────────────────────────────────────────────

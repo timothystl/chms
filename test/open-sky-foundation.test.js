@@ -108,3 +108,68 @@ describe('OS3 — person page', () => {
     expect(STYLE).toContain('#person-modal:not(.pm-full) .pm-extra{display:none!important;}');
   });
 });
+
+// OS5 (2026-09-25): Home leads with Sunday attendance entry and the month's birthdays,
+// anniversaries and baptism anniversaries (listed, copyable, printable). Every section collapses.
+
+import { JS_DASHBOARD } from '../src/frontend/js-dashboard.js';
+import { JS_ATTENDANCE } from '../src/frontend/js-attendance.js';
+
+describe('OS5 — Home', () => {
+  it('puts attendance entry and the month lists first, then the older panels', () => {
+    const render = JS_DASHBOARD.slice(JS_DASHBOARD.indexOf('function renderDashboard'));
+    const order = ["dashSection('att'", "dashSection('month'", "dashSection('glance'", "dashPanel('weeklyTasks'"];
+    const at = order.map((s) => render.indexOf(s));
+    at.forEach((i, n) => expect(i, order[n]).toBeGreaterThan(-1));
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+  });
+
+  it('opens attendance and the month lists by default and remembers each section', () => {
+    expect(JS_DASHBOARD).toMatch(/DASH_OPEN_DEFAULTS = \{att:true, month:true, bd:true, ann:true, bap:true/);
+    expect(JS_DASHBOARD).toContain("localStorage.setItem('dashOpen'");
+    expect(JS_DASHBOARD).toContain('aria-expanded');
+  });
+
+  it('prints and copies the month lists without emoji', () => {
+    expect(JS_DASHBOARD).toContain('function dashPrintMonth');
+    expect(JS_DASHBOARD).toContain('Copy for bulletin');
+    expect(JS_DASHBOARD).not.toContain('&#128203;');
+    expect(JS_DASHBOARD).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
+  it('saves Home attendance through the Attendance tab writer', () => {
+    expect(JS_DASHBOARD).toContain('attSaveSunday(ds, a8, a1045, row)');
+    expect(JS_ATTENDANCE).toMatch(/function attSaveEntry\(\) \{[\s\S]*?attSaveSunday\(date, a8, a1045/);
+  });
+});
+
+describe('OS5 — attSaveSunday', () => {
+  function load() {
+    const calls = [];
+    const api = (url, opts) => { calls.push([url, opts && opts.method, opts && JSON.parse(opts.body)]); return Promise.resolve({}); };
+    const fn = new Function('api', '_loadedServices', JS_ATTENDANCE + '\nreturn { attSaveSunday, attSundayMap };');
+    return { calls, ...fn(api, []) };
+  }
+
+  it('creates both services in one call for a new Sunday', async () => {
+    const { calls, attSaveSunday } = load();
+    await attSaveSunday('2026-09-20', 90, 140, undefined);
+    expect(calls).toEqual([['/admin/api/attendance/bulk-sunday', 'POST', { service_date: '2026-09-20', service_name: '', att_8: 90, att_1045: 140 }]]);
+  });
+
+  it('updates recorded services in place and adds the missing one', async () => {
+    const { calls, attSaveSunday, attSundayMap } = load();
+    const map = attSundayMap([{ id: 7, service_type: 'sunday', service_date: '2026-09-20', service_time: '08:00', attendance: 80, service_name: 'Pentecost 17' }]);
+    await attSaveSunday('2026-09-20', 91, 150, map['2026-09-20']);
+    expect(calls).toEqual([
+      ['/admin/api/attendance/7', 'PUT', { attendance: 91 }],
+      ['/admin/api/attendance', 'POST', { service_date: '2026-09-20', service_time: '10:45', service_name: 'Pentecost 17', service_type: 'sunday', attendance: 150 }],
+    ]);
+  });
+
+  it('rejects when any write fails', async () => {
+    const fn = new Function('api', '_loadedServices', JS_ATTENDANCE + '\nreturn attSaveSunday;');
+    const save = fn((url) => url.endsWith('/7') ? Promise.reject(new Error('nope')) : Promise.resolve({}), []);
+    await expect(save('2026-09-20', 1, 2, { id8: 7, id1045: 8, name: '' })).rejects.toThrow('nope');
+  });
+});

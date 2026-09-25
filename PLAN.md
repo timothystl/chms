@@ -105,7 +105,7 @@ Serve/website pages and all MDO products are out of its scope. Decisions taken w
   Register's special-arrow buttons brought onto Open Sky. Still on the old look in places:
   Home/dashboard, Attendance, Volunteers, Scheduler embed internals, legacy Finance screens,
   and printed letters/certificates.
-- [ ] **OS5 — Home** once the agenda/"needs attention" content is decided.
+- [x] **OS5 — Home** (2026-09-25): Sunday attendance entry (8:00/10:45, shared writer `attSaveSunday`) and the month's birthdays, anniversaries and baptism anniversaries with month switching, copy for bulletin and a print page lead Home. Every section collapses and remembers that per browser; the older panels sit under More, closed by default, chosen with Choose panels. Quick-action tiles retired.
 
 ## The work queue — priority order (rebuilt 2026-08-20)
 
