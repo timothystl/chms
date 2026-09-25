@@ -92,7 +92,7 @@ import {
   isPropertyLedgerWritesEnabled, recordPropertyReserveMonthly, recordPropertyReserveDisbursement,
   recordPropertyDistribution, recordPropertyCapitalLedgerEntry, PropertyLedgerValidationError,
 } from './property-ledger-write-service.js';
-import { buildCashRunwayView, readSyntheticCashRunway } from './cash-runway-service.js';
+import { buildResolvedCashRunwayView, resolveCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView, buildLiveFinancialMixView } from './financial-mix-service.js';
 import { buildEntityOverview } from './entity-overview-service.js';
 import { buildOperatingBridge } from './operating-bridge-service.js';
@@ -877,7 +877,7 @@ function renderSectionBody(ctx) {
     const healthBadge = healthSources.length === 0 ? 'Unavailable'
       : liveHealthSources === healthSources.length ? 'Live from Connect'
       : liveHealthSources === 0 ? 'Synthetic staging' : 'Partially live';
-    const runway = isSyntheticUnavailable(cashRunway) ? null : buildCashRunwayView(cashRunway);
+    const runway = isSyntheticUnavailable(cashRunway) ? null : buildResolvedCashRunwayView(cashRunway);
     // Same live-first pattern as Charts' revenue-mix/expense-mix pages (charts-pages.js):
     // buildLiveFinancialMixView(accounts, fiscalYear, totals) reads churchReportLive's own contract
     // shape directly, so no synthetic churchReport read is needed on the live path at all.
@@ -943,7 +943,7 @@ function renderSectionBody(ctx) {
       </div>
       <div class="section-heading trend-heading"><div><div class="eyebrow">Liquidity</div><h2>Operating cash runway</h2></div><span class="badge">${runway ? `As of ${escapeHtml(runway.asOfDate)}` : 'Unavailable'}</span></div>
       ${runway
-        ? `<div class="grid"><div class="card"><small>Operating cash</small><strong>${formatCents(runway.operatingCashCents)}</strong><span>${escapeHtml(runway.accountName)} · synthetic fixture</span></div><div class="card"><small>Average monthly expense</small><strong>${formatCents(runway.monthlyExpenseCents)}</strong><span>FY${runway.fiscalYear} annual expense ${formatCents(runway.annualExpenseCents)}</span></div><div class="card"><small>Expense coverage</small><strong>${runway.runwayMonths.toFixed(1)} months</strong><span>Cash divided by average monthly expense · read-only</span></div></div>`
+        ? `<div class="grid"><div class="card"><small>Operating cash</small><strong>${formatCents(runway.operatingCashCents)}</strong><span>${escapeHtml(runway.accountName)} · ${runway.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div><div class="card"><small>Average monthly expense</small><strong>${formatCents(runway.monthlyExpenseCents)}</strong><span>FY${runway.fiscalYear} annualized expense ${formatCents(runway.annualExpenseCents)} · ${runway.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div><div class="card"><small>Expense coverage</small><strong>${runway.runwayMonths.toFixed(1)} months</strong><span>Cash divided by average monthly expense · read-only</span></div></div>`
         : unavailableNote('Operating cash runway')}
       <div class="section-heading trend-heading"><div><div class="eyebrow">Operating mix</div><h2>Where money comes from and goes</h2></div><span class="badge">${mix ? `FY${mix.fiscalYear} · reconciled · ${isChurchLive ? 'Live from Connect' : 'Synthetic staging'}` : 'Unavailable'}</span></div>
       ${mix
@@ -3245,7 +3245,7 @@ export default {
           ? describeCompensationEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
         const cashRunway = ['health', 'charts'].includes(section.id)
-          ? await safeSyntheticRead(() => readSyntheticCashRunway(env.FINANCE_DB)) : null;
+          ? await safeSyntheticRead(() => resolveCashRunway(env, env.FINANCE_DB)) : null;
         const { giving, source: givingSource } = ['health', 'giving', 'charts', 'packet'].includes(section.id)
           ? await resolveGivingSummary(env) : { giving: SYNTHETIC_GIVING, source: 'synthetic-fallback' };
         const givingEntryStatus = section.id === 'giving' ? url.searchParams.get('status') : null;
