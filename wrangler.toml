@@ -12,6 +12,9 @@ compatibility_date = "2024-01-01"
 
 [vars]
 FINANCE_STORAGE_MODE = "finance"
+# "1" once QuickBooks is owned by Finance: Connect refuses its QuickBooks routes and reads the
+# connection/report cache from Finance's database. See docs/QUICKBOOKS_FINANCE_CUTOVER.md.
+QBO_MANAGED_BY_FINANCE = "0"
 EMAIL_FROM     = "Connect <noreply@notify.timothystl.org>"
 REPLY_TO_EMAIL = "dinger@timothystl.org"
 

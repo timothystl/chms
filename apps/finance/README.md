@@ -23,7 +23,9 @@ Existing accounts and permissions remain in Connect, avoiding a second user dire
 The established imports, budget, compensation, and property edit relays stay active. Alternate
 native planning writers remain disabled because they use an incomplete parallel model; they
 are not needed to edit the authoritative records through the existing handlers. QuickBooks
-continues using its single existing connection, with no competing token refresh process.
+continues using its single existing connection, with no competing token refresh process. Finance now has
+its own QuickBooks connection and sync (`quickbooks-oauth-routes.js`), off until the cutover in
+[docs/QUICKBOOKS_FINANCE_CUTOVER.md](../../docs/QUICKBOOKS_FINANCE_CUTOVER.md) switches ownership.
 
 Council raise-plan drafts have their own writer in Finance (September 25): Compensation → Plan
 shows a council member with compensation edit access an editor for the legacy council fields, and

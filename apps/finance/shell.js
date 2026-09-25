@@ -70,6 +70,10 @@ import {
 import { isBudgetPlanWritesEnabled, validateBudgetPlanRows, saveBudgetPlanRows } from './budget-plan-write-service.js';
 import { fetchConnectSalaryPlannerState, postConnectFinanceCompensationWrite } from './finance-compensation-client.js';
 import { buildCouncilOverlayFromForm, saveCouncilOverlay } from './compensation-council-overlay.js';
+import {
+  QB_PAGE, qbEnabled, readConnectionSummary as readQbConnectionSummary, listQuickbooksBudgets, handleConnect as handleQbConnect, handleCallback as handleQbCallback, handleDisconnect as handleQbDisconnect,
+  handleSync as handleQbSync, handleSyncYears as handleQbSyncYears, handleBudgetSelect as handleQbBudgetSelect,
+} from './quickbooks-oauth-routes.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
@@ -1119,7 +1123,10 @@ function renderSectionBody(ctx) {
     });
   }
   if (section.id === 'quickbooks') {
-    return renderQuickbooksPage(page.id, { dataStatus, accountsReport });
+    return renderQuickbooksPage(page.id, {
+      dataStatus, accountsReport, quickbooksOwn: ctx.quickbooksOwn, quickbooksBudgets: ctx.quickbooksBudgets,
+      canManageQuickbooks: roleResult.ok && roleResult.role === 'admin', searchParams: ctx.searchParams,
+    });
   }
   if (section.id === 'packet') {
     return renderPacketPage({ churchReportLive, balanceSheetLive: balanceSheet, churchTrendLive, giving, givingSource });
@@ -1252,6 +1259,11 @@ async function runPropertyLedgerWrite(routeId, db, body) {
       throw new Error(`Unhandled property ledger write route: ${routeId}`);
   }
 }
+
+const QB_ROUTE_HANDLERS = {
+  'qb-connect-v1': handleQbConnect, 'qb-callback-v1': handleQbCallback, 'qb-disconnect-v1': handleQbDisconnect,
+  'qb-sync-v1': handleQbSync, 'qb-sync-years-v1': handleQbSyncYears, 'qb-budget-select-v1': handleQbBudgetSelect,
+};
 
 export default {
   async fetch(request, env) {
@@ -2864,6 +2876,15 @@ export default {
       }
     }
 
+    if (QB_ROUTE_HANDLERS[route.id]) {
+      if (!qbEnabled(env)) {
+        return response(null, { status: 303, headers: { Location: `${QB_PAGE}&qb=error&message=${encodeURIComponent('QuickBooks is not enabled in Finance yet.')}` } });
+      }
+      if (!env.FINANCE_DB) return response('Finance database unavailable', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      const roleResult = await fetchVerifiedRole(env, request.headers.get('Cf-Access-Jwt-Assertion') || '');
+      return QB_ROUTE_HANDLERS[route.id](request, url, env, env.FINANCE_DB, { isAdmin: roleResult.ok && roleResult.role === 'admin' });
+    }
+
     if (FACILITIES_WRITERS[route.id]) {
       return handleFacilitiesWrite(request, env, route.id, url);
     }
@@ -3069,6 +3090,13 @@ export default {
           ? await safeSyntheticRead(() => resolveBudgetReport(env, env.FINANCE_DB)) : null;
         const accountsReport = ['accounts', 'quickbooks'].includes(section.id)
           ? await safeSyntheticRead(() => resolveAccountsReport(env, env.FINANCE_DB)) : null;
+        // Finance's own QuickBooks connection, once enabled (quickbooks-oauth-routes.js). The budget
+        // list is a live QuickBooks call, so it is fetched only when an admin asks for it.
+        const quickbooksOwn = section.id === 'quickbooks' && qbEnabled(env) && env.FINANCE_DB
+          ? await safeSyntheticRead(() => readQbConnectionSummary(env.FINANCE_DB)) : null;
+        const quickbooksBudgets = quickbooksOwn && quickbooksOwn.connected && url.searchParams.get('budgets') === '1'
+          && roleResult.ok && roleResult.role === 'admin'
+          ? await listQuickbooksBudgets(env, env.FINANCE_DB, {}).catch((e) => ({ ok: false, error: e.message })) : null;
         const dataStatus = ['data', 'health', 'quickbooks'].includes(section.id)
           ? await safeSyntheticRead(() => resolveDataStatus(env, env.FINANCE_DB)) : null;
         const compensationReport = section.id === 'compensation'
@@ -3300,7 +3328,7 @@ export default {
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
-          dataStatus, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
+          dataStatus, quickbooksOwn, quickbooksBudgets, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
           planOpKind, planOpStatus, planOpMessage, baseProjectionEntryStatus, baseProjectionEntryMessage,
