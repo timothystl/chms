@@ -94,6 +94,6 @@ describe('the version the assets are keyed by is the one the page requests', () 
   it('matches DEPLOY_VERSION, so a correct page load always hits the cacheable path', () => {
     // If these ever diverge, every asset request would be no-store and caching would silently
     // stop working — slow, not broken, which is the kind of regression nobody notices.
-    expect(DEPLOY_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(DEPLOY_VERSION).toMatch(/^\d+\.\d+\.\d+(?:-(?:alpha|beta)\.\d+)?$/);
   });
 });

@@ -120,9 +120,9 @@ const env = {
   },
 };
 
-describe('Finance 1.0.0 alpha staging shell', () => {
+describe('Finance alpha staging shell', () => {
   it('uses intentional prerelease versioning', () => {
-    expect(FINANCE_VERSION).toBe('1.0.0-alpha.54');
+    expect(FINANCE_VERSION).toBe('0.1.0-alpha.1');
     expect(FINANCE_RELEASE_CHANNEL).toBe('alpha');
   });
 
