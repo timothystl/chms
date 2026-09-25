@@ -153,6 +153,9 @@ describe('Facilities routes and pages', () => {
     expect(isSameOriginPost(req({ 'Sec-Fetch-Site': 'cross-site' }), url)).toBe(false);
     expect(isSameOriginPost(req({ Origin: 'https://evil.example' }), url)).toBe(false);
     expect(isSameOriginPost(req({ Origin: 'null' }), url)).toBe(false);
+    // A no-referrer page's own post: Origin is null but Fetch Metadata says same-origin.
+    expect(isSameOriginPost(req({ 'Sec-Fetch-Site': 'same-origin', Origin: 'null' }), url)).toBe(true);
+    expect(isSameOriginPost(req({ 'Sec-Fetch-Site': 'same-site', Origin: 'https://finance.test' }), url)).toBe(false);
   });
 
   it('saves through the form post for an admin and redirects to the new asset', async () => {
