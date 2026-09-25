@@ -36,6 +36,7 @@ const WRITE_ROUTE_IDS = new Set([
   'daycare-allocation-config-write-v1', 'daycare-budget-override-write-v1', 'daycare-bulk-write-v1',
   'daycare-church-budget-import-write-v1', 'base-projection-write-v1', 'purpose-tags-write-v1',
   'daycare-entry-edit-v1', 'daycare-entry-remove-v1', 'daycare-sync-v1', 'daycare-rooms-sync-v1',
+  'gift-batch-write-v1',
 ]);
 const OWN_DB_WRITE_ROUTE_IDS = new Set(['budget-plan-save-v1']);
 const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1']);
@@ -105,6 +106,7 @@ describe('Finance staging route manifest', () => {
       '/api/v1/facilities/pm-save', '/api/v1/facilities/pm-done', '/api/v1/facilities/project-save',
       '/api/v1/hr/person-save', '/api/v1/hr/credential-save', '/api/v1/hr/review-save', '/api/v1/hr/goal-save',
       '/api/v1/hr/position-save', '/api/v1/hr/policy-save', '/api/v1/hr/signature-save', '/api/v1/hr/benefit-change-save',
+      '/api/v1/gift-batch-write',
       '/api/summary', '/api/v1/payroll-relay-diagnostic',
       '/api/v1/payroll-hours-save', '/api/v1/payroll-period-approve',
       '/api/v1/payroll-staff-save', '/api/v1/payroll-staff-deactivate', '/api/v1/payroll-csv',
