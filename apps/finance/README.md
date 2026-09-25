@@ -38,9 +38,10 @@ projection (proposed salaries per method) is not yet ported, so the editor sets 
 showing their dollar effect.
 
 Remaining product gaps are distinct from storage cutover: some overview cards still use
-explicitly labeled fixture/unavailable fallbacks; compensation benchmark/benefit detail lacks a
-real source; standalone native Excel preview/select/commit parity is now complete for the annual
-and multi-period Church report and balance-sheet imports. Legacy Finance
+explicitly labeled fixture/unavailable fallbacks; the Commercial Property overview now reuses its
+reconciled live annual summary instead of re-summing nullable monthly rows; compensation
+benchmark/benefit detail lacks a real source; standalone native Excel preview/select/commit parity
+is now complete for the annual and multi-period Church report and balance-sheet imports. Legacy Finance
 screens are retained for functionality that the new UI has not yet replaced. No production
 fixture seeding or removal of working workflows is part of this cutover.
 
@@ -63,6 +64,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `health-pages.js` — Financial Health's v3 Summary (default) and By-entity views; Full detail is the original page (`?view=detail`).
 - `facilities-service.js`, `facilities-pages.js`, `facilities-routes.js` — Facilities (asset register, service history, preventive maintenance, capital projects) in Finance's own tables from migration `0010_finance_facilities.sql`. Editing requires a verified admin, or a finance/staff role with Finance edit permission, and a same-origin form post. `fixtures/0013_synthetic_facilities.sql` is staging-only sample data. The Worker creates these tables itself on first use (`finance-owned-schema.js`, which runs the exact migration text, all `CREATE ... IF NOT EXISTS`), because the release token cannot run D1 migrations; applying the migration with wrangler later is harmless.
 - `hr-service.js`, `hr-pages.js`, `hr-routes.js` — HR & Staff (admin-only): church staff and key volunteers, screening/training dates and status only (never reports), reviews and goals, job descriptions, policy signatures per version, and benefits enrollment, in Finance's own tables from migration `0011_finance_hr.sql`, created on first use like Facilities. Daycare staff stay in myMDO. `fixtures/0014_synthetic_hr.sql` is staging-only sample data.
+- `payroll-pages.js` — Payroll's five v3 pages (Run payroll, Staff entry, Import from MDO, Email / print, History) over the same live Website payroll relay; older `?view=` links map onto them. History reads `payroll_get_year_totals`.
 - `brand-assets.js` — self-hosted logo and Outfit/Figtree fonts, served from `/assets/*` so the CSP stays same-origin with no script.
 - `version.js` — intentional semantic prerelease version.
 - `migrations/` — Finance-only D1 migration ledger; never targets the shared Connect database.

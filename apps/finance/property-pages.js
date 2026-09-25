@@ -359,12 +359,12 @@ export function renderPropertyPage(pageId, {
     const isLive = propertyReportLive && propertyReportLive.source === 'live';
     const syntheticReport = isLive ? null : buildPropertyReportView(propertyReport);
     const rows = isLive ? propertyReportLive.rows : syntheticReport.rows;
-    const periodEnd = rows.length ? rows[rows.length - 1].period : syntheticReport.periodEnd;
+    const periodEnd = rows.length ? rows[rows.length - 1].period : null;
     const fallbackNote = isLive ? '' : `<p><small>The committed synthetic fixture (the live endpoint is not configured or did not answer${propertyReportLive && propertyReportLive.fallbackReason ? `: ${escapeHtml(propertyReportLive.fallbackReason)}` : ''}).</small></p>`;
     return `<section class="report" aria-label="${isLive ? 'Commercial Property operating results' : 'Synthetic Commercial Property operating results'}">
-      ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: `Operating results through ${escapeHtml(periodEnd)}`, badge: isLive ? 'Live from Connect' : 'Synthetic staging' })}
+      ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: periodEnd ? `Operating results through ${escapeHtml(periodEnd)}` : 'No operating periods on file', badge: isLive ? 'Live from Connect' : 'Synthetic staging' })}
       ${canManagePropertyMonthly ? renderRemoveStatus(propertyMonthlyRemoveStatus, propertyMonthlyRemoveMessage) : ''}
-      ${renderTable({ head: ['Period', 'Occupancy', 'Revenue', 'Expenses', 'Net income', ...(canManagePropertyMonthly ? [''] : [])], rows: renderPropertyRows(rows, canManagePropertyMonthly) })}
+      ${rows.length ? renderTable({ head: ['Period', 'Occupancy', 'Revenue', 'Expenses', 'Net income', ...(canManagePropertyMonthly ? [''] : [])], rows: renderPropertyRows(rows, canManagePropertyMonthly) }) : '<p>Connect has no Commercial Property monthly results on file yet.</p>'}
       ${fallbackNote}
     </section>${canManagePropertyMonthly ? renderPropertyMonthlyForm(propertyMonthlyEntryStatus, propertyMonthlyEntryMessage) : ''}${canManagePropertyMonthly ? renderPropertyMonthlyImportCsvForm(propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage) : ''}`;
   }
@@ -525,10 +525,31 @@ export function renderPropertyPage(pageId, {
   };
   if (unavailable[pageId]) return renderUnavailablePage({ eyebrow: 'Commercial Property', ...unavailable[pageId] });
 
-  // 'overview' (default) -- entirely synthetic, no live variant. Computed here, not at the top
-  // of this function, so a SYNTHETIC_UNAVAILABLE propertyReport only ever breaks this one
-  // fallback page, never a page (like 'operating-results' above) with its own live path that
-  // doesn't need it.
+  // 'overview' (default) -- use the reconciled annual summary from the same live contract as
+  // Operating results. Monthly live rows legitimately contain null expense/reserve fields, so
+  // summing them here would silently turn missing amounts into zero. The producer's annualSummary
+  // is the authoritative, reconciled source for this overview instead.
+  const isLive = propertyReportLive && propertyReportLive.source === 'live';
+  if (isLive) {
+    const annual = Array.isArray(propertyReportLive.annualSummary) ? propertyReportLive.annualSummary.at(-1) : null;
+    if (!annual) {
+      return `<section class="report" aria-label="Commercial Property overview">
+        ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'No property reporting year on file', badge: 'Live from Connect' })}
+        <p>Connect has no annual Commercial Property operating summary yet. Record or import monthly results to populate this overview.</p>
+      </section>`;
+    }
+    return `<section class="report" aria-label="Commercial Property overview">
+      ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: `Property performance for ${annual.year}`, badge: 'Live from Connect' })}
+      ${renderKpiCards([
+        { label: 'Revenue', value: formatCents(annual.totalRevenueCents), hint: `Average occupancy ${(annual.avgOccupancyPct * 100).toFixed(0)}%` },
+        { label: 'Expenses', value: formatCents(annual.totalExpensesCents), hint: `Confirmed distributions ${formatCents(annual.confirmedDistributionsCents)}` },
+        { label: 'Net income', value: formatSignedCents(annual.netIncomeCents), hint: `${annual.expenseMonthsDerived} expense month${annual.expenseMonthsDerived === 1 ? '' : 's'} represented` },
+      ])}
+      <p>See Operating results, Rent roll, Reserve &amp; distribution, Capital improvements, Valuation, Run-rate forecast, and Distributions for the full picture.</p>
+    </section>`;
+  }
+
+  // Synthetic fallback remains available only when the live contract is not configured or fails.
   const report = buildPropertyReportView(propertyReport);
   return `<section class="report" aria-label="Synthetic Commercial Property overview">
     ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: `Property performance through ${escapeHtml(report.periodEnd)}`, badge: 'Synthetic staging' })}

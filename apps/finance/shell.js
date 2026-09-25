@@ -17,6 +17,7 @@ import { isMethodAllowedForRoute, resolveFinanceRoute } from './route-manifest.j
 import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage } from './parity-manifest.js';
 import { HEALTH_STYLES, renderHealthByEntity, renderHealthSummary, renderHealthViewToggle, resolveHealthView } from './health-pages.js';
 import { ensureFinanceOwnedSchema } from './finance-owned-schema.js';
+import { PAYROLL_STYLES, legacyPayrollPage } from './payroll-pages.js';
 import { HR_WRITERS, buildHrView, readHr } from './hr-service.js';
 import { canEditHr, describeHrStatus, handleHrWrite } from './hr-routes.js';
 import { HR_STYLES, renderHrPage } from './hr-pages.js';
@@ -1251,7 +1252,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/tlc-logo.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -2585,7 +2586,7 @@ export default {
       const { period } = resolvePayrollPeriod(periodStart);
       const workspace = await loadPayrollWorkspace(env, accessJwt, period.start, period.end);
       const result = await saveAllHours(env, accessJwt, period.start, workspace.churchStaff, workspace.periodEntries, form);
-      const params = new URLSearchParams({ section: 'payroll', period: period.start, view: 'entry' });
+      const params = new URLSearchParams({ section: 'payroll', page: 'run', period: period.start });
       params.set('status', result.ok ? 'saved' : 'error');
       if (!result.ok && result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
@@ -2605,16 +2606,16 @@ export default {
       if (wantsApprove && !workspace.periodApproval) {
         const missing = payrollMissingHours(workspace.churchStaff, workspace.periodEntries);
         if (missing.length && form.get('confirm_missing') !== '1') {
-          return response(null, { status: 303, headers: { Location: `/?section=payroll&period=${encodeURIComponent(period.start)}&view=entry&needs_confirm=1` } });
+          return response(null, { status: 303, headers: { Location: `/?section=payroll&page=run&period=${encodeURIComponent(period.start)}&needs_confirm=1` } });
         }
       }
       if (!wantsApprove && form.get('confirm_unapprove') !== '1') {
-        return response(null, { status: 303, headers: { Location: `/?section=payroll&period=${encodeURIComponent(period.start)}&view=entry` } });
+        return response(null, { status: 303, headers: { Location: `/?section=payroll&page=run&period=${encodeURIComponent(period.start)}` } });
       }
 
       const approvedBy = approverEmailFromJwt(accessJwt) || 'Finance';
       const result = await approvePeriod(env, accessJwt, period.start, approvedBy, workspace);
-      const params = new URLSearchParams({ section: 'payroll', period: period.start, view: 'entry' });
+      const params = new URLSearchParams({ section: 'payroll', page: 'run', period: period.start });
       params.set('status', result.ok ? (wantsApprove ? 'approved' : 'unapproved') : 'error');
       if (!result.ok && result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
@@ -2624,13 +2625,13 @@ export default {
       const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
       let form;
       try { form = await request.formData(); } catch {
-        return response(null, { status: 303, headers: { Location: '/?section=payroll&view=staff-form&status=error&message=Could+not+read+the+form' } });
+        return response(null, { status: 303, headers: { Location: '/?section=payroll&page=staff&view=staff-form&status=error&message=Could+not+read+the+form' } });
       }
       const result = await saveStaffFromForm(env, accessJwt, form);
       if (result.ok) {
-        return response(null, { status: 303, headers: { Location: '/?section=payroll&view=entry&status=staff_saved' } });
+        return response(null, { status: 303, headers: { Location: '/?section=payroll&page=staff&status=staff_saved' } });
       }
-      const params = new URLSearchParams({ section: 'payroll', view: 'staff-form', status: 'error' });
+      const params = new URLSearchParams({ section: 'payroll', page: 'staff', view: 'staff-form', status: 'error' });
       if (form.get('id')) params.set('id', String(form.get('id')));
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
@@ -2640,13 +2641,13 @@ export default {
       const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
       let form;
       try { form = await request.formData(); } catch {
-        return response(null, { status: 303, headers: { Location: '/?section=payroll&view=entry&status=error&message=Could+not+read+the+form' } });
+        return response(null, { status: 303, headers: { Location: '/?section=payroll&page=staff&status=error&message=Could+not+read+the+form' } });
       }
       const result = await deactivateStaffFromForm(env, accessJwt, form);
       if (result.ok) {
-        return response(null, { status: 303, headers: { Location: '/?section=payroll&view=entry&status=staff_removed' } });
+        return response(null, { status: 303, headers: { Location: '/?section=payroll&page=staff&status=staff_removed' } });
       }
-      const params = new URLSearchParams({ section: 'payroll', view: 'staff-form', status: 'error', id: String(form.get('id') || '') });
+      const params = new URLSearchParams({ section: 'payroll', page: 'staff', view: 'staff-form', status: 'error', id: String(form.get('id') || '') });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -2674,7 +2675,7 @@ export default {
       const { period } = resolvePayrollPeriod(String(form.get('period') || ''));
       const workspace = await loadPayrollWorkspace(env, accessJwt, period.start, period.end);
       const result = await emailReport(env, accessJwt, period, workspace, form.get('force') === '1');
-      const params = new URLSearchParams({ section: 'payroll', period: period.start, view: 'entry' });
+      const params = new URLSearchParams({ section: 'payroll', page: 'report', period: period.start });
       if (result.ok) {
         params.set('status', 'emailed');
         if (result.to) params.set('to', result.to);
@@ -3015,7 +3016,9 @@ export default {
       if (request.method === 'HEAD') return response(null, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
       try {
         const section = resolveFinanceSection(url.searchParams.get('section'));
-        const pageId = url.searchParams.get('page');
+        // Payroll's older ?view=entry|report|staff-form links map onto its v3 pages.
+        const pageId = url.searchParams.get('page')
+          || (section.id === 'payroll' ? legacyPayrollPage(url.searchParams.get('view')) : null);
         // The 'page' query param is optional -- resolveFinancePage() is what actually defaults a
         // missing/unknown one to the section's first page (e.g. Compensation's 'plan'), the same
         // resolution renderCompensationPage's own pageId argument (page.id, not this raw pageId)
