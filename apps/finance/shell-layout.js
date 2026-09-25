@@ -131,6 +131,12 @@ export const SHELL_STYLES = `
     .form-grid { margin-top:0; }
     .field { display:flex; flex-direction:column; gap:5px; margin-top:14px; }
     .field:first-child { margin-top:0; }
+    .inline-form { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+    .inline-form input[type=number] { width:6rem; }
+    td.num, th.num { text-align:right; white-space:nowrap; }
+    tr.total td { border-top:2px solid var(--line); font-weight:600; }
+    tr.muted td { color:var(--muted); }
+    .comp-basis { border-left:3px solid var(--line); padding:.2rem .9rem; margin:1rem 0; }
     label { color:var(--muted); font-size:12.5px; font-weight:600; }
     input, select, textarea { padding:9px 11px; border:1px solid #D5DAE3; border-radius:8px; background:#fff; color:var(--ink); font-size:14px; font-family:inherit; }
     input:focus, select:focus, textarea:focus { outline:2px solid rgba(46,126,166,.25); border-color:var(--teal); }

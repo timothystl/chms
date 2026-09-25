@@ -42,6 +42,11 @@ export const PRINT_STYLES = `
   .print-doc form, .print-doc button, .print-doc .no-print, .print-doc .notice,
   .print-doc section:has(> form), .print-doc a[href*="edit="] { display: none !important; }
   .print-doc a { color: inherit; text-decoration: none; }
+  .print-doc td.num, .print-doc th.num { text-align: right; white-space: nowrap; }
+  .print-doc tr.total td { border-top: 1.5px solid #555; font-weight: 600; }
+  .print-doc tr.muted td { color: #777; }
+  .print-doc .comp-basis { border-left: 3px solid #d9dfda; padding: .1rem .7rem; margin: .8rem 0; font-size: 9.5pt; }
+  .print-doc .comp-basis table { width: auto; }
   .print-picker { background: #fff; max-width: 8.5in; margin: 1rem auto; padding: 1.5rem; box-sizing: border-box; }
   .print-picker fieldset { border: 1px solid #d9dfda; border-radius: .5rem; margin: 0 0 1rem; padding: .6rem 1rem; }
   .print-picker label { display: block; padding: .25rem 0; }
@@ -64,7 +69,7 @@ export const BOARD_PACKET_ITEMS = Object.freeze([
   { key: 'daycare', label: 'Daycare Report (overview and budget comparison)', section: 'daycare', pages: ['overview', 'budget-comparison'] },
   { key: 'property', label: 'Commercial Property (overview, operating results, reserves, capital)', section: 'property', pages: ['overview', 'operating-results', 'reserve-distribution', 'capital'] },
   { key: 'budget', label: 'Budget', section: 'planning', pages: ['builder'] },
-  { key: 'council', label: 'Compensation council snapshot (aggregate)', section: 'compensation', pages: ['council'] },
+  { key: 'council', label: 'Compensation council report', section: 'compensation', pages: ['council'] },
 ]);
 
 export const BOARD_PACKET_DEFAULT_KEYS = ['health', 'church', 'balance', 'property', 'budget'];
