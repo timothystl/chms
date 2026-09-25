@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateFinancePropertyValuationV1, acceptFinancePropertyValuationV1 } from '../apps/finance/finance-property-valuation-consumer.js';
+import { validateFinancePropertyValuationV1, acceptFinancePropertyValuationV1 } from '../contracts/validators/finance-property-valuation-consumer.js';
 
 const VALID = {
   contract: 'connect.finance-property-valuation.v1',

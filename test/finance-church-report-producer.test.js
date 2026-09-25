@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { buildFinanceChurchReportV1 } from '../src/api-contracts.js';
-import { validateFinanceChurchReportV1 } from '../apps/finance/finance-church-report-consumer.js';
+import { validateFinanceChurchReportV1 } from '../contracts/validators/finance-church-report-consumer.js';
 
 // finance_church_entries is not part of migrations/0001_baseline.sql -- same reason Chart of
 // Accounts' producer test adds it as EXTRA_SCHEMA. Column-for-column identical to src/db.js's real

@@ -4,7 +4,7 @@
 // caller (balance-sheet-service.js's resolveBalanceSheetTrend) can fall back to the local
 // synthetic fixture. No fiscal_year query param -- unlike the single-year contract, this one has
 // no per-year selection; it always names every fiscal year on file.
-import { acceptFinanceBalanceSheetTrendV1 } from './finance-balance-sheet-trend-consumer.js';
+import { acceptFinanceBalanceSheetTrendV1 } from '../../contracts/validators/finance-balance-sheet-trend-consumer.js';
 
 const REQUEST_TIMEOUT_MS = 4000;
 

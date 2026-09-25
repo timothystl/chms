@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateFinanceChurchReportTrendV1, acceptFinanceChurchReportTrendV1 } from '../apps/finance/finance-church-report-trend-consumer.js';
+import { validateFinanceChurchReportTrendV1, acceptFinanceChurchReportTrendV1 } from '../contracts/validators/finance-church-report-trend-consumer.js';
 
 function validYear(overrides = {}) {
   return {

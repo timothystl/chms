@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { buildConnectGivingSummaryV1 } from '../src/api-contracts.js';
-import { validateConnectGivingSummaryV1 } from '../apps/finance/connect-giving-consumer.js';
+import { validateConnectGivingSummaryV1 } from '../contracts/validators/connect-giving-consumer.js';
 
 // Same minimal D1-shaped wrapper pattern as test/giving-board-general-fund.test.js.
 function makeTestDb() {

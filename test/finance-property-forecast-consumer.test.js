@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateFinancePropertyForecastV1, acceptFinancePropertyForecastV1 } from '../apps/finance/finance-property-forecast-consumer.js';
+import { validateFinancePropertyForecastV1, acceptFinancePropertyForecastV1 } from '../contracts/validators/finance-property-forecast-consumer.js';
 
 function buildValid() {
   return {

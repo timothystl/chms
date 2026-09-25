@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateFinanceCompensationV1, acceptFinanceCompensationV1 } from '../apps/finance/finance-compensation-consumer.js';
+import { validateFinanceCompensationV1, acceptFinanceCompensationV1 } from '../contracts/validators/finance-compensation-consumer.js';
 
 // Every name/dollar figure below is entirely fabricated for this test -- never a real production
 // value.

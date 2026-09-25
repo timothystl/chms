@@ -1,6 +1,6 @@
 import { FINANCE_RELEASE_CHANNEL, FINANCE_VERSION } from './version.js';
 import givingFixture from '../../contracts/examples/giving-summary-v1.synthetic.json';
-import { acceptConnectGivingSummaryV1 } from './connect-giving-consumer.js';
+import { acceptConnectGivingSummaryV1 } from '../../contracts/validators/connect-giving-consumer.js';
 import { reconcileSyntheticGivingDelivery } from './connect-giving-transport.js';
 import { fetchLiveConnectGivingSummary, defaultLiveGivingPeriod, postConnectGivingQuickEntry } from './connect-giving-client.js';
 import { fetchVerifiedRole, roleCanAccessSection } from './connect-role-client.js';

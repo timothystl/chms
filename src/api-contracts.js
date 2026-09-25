@@ -5,21 +5,21 @@
 // exact contract shape from real Giving data — so it stays reviewable
 // independent of the much larger People/Giving/Reports handlers.
 import { json } from './auth.js';
-import { validateConnectGivingSummaryV1 } from '../apps/finance/connect-giving-consumer.js';
-import { validateFinanceDataStatusV1 } from '../apps/finance/finance-data-status-consumer.js';
-import { validateFinanceChartOfAccountsV1 } from '../apps/finance/finance-chart-of-accounts-consumer.js';
-import { validateFinanceBudgetV1 } from '../apps/finance/finance-budget-consumer.js';
-import { validateFinanceChurchReportV1 } from '../apps/finance/finance-church-report-consumer.js';
-import { validateFinanceChurchReportTrendV1 } from '../apps/finance/finance-church-report-trend-consumer.js';
-import { validateFinanceBalanceSheetV1 } from '../apps/finance/finance-balance-sheet-consumer.js';
-import { validateFinanceBalanceSheetTrendV1 } from '../apps/finance/finance-balance-sheet-trend-consumer.js';
-import { validateFinanceDaycareReportV1 } from '../apps/finance/finance-daycare-consumer.js';
-import { validateFinancePropertyValuationV1 } from '../apps/finance/finance-property-valuation-consumer.js';
-import { validateFinanceCompensationV1 } from '../apps/finance/finance-compensation-consumer.js';
-import { validateFinancePropertyOperatingV1 } from '../apps/finance/finance-property-operating-consumer.js';
-import { validateFinancePropertyReservesV1 } from '../apps/finance/finance-property-reserves-consumer.js';
-import { validateFinancePropertyLedgersV1 } from '../apps/finance/finance-property-ledgers-consumer.js';
-import { validateFinancePropertyForecastV1 } from '../apps/finance/finance-property-forecast-consumer.js';
+import { validateConnectGivingSummaryV1 } from '../contracts/validators/connect-giving-consumer.js';
+import { validateFinanceDataStatusV1 } from '../contracts/validators/finance-data-status-consumer.js';
+import { validateFinanceChartOfAccountsV1 } from '../contracts/validators/finance-chart-of-accounts-consumer.js';
+import { validateFinanceBudgetV1 } from '../contracts/validators/finance-budget-consumer.js';
+import { validateFinanceChurchReportV1 } from '../contracts/validators/finance-church-report-consumer.js';
+import { validateFinanceChurchReportTrendV1 } from '../contracts/validators/finance-church-report-trend-consumer.js';
+import { validateFinanceBalanceSheetV1 } from '../contracts/validators/finance-balance-sheet-consumer.js';
+import { validateFinanceBalanceSheetTrendV1 } from '../contracts/validators/finance-balance-sheet-trend-consumer.js';
+import { validateFinanceDaycareReportV1 } from '../contracts/validators/finance-daycare-consumer.js';
+import { validateFinancePropertyValuationV1 } from '../contracts/validators/finance-property-valuation-consumer.js';
+import { validateFinanceCompensationV1 } from '../contracts/validators/finance-compensation-consumer.js';
+import { validateFinancePropertyOperatingV1 } from '../contracts/validators/finance-property-operating-consumer.js';
+import { validateFinancePropertyReservesV1 } from '../contracts/validators/finance-property-reserves-consumer.js';
+import { validateFinancePropertyLedgersV1 } from '../contracts/validators/finance-property-ledgers-consumer.js';
+import { validateFinancePropertyForecastV1 } from '../contracts/validators/finance-property-forecast-consumer.js';
 import {
   readPlanningBoardCategories, readPurposeTags, REVENUE_STREAMS, BOARD_EXPENSE_CATEGORIES,
   resolveChurchYearPrecedence, computeYearSummary,
@@ -1051,7 +1051,7 @@ export async function respondWithFinanceDaycareReportV1(url, db) {
 // 2026-09-14: the stored `valuation.as_of_date` is 2026-08-12, newer than any date this
 // repository's own static seed carries, so it has genuinely been edited since the original
 // seedIvanhoePropertyValuationV3() ran -- this is not a frozen fixture. See
-// apps/finance/finance-property-valuation-consumer.js's header comment for the full reasoning
+// contracts/validators/finance-property-valuation-consumer.js's header comment for the full reasoning
 // on why this differs from the seven prior contracts (Giving/Data Status/Chart of Accounts/
 // Budget/Church Report/Balance Sheet/Daycare Report), which all read a table that already
 // existed in the shared legacy schema.

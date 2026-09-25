@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import {
   acceptConnectGivingSummaryV1,
   validateConnectGivingSummaryV1,
-} from '../apps/finance/connect-giving-consumer.js';
+} from '../contracts/validators/connect-giving-consumer.js';
 
 const example = JSON.parse(fs.readFileSync(
   new URL('../contracts/examples/giving-summary-v1.synthetic.json', import.meta.url),

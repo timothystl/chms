@@ -3,7 +3,7 @@
 // call to Connect's server-to-server contract endpoint, never throws, resolves to
 // { ok: false, reason } on any failure so the caller (church-report-service.js) can fall back to
 // the local synthetic fixture.
-import { acceptFinanceChurchReportV1 } from './finance-church-report-consumer.js';
+import { acceptFinanceChurchReportV1 } from '../../contracts/validators/finance-church-report-consumer.js';
 
 const REQUEST_TIMEOUT_MS = 4000;
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { buildFinancePropertyValuationV1 } from '../src/api-contracts.js';
-import { validateFinancePropertyValuationV1 } from '../apps/finance/finance-property-valuation-consumer.js';
+import { validateFinancePropertyValuationV1 } from '../contracts/validators/finance-property-valuation-consumer.js';
 
 // finance_settings is migrations/0050, not part of migrations/0001_baseline.sql -- same reason
 // Balance Sheet's producer test adds finance_church_balances as EXTRA_SCHEMA. Column-for-column

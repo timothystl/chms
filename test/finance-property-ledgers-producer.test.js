@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { buildFinancePropertyLedgersV1 } from '../src/api-contracts.js';
-import { validateFinancePropertyLedgersV1 } from '../apps/finance/finance-property-ledgers-consumer.js';
+import { validateFinancePropertyLedgersV1 } from '../contracts/validators/finance-property-ledgers-consumer.js';
 
 // finance_property_capital_ledger/finance_property_repairs are migrations/0023 (production
 // ledger), not part of migrations/0001_baseline.sql -- same reason Property Valuation's producer

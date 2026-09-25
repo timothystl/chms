@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { buildFinanceChurchReportTrendV1 } from '../src/api-contracts.js';
-import { validateFinanceChurchReportTrendV1 } from '../apps/finance/finance-church-report-trend-consumer.js';
+import { validateFinanceChurchReportTrendV1 } from '../contracts/validators/finance-church-report-trend-consumer.js';
 
 // finance_church_entries is not part of migrations/0001_baseline.sql -- same EXTRA_SCHEMA as the
 // single-year producer test (test/finance-church-report-producer.test.js), column-for-column

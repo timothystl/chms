@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateFinancePropertyLedgersV1, acceptFinancePropertyLedgersV1 } from '../apps/finance/finance-property-ledgers-consumer.js';
+import { validateFinancePropertyLedgersV1, acceptFinancePropertyLedgersV1 } from '../contracts/validators/finance-property-ledgers-consumer.js';
 
 function buildValid() {
   return {

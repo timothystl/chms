@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { buildFinanceCompensationV1 } from '../src/api-contracts.js';
-import { validateFinanceCompensationV1 } from '../apps/finance/finance-compensation-consumer.js';
+import { validateFinanceCompensationV1 } from '../contracts/validators/finance-compensation-consumer.js';
 
 // finance_settings is not part of migrations/0001_baseline.sql -- same reason other producer
 // tests here add their own table as EXTRA_SCHEMA. Column-for-column identical to

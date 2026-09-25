@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateFinanceDaycareReportV1, acceptFinanceDaycareReportV1 } from '../apps/finance/finance-daycare-consumer.js';
+import { validateFinanceDaycareReportV1, acceptFinanceDaycareReportV1 } from '../contracts/validators/finance-daycare-consumer.js';
 
 function validCategory(overrides = {}) {
   return { category: 'Tuition Income', classification: 'Income', actualCents: 40000000, budgetCents: 39000000, ...overrides };

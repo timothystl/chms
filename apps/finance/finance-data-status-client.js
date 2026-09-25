@@ -2,7 +2,7 @@
 // Same shape as connect-giving-client.js's fetchLiveConnectGivingSummary: a service-binding call
 // to Connect's server-to-server contract endpoint, never throws, resolves to
 // { ok: false, reason } on any failure so the caller can fall back to the local synthetic status.
-import { acceptFinanceDataStatusV1 } from './finance-data-status-consumer.js';
+import { acceptFinanceDataStatusV1 } from '../../contracts/validators/finance-data-status-consumer.js';
 
 const REQUEST_TIMEOUT_MS = 4000;
 

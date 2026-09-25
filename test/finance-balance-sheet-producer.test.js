@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { buildFinanceBalanceSheetV1 } from '../src/api-contracts.js';
-import { validateFinanceBalanceSheetV1 } from '../apps/finance/finance-balance-sheet-consumer.js';
+import { validateFinanceBalanceSheetV1 } from '../contracts/validators/finance-balance-sheet-consumer.js';
 
 // finance_church_balances is not part of migrations/0001_baseline.sql -- same reason Church
 // Report's producer test adds finance_church_entries as EXTRA_SCHEMA. Column-for-column identical

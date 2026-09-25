@@ -54,7 +54,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `contracts/` — versioned JSON Schemas for staging APIs.
 - `../../wrangler.finance.staging.jsonc` — isolated staging Worker configuration.
 - `../../test/finance-alpha-shell.test.js` — boundary, response, and security regression tests.
-- `connect-giving-consumer.js` — fail-closed parser for the proposed aggregate Giving contract.
+- `../../contracts/validators/connect-giving-consumer.js` — fail-closed parser for the proposed aggregate Giving contract.
 - `connect-giving-client.js` — real transport for the live endpoint, with a fail-closed fallback to the synthetic fixture.
 - `connect-giving-transport.js` — pure staging harness for bounded attempts, idempotency, and reconciliation.
 - `query-budget.js` — named, fail-closed D1 read budgets for independently observable routes.
@@ -66,10 +66,10 @@ noted above. Consult their source and the page registry for current per-page beh
   (labeled `live` or `synthetic-fallback` per card, independently), falling back to the synthetic
   `summary` aggregate; Giving and the decision framing are unchanged.
 - `church-report-service.js` — one-query synthetic account detail and report totals boundary; `resolveChurchReport` and `resolveChurchTrend` each try their own real `connect.finance-church-report*.v1` contract first and fall back to the synthetic fixture on any failure.
-- `finance-church-report-trend-consumer.js` — fail-closed parser for the `connect.finance-church-report-trend.v1` contract (the multi-year trend; the single-year contract has its own consumer alongside it in this directory).
+- `../../contracts/validators/finance-church-report-trend-consumer.js` — fail-closed parser for the `connect.finance-church-report-trend.v1` contract (the multi-year trend; the single-year contract has its own consumer alongside it in `contracts/validators/`).
 - `finance-church-report-trend-client.js` — real transport for the live multi-year endpoint, with a fail-closed fallback to the synthetic fixture (same shape as `finance-church-report-client.js`).
 - `balance-sheet-service.js` — one-query synthetic position detail and equation reconciliation; `resolveBalanceSheet` and `resolveBalanceSheetTrend` each try their own real `connect.finance-balance-sheet*.v1` contract first and fall back to the synthetic fixture on any failure.
-- `finance-balance-sheet-trend-consumer.js` — fail-closed parser for the `connect.finance-balance-sheet-trend.v1` contract (the multi-year trend; the single-year contract has its own consumer alongside it in this directory).
+- `../../contracts/validators/finance-balance-sheet-trend-consumer.js` — fail-closed parser for the `connect.finance-balance-sheet-trend.v1` contract (the multi-year trend; the single-year contract has its own consumer alongside it in `contracts/validators/`).
 - `finance-balance-sheet-trend-client.js` — real transport for the live multi-year endpoint, with a fail-closed fallback to the synthetic fixture (same shape as `finance-balance-sheet-client.js`).
 - `daycare-report-service.js` — one-query synthetic actuals and operating-result detail.
 - `property-report-service.js` — one-query synthetic monthly property performance detail.
@@ -80,7 +80,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `budget-plan-write-service.js` — validation and upsert for Budget builder's OWN edit/save write into Finance's own `finance_budget_plan` table (`FINANCE_DB`), gated off by default; see the route-manifest paragraph and the Alpha.42 entry below for how this differs from `budget-plan-write-v1`'s Connect relay above.
 - `accounts-report-service.js` — one-query synthetic account inventory and classification summary.
 - `data-status-service.js` — resolves real-or-synthetic import provenance and isolation status; `resolveDataStatus` tries the live `connect.finance-data-status.v1` contract first, falls back to the one-query synthetic reader on any failure.
-- `finance-data-status-consumer.js` — fail-closed parser for the `connect.finance-data-status.v1` contract.
+- `../../contracts/validators/finance-data-status-consumer.js` — fail-closed parser for the `connect.finance-data-status.v1` contract.
 - `finance-data-status-client.js` — real transport for the live endpoint, with a fail-closed fallback to the synthetic fixture (same shape as `connect-giving-client.js`).
 - `compensation-report-service.js` — one-query synthetic role-level compensation plan and reconciled totals, `resolveCompensationReport`'s live-with-synthetic-fallback for the real per-person `connect.finance-compensation.v1` roster (admin/council/compensation only), a synthetic role-only council review snapshot that cannot imply approval, and `buildLiveCompensationCouncilSnapshot`'s real aggregate equivalent for that same allowed-role set (real worker/entered-pay counts and totals only -- no fabricated benefits-share or weighted-adjustment figure, since the real roster stores neither per worker).
 - `compensation-plan-write-service.js` — the shared per-worker Compensation Planner write path onto Finance's OWN `finance_compensation_worker_plan`, off by default behind `isCompensationPlanWriteEnabled`; see the changelog paragraph above.
