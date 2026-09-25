@@ -901,7 +901,8 @@ four Church report types that batch's own closing comment named as deliberately 
 legacy two-step preview/commit `.xlsx` import becomes a single-request parse-and-persist relay,
 base64 file upload in the JSON body, same as every xlsx relay before it. Every legacy Church Excel
 import route now has a relay counterpart except the deliberately-excluded `finance/church/
-clear-all` (destructive, out of scope for this whole effort).
+clear-all` (destructive; retired from Connect as well on September 25 at Andrew's direction --
+it belonged to a testing phase and is not offered anywhere).
 
 `src/api-finance.js` adds `importChurchMonthlyXlsx`/`importChurchActivityXlsx`/
 `importChurchBudgetMultiYearXlsx`/`importChurchBalancesMultiYearXlsx` as four new shared functions

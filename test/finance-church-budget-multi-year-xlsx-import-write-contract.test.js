@@ -227,7 +227,7 @@ describe('POST /api/contracts/finance-church-budget-multi-year-xlsx-import-v1', 
 
   it('previews without writing, then commits only the selected budget rows', async () => {
     const db = makeTestDb();
-    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const previewRes = await post({ env: baseEnv(db), token, path: '/api/contracts/finance-church-budget-multi-year-xlsx-preview-v1', body: { file_base64: bytesToBase64(buildBudgetByYearXlsx()) } });
     expect(previewRes.status).toBe(200);
@@ -239,9 +239,9 @@ describe('POST /api/contracts/finance-church-budget-multi-year-xlsx-import-v1', 
     expect(db._raw.prepare("SELECT * FROM finance_church_entries WHERE source='import_activity'").all()).toHaveLength(1);
   });
 
-  it('saves real rows for a finance-role user, tagged source=import_activity, budget only', async () => {
+  it('saves real rows for an admin, tagged source=import_activity, budget only', async () => {
     const db = makeTestDb();
-    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const fileBase64 = bytesToBase64(buildBudgetByYearXlsx());
 
@@ -268,9 +268,17 @@ describe('POST /api/contracts/finance-church-budget-multi-year-xlsx-import-v1', 
     expect(res.status).toBe(200);
   });
 
-  it('rejects an oversized upload before ever parsing it', async () => {
+  it('refuses a finance-role user: imports are admin-only (2026-09-25)', async () => {
     const db = makeTestDb();
     insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
+    const res = await post({ env: baseEnv(db), token, body: { file_base64: bytesToBase64(buildBudgetByYearXlsx()) } });
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects an oversized upload before ever parsing it', async () => {
+    const db = makeTestDb();
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const oversized = 'a'.repeat(Math.ceil((15 * 1024 * 1024 + 1) / 3) * 4);
     const res = await post({ env: baseEnv(db), token, body: { file_base64: oversized } });
@@ -280,7 +288,7 @@ describe('POST /api/contracts/finance-church-budget-multi-year-xlsx-import-v1', 
 
   it('rejects invalid/non-xlsx bytes with a specific 400 message', async () => {
     const db = makeTestDb();
-    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const res = await post({ env: baseEnv(db), token, body: { file_base64: bytesToBase64(new TextEncoder().encode('not a zip')) } });
     expect(res.status).toBe(400);
@@ -291,7 +299,7 @@ describe('POST /api/contracts/finance-church-budget-multi-year-xlsx-import-v1', 
 
   it('rejects a missing file_base64', async () => {
     const db = makeTestDb();
-    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const res = await post({ env: baseEnv(db), token, body: {} });
     expect(res.status).toBe(400);
@@ -316,7 +324,7 @@ describe('POST /api/contracts/finance-church-budget-multi-year-xlsx-import-v1', 
 
   it('rejects when the shared X-Contract-Key is wrong, before ever looking at identity', async () => {
     const db = makeTestDb();
-    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const res = await post({ env: baseEnv(db), token, contractKey: 'wrong-secret', body: { file_base64: bytesToBase64(buildBudgetByYearXlsx()) } });
     expect(res.status).toBe(401);
@@ -324,7 +332,7 @@ describe('POST /api/contracts/finance-church-budget-multi-year-xlsx-import-v1', 
 
   it('rejects a missing or invalid Access assertion even with a correct contract key', async () => {
     const db = makeTestDb();
-    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const noToken = await post({ env: baseEnv(db), body: { file_base64: bytesToBase64(buildBudgetByYearXlsx()) } });
     expect(noToken.status).toBe(401);
     const garbage = await post({ env: baseEnv(db), token: 'not-a-jwt', body: { file_base64: bytesToBase64(buildBudgetByYearXlsx()) } });
@@ -341,7 +349,7 @@ describe('POST /api/contracts/finance-church-budget-multi-year-xlsx-import-v1', 
 
   it('returns 503 when Connect has not been configured with the Access team/audience yet', async () => {
     const db = makeTestDb();
-    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'finance' });
+    insertUser(db, { username: 'sarah', email: 'sarah@timothystl.org', role: 'admin' });
     const token = await signToken(keyPair.privateKey, kid, accessPayload('sarah@timothystl.org'));
     const env = { DB: db, FINANCE_CONTRACT_API_KEY: 'right-secret' };
     const res = await post({ env, token, body: { file_base64: bytesToBase64(buildBudgetByYearXlsx()) } });
