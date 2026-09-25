@@ -34,12 +34,34 @@ export function renderPropertyReserveRows(rows, canManage) {
     </form></td>` : ''}</tr>`).join('');
 }
 
-export function renderPropertyCapitalRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.entry_date)}</td><td>${escapeHtml(row.project)}</td><td>${escapeHtml(row.description)}</td><td>${escapeHtml(row.payee)}</td><td>${formatCents(row.amount_cents)}</td></tr>`).join('');
+// Per-row Remove for the two itemized ledgers, keyed on the row id that
+// connect.finance-property-ledgers.v1 carries for live rows. Synthetic rows never get a button:
+// their ids (if any) belong to Finance's fixture, not Connect's table. The confirm() text is fixed
+// wording, never row data: HTML-escaping does not make a value safe inside an inline JS string.
+function renderLedgerRemoveCell(action, row, label, canManage) {
+  if (!canManage) return '';
+  if (!Number.isInteger(row.id)) return '<td></td>';
+  return `<td><form method="POST" action="${action}" style="display:inline">
+      <input type="hidden" name="id" value="${row.id}">
+      <button type="submit" onclick="return confirm('Remove this ${label}?')">Delete</button>
+    </form></td>`;
 }
 
-export function renderPropertyRepairRows(rows) {
-  return rows.map((row) => `<tr><td>${escapeHtml(row.entry_date)}</td><td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.description)}</td><td>${escapeHtml(row.payee)}</td><td>${formatCents(row.amount_cents)}</td></tr>`).join('');
+export function renderPropertyCapitalRows(rows, canManage = false) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.entry_date)}</td><td>${escapeHtml(row.project)}</td><td>${escapeHtml(row.description)}</td><td>${escapeHtml(row.payee)}</td><td>${formatCents(row.amount_cents)}</td>${renderLedgerRemoveCell('/api/v1/connect-property-capital-ledger-remove', row, 'capital improvement entry', canManage)}</tr>`).join('');
+}
+
+export function renderPropertyRepairRows(rows, canManage = false) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.entry_date)}</td><td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.description)}</td><td>${escapeHtml(row.payee)}</td><td>${formatCents(row.amount_cents)}</td>${renderLedgerRemoveCell('/api/v1/connect-property-repair-remove', row, 'repair entry', canManage)}</tr>`).join('');
+}
+
+// Reserve disbursement log (live only), with a per-row Remove keyed on reserve_key + period_key,
+// the legacy DELETE finance/property/:key/reserves/:reserveKey/disbursements/:periodKey route's key.
+export function renderPropertyDisbursementRows(rows, canManage = false) {
+  return rows.map((row) => `<tr><td>${escapeHtml(row.reserve_key)}</td><td>${escapeHtml(row.period_key)}</td><td>${row.amount_cents == null ? '—' : formatCents(row.amount_cents)}</td><td>${escapeHtml(row.paid_via_report_month || '—')}</td><td>${escapeHtml(row.note)}</td>${canManage ? `<td><form method="POST" action="/api/v1/connect-property-reserve-disbursement-remove" style="display:inline">
+      <input type="hidden" name="reserve_key" value="${escapeHtml(row.reserve_key)}"><input type="hidden" name="period_key" value="${escapeHtml(row.period_key)}">
+      <button type="submit" onclick="return confirm('Remove this reserve disbursement?')">Delete</button>
+    </form></td>` : ''}</tr>`).join('');
 }
 
 export function renderPropertyRentRows(rows) {
@@ -222,6 +244,42 @@ function renderPropertyCapitalLedgerForm(entryStatus, entryMessage) {
   </section>`;
 }
 
+// Admin-only valuation editor (live only) -- the legacy Valuation card's inputs: rent roll,
+// utility reimbursement, vacancy, itemized operating costs, management fee and cap rate. Posts to
+// the existing property-meta-write-v1 relay as plain form fields (`valuation_form=1`); shell.js
+// rebuilds the same `valuation` section legacy's finValSave writes, including the computed outputs
+// legacy's equity figure reads. Three blank rent-roll rows allow adding tenants; a row left with an
+// empty tenant name is dropped, which is also how a tenant is removed.
+export function renderPropertyValuationForm(valuation, entryStatus, entryMessage) {
+  const pct = (fraction) => Number(((Number(fraction) || 0) * 100).toFixed(4));
+  const dollars = (cents) => ((Number(cents) || 0) / 100).toFixed(2);
+  const rentRows = [...valuation.rentRoll, ...Array.from({ length: 3 }, () => ({ tenant_label: '', square_feet: '', annual_rent_cents: null }))];
+  return `<section aria-label="Edit valuation inputs">
+    ${renderSectionHeading({ eyebrow: 'Valuation', heading: 'Edit valuation inputs', badge: 'Relayed live to Connect' })}
+    ${entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>' : ''}
+    ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
+    <form method="POST" action="/api/v1/connect-property-meta-write">
+      <input type="hidden" name="valuation_form" value="1">
+      <table><thead><tr><th>Tenant</th><th>Square feet</th><th>Annual rent ($)</th></tr></thead><tbody>
+      ${rentRows.map((row, index) => `<tr>
+        <td><input type="text" name="tenant" value="${escapeHtml(row.tenant_label)}" aria-label="Tenant ${index + 1}"></td>
+        <td><input type="number" name="sqft" min="0" step="1" value="${row.square_feet === '' ? '' : escapeHtml(String(row.square_feet))}" aria-label="Square feet ${index + 1}"></td>
+        <td><input type="number" name="annual_rent" min="0" step="0.01" value="${row.annual_rent_cents == null ? '' : dollars(row.annual_rent_cents)}" aria-label="Annual rent ${index + 1}"></td>
+      </tr>`).join('')}
+      </tbody></table>
+      <div class="grid form-grid">
+        <div class="field"><label for="pv-util">Utility reimbursement ($/yr)</label><input id="pv-util" type="number" name="utility_reimbursement" min="0" step="0.01" value="${dollars(valuation.assumptions.utility_reimbursement_cents)}"></div>
+        <div class="field"><label for="pv-vacancy">Vacancy rate (%)</label><input id="pv-vacancy" type="number" name="vacancy_rate_pct" min="0" max="100" step="0.1" value="${pct(valuation.assumptions.vacancy_rate_pct)}"></div>
+        <div class="field"><label for="pv-mgmt">Management fee (%)</label><input id="pv-mgmt" type="number" name="management_fee_pct" min="0" max="100" step="0.1" value="${pct(valuation.assumptions.management_fee_pct)}"></div>
+        <div class="field"><label for="pv-cap">Cap rate (%)</label><input id="pv-cap" type="number" name="cap_rate_pct" min="0.01" max="100" step="0.001" value="${pct(valuation.assumptions.cap_rate)}" required></div>
+        ${valuation.operatingCosts.map((cost) => `<div class="field"><label for="pv-oc-${escapeHtml(cost.cost_key)}">${escapeHtml(cost.cost_label)} ($/yr)</label><input id="pv-oc-${escapeHtml(cost.cost_key)}" type="number" name="oc_${escapeHtml(cost.cost_key)}" min="0" step="0.01" value="${dollars(cost.annual_cost_cents)}"></div>`).join('')}
+      </div>
+      <button type="submit">Save valuation</button>
+    </form>
+    <p><small>Saves the valuation section of Connect's Commercial Property settings -- the same record the legacy in-Connect Valuation card edits -- with the as-of date set to today. Other property settings (loan, reserves, capital allowance) are left unchanged. Only Connect's own admin role may save; Connect independently re-verifies your identity and role for every request.</small></p>
+  </section>`;
+}
+
 // Shared status/error line for a Remove action -- same shape as every entry form's own status
 // paragraph above, but "Removed"/"Not removed" wording since these buttons sit inline in a table
 // row rather than their own form section (see budget-plan-remove-v1's identical precedent in
@@ -284,6 +342,10 @@ export function renderPropertyPage(pageId, {
   propertyMonthlyRemoveStatus, propertyMonthlyRemoveMessage,
   propertyDistributionRemoveStatus, propertyDistributionRemoveMessage,
   propertyReserveMonthlyRemoveStatus, propertyReserveMonthlyRemoveMessage,
+  propertyReserveDisbursementRemoveStatus, propertyReserveDisbursementRemoveMessage,
+  propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
+  propertyRepairRemoveStatus, propertyRepairRemoveMessage,
+  propertyMetaEntryStatus, propertyMetaEntryMessage,
   propertyBudgetImportStatus, propertyBudgetImportMessage,
   propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
 }) {
@@ -327,7 +389,8 @@ export function renderPropertyPage(pageId, {
       ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Repairs & maintenance ledger', badge: isLive ? 'Live from Connect' : `${ledgers.repairs.length} synthetic ledger item${ledgers.repairs.length === 1 ? '' : 's'}` })}
       <p>This is the repairs ledger only -- there is no work-order number or open/closed status tracked yet, so this page shows completed ledger entries rather than a work-order queue.</p>
       ${renderKpiCards([{ label: 'Repairs & maintenance', value: formatCents(ledgers.totals.repairs_cents) }])}
-      ${renderTable({ head: ['Date', 'Repair category', 'Description', 'Payee', 'Amount'], rows: renderPropertyRepairRows(ledgers.repairs) })}
+      ${canManagePropertyRepairs && isLive ? renderRemoveStatus(propertyRepairRemoveStatus, propertyRepairRemoveMessage) : ''}
+      ${renderTable({ head: ['Date', 'Repair category', 'Description', 'Payee', 'Amount', ...(canManagePropertyRepairs && isLive ? [''] : [])], rows: renderPropertyRepairRows(ledgers.repairs, canManagePropertyRepairs && isLive) })}
       ${fallbackNote}
     </section>${canManagePropertyRepairs ? renderPropertyRepairForm(propertyRepairEntryStatus, propertyRepairEntryMessage) : ''}`;
   }
@@ -348,6 +411,11 @@ export function renderPropertyPage(pageId, {
       <p><small>${latestReserve.funded_pct.toFixed(1)}% funded${isLive ? ` as of ${escapeHtml(latestReserve.report_month)}` : ''}</small></p>
       ${canManagePropertyLedgers ? renderRemoveStatus(propertyReserveMonthlyRemoveStatus, propertyReserveMonthlyRemoveMessage) : ''}
       ${renderTable({ head: ['Report month', 'Tax year', 'Target', 'Before', 'Contribution', 'After', 'Funded', ...(canManagePropertyLedgers ? [''] : [])], rows: renderPropertyReserveRows(reserveRows, canManagePropertyLedgers) })}
+      ${isLive ? `${renderSectionHeading({ eyebrow: 'Reserve disbursements', heading: 'Paid from reserves', badge: `${propertyReservesLive.disbursements.length} recorded` })}
+      ${canManagePropertyLedgers ? renderRemoveStatus(propertyReserveDisbursementRemoveStatus, propertyReserveDisbursementRemoveMessage) : ''}
+      ${propertyReservesLive.disbursements.length
+        ? renderTable({ head: ['Reserve', 'Period', 'Amount', 'Paid via report month', 'Note', ...(canManagePropertyLedgers ? [''] : [])], rows: renderPropertyDisbursementRows(propertyReservesLive.disbursements, canManagePropertyLedgers) })
+        : '<p>No reserve disbursements recorded.</p>'}` : ''}
       ${renderSectionHeading({ eyebrow: 'Distribution history', heading: 'Amounts distributed', badge: `${distributions.totals.distributionCount} period${distributions.totals.distributionCount === 1 ? '' : 's'}`, trend: true })}
       ${renderKpiCards([
         { label: 'Total distributed', value: formatCents(distributions.totals.distributionCents) },
@@ -367,7 +435,8 @@ export function renderPropertyPage(pageId, {
     return `<section class="report" aria-label="${isLive ? 'Commercial Property capital improvements' : 'Synthetic Commercial Property capital improvements'}">
       ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Capital improvements', badge: isLive ? 'Live from Connect' : `${ledgers.capital.length} synthetic ledger item${ledgers.capital.length === 1 ? '' : 's'}` })}
       ${renderKpiCards([{ label: 'Capital projects', value: formatCents(ledgers.totals.capital_cents) }])}
-      ${renderTable({ head: ['Date', 'Project', 'Description', 'Payee', 'Amount'], rows: renderPropertyCapitalRows(ledgers.capital) })}
+      ${canManagePropertyLedgers && isLive ? renderRemoveStatus(propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage) : ''}
+      ${renderTable({ head: ['Date', 'Project', 'Description', 'Payee', 'Amount', ...(canManagePropertyLedgers && isLive ? [''] : [])], rows: renderPropertyCapitalRows(ledgers.capital, canManagePropertyLedgers && isLive) })}
       ${fallbackNote}
     </section>${canManagePropertyLedgers ? renderPropertyCapitalLedgerForm(propertyCapitalLedgerEntryStatus, propertyCapitalLedgerEntryMessage) : ''}`;
   }
@@ -385,7 +454,7 @@ export function renderPropertyPage(pageId, {
       ])}
       ${renderTable({ head: ['Operating cost', 'Annual amount'], rows: renderPropertyCostRows(valuation.operatingCosts) })}
       ${fallbackNote}
-    </section>`;
+    </section>${canManagePropertyLedgers && isLive ? renderPropertyValuationForm(valuation, propertyMetaEntryStatus, propertyMetaEntryMessage) : ''}`;
   }
   if (pageId === 'forecast') {
     // Live-first: tries connect.finance-property-forecast.v1 (property-forecast-service.js's

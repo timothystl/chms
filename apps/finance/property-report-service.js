@@ -219,11 +219,9 @@ export async function resolvePropertyReport(env, syntheticRows) {
 // propertyReserves array directly (unchanged, out of scope for this contract -- that section
 // never displays a live/synthetic distinction for any of its inputs today).
 //
-// reserveDisbursements is fetched and validated by the contract but not reshaped into a UI row
-// shape here -- production's own "Property Tax Reserve" section pairs it with the schedule
-// (src/frontend/js-finance.js's finRenderPropertyTaxReserve), but this staging page's existing
-// layout doesn't render a disbursements table yet; carried through unused rather than dropped, so
-// a follow-up UI change can pick it up without touching the contract again.
+// reserveDisbursements is reshaped into `disbursements` for Reserve & distribution's disbursement
+// log, paired with the schedule the same way legacy's finRenderPropertyTaxReserve
+// (src/frontend/js-finance.js) pairs them.
 export async function resolvePropertyReserves(env) {
   const result = await fetchLiveFinancePropertyReserves(env);
   if (result.ok) {
@@ -241,6 +239,10 @@ export async function resolvePropertyReserves(env) {
         note: r.note,
       })),
       distributions: result.reserves.distributions.map((d) => ({ period: d.period, amount_cents: d.amountCents })),
+      disbursements: result.reserves.reserveDisbursements.map((d) => ({
+        reserve_key: d.reserveKey, period_key: d.periodKey, amount_cents: d.amountCents,
+        paid_via_report_month: d.paidViaReportMonth, note: d.note,
+      })),
     };
   }
   return { source: 'synthetic-fallback', fallbackReason: result.reason };
@@ -259,11 +261,11 @@ export async function resolvePropertyLedgers(env) {
       source: 'live',
       capital: result.ledgers.capital.map((c) => ({
         entry_date: c.entryDate, amount_cents: c.amountCents, payee: c.payee,
-        description: c.description, project: c.project,
+        description: c.description, project: c.project, id: c.id ?? null,
       })),
       repairs: result.ledgers.repairs.map((r) => ({
         entry_date: r.entryDate, category: r.category, description: r.description,
-        amount_cents: r.amountCents, payee: r.payee, capitalized: r.capitalized ? 1 : 0,
+        amount_cents: r.amountCents, payee: r.payee, capitalized: r.capitalized ? 1 : 0, id: r.id ?? null,
       })),
       totals: { capital_cents: result.ledgers.totals.capitalCents, repairs_cents: result.ledgers.totals.repairsCents },
     };

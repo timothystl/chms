@@ -37,6 +37,29 @@ describe('validateFinancePropertyLedgersV1', () => {
     expect(validateFinancePropertyLedgersV1(v).ok).toBe(true);
   });
 
+  it('accepts an optional positive integer row id on capital and repairs rows', () => {
+    const value = buildValid();
+    value.capital[0].id = 1;
+    value.repairs[1].id = 14;
+    expect(validateFinancePropertyLedgersV1(value)).toEqual({ ok: true, errors: [] });
+  });
+
+  it('rejects a row id that is not a positive integer', () => {
+    const value = buildValid();
+    value.capital[0].id = 0;
+    value.repairs[0].id = '3';
+    const result = validateFinancePropertyLedgersV1(value);
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('capital[0].id must be a positive integer when present');
+    expect(result.errors).toContain('repairs[0].id must be a positive integer when present');
+  });
+
+  it('still rejects an unknown row field other than id', () => {
+    const value = buildValid();
+    value.repairs[0].vendorId = 9;
+    expect(validateFinancePropertyLedgersV1(value).ok).toBe(false);
+  });
+
   it('rejects an unknown root field (closed shape)', () => {
     const v = buildValid();
     v.extra = 'nope';

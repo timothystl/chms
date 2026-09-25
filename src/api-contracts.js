@@ -1515,10 +1515,10 @@ export async function respondWithFinancePropertyReservesV1(url, db) {
 //    an itemized one-off ledger can legitimately have a not-yet-known amount.
 export async function buildFinancePropertyLedgersV1(db, { propertyKey = 'ivanhoe', now = new Date() } = {}) {
   const capitalRows = (await db.prepare(
-    'SELECT entry_date, amount_cents, payee, description, check_ref, project, sort_order FROM finance_property_capital_ledger WHERE property_key=? ORDER BY sort_order ASC, entry_date ASC, id ASC'
+    'SELECT id, entry_date, amount_cents, payee, description, check_ref, project, sort_order FROM finance_property_capital_ledger WHERE property_key=? ORDER BY sort_order ASC, entry_date ASC, id ASC'
   ).bind(propertyKey).all()).results || [];
   const repairRows = (await db.prepare(
-    'SELECT entry_date, category, description, amount_cents, payee, capitalized FROM finance_property_repairs WHERE property_key=? ORDER BY entry_date ASC, id ASC'
+    'SELECT id, entry_date, category, description, amount_cents, payee, capitalized FROM finance_property_repairs WHERE property_key=? ORDER BY entry_date ASC, id ASC'
   ).bind(propertyKey).all()).results || [];
 
   const capital = capitalRows.map((r) => ({
@@ -1529,6 +1529,7 @@ export async function buildFinancePropertyLedgersV1(db, { propertyKey = 'ivanhoe
     checkRef: r.check_ref || '',
     project: r.project || '',
     sortOrder: r.sort_order,
+    ...(Number.isInteger(r.id) ? { id: r.id } : {}),
   }));
 
   const repairs = repairRows.map((r) => ({
@@ -1538,6 +1539,7 @@ export async function buildFinancePropertyLedgersV1(db, { propertyKey = 'ivanhoe
     amountCents: r.amount_cents ?? null,
     payee: r.payee || '',
     capitalized: !!r.capitalized,
+    ...(Number.isInteger(r.id) ? { id: r.id } : {}),
   }));
 
   return {

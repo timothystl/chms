@@ -27,6 +27,10 @@ const ROOT_KEYS = [
 const CAPITAL_KEYS = ['entryDate', 'amountCents', 'payee', 'description', 'checkRef', 'project', 'sortOrder'];
 const REPAIR_KEYS = ['entryDate', 'category', 'description', 'amountCents', 'payee', 'capitalized'];
 const TOTALS_KEYS = ['capitalCents', 'repairsCents'];
+// Optional row key added September 2026 so Finance can offer per-row Remove actions (the legacy
+// DELETE routes key on the table's primary key). Optional rather than required so a Connect
+// producer and Finance consumer from either side of the rollout still interoperate.
+const OPTIONAL_ROW_KEYS = ['id'];
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -37,6 +41,17 @@ function hasExactKeys(value, expected) {
   const actual = Object.keys(value).sort();
   const required = [...expected].sort();
   return actual.length === required.length && actual.every((key, index) => key === required[index]);
+}
+
+function hasRowKeys(value, expected) {
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value);
+  return expected.every((key) => keys.includes(key))
+    && keys.every((key) => expected.includes(key) || OPTIONAL_ROW_KEYS.includes(key));
+}
+
+function isOptionalRowId(row) {
+  return !('id' in row) || (Number.isInteger(row.id) && row.id > 0);
 }
 
 function isDateTime(value) {
@@ -60,7 +75,7 @@ function isNullableInt(value) {
 
 function validateCapitalRow(row, errors, index) {
   const label = `capital[${index}]`;
-  if (!hasExactKeys(row, CAPITAL_KEYS)) {
+  if (!hasRowKeys(row, CAPITAL_KEYS)) {
     errors.push(`${label} must contain exactly the capital ledger fields`);
     return;
   }
@@ -71,11 +86,12 @@ function validateCapitalRow(row, errors, index) {
   if (typeof row.checkRef !== 'string') errors.push(`${label}.checkRef must be a string`);
   if (typeof row.project !== 'string') errors.push(`${label}.project must be a string`);
   if (!Number.isInteger(row.sortOrder)) errors.push(`${label}.sortOrder must be an integer`);
+  if (!isOptionalRowId(row)) errors.push(`${label}.id must be a positive integer when present`);
 }
 
 function validateRepairRow(row, errors, index) {
   const label = `repairs[${index}]`;
-  if (!hasExactKeys(row, REPAIR_KEYS)) {
+  if (!hasRowKeys(row, REPAIR_KEYS)) {
     errors.push(`${label} must contain exactly the repair ledger fields`);
     return;
   }
@@ -85,6 +101,7 @@ function validateRepairRow(row, errors, index) {
   if (!isNullableInt(row.amountCents)) errors.push(`${label}.amountCents must be integer cents or null`);
   if (typeof row.payee !== 'string') errors.push(`${label}.payee must be a string`);
   if (typeof row.capitalized !== 'boolean') errors.push(`${label}.capitalized must be a boolean`);
+  if (!isOptionalRowId(row)) errors.push(`${label}.id must be a positive integer when present`);
 }
 
 export function validateFinancePropertyLedgersV1(value) {

@@ -28,12 +28,27 @@ describe('resolvePropertyLedgers (live connect.finance-property-ledgers.v1 with 
     const result = await resolvePropertyLedgers(env);
     expect(result.source).toBe('live');
     expect(result.capital).toEqual([
-      { entry_date: '', amount_cents: 988700, payee: 'Unknown', description: 'Opening balance', project: '1st-floor apartment renovation' },
+      { entry_date: '', amount_cents: 988700, payee: 'Unknown', description: 'Opening balance', project: '1st-floor apartment renovation', id: null },
     ]);
     expect(result.repairs).toEqual([
-      { entry_date: '2024-11', category: 'Roof', description: 'Roof leak', amount_cents: null, payee: 'Innovative Roofing', capitalized: 0 },
+      { entry_date: '2024-11', category: 'Roof', description: 'Roof leak', amount_cents: null, payee: 'Innovative Roofing', capitalized: 0, id: null },
     ]);
     expect(result.totals).toEqual({ capital_cents: 988700, repairs_cents: 0 });
+  });
+
+  it('carries Connect row ids through so the ledger pages can offer per-row Remove', async () => {
+    const payload = {
+      ...VALID_LIVE_PAYLOAD,
+      capital: [{ ...VALID_LIVE_PAYLOAD.capital[0], id: 7 }],
+      repairs: [{ ...VALID_LIVE_PAYLOAD.repairs[0], id: 12 }],
+    };
+    const env = {
+      CONNECT_SERVICE: { async fetch() { return new Response(JSON.stringify(payload), { status: 200 }); } },
+      FINANCE_CONTRACT_API_KEY: 'test-secret',
+    };
+    const result = await resolvePropertyLedgers(env);
+    expect(result.capital[0].id).toBe(7);
+    expect(result.repairs[0].id).toBe(12);
   });
 
   it('falls back, labeled with the failure reason, on a live contract-validation failure', async () => {
