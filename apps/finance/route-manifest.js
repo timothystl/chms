@@ -306,6 +306,9 @@ const ROUTES = [
   // QuickBooks, owned by Finance (Andrew, 2026-09-25): quickbooks-oauth-routes.js, gated by
   // FINANCE_QB_ENABLED. connect/callback are browser GETs in the OAuth handshake (they store the
   // CSRF state and the connection row); the rest are admin form posts. All write FINANCE_DB only.
+  // Board packet print (print-pages.js): a picker, then a composed print document. It renders other
+  // shell pages internally with the viewer's own headers, so it adds no data source of its own.
+  { id: 'print-board-packet', paths: ['/print/board-packet'], methods: READ_METHODS, dataSource: 'none' },
   { id: 'qb-connect-v1', paths: ['/api/v1/qb/connect'], methods: Object.freeze(['GET']), dataSource: 'quickbooks-oauth', writer: true, contract: 'finance.quickbooks-connect.v1' },
   { id: 'qb-callback-v1', paths: ['/api/v1/qb/callback'], methods: Object.freeze(['GET']), dataSource: 'quickbooks-oauth', writer: true, contract: 'finance.quickbooks-callback.v1' },
   { id: 'qb-disconnect-v1', paths: ['/api/v1/qb/disconnect'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.quickbooks-disconnect.v1' },

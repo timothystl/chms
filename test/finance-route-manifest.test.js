@@ -115,6 +115,7 @@ describe('Finance staging route manifest', () => {
       '/api/v1/property-reserve-disbursement-entry', '/api/v1/property-distribution-entry',
       '/api/v1/property-capital-ledger-entry',
       '/api/v1/compensation-raise-plan-save', '/api/v1/compensation-council-draft-save', '/api/v1/compensation-council-overlay-save',
+      '/print/board-packet',
       '/api/v1/qb/connect', '/api/v1/qb/callback', '/api/v1/qb/disconnect', '/api/v1/qb/sync', '/api/v1/qb/sync-years', '/api/v1/qb/budget-select',
     ]);
     for (const route of FINANCE_ROUTE_MANIFEST) {

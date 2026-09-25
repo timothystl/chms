@@ -41,8 +41,11 @@ export function renderPacketPage({ churchReportLive, balanceSheetLive, churchTre
   return `<section class="report" aria-label="Board packet">
     ${renderSectionHeading({ eyebrow: 'Board packet', heading, badge })}
     <div class="grid">${cardsHtml}</div>
+    <div class="no-print">
     <p>Prepared from the same bounded reads shown across Church Report, Balance Sheet, and Giving Entry -- no separate board-packet query or writer is used. Each card above independently prefers live Connect data when its own page's live resolver has it, and falls back to the same synthetic fixture, labeled, when it doesn't.</p>
     ${renderSectionHeading({ eyebrow: 'Cover note & export', heading: 'Preparing this for the board', badge: 'Not saved', trend: true })}
-    <p>Use your browser's print dialog to export this page as a PDF for the packet. There is no cover-note editor, pinned-report picker, template chooser, or publish history yet -- those need real authoring/versioning storage that does not exist in Finance today, so this page shows the packet content itself rather than a save workflow that wouldn't actually save anything.</p>
+    <p>Use Print the board packet below for a combined document with a one-time cover note. There is no saved cover-note editor, template chooser, or publish history yet -- those need real authoring/versioning storage that does not exist in Finance today, so this page shows the packet content itself rather than a save workflow that wouldn't actually save anything.</p>
+    <p><a href="/print/board-packet">Print the board packet</a> to choose reports, add a cover note, and get one document with each report on its own page.</p>
+    </div>
   </section>`;
 }
