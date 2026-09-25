@@ -131,8 +131,8 @@ function renderPeopleDesktop(people) {
     if (p.id === _qvPersonId) rowClsList.push('dir-row-qv');
     trCls = rowClsList.length ? ' class="' + rowClsList.join(' ') + '"' : '';
     var statusPill = '';
-    if (p.status === 'archived') statusPill = ' <span style="font-size:.68rem;padding:1px 6px;border-radius:99px;background:#8b735522;color:#8b7355;border:1px solid #8b735544;vertical-align:middle;">archived</span>';
-    else if (p.status === 'deceased') statusPill = ' <span style="font-size:.68rem;padding:1px 6px;border-radius:99px;background:#6c757d22;color:#6c757d;border:1px solid #6c757d44;vertical-align:middle;">&#x271D; deceased</span>';
+    if (p.status === 'archived') statusPill = ' <span style="font-size:.68rem;padding:1px 6px;border-radius:99px;background:#8b735522;color:var(--muted);border:1px solid #8b735544;vertical-align:middle;">archived</span>';
+    else if (p.status === 'deceased') statusPill = ' <span style="font-size:.68rem;padding:1px 6px;border-radius:99px;background:#6c757d22;color:var(--muted);border:1px solid #6c757d44;vertical-align:middle;">&#x271D; deceased</span>';
     var contactHtml = (p.phone ? '<div class="dir-phone-main"><a href="tel:' + esc(p.phone.replace(/\D/g,'')) + '" onclick="event.stopPropagation()">' + esc(p.phone) + '</a></div>' : '')
       + (p.email ? '<div class="dir-email-sub"><a href="mailto:' + esc(p.email) + '" onclick="event.stopPropagation()">' + esc(p.email) + '</a></div>' : '');
     if (!contactHtml) contactHtml = '<span style="color:var(--faint);">—</span>';
@@ -728,8 +728,8 @@ function showProfile(p) {
   var mt = p.member_type||'visitor';
   if (bdEl) {
     var statusHtml = '';
-    if (p.status === 'archived') statusHtml = ' <span style="font-size:.7rem;padding:2px 8px;border-radius:99px;background:#8b735522;color:#8b7355;border:1px solid #8b735544;">Archived</span>';
-    else if (p.status === 'deceased') statusHtml = ' <span style="font-size:.7rem;padding:2px 8px;border-radius:99px;background:#6c757d22;color:#6c757d;border:1px solid #6c757d44;">&#x271D; Deceased' + (p.death_date ? ' '+esc(p.death_date) : '') + '</span>';
+    if (p.status === 'archived') statusHtml = ' <span style="font-size:.7rem;padding:2px 8px;border-radius:99px;background:#8b735522;color:var(--muted);border:1px solid #8b735544;">Archived</span>';
+    else if (p.status === 'deceased') statusHtml = ' <span style="font-size:.7rem;padding:2px 8px;border-radius:99px;background:#6c757d22;color:var(--muted);border:1px solid #6c757d44;">&#x271D; Deceased' + (p.death_date ? ' '+esc(p.death_date) : '') + '</span>';
     bdEl.innerHTML = typeDotHtml(mt) + statusHtml;
   }
   var haEl = document.getElementById('pv-hdr-actions');
@@ -2284,28 +2284,28 @@ function sendGivingStatement(personId, year) {
     var name = ((p.first_name||'')+' '+(p.last_name||'')).trim() || 'Friend';
     var total = d.entries.reduce(function(s,e){return s+(e.amount||0);},0);
     var tRows = d.entries.map(function(e){
-      return '<tr><td style="padding:5px 10px;border-bottom:1px solid #eee;">'+(e.gift_date||'')+'</td>'
-        +'<td style="padding:5px 10px;border-bottom:1px solid #eee;">'+esc(e.fund_name||'')+'</td>'
-        +'<td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:right;">$'+((e.amount||0)/100).toFixed(2)+'</td>'
-        +'<td style="padding:5px 10px;border-bottom:1px solid #eee;color:#777;">'+esc(e.method||'')+'</td></tr>';
+      return '<tr><td style="padding:5px 10px;border-bottom:1px solid var(--border);">'+(e.gift_date||'')+'</td>'
+        +'<td style="padding:5px 10px;border-bottom:1px solid var(--border);">'+esc(e.fund_name||'')+'</td>'
+        +'<td style="padding:5px 10px;border-bottom:1px solid var(--border);text-align:right;">$'+((e.amount||0)/100).toFixed(2)+'</td>'
+        +'<td style="padding:5px 10px;border-bottom:1px solid var(--border);color:var(--muted);">'+esc(e.method||'')+'</td></tr>';
     }).join('');
     var htmlBody = '<html><body style="font-family:Georgia,serif;max-width:620px;margin:0 auto;padding:24px;color:#222;">'
       +'<h2 style="color:#0A3C5C;margin-bottom:4px;">'+esc(year)+' Giving Statement</h2>'
-      +'<p style="color:#555;font-size:13px;">Timothy Lutheran Church &bull; St. Louis, MO</p>'
+      +'<p style="color:var(--muted);font-size:13px;">Timothy Lutheran Church &bull; St. Louis, MO</p>'
       +'<p>Dear '+esc(name)+',</p>'
       +'<p>Thank you for your generous giving to Timothy Lutheran Church. Below is a summary of your contributions for '+esc(year)+':</p>'
       +'<table style="width:100%;border-collapse:collapse;font-size:13px;margin:16px 0;">'
-      +'<thead><tr style="background:#EDF5F8;">'
+      +'<thead><tr style="background:var(--info-bg);">'
       +'<th style="padding:8px 10px;text-align:left;font-weight:600;">Date</th>'
       +'<th style="padding:8px 10px;text-align:left;font-weight:600;">Fund</th>'
       +'<th style="padding:8px 10px;text-align:right;font-weight:600;">Amount</th>'
       +'<th style="padding:8px 10px;text-align:left;font-weight:600;">Method</th>'
       +'</tr></thead>'
       +'<tbody>'+tRows+'</tbody>'
-      +'<tfoot><tr style="font-weight:700;"><td colspan="2" style="padding:8px 10px;border-top:2px solid #ccc;">Total Contributions</td>'
-      +'<td style="padding:8px 10px;border-top:2px solid #ccc;text-align:right;">$'+(total/100).toFixed(2)+'</td><td></td></tr></tfoot>'
+      +'<tfoot><tr style="font-weight:700;"><td colspan="2" style="padding:8px 10px;border-top:2px solid var(--border);">Total Contributions</td>'
+      +'<td style="padding:8px 10px;border-top:2px solid var(--border);text-align:right;">$'+(total/100).toFixed(2)+'</td><td></td></tr></tfoot>'
       +'</table>'
-      +'<p style="font-size:12px;color:#666;">No goods or services were provided in exchange for these contributions. Please retain this statement for your tax records.</p>'
+      +'<p style="font-size:12px;color:var(--muted);">No goods or services were provided in exchange for these contributions. Please retain this statement for your tax records.</p>'
       +'</body></html>';
     api('/admin/api/giving/send-statement', {
       method: 'POST',

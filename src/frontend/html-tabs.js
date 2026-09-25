@@ -26,7 +26,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
   <!-- Active filter chips -->
   <div id="p-active-filters" style="display:none;padding:0 16px 10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;"></div>
   <!-- Bulk action bar (visible when Select mode is active) -->
-  <div id="p-bulk-bar" style="display:none;position:sticky;bottom:0;z-index:500;background:var(--steel-anchor);color:var(--white);padding:10px 16px;display:none;align-items:center;gap:10px;flex-wrap:wrap;">
+  <div id="p-bulk-bar" style="display:none;position:sticky;bottom:0;z-index:500;background:var(--brand-ink);color:var(--white);padding:10px 16px;display:none;align-items:center;gap:10px;flex-wrap:wrap;">
     <span id="p-bulk-count" style="font-size:.9rem;font-weight:700;">0 selected</span>
     <div style="flex:1;"></div>
     <select id="p-bulk-mt" style="padding:5px 8px;border-radius:6px;border:none;font-size:.85rem;background:var(--white);color:var(--charcoal);">
@@ -516,7 +516,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       </div>
       <button class="btn-primary" onclick="runBreezeGivingSync()">Sync Date Range</button>
       <div class="import-status" id="giving-sync-status"></div>
-      <pre id="giving-sync-diagnostics" style="display:none;margin-top:10px;padding:10px;background:#f4f0ea;border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
+      <pre id="giving-sync-diagnostics" style="display:none;margin-top:10px;padding:10px;background:var(--page);border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
       <div style="margin-top:12px;">
         <p style="margin:0 0 8px;"><strong>Sync All History</strong> — loops through every year from start year to today, one year at a time.</p>
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
@@ -533,7 +533,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
         <p style="margin:0 0 8px;"><strong>Processor Fee Check</strong> — Ask the Breeze API whether it returns a per-payment fee / net / deposit field. Answers whether native giving can capture the processor fee straight from Breeze, or whether it has to come from a report import.</p>
         <button class="btn-secondary" onclick="runBreezeFeeCheck()">&#128269; Check for Fee Field</button>
         <div class="import-status" id="breeze-fee-check-status"></div>
-        <pre id="breeze-fee-check-out" style="display:none;margin-top:10px;padding:10px;background:#f4f0ea;border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
+        <pre id="breeze-fee-check-out" style="display:none;margin-top:10px;padding:10px;background:var(--page);border:1px solid var(--border);border-radius:6px;font-size:.72rem;overflow:auto;max-height:400px;white-space:pre-wrap;word-break:break-all;"></pre>
       </div>
     </div>
     <!-- Letter Template Card -->
@@ -919,14 +919,14 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <div class="import-status" id="breeze-name-status" style="margin-top:4px;"></div>
       <div id="breeze-diag" style="display:none;margin-top:10px;font-size:.78rem;font-family:monospace;background:var(--linen);padding:10px;border-radius:6px;white-space:pre-wrap;"></div>
 
-      <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,var(--border));">
       <h4 style="font-size:.9rem;margin:0 0 6px;">Link Existing People to Breeze</h4>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">For someone you added here in Connect who later got their own Breeze record (e.g. once they gave), a plain <strong>Sync People</strong> would create a duplicate — it only matches on Breeze ID. This finds Breeze people who aren&rsquo;t linked yet and suggests a matching Connect person (by email, then name). Review each and click <strong>Link</strong> — it just connects the two records and keeps all your Connect data; future syncs then update that person normally.</p>
       <button class="btn-secondary" onclick="loadBreezeUnlinked()" style="margin-bottom:10px;">&#128279; Find People to Link</button>
       <div id="breeze-link-area"></div>
       <div class="import-status" id="breeze-link-status"></div>
 
-      <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,#e0d9d0);">
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--warm-gray-light,var(--border));">
       <h4 style="font-size:.9rem;margin:0 0 6px;">Fund Names</h4>
       <p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 8px;">After the giving sync, imported funds may show as "Breeze Fund XXXXXXX". Use <strong>Auto-Fix from Breeze</strong> to look up the real names directly from Breeze and rename them automatically. If any funds still have placeholder names after that, use the manual mapping tool below.</p>
       <button class="btn-primary" onclick="fixFundNames()" style="margin-bottom:8px;">&#128260; Auto-Fix Fund Names from Breeze</button>
@@ -939,7 +939,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <button class="btn-secondary" onclick="loadFundMapping()" style="margin-bottom:10px;">Load Fund Mapping</button>
       <div id="fund-map-area" style="display:none;">
         <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-bottom:10px;" id="fund-map-table">
-          <thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Breeze Fund</th><th style="padding:4px 8px;">Gifts</th><th style="padding:4px 8px;">Total</th><th style="padding:4px 8px;">Map to &rarr;</th></tr></thead>
+          <thead><tr style="text-align:left;border-bottom:1px solid var(--border);"><th style="padding:4px 8px;">Breeze Fund</th><th style="padding:4px 8px;">Gifts</th><th style="padding:4px 8px;">Total</th><th style="padding:4px 8px;">Map to &rarr;</th></tr></thead>
           <tbody id="fund-map-rows"></tbody>
         </table>
         <button class="btn-primary" onclick="applyFundMapping()">Apply Mapping</button>
@@ -1158,7 +1158,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <h2 style="font-size:1.1rem;font-weight:700;color:var(--charcoal);">Volunteers</h2>
     </div>
 
-    <div class="vol-shell" style="display:flex;align-items:flex-start;gap:0;background:var(--white);border-radius:20px;box-shadow:0 1px 3px rgba(20,20,40,.05),0 10px 24px rgba(20,20,40,.05);overflow:hidden;margin-bottom:28px;">
+    <div class="vol-shell" style="display:flex;align-items:flex-start;gap:0;background:var(--white);border-radius:20px;box-shadow:0 0 0 1px var(--border);overflow:hidden;margin-bottom:28px;">
       <!-- Sub-nav: Signups / Ministry Roles / Events -->
       <div id="vol-subnav" class="vol-subnav">
         <button class="vol-subtab-btn active" onclick="volShowSection('signups',this)">Signups</button>
@@ -1181,9 +1181,9 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
             <a id="vol-export-link" href="/admin/api/export.csv" class="btn-secondary" style="font-size:.8rem;" download>Export CSV</a>
           </div>
         </div>
-        <div id="vol-duplicates-panel" style="display:none;background:#fff8f0;border:1px solid #e0b060;border-radius:10px;padding:14px;margin-bottom:12px;">
-          <h4 style="font-size:.9rem;font-weight:600;color:#8a5000;margin-bottom:10px;">Duplicate sign-ups</h4>
-          <p style="font-size:.78rem;color:#8a5000;margin:-4px 0 10px;">Two rows here for the same event, or the same off-event ministry interest, are the "locked out and had to sign up twice" duplicates from before sign-ups started merging automatically — "Merge Duplicate Sign-ups…" above consolidates every one at once, or click Merge on just one group below. Two rows for genuinely <em>different</em> events are not duplicates and are left alone either way. A second section below lists sign-ups sharing a name but not an email — check those before merging, since a shared name isn't proof of a shared person.</p>
+        <div id="vol-duplicates-panel" style="display:none;background:var(--page);border:1px solid #e0b060;border-radius:10px;padding:14px;margin-bottom:12px;">
+          <h4 style="font-size:.9rem;font-weight:600;color:var(--warning);margin-bottom:10px;">Duplicate sign-ups</h4>
+          <p style="font-size:.78rem;color:var(--warning);margin:-4px 0 10px;">Two rows here for the same event, or the same off-event ministry interest, are the "locked out and had to sign up twice" duplicates from before sign-ups started merging automatically — "Merge Duplicate Sign-ups…" above consolidates every one at once, or click Merge on just one group below. Two rows for genuinely <em>different</em> events are not duplicates and are left alone either way. A second section below lists sign-ups sharing a name but not an email — check those before merging, since a shared name isn't proof of a shared person.</p>
           <div id="vol-duplicates-list"></div>
         </div>
         <div id="vol-status-pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>
@@ -1279,7 +1279,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <h3 style="font-size:1rem;font-weight:700;color:var(--charcoal);">Link to Person Record</h3>
       <button onclick="closeModal('vol-link-person-modal')" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--warm-gray);">✕</button>
     </div>
-    <div style="font-size:.85rem;color:#4A4860;margin-bottom:10px;">Signup: <strong id="vol-link-signup-name"></strong></div>
+    <div style="font-size:.85rem;color:var(--muted);margin-bottom:10px;">Signup: <strong id="vol-link-signup-name"></strong></div>
     <!-- Current link -->
     <div id="vol-link-current" style="display:none;background:rgba(46,126,166,.08);border:1px solid rgba(46,126,166,.2);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:.83rem;display:flex;align-items:center;justify-content:space-between;gap:8px;">
       <span>Currently linked: <strong id="vol-link-current-name"></strong> <span style="color:var(--warm-gray);">#<span id="vol-link-current-id"></span></span></span>
@@ -1305,7 +1305,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
       <h3 style="font-size:1rem;font-weight:700;color:var(--charcoal);">Send Outreach Email</h3>
       <button onclick="closeModal('vol-send-email-modal')" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:var(--warm-gray);">✕</button>
     </div>
-    <div style="font-size:.82rem;color:#4A4860;margin-bottom:12px;">To: <strong id="vol-send-to"></strong></div>
+    <div style="font-size:.82rem;color:var(--muted);margin-bottom:12px;">To: <strong id="vol-send-to"></strong></div>
     <!-- Template picker -->
     <div style="margin-bottom:10px;">
       <label style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">Start from a template</label>
@@ -1336,7 +1336,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
 <div id="vol-shift-modal" class="modal-overlay" style="background:rgba(30,45,74,.35);" onclick="if(event.target===this)closeModal('vol-shift-modal')">
   <div class="modal ev-fields" style="max-width:440px;width:95%;padding:24px;gap:14px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <h3 id="vol-shift-modal-title" style="font-family:'Lora',serif;font-weight:600;font-size:1.05rem;color:var(--color-navy);margin:0;">Edit shift</h3>
+      <h3 id="vol-shift-modal-title" style="font-family:var(--font-head);font-weight:600;font-size:1.05rem;color:var(--color-navy);margin:0;">Edit shift</h3>
       <span id="vol-shift-day-label" style="font-size:.72rem;color:var(--ev-muted);"></span>
     </div>
     <div><label style="font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ev-muted);display:block;margin-bottom:5px;">Shift name</label><input type="text" id="vol-shift-name"></div>
@@ -1352,7 +1352,7 @@ export const HTML_TABS_1 = String.raw`<!-- ═══ HOME / DASHBOARD TAB ══
     </div>
     <div id="vol-shift-filled-hint" style="font-size:.72rem;color:var(--ev-muted);margin:-6px 0 2px;"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
-      <a href="javascript:void(0)" id="vol-shift-delete" style="color:#c0392b;font-size:.78rem;font-weight:600;text-decoration:none;cursor:pointer;" onclick="volDeleteShift()">Delete shift</a>
+      <a href="javascript:void(0)" id="vol-shift-delete" style="color:var(--error);font-size:.78rem;font-weight:600;text-decoration:none;cursor:pointer;" onclick="volDeleteShift()">Delete shift</a>
       <div style="display:flex;gap:8px;">
         <button class="ev-btn-secondary" onclick="closeModal('vol-shift-modal')">Cancel</button>
         <button class="ev-btn-primary" onclick="volSaveShift()">Save shift</button>
@@ -1580,7 +1580,7 @@ export const HTML_TABS_2 = String.raw`
               Base school year: <input type="number" id="tap-cfg-base_school_year" min="2000" max="2100" step="1" style="width:80px;">
               <button class="btn-secondary" style="font-size:.72rem;padding:4px 10px;" onclick="tapSaveConfigField('base_school_year')">Save</button>
             </span>
-            <p style="font-size:.72rem;color:#8A7440;margin:0;">&#9888; This is the "current" year (offset 0) everywhere on this tab &mdash; advance it once a year, at rollover, not for any other reason. Changing it reloads the whole planner.</p>
+            <p style="font-size:.72rem;color:var(--warning);margin:0;">&#9888; This is the "current" year (offset 0) everywhere on this tab &mdash; advance it once a year, at rollover, not for any other reason. Changing it reloads the whole planner.</p>
           </div>
         </div>
       </section>
@@ -1596,7 +1596,7 @@ export const HTML_TABS_2 = String.raw`
               <span class="tap-gauge-text" id="tap-total-gauge-text">–</span>
               <span id="tap-total-gauge-cap">Total Timothy Aid Budget: –</span>
             </div>
-            <div id="tap-total-pipeline-note" style="font-size:.72rem;color:#8A7440;margin-top:4px;display:none;"></div>
+            <div id="tap-total-pipeline-note" style="font-size:.72rem;color:var(--warning);margin-top:4px;display:none;"></div>
           </div>
           <div class="tap-controls">
             <span style="display:inline-flex;align-items:center;gap:6px;font-size:.82rem;">
@@ -1612,7 +1612,7 @@ export const HTML_TABS_2 = String.raw`
           <p style="font-size:.78rem;color:var(--warm-gray);margin:0 0 12px;">Each slider sets the family's assigned share of the total tuition bill — outside scholarships apply against that share first. Timothy commits at least $2,000/student. Project a future year and the roster moves: grades advance, 8th graders graduate into the LHS planner, and 12th graders age out. Editing outside aid, family share, or LHS award while viewing a year other than the current one pins that year's numbers without touching any other year.</p>
 
           <div class="tap-pipeline-box">
-            <h4>Kids in the Pipeline <span style="font-weight:400;font-size:.7rem;color:#8A7440;">— not yet enrolled, tracked by birth year</span></h4>
+            <h4>Kids in the Pipeline <span style="font-weight:400;font-size:.7rem;color:var(--warning);">— not yet enrolled, tracked by birth year</span></h4>
             <div id="tap-pipeline-list"></div>
             <div class="tap-pipeline-form">
               <input type="text" id="tap-pipe-family" placeholder="Family name" style="width:150px;">
@@ -1653,7 +1653,7 @@ export const HTML_TABS_2 = String.raw`
               <span class="tap-gauge-text" id="tap-k8-gauge-text">–</span>
               <span id="tap-k8-gauge-cap">Budget: –</span>
             </div>
-            <div id="tap-k8-pipeline-note" style="font-size:.72rem;color:#8A7440;margin-top:4px;display:none;"></div>
+            <div id="tap-k8-pipeline-note" style="font-size:.72rem;color:var(--warning);margin-top:4px;display:none;"></div>
           </div>
 
           <div style="overflow-x:auto;">
@@ -1687,7 +1687,7 @@ export const HTML_TABS_2 = String.raw`
               <span class="tap-gauge-text" id="tap-lhs-gauge-text">–</span>
               <span id="tap-lhs-gauge-cap">Standard rate: –</span>
             </div>
-            <div id="tap-lhs-pipeline-note" style="font-size:.72rem;color:#8A7440;margin-top:4px;display:none;"></div>
+            <div id="tap-lhs-pipeline-note" style="font-size:.72rem;color:var(--warning);margin-top:4px;display:none;"></div>
           </div>
           <div style="overflow-x:auto;">
           <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
@@ -2253,7 +2253,7 @@ export const HTML_TABS_2 = String.raw`
 <div class="modal-overlay" id="crop-modal">
   <div class="modal" style="max-width:640px;padding:20px;">
     <h2 style="margin-bottom:12px;">Crop Profile Photo</h2>
-    <div id="crop-canvas-wrap" style="text-align:center;background:#222;border-radius:8px;overflow:auto;max-height:60vh;line-height:0;user-select:none;">
+    <div id="crop-canvas-wrap" style="text-align:center;background:var(--text);border-radius:8px;overflow:auto;max-height:60vh;line-height:0;user-select:none;">
       <canvas id="crop-canvas" style="cursor:crosshair;touch-action:none;display:inline-block;"
         onmousedown="cropMouseDown(event)"
         onmousemove="cropMouseMove(event)"

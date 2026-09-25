@@ -43,7 +43,7 @@ window.onerror = function(msg, src, line, col, err) {
   if (msg && String(msg).indexOf('redefine property') !== -1) return true;
   var b = document.getElementById('js-error-banner');
   if (!b) { b = document.createElement('div'); b.id = 'js-error-banner';
-    b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#c0392b;color:var(--white);padding:10px 16px;font-size:.82rem;z-index:99999;font-family:monospace;';
+    b.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:var(--error);color:var(--white);padding:10px 16px;font-size:.82rem;z-index:99999;font-family:monospace;';
     document.body.appendChild(b); }
   b.textContent = 'JS Error: ' + msg + ' (line ' + line + ')';
   return false;
@@ -436,6 +436,7 @@ function showTab(name, finSection) {
   if (ca) ca.classList.remove('pv-mode', 'hv-mode', 'ov-mode');
   document.querySelectorAll('.s-item[data-tab]').forEach(function(b) {
     b.classList.toggle('active', b.dataset.tab === name);
+    if (b.setAttribute) { if (b.dataset.tab === name) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); }
   });
   document.querySelectorAll('.tab-panel').forEach(function(p) {
     p.classList.toggle('active', p.id === 'tab-' + name);
@@ -629,11 +630,33 @@ window.addEventListener('popstate', function(e) {
 function openSidebar() {
   var s = document.getElementById('sidebar'); if (s) s.classList.add('open');
   var o = document.getElementById('sidebar-overlay'); if (o) o.classList.add('open');
+  var h = document.querySelector('.hamburger'); if (h) h.setAttribute('aria-expanded', 'true');
+  var first = s && s.querySelector('.s-item.active') || (s && s.querySelector('.s-item'));
+  if (first && window.matchMedia && window.matchMedia('(max-width:1100px)').matches) first.focus();
 }
 function closeSidebar() {
-  var s = document.getElementById('sidebar'); if (s) s.classList.remove('open');
+  var s = document.getElementById('sidebar');
+  var wasOpen = s && s.classList.contains('open');
+  if (s) s.classList.remove('open');
   var o = document.getElementById('sidebar-overlay'); if (o) o.classList.remove('open');
+  var h = document.querySelector('.hamburger');
+  if (h) {
+    h.setAttribute('aria-expanded', 'false');
+    // Menu disclosure: return focus to the button that opened it (Timothy Workspace nav contract).
+    if (wasOpen && s.contains(document.activeElement)) h.focus();
+  }
 }
+// Sidebar items are <div role="link" tabindex="0"> — give them the keyboard activation a real
+// link has, and let Escape close the Menu drawer.
+document.addEventListener('keydown', function(e) {
+  var t = e.target;
+  if ((e.key === 'Enter' || e.key === ' ') && t && t.classList && t.classList.contains('s-item') && t.tagName !== 'A') {
+    e.preventDefault(); t.click();
+  } else if (e.key === 'Escape') {
+    var s = document.getElementById('sidebar');
+    if (s && s.classList.contains('open')) closeSidebar();
+  }
+});
 
 // ── INIT ──────────────────────────────────────────────────────────────
 // ── GLOBAL ERROR BOUNDARY ────────────────────────────────────────────
