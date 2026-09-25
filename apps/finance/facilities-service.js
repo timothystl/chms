@@ -4,6 +4,9 @@
 // store money in whole cents.
 import { runBudgetedReadBatch } from './query-budget.js';
 import { FormValidationError, day, int, month, oneOf, optionalId, parseDollarsToCents, text } from './form-fields.js';
+import {
+  MAX_UPLOAD_REQUEST_BYTES, attachFacilityFiles, groupFilesByRecord, recordReturn, removeFacilityFile, removeRecordFiles, uploadFacilityFiles,
+} from './facility-files.js';
 
 export const FACILITY_CATEGORIES = Object.freeze([
   'HVAC', 'Boilers', 'Elevator', 'Roofs', 'Electrical', 'Kitchen', 'Fire & security', 'Plumbing',
@@ -24,12 +27,13 @@ export const FACILITIES_READ_SQL = Object.freeze([
   'SELECT id, asset_id, pm_task_id, service_date, service_type, description, vendor, cost_cents FROM finance_facility_service_log ORDER BY service_date DESC, id DESC LIMIT 500',
   'SELECT id, name, covers, asset_id, interval_months, last_done_on, assignee, active FROM finance_facility_pm_tasks ORDER BY name, id',
   'SELECT id, name, scope, status, target_month, cost_cents, vendor, warranty, useful_life_years, funding, notes FROM finance_facility_projects ORDER BY target_month DESC, id DESC',
+  'SELECT id, record_type, record_id, file_name, content_type, byte_size, caption, created_at FROM finance_facility_files ORDER BY id',
 ]);
 
 export async function readFacilities(db) {
   const { results } = await runBudgetedReadBatch(db, 'facilities', FACILITIES_READ_SQL);
   const rows = (index) => (results[index] && Array.isArray(results[index].results) ? results[index].results : []);
-  return { assets: rows(0), service: rows(1), pmTasks: rows(2), projects: rows(3) };
+  return { assets: rows(0), service: rows(1), pmTasks: rows(2), projects: rows(3), files: rows(4) };
 }
 
 // ── Dates ──────────────────────────────────────────────────────────────────────────────────────
@@ -110,8 +114,10 @@ export function buildFacilitiesView(data, today) {
   const projects = [...data.projects].sort((a, b) => projectRank[a.status] - projectRank[b.status]
     || (a.status === 'Completed' ? b.target_month.localeCompare(a.target_month) : a.target_month.localeCompare(b.target_month)));
   const service = data.service.map((s) => ({ ...s, assetName: s.asset_id ? assetById.get(s.asset_id)?.name || 'Removed asset' : 'General' }));
+  const filesByRecord = groupFilesByRecord(data.files || []);
   return {
     today,
+    filesFor: (recordType, id) => filesByRecord.get(`${recordType}:${id}`) || [],
     assets,
     allAssets: data.assets,
     assetById,
@@ -166,7 +172,8 @@ export async function saveFacilityAsset(db, form, actor) {
   return { id: result.meta?.last_row_id ?? null };
 }
 
-export async function logFacilityService(db, form, actor) {
+// A service order or photo chosen on the same form is attached to the new entry.
+export async function logFacilityService(db, form, actor, { formData, bucket } = {}) {
   const assetId = optionalId(form.asset_id);
   if (assetId) await requireRow(db, 'finance_facility_assets', assetId, 'asset');
   const values = [
@@ -178,17 +185,28 @@ export async function logFacilityService(db, form, actor) {
     parseDollarsToCents(form.cost, 'Cost'),
     String(actor || ''),
   ];
+  const files = formData ? formData.getAll('files').filter((f) => f && typeof f === 'object' && f.size > 0) : [];
+  if (files.length && !bucket) throw new FormValidationError('Photo storage is not set up yet.');
   const result = await db.prepare('INSERT INTO finance_facility_service_log (asset_id, service_date, service_type, description, vendor, cost_cents, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .bind(...values).run();
-  return { id: result.meta?.last_row_id ?? null };
+  const id = result.meta?.last_row_id ?? null;
+  if (!files.length || !id) return { id };
+  try {
+    await attachFacilityFiles(db, bucket, { recordType: 'service', recordId: id, files, caption: '', actor });
+  } catch (error) {
+    await db.prepare('DELETE FROM finance_facility_service_log WHERE id = ?').bind(id).run();
+    throw error;
+  }
+  return { id, ...recordReturn('service', id) };
 }
 
 // Mistakes only: an entry logged against the wrong asset or with a typo. Real history stays.
-export async function removeFacilityServiceEntry(db, form) {
+export async function removeFacilityServiceEntry(db, form, actor, { bucket } = {}) {
   const id = optionalId(form.id);
   if (!id) throw new FormValidationError('Unknown record.');
   await requireRow(db, 'finance_facility_service_log', id, 'service entry');
   await db.prepare('DELETE FROM finance_facility_service_log WHERE id = ?').bind(id).run();
+  await removeRecordFiles(db, bucket, 'service', id);
   return { id };
 }
 
@@ -266,9 +284,11 @@ export async function saveFacilityProject(db, form, actor) {
 
 export const FACILITIES_WRITERS = Object.freeze({
   'facilities-asset-save-v1': { run: saveFacilityAsset, page: 'assets', returnParam: 'asset' },
-  'facilities-service-log-v1': { run: logFacilityService, page: 'service-history' },
+  'facilities-service-log-v1': { run: logFacilityService, page: 'service-history', maxBytes: MAX_UPLOAD_REQUEST_BYTES },
   'facilities-service-remove-v1': { run: removeFacilityServiceEntry, page: 'service-history' },
   'facilities-pm-save-v1': { run: saveFacilityPmTask, page: 'preventive-maintenance' },
   'facilities-pm-done-v1': { run: markFacilityPmDone, page: 'preventive-maintenance' },
   'facilities-project-save-v1': { run: saveFacilityProject, page: 'capital-projects' },
+  'facilities-file-upload-v1': { run: uploadFacilityFiles, page: 'overview', maxBytes: MAX_UPLOAD_REQUEST_BYTES },
+  'facilities-file-remove-v1': { run: removeFacilityFile, page: 'overview' },
 });

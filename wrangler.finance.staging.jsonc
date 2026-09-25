@@ -19,6 +19,13 @@
       "migrations_dir": "apps/finance/migrations"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "FACILITY_FILES",
+      "bucket_name": "timothy-finance-files-staging"
+    }
+  ],
+
   "services": [
     {
       "binding": "CONNECT_SERVICE",

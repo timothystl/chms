@@ -29,21 +29,39 @@ export async function handleFinanceFormWrite({ request, env, url, section, write
   if (!isSameOriginPost(request, url)) return back(section, writer.page, { status: 'error', reason: 'cross_site' });
   const roleResult = await fetchVerifiedRole(env, request.headers.get('Cf-Access-Jwt-Assertion') || '');
   if (!canEdit(roleResult)) return back(section, writer.page, { status: 'error', reason: 'access_denied' });
+  // Writers that accept file uploads set maxBytes; everything else is ordinary form text.
+  const declaredBytes = Number(request.headers.get('Content-Length') || 0);
+  if (declaredBytes > (writer.maxBytes || MAX_FORM_BYTES)) return back(section, writer.page, { status: 'error', reason: 'too_large' });
+  let formData;
   let form;
   try {
-    form = Object.fromEntries((await request.formData()).entries());
+    formData = await request.formData();
+    form = Object.fromEntries([...formData.entries()].filter(([, value]) => typeof value === 'string'));
   } catch {
     return back(section, writer.page, { status: 'error', reason: 'invalid_form' });
   }
+  // A writer may name the page to return to (e.g. the record a file was attached to).
+  const failPage = String(form.return_page || '') && /^[a-z-]{1,40}$/.test(form.return_page) ? form.return_page : writer.page;
   try {
-    const result = await writer.run(env.FINANCE_DB, form, roleResult.identity || roleResult.role);
+    const result = await writer.run(env.FINANCE_DB, form, roleResult.identity || roleResult.role, { formData, bucket: env.FACILITY_FILES });
     const extra = writer.returnParam && result?.id ? { [writer.returnParam]: String(result.id) } : {};
     const keep = Object.fromEntries((writer.keepParams || []).filter((key) => form[key]).map((key) => [key, String(form[key])]));
-    return back(section, writer.page, { status: 'ok', ...keep, ...extra });
+    return back(section, result?.page || writer.page, { status: 'ok', ...keep, ...extra, ...(result?.params || {}) });
   } catch (error) {
-    if (error instanceof FormValidationError) return back(section, writer.page, { status: 'error', reason: 'invalid', message: error.message });
-    return back(section, writer.page, { status: 'error', reason: 'write_failed' });
+    if (error instanceof FormValidationError) return back(section, failPage, { status: 'error', reason: 'invalid', message: error.message, ...returnParams(form) });
+    return back(section, failPage, { status: 'error', reason: 'write_failed', ...returnParams(form) });
   }
+}
+
+const MAX_FORM_BYTES = 1024 * 1024;
+
+// Keeps the person on the record they were working on when a save fails.
+function returnParams(form) {
+  const out = {};
+  for (const key of ['asset', 'task', 'entry', 'project']) {
+    if (/^\d{1,12}$/.test(String(form[`return_${key}`] || ''))) out[key] = String(form[`return_${key}`]);
+  }
+  return out;
 }
 
 export function describeFormStatus(params, what) {
@@ -55,6 +73,7 @@ export function describeFormStatus(params, what) {
     case 'cross_site': return { ok: false, message: 'That form did not come from Timothy Finance. Nothing was saved.' };
     case 'invalid': return { ok: false, message: `${String(params.get('message') || 'Check the form and try again.').slice(0, 200)} Nothing was saved.` };
     case 'invalid_form': return { ok: false, message: 'The form could not be read. Nothing was saved.' };
+    case 'too_large': return { ok: false, message: 'Those files are too large to send at once. Attach fewer or smaller files. Nothing was saved.' };
     default: return { ok: false, message: 'The save failed. Nothing was changed — please try again.' };
   }
 }
