@@ -20,6 +20,11 @@ import { ensureFinanceOwnedSchema } from './finance-owned-schema.js';
 import { PAYROLL_STYLES, legacyPayrollPage } from './payroll-pages.js';
 import { GIFT_BATCH_STYLES, renderBatchPage, renderBatchReportsPage, renderReconciliationPage } from './gift-batch-pages.js';
 import { describeGivingBatchFailure, fetchGivingBatchLedger, fetchGivingBatchWorkspace, postGivingBatchWrite } from './connect-giving-batch-client.js';
+import { fetchGivingAnalytics, fetchGivingAnalyticsPeople, postGivingFollowupWrite } from './connect-giving-analytics-client.js';
+import {
+  GIVING_ANALYTICS_STYLES, renderHouseholdBandsPage, renderNudgesPage, renderPledgesPage, renderStatementsPage, renderTrendsPage,
+  renderWhatIfPage, renderYearOverYearPage,
+} from './giving-analytics-pages.js';
 import { isSameOriginPost } from './form-post.js';
 import { HR_WRITERS, buildHrView, readHr } from './hr-service.js';
 import { canEditHr, describeHrStatus, handleHrWrite } from './hr-routes.js';
@@ -860,6 +865,28 @@ async function handleGiftBatchWrite(request, env, url) {
   return back(page, { ...keep, status: 'ok', msg: GIFT_BATCH_MESSAGES[op] });
 }
 
+const GIVING_FOLLOWUP_OPS = new Set(['assign', 'done', 'reopen']);
+const GIVING_FOLLOWUP_MESSAGES = { assign: 'Nudge assigned.', done: 'Marked done.', reopen: 'Nudge reopened.' };
+
+// Giving nudges: assign one to a staff member or mark it done. Connect records the follow-up
+// (giving-followup-write-v1) and re-checks Giving edit access for the signed-in person.
+async function handleGivingFollowupWrite(request, env, url) {
+  const back = (params) => response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ section: 'giving-analytics', page: 'nudges', ...params }).toString()}` } });
+  if (!isSameOriginPost(request, url)) return back({ status: 'error', message: 'That form did not come from Timothy Finance.' });
+  let form;
+  try { form = await request.formData(); } catch { return back({ status: 'error', message: 'The form could not be read.' }); }
+  const field = (name) => String(form.get(name) || '').trim().slice(0, 80);
+  const op = field('op');
+  const kind = /^[a-z_]{1,20}$/.test(field('kind')) ? field('kind') : '';
+  const keep = kind ? { kind } : {};
+  if (!GIVING_FOLLOWUP_OPS.has(op)) return back({ ...keep, status: 'error', message: 'Unknown action.' });
+  const body = { op, kind, subject_key: field('subject_key'), episode: field('episode') };
+  if (op === 'assign') body.assigned_to = field('assigned_to');
+  const result = await postGivingFollowupWrite(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', body);
+  if (!result.ok) return back({ ...keep, status: 'error', message: describeGivingBatchFailure(result).slice(0, 200) });
+  return back({ ...keep, status: 'ok', msg: GIVING_FOLLOWUP_MESSAGES[op] });
+}
+
 function renderEntityCards(entities) {
   return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)} · ${entity.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>`).join('');
 }
@@ -905,7 +932,7 @@ function renderSectionBody(ctx) {
     propertyMetaEntryStatus, propertyMetaEntryMessage,
     propertyBudgetImportStatus, propertyBudgetImportMessage,
     propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
-    roleResult,
+    roleResult, councilPreview,
   } = ctx;
   if (section.id === 'health') {
     // Each panel below is independently guarded against its own upstream synthetic read having
@@ -1067,7 +1094,22 @@ function renderSectionBody(ctx) {
     return renderGiftEntryPage(page.id, { giving, givingSource, givingEntryStatus, givingEntryMessage });
   }
   if (section.id === 'giving-analytics') {
-    return renderUnavailablePage({ eyebrow: section.label, heading: page.label, reason: 'Not yet available.' });
+    const asResult = (r) => (r?.ok ? { ok: true, data: r.result } : { ok: false, message: describeGivingBatchFailure(r) });
+    const totals = asResult(ctx.givingAnalytics);
+    // A role whose Giving access is totals only (council) sees the same refusal Connect would give.
+    const namedHidden = councilPreview || (roleResult.ok && roleResult.role !== 'admin' && roleResult.permissions?.giving === 'anon');
+    const canEditNudges = !councilPreview && roleResult.ok && (roleResult.role === 'admin' || roleResult.permissions?.giving === 'edit');
+    const status = ctx.searchParams.get('status') === 'ok' ? { ok: true, message: ctx.searchParams.get('msg') || 'Saved in Connect.' }
+      : ctx.searchParams.get('status') === 'error' ? { ok: false, message: `Not saved: ${ctx.searchParams.get('message') || 'the request did not complete.'}` } : null;
+    switch (page.id) {
+      case 'year-over-year': return renderYearOverYearPage({ result: totals });
+      case 'household-bands': return renderHouseholdBandsPage({ result: totals });
+      case 'pledges': return renderPledgesPage({ result: totals });
+      case 'what-if': return renderWhatIfPage({ result: totals, params: ctx.searchParams });
+      case 'statements': return renderStatementsPage({ result: asResult(ctx.givingAnalyticsPeople), councilPreview: namedHidden });
+      case 'nudges': return renderNudgesPage({ result: asResult(ctx.givingAnalyticsPeople), totals, params: ctx.searchParams, canEdit: canEditNudges, councilPreview: namedHidden, status });
+      default: return renderTrendsPage({ result: totals });
+    }
   }
   if (section.id === 'charts') {
     return renderChartsPage(page.id, { churchReport, churchReportLive, cashRunway, propertyReserves, propertyReservesLive, giving, givingSource });
@@ -1324,7 +1366,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/tlc-logo.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -1463,6 +1505,10 @@ export default {
 
     if (route.id === 'gift-batch-write-v1') {
       return handleGiftBatchWrite(request, env, url);
+    }
+
+    if (route.id === 'giving-followup-write-v1') {
+      return handleGivingFollowupWrite(request, env, url);
     }
 
     if (route.id === 'giving-quick-entry-v1') {
@@ -3521,6 +3567,15 @@ export default {
         const givingBatch = givingPageId === 'batch'
           ? await fetchGivingBatchWorkspace(env, accessJwt, { batchId: url.searchParams.get('batch_id'), q: url.searchParams.get('q') })
           : ['reconciliation', 'reports'].includes(givingPageId) ? await fetchGivingBatchLedger(env, accessJwt) : null;
+        // Giving pages read Connect live too; the named pages (statements, nudges) use their own
+        // contract, never requested for council preview or a totals-only (council) Giving role.
+        const analyticsPageId = section.id === 'giving-analytics' ? resolveFinancePage(section, pageId).id : null;
+        const [givingAnalytics, givingAnalyticsPeople] = analyticsPageId ? await Promise.all([
+          analyticsPageId === 'statements' ? null : fetchGivingAnalytics(env, accessJwt),
+          ['statements', 'nudges'].includes(analyticsPageId) && !councilPreview
+            && !(roleResult.ok && roleResult.role !== 'admin' && roleResult.permissions?.giving === 'anon')
+            ? fetchGivingAnalyticsPeople(env, accessJwt) : null,
+        ]) : [null, null];
         const facilities = section.id === 'facilities'
           ? await safeSyntheticRead(async () => {
             await ensureFinanceOwnedSchema(env.FINANCE_DB, 'facilities');
@@ -3532,7 +3587,7 @@ export default {
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
-          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, searchParams: url.searchParams,
+          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,

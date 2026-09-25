@@ -775,6 +775,10 @@ window.addEventListener('load', function() {
     if (hashTab === 'giving' && /(?:^|[?&])pane=recurring(?:&|$)/.test(location.search)) {
       givOffSetPane('recurring');
     }
+    // Finance's Giving statements and nudges pages link here (?pane=letters|receipts|nudges#giving)
+    // to prepare and send; givSetView still applies the same role checks as a click would.
+    var commsPane = hashTab === 'giving' && /(?:^|[?&])pane=(letters|receipts|nudges)(?:&|$)/.exec(location.search);
+    if (commsPane && _userRole !== 'member') givSetView(commsPane[1]);
   });
 });
 // ── ROLE UI ──────────────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
 import { handleGivingBatchContracts } from './api-giving-batch-contracts.js';
+import { handleGivingAnalyticsContracts } from './api-giving-analytics-contracts.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
@@ -44,6 +45,13 @@ export async function handleContractsServiceApi(req, env, path) {
   if (path.startsWith('/api/contracts/giving-batch-')) {
     const batchResponse = await handleGivingBatchContracts(req, env, path);
     if (batchResponse) return batchResponse;
+  }
+
+  // Giving analytics (Finance v3): aggregate for any Giving access including council's anonymous
+  // one; named statements/nudges need Giving view -- see api-giving-analytics-contracts.js.
+  if (path.startsWith('/api/contracts/giving-analytics-') || path === '/api/contracts/giving-followup-write-v1') {
+    const analyticsResponse = await handleGivingAnalyticsContracts(req, env, path);
+    if (analyticsResponse) return analyticsResponse;
   }
 
   if (path === '/api/contracts/connect-giving-summary-v1' && req.method === 'GET') {
