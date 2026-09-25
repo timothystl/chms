@@ -124,11 +124,11 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
   // established. Unlike those, this carries real money, so dataClassification is 'aggregate'.
   {
     id: 'planning', label: 'Budget', group: 'Planning', permission: 'budget',
-    capabilities: ['budget builder', 'outlook', 'board categories', 'purpose tags'],
+    capabilities: ['budget builder', 'scenarios', 'multi-year forecast', 'outlook', 'board categories', 'purpose tags'],
     pages: [
       { id: 'builder', label: 'Budget builder', status: 'live' },
-      { id: 'scenarios', label: 'Scenarios', status: 'unavailable', reason: 'The budget plan table stores one plan per fiscal year -- there is no way to hold alternate what-if scenarios alongside it yet.' },
-      { id: 'multi-year', label: 'Multi-year forecast', status: 'unavailable', reason: 'Only next fiscal year has planned figures today; there is no forward multi-year budget series to forecast from.' },
+      { id: 'scenarios', label: 'Scenarios', status: 'live' },
+      { id: 'multi-year', label: 'Multi-year forecast', status: 'live' },
       { id: 'compensation-link', label: 'Compensation', status: 'live' },
     ],
   },

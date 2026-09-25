@@ -228,6 +228,8 @@ const ROUTES = [
   { id: 'facilities-file-v1', paths: ['/api/v1/facilities/file'], dataSource: 'finance-files-read', contract: 'finance.facilities-file.v1' },
   // HR & Staff (v3 design): admin-only personnel records in Finance's own tables (migration 0011,
   // hr-service.js). Form posts that redirect back.
+  { id: 'planning-scenario-save-v1', paths: ['/api/v1/planning/scenario-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.planning-scenario-save.v1' },
+  { id: 'planning-scenario-basis-v1', paths: ['/api/v1/planning/scenario-basis'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.planning-scenario-basis.v1' },
   { id: 'hr-person-save-v1', paths: ['/api/v1/hr/person-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-person-save.v1' },
   { id: 'hr-credential-save-v1', paths: ['/api/v1/hr/credential-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-credential-save.v1' },
   { id: 'hr-review-save-v1', paths: ['/api/v1/hr/review-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-review-save.v1' },

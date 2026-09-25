@@ -180,6 +180,34 @@ CREATE TABLE IF NOT EXISTS finance_hr_benefit_changes (
 );
 `;
 
+export const PLANNING_SCHEMA_SQL = `-- Planning scenarios (v3 design). The budget plan itself stays in Connect's finance_budget_plan;
+-- these tables only hold the what-if adjustments Finance applies on top of it and which version
+-- is the basis the council sees. Percentages are changes against the saved plan, per group of
+-- lines (giving, earned and passive income; staff and other expenses).
+
+CREATE TABLE IF NOT EXISTS finance_planning_scenarios (
+  fiscal_year INTEGER NOT NULL CHECK (fiscal_year BETWEEN 2000 AND 2100),
+  slot TEXT NOT NULL CHECK (slot IN ('conservative', 'hopeful')),
+  name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+  note TEXT NOT NULL DEFAULT '',
+  giving_pct REAL NOT NULL DEFAULT 0 CHECK (giving_pct BETWEEN -50 AND 50),
+  earned_pct REAL NOT NULL DEFAULT 0 CHECK (earned_pct BETWEEN -50 AND 50),
+  passive_pct REAL NOT NULL DEFAULT 0 CHECK (passive_pct BETWEEN -50 AND 50),
+  staff_pct REAL NOT NULL DEFAULT 0 CHECK (staff_pct BETWEEN -50 AND 50),
+  other_pct REAL NOT NULL DEFAULT 0 CHECK (other_pct BETWEEN -50 AND 50),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_by TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (fiscal_year, slot)
+);
+
+CREATE TABLE IF NOT EXISTS finance_planning_basis (
+  fiscal_year INTEGER PRIMARY KEY CHECK (fiscal_year BETWEEN 2000 AND 2100),
+  slot TEXT NOT NULL CHECK (slot IN ('conservative', 'plan', 'hopeful')),
+  chosen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  chosen_by TEXT NOT NULL DEFAULT ''
+);
+`;
+
 export const FACILITY_FILES_SCHEMA_SQL = `-- Facilities photos and documents: equipment photos, nameplate labels, scanned service orders and
 -- invoices attached to an asset, recurring maintenance task, service entry, or capital project.
 -- The bytes live in Finance's own R2 bucket (binding FACILITY_FILES); this table is the index and
@@ -206,6 +234,7 @@ export const FINANCE_OWNED_SCHEMAS = Object.freeze({
   facilities: Object.freeze({ migration: '0010_finance_facilities.sql', sql: FACILITIES_SCHEMA_SQL }),
   hr: Object.freeze({ migration: '0011_finance_hr.sql', sql: HR_SCHEMA_SQL }),
   facilityFiles: Object.freeze({ migration: '0012_finance_facility_files.sql', sql: FACILITY_FILES_SCHEMA_SQL }),
+  planning: Object.freeze({ migration: '0013_finance_planning.sql', sql: PLANNING_SCHEMA_SQL }),
 });
 
 // Splits a migration file into single statements: comment lines dropped, split on ';'.

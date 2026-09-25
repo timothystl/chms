@@ -14,6 +14,7 @@ import { getRolePermissions, permissionsForRole } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
 import { handleGivingBatchContracts } from './api-giving-batch-contracts.js';
 import { handleGivingAnalyticsContracts } from './api-giving-analytics-contracts.js';
+import { respondWithFinancePlanningBasisV1 } from './api-planning-contracts.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
@@ -68,6 +69,11 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-chart-of-accounts-v1' && req.method === 'GET') {
     return respondWithFinanceChartOfAccountsV1(env.DB);
+  }
+
+  // Planning scenarios and forecast (Finance v3): the budget plan sorted into scenario groups.
+  if (path === '/api/contracts/finance-planning-basis-v1' && req.method === 'GET') {
+    return respondWithFinancePlanningBasisV1(new URL(req.url), env.DB);
   }
 
   if (path === '/api/contracts/finance-budget-v1' && req.method === 'GET') {
