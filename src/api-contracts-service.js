@@ -12,6 +12,7 @@ import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, resp
 import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
 import { recordQuickGivingEntry } from './api-giving.js';
+import { handleGivingBatchContracts } from './api-giving-batch-contracts.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
@@ -38,6 +39,12 @@ export async function handleContractsServiceApi(req, env, path) {
   if (!(await timingSafeEqual(key, expectedKey))) return json({ error: 'Unauthorized' }, 401);
   if (env.FINANCE_STORAGE_MODE === 'copying' && path.startsWith('/api/contracts/finance-') && !['GET','HEAD'].includes(req.method)) return json({error:'Accounting maintenance: please retry shortly.'},503);
   env = { ...env, DB: financeStorageDb(env) };
+
+  // Gift Entry batches (Finance v3): donor-level, identity-checked -- see api-giving-batch-contracts.js.
+  if (path.startsWith('/api/contracts/giving-batch-')) {
+    const batchResponse = await handleGivingBatchContracts(req, env, path);
+    if (batchResponse) return batchResponse;
+  }
 
   if (path === '/api/contracts/connect-giving-summary-v1' && req.method === 'GET') {
     return respondWithConnectGivingSummaryV1(new URL(req.url), env.DB);

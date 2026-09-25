@@ -24,7 +24,7 @@ function postEntry(env, { accessJwt, body } = {}) {
 
 describe('Finance Giving Entry — form and relay route', () => {
   it('renders the entry form on the Giving Entry section, listing funds from the resolved giving summary', async () => {
-    const res = await worker.fetch(new Request('https://finance.test/?section=giving'), baseEnv);
+    const res = await worker.fetch(new Request('https://finance.test/?section=giving&page=quick-entry'), baseEnv);
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain('<form method="POST" action="/api/v1/connect-giving-quick-entry">');
@@ -88,7 +88,7 @@ describe('Finance Giving Entry — form and relay route', () => {
     const sentBody = JSON.parse(await captured.text());
     expect(sentBody).toMatchObject({ date: '2026-01-15', fund_id: '9', amount: '75.00', method: 'check' });
 
-    const shown = await worker.fetch(new Request('https://finance.test/?section=giving&status=ok'), baseEnv);
+    const shown = await worker.fetch(new Request('https://finance.test/?section=giving&page=quick-entry&status=ok'), baseEnv);
     const html = await shown.text();
     expect(html).toContain('Recorded in Connect.');
   });

@@ -18,6 +18,9 @@ import { FINANCE_PARITY_SECTIONS, resolveFinanceSection, resolveFinancePage } fr
 import { HEALTH_STYLES, renderHealthByEntity, renderHealthSummary, renderHealthViewToggle, resolveHealthView } from './health-pages.js';
 import { ensureFinanceOwnedSchema } from './finance-owned-schema.js';
 import { PAYROLL_STYLES, legacyPayrollPage } from './payroll-pages.js';
+import { GIFT_BATCH_STYLES, renderBatchPage, renderBatchReportsPage, renderReconciliationPage } from './gift-batch-pages.js';
+import { describeGivingBatchFailure, fetchGivingBatchLedger, fetchGivingBatchWorkspace, postGivingBatchWrite } from './connect-giving-batch-client.js';
+import { isSameOriginPost } from './form-post.js';
 import { HR_WRITERS, buildHrView, readHr } from './hr-service.js';
 import { canEditHr, describeHrStatus, handleHrWrite } from './hr-routes.js';
 import { HR_STYLES, renderHrPage } from './hr-pages.js';
@@ -801,6 +804,39 @@ function resolveIncomeVsBudget(churchReportLive) {
   return budgetCents > 0 ? { actualCents, budgetCents } : null;
 }
 
+// Gift Entry batch form posts -> Connect's giving-batch-write-v1. Connect re-verifies the Access
+// identity and decides whether this person may enter gifts; Finance only shapes the form.
+const GIFT_BATCH_OPS = new Set(['create_batch', 'add_gift', 'remove_gift', 'close_batch', 'reopen_batch', 'deposit_batch', 'reconcile_deposit', 'reopen_deposit']);
+const GIFT_BATCH_MESSAGES = {
+  create_batch: 'Batch started.', add_gift: 'Gift added.', remove_gift: 'Gift removed.', close_batch: 'Batch closed and locked for deposit.',
+  reopen_batch: 'Batch reopened.', deposit_batch: 'Batch put on a deposit.', reconcile_deposit: 'Deposit matched to the bank.', reopen_deposit: 'Deposit reopened.',
+};
+
+async function handleGiftBatchWrite(request, env, url) {
+  const back = (page, params) => response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ section: 'giving', page, ...params }).toString()}` } });
+  if (!isSameOriginPost(request, url)) return back('batch', { status: 'error', message: 'That form did not come from Timothy Finance.' });
+  let form;
+  try { form = await request.formData(); } catch { return back('batch', { status: 'error', message: 'The form could not be read.' }); }
+  const op = String(form.get('op') || '');
+  if (!GIFT_BATCH_OPS.has(op)) return back('batch', { status: 'error', message: 'Unknown action.' });
+  const field = (name) => String(form.get(name) || '').trim();
+  const body = { op };
+  for (const name of ['batch_id', 'entry_id', 'deposit_id', 'batch_date', 'description', 'person_id', 'method', 'check_number', 'notes', 'gift_date', 'deposit_date', 'external_ref', 'source', 'bank_amount']) {
+    if (field(name)) body[name] = field(name);
+  }
+  if (op === 'add_gift') {
+    body.splits = [1, 2, 3, 4].map((n) => ({ fund_id: field(`fund_${n}`), amount: field(`amount_${n}`) })).filter((s) => s.fund_id || s.amount)
+      .filter((s, i) => i === 0 || s.amount);
+  }
+  const result = await postGivingBatchWrite(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', body);
+  const onReconcilePage = ['reconcile_deposit', 'reopen_deposit'].includes(op) || field('return') === 'reconciliation';
+  const page = onReconcilePage ? 'reconciliation' : 'batch';
+  const batchId = String(result.ok ? (result.result.batch_id ?? body.batch_id ?? '') : (body.batch_id ?? ''));
+  const keep = page === 'batch' && batchId ? { batch_id: batchId } : {};
+  if (!result.ok) return back(page, { ...keep, status: 'error', message: describeGivingBatchFailure(result).slice(0, 200) });
+  return back(page, { ...keep, status: 'ok', msg: GIFT_BATCH_MESSAGES[op] });
+}
+
 function renderEntityCards(entities) {
   return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)} · ${entity.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>`).join('');
 }
@@ -993,6 +1029,17 @@ function renderSectionBody(ctx) {
     });
   }
   if (section.id === 'giving') {
+    if (['batch', 'reconciliation', 'reports'].includes(page.id)) {
+      const batchResult = ctx.givingBatch?.ok
+        ? { ok: true, data: ctx.givingBatch.result }
+        : { ok: false, message: describeGivingBatchFailure(ctx.givingBatch) };
+      const today = isoDay(new Date());
+      const batchStatus = ctx.searchParams.get('status') === 'ok' ? { ok: true, message: ctx.searchParams.get('msg') || 'Saved in Connect.' }
+        : ctx.searchParams.get('status') === 'error' ? { ok: false, message: `Not saved: ${ctx.searchParams.get('message') || 'the request did not complete.'}` } : null;
+      if (page.id === 'reconciliation') return renderReconciliationPage({ result: batchResult, status: batchStatus, today });
+      if (page.id === 'reports') return renderBatchReportsPage({ result: batchResult, today });
+      return renderBatchPage({ result: batchResult, params: ctx.searchParams, status: batchStatus, today });
+    }
     return renderGiftEntryPage(page.id, { giving, givingSource, givingEntryStatus, givingEntryMessage });
   }
   if (section.id === 'giving-analytics') {
@@ -1252,7 +1299,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/tlc-logo.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -1389,13 +1436,17 @@ export default {
       } });
     }
 
+    if (route.id === 'gift-batch-write-v1') {
+      return handleGiftBatchWrite(request, env, url);
+    }
+
     if (route.id === 'giving-quick-entry-v1') {
       const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
       let form;
       try {
         form = await request.formData();
       } catch {
-        return response(null, { status: 303, headers: { Location: '/?section=giving&status=error&reason=invalid_json' } });
+        return response(null, { status: 303, headers: { Location: '/?section=giving&page=quick-entry&status=error&reason=invalid_json' } });
       }
       const entry = {
         date: form.get('date') || '',
@@ -1408,9 +1459,9 @@ export default {
       };
       const result = await postConnectGivingQuickEntry(env, accessJwt, entry);
       if (result.ok) {
-        return response(null, { status: 303, headers: { Location: '/?section=giving&status=ok' } });
+        return response(null, { status: 303, headers: { Location: '/?section=giving&page=quick-entry&status=ok' } });
       }
-      const params = new URLSearchParams({ section: 'giving', status: 'error', reason: result.reason || 'unknown' });
+      const params = new URLSearchParams({ section: 'giving', page: 'quick-entry', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -3431,6 +3482,11 @@ export default {
             await ensureFinanceOwnedSchema(env.FINANCE_DB, 'hr');
             return readHr(env.FINANCE_DB);
           }) : null;
+        // Gift Entry batch pages read Connect live with the caller's own Access identity.
+        const givingPageId = section.id === 'giving' ? resolveFinancePage(section, pageId).id : null;
+        const givingBatch = givingPageId === 'batch'
+          ? await fetchGivingBatchWorkspace(env, accessJwt, { batchId: url.searchParams.get('batch_id'), q: url.searchParams.get('q') })
+          : ['reconciliation', 'reports'].includes(givingPageId) ? await fetchGivingBatchLedger(env, accessJwt) : null;
         const facilities = section.id === 'facilities'
           ? await safeSyntheticRead(async () => {
             await ensureFinanceOwnedSchema(env.FINANCE_DB, 'facilities');
@@ -3442,7 +3498,7 @@ export default {
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
-          healthView: url.searchParams.get('view'), facilities, hr, searchParams: url.searchParams,
+          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
