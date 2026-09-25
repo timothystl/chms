@@ -145,8 +145,56 @@ function renderDaycareSyncForms({
 // `daycareReport` here is resolveDaycareReport()'s result -- { source: 'live', fiscalYear,
 // categories, allocation, totals } or { source: 'synthetic-fallback', fallbackReason, rows,
 // allocation } -- never the raw synthetic row array daycare-pages.js used to receive directly.
+// Individual finance_daycare_entries rows for the live fiscal year (connect.finance-daycare-entries.v1),
+// with legacy finRenderDaycare's actions: Edit on every row, Delete on every row except those the
+// daycare app's own sync owns (a re-sync would recreate them). Both relay to the existing
+// finance-daycare-entry-edit/-remove contracts, whose permission check on Connect is the real gate.
+const DAYCARE_SOURCE_LABELS = {
+  manual: 'Manual', daycare_api: 'Daycare app', church_budget_import: 'Church budget import',
+  manual_budget_override: 'Budget override',
+};
+
+function renderDaycareEntryRows(entries, canManage) {
+  return entries.map((e) => `<tr><td>${escapeHtml(e.period)}</td><td>${escapeHtml(e.category)}</td><td>${e.entryType === 'budget' ? 'Budget' : 'Actual'}</td><td>${formatCents(e.amountCents)}</td><td>${escapeHtml(DAYCARE_SOURCE_LABELS[e.source] || e.source)}</td><td>${escapeHtml(e.notes)}</td>${canManage ? `<td><a href="/?section=daycare&amp;page=actuals&amp;edit=${e.id}#daycare-edit">Edit</a>${e.source === 'daycare_api' ? '' : ` <form method="POST" action="/api/v1/connect-daycare-entry-remove" style="display:inline">
+      <input type="hidden" name="id" value="${e.id}">
+      <button type="submit" onclick="return confirm('Delete this daycare entry?')">Delete</button>
+    </form>`}</td>` : ''}</tr>`).join('');
+}
+
+function renderDaycareEntryEditForm(entry) {
+  return `<section id="daycare-edit" aria-label="Edit a Daycare Report entry">
+    ${renderSectionHeading({ eyebrow: 'Daycare Report', heading: `Edit entry · ${escapeHtml(entry.period)} ${escapeHtml(entry.category)}`, badge: 'Relayed live to Connect' })}
+    <form method="POST" action="/api/v1/connect-daycare-entry-edit">
+      <input type="hidden" name="id" value="${entry.id}">
+      <div class="grid form-grid">
+        <div class="field"><label for="dce-period">Period (YYYY or YYYY-MM)</label><input id="dce-period" type="text" name="period" pattern="\\d{4}(-\\d{2})?" value="${escapeHtml(entry.period)}" required></div>
+        <div class="field"><label for="dce-category">Category</label><input id="dce-category" type="text" name="category" value="${escapeHtml(entry.category)}" required></div>
+        <div class="field"><label for="dce-type">Type</label><select id="dce-type" name="entry_type"><option value="actual"${entry.entryType === 'actual' ? ' selected' : ''}>Actual</option><option value="budget"${entry.entryType === 'budget' ? ' selected' : ''}>Budget</option></select></div>
+        <div class="field"><label for="dce-amount">Amount ($)</label><input id="dce-amount" type="number" name="amount" step="0.01" value="${(entry.amountCents / 100).toFixed(2)}" required></div>
+      </div>
+      <div class="field"><label for="dce-notes">Notes</label><input id="dce-notes" type="text" name="notes" value="${escapeHtml(entry.notes)}"></div>
+      <button type="submit">Save changes</button> <a href="/?section=daycare&amp;page=actuals">Cancel</a>
+    </form>
+    ${entry.source === 'daycare_api' ? '<p><small>This row came from the daycare app. A later sync may replace your edit, as it does in legacy Connect.</small></p>' : ''}
+  </section>`;
+}
+
+function renderDaycareEntryList(daycareEntries, daycareEditId, canManage) {
+  if (!daycareEntries) return '';
+  if (!daycareEntries.ok) {
+    return `<section aria-label="Daycare entries"><p><small>The individual entry list is unavailable right now (${escapeHtml(daycareEntries.reason || 'unknown')}). Totals above are unaffected.</small></p></section>`;
+  }
+  const editing = canManage && daycareEditId ? daycareEntries.entries.find((e) => e.id === daycareEditId) : null;
+  return `<section class="report" aria-label="Daycare entries">
+    ${renderSectionHeading({ eyebrow: 'Daycare Report', heading: 'Entries', badge: `${daycareEntries.entries.length} row${daycareEntries.entries.length === 1 ? '' : 's'}` })}
+    ${daycareEntries.entries.length
+      ? renderTable({ head: ['Period', 'Category', 'Type', 'Amount', 'Source', 'Notes', ...(canManage ? [''] : [])], rows: renderDaycareEntryRows(daycareEntries.entries, canManage) })
+      : '<p>No entries recorded for this fiscal year.</p>'}
+  </section>${editing ? renderDaycareEntryEditForm(editing) : ''}`;
+}
+
 export function renderDaycarePage(pageId, {
-  daycareReport, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage,
+  daycareReport, daycareEntries = null, daycareEditId = null, canRecordDaycareEntry, daycareEntryStatus, daycareEntryMessage,
   canManageDaycareAllocation, daycareAllocationConfigEntryStatus, daycareAllocationConfigEntryMessage,
   canManageDaycareBudgetOverride, daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
   daycareBulkEntryStatus, daycareBulkEntryMessage,
@@ -171,7 +219,7 @@ export function renderDaycarePage(pageId, {
         ? renderTable({ head: ['Classification', 'Category', 'Actual', 'Budget'], rows })
         : renderTable({ head: ['Classification', 'Category', 'Type', 'Amount'], rows })}
       ${fallbackNote}
-    </section>${canRecordDaycareEntry ? renderDaycareEntryForm(report.period, daycareEntryStatus, daycareEntryMessage) : ''}
+    </section>${renderDaycareEntryList(daycareEntries, daycareEditId, canRecordDaycareEntry)}${canRecordDaycareEntry ? renderDaycareEntryForm(report.period, daycareEntryStatus, daycareEntryMessage) : ''}
     ${canRecordDaycareEntry ? renderDaycareBulkForm(daycareBulkEntryStatus, daycareBulkEntryMessage) : ''}
     ${canRecordDaycareEntry ? renderDaycareChurchBudgetImportForm(daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage) : ''}`;
   }

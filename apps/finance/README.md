@@ -817,6 +817,14 @@ church-budget-derived routes already relayed in Alpha.47 (`daycare-budget-overri
 `daycare-church-budget-import-write-v1`) and the destructive/QuickBooks-adjacent paths deliberately
 out of scope for this whole effort.
 
+*Update, September 25:* the edit/remove relays now have screens. Daycare Actuals detail lists the
+fiscal year's individual `finance_daycare_entries` rows from a new read contract,
+`connect.finance-daycare-entries.v1` (`finance-daycare-entries-client.js`; producer
+`buildFinanceDaycareEntriesV1` in `src/api-contracts.js`), with Edit on every row and Delete on
+every row except daycare-app-synced ones, matching legacy `finRenderDaycare`. `?edit=<id>` opens a
+pre-filled edit form. If Connect does not answer the entries contract, the list is replaced by an
+"unavailable" note and the report is unaffected.
+
 `src/api-finance.js` extracts `editDaycareEntry`/`removeDaycareEntry`/`syncDaycareFromApi`/
 `syncDaycareRoomsFromApi` as shared functions (same extraction style as `bulkRecordDaycareEntries`/
 `importDaycareFromChurchBudget` above), called by both the legacy route handlers (unchanged

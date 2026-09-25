@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:timothy:connect:finance-daycare-entries:v1",
+  "title": "Connect Finance Daycare Entries v1",
+  "description": "The individual finance_daycare_entries rows for one fiscal year (the annual YYYY period and each YYYY-MM month), for Finance's Daycare actuals list/edit/remove screens. Entry-level money lines, not people: no family, child or staff data. Notes on rows synced from the daycare app are returned empty, matching legacy's display.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "currency", "fiscalYear", "generatedAt", "entries"],
+  "properties": {
+    "contract": { "const": "connect.finance-daycare-entries.v1" },
+    "dataClassification": { "const": "aggregate" },
+    "sourceProduct": { "const": "connect" },
+    "consumerProduct": { "const": "finance" },
+    "currency": { "const": "USD" },
+    "fiscalYear": { "type": "integer", "minimum": 1900, "maximum": 9999 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "period", "category", "entryType", "amountCents", "notes", "source"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "period": { "type": "string", "pattern": "^\\d{4}(-(0[1-9]|1[0-2]))?$", "description": "The fiscal year itself or one of its months." },
+          "category": { "type": "string" },
+          "entryType": { "enum": ["actual", "budget"] },
+          "amountCents": { "type": "integer" },
+          "notes": { "type": "string" },
+          "source": { "type": "string", "minLength": 1, "description": "manual, daycare_api, church_budget_import, manual_budget_override, ..." }
+        }
+      }
+    }
+  }
+}
