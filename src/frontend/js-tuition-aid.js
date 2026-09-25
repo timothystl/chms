@@ -2097,7 +2097,7 @@ function tapRenderImportPreview(records, unresolved, collisionWarnings, reconcil
       var isLhs = entry.lhs_award_cents != null;
       var isMismatch = !isCollision && !!mismatchKeys[rec.family.trim().toLowerCase() + '|' + rec.child.trim().toLowerCase() + '|' + entry.school_year];
       html += '<tr' + (isCollision ? ' style="background:var(--error-bg);"' : (isMismatch ? ' style="background:var(--page);"' : '')) + '><td style="padding:4px 8px;"><input type="checkbox"' + (isCollision ? '' : ' checked') + ' id="tap-import-cb-' + r + '-' + e + '"></td>'
-        + '<td style="padding:4px 8px;">' + esc(rec.family) + (isCollision ? ' ⚠' : '') + '</td><td style="padding:4px 8px;">' + esc(rec.child) + '</td>'
+        + '<td style="padding:4px 8px;">' + esc(rec.family) + (isCollision ? ' (possible duplicate)' : '') + '</td><td style="padding:4px 8px;">' + esc(rec.child) + '</td>'
         + '<td style="padding:4px 8px;">' + esc(entry.school_year) + (isMismatch ? ' ≈' : '') + '</td>'
         + (anyRich ? '<td style="padding:4px 8px;">' + esc(entry.grade || '') + '</td>'
             + '<td style="padding:4px 8px;text-align:right;">' + (isLhs ? '—' : fmtMoney(entry.outside_aid_cents || 0)) + '</td>'
@@ -2111,7 +2111,7 @@ function tapRenderImportPreview(records, unresolved, collisionWarnings, reconcil
     + '<p style="font-size:.72rem;color:var(--warm-gray);margin:8px 0 0;">Uncheck any row you don’t want imported — for example a figure your source file itself flags as an estimate or unreconciled. A family/child not already in the roster gets a history-only record (won’t appear in the current planner).</p>';
   if (collisionWarnings && collisionWarnings.length) {
     html += '<div style="margin-top:10px;padding:8px 10px;background:var(--error-bg);border-radius:8px;font-size:.75rem;">'
-      + '<strong>⚠ ' + collisionWarnings.length + ' name' + (collisionWarnings.length === 1 ? '' : 's') + ' matched both a K-8 record and an LHS award in the same school year</strong> — that means two different students almost certainly share this exact name. Their rows above are unchecked by default; review carefully (a middle name, DOB, or household would help tell them apart) before checking either one:'
+      + '<strong>' + collisionWarnings.length + ' name' + (collisionWarnings.length === 1 ? '' : 's') + ' matched both a K-8 record and an LHS award in the same school year</strong> — that means two different students almost certainly share this exact name. Their rows above are unchecked by default; review carefully (a middle name, DOB, or household would help tell them apart) before checking either one:'
       + '<ul style="margin:6px 0 0;padding-left:18px;">'
       + collisionWarnings.map(function(w) { return '<li>' + esc(w.family) + ' / ' + esc(w.child) + '</li>'; }).join('')
       + '</ul></div>';

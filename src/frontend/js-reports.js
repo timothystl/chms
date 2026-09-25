@@ -239,7 +239,7 @@ function runPeopleInsights(scope) {
       });
       var totalContacts = contacts.reduce(function(s,r){return s+(r.n||0);},0);
       contactBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-        + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128200; New Contacts — last 24 months (' + totalContacts + ' total)</div>'
+        + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">New Contacts — last 24 months (' + totalContacts + ' total)</div>'
         + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:8px;">Based on first contact date, or record created date if not set.</div>'
         + '<div style="overflow-x:auto;"><svg viewBox="0 0 '+W+' '+H+'" style="min-width:'+W+'px;width:100%;height:'+H+'px;">'+grid2+bars2+xlbls2+ylbls2+'</svg></div></div>';
     }
@@ -266,7 +266,7 @@ function runPeopleInsights(scope) {
         return '<tr><td>' + esc(yr) + '</td>' + cells + '<td style="text-align:right;font-weight:600;">' + total2 + '</td></tr>';
       }).join('');
       trendBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-        + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128101; New People by Year &amp; Type</div>'
+        + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">New People by Year &amp; Type</div>'
         + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:8px;">Current active people grouped by their first contact year and current member type.</div>'
         + '<div style="overflow-x:auto;"><table class="rpt-table"><thead>' + trendHead + '</thead><tbody>' + trendRows2 + '</tbody></table></div></div>';
     }
@@ -290,7 +290,7 @@ function runPeopleInsights(scope) {
         + '<div style="flex:0 0 90px;text-align:right;font-size:.82rem;color:var(--warm-gray);">'+b.n+' ('+pct+'%)</div></div>';
     }).join('');
     var ageBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#127891; Age Distribution — '+scopeLabel+' ('+ageTotal2+')</div>'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">Age Distribution — '+scopeLabel+' ('+ageTotal2+')</div>'
       + ageRows2 + '</div>';
 
     // ── Block 4: Gender pie chart + drillable rows ─────────────────
@@ -311,7 +311,7 @@ function runPeopleInsights(scope) {
         + '<div style="flex:0 0 90px;text-align:right;font-size:.82rem;color:var(--warm-gray);">'+(r.n||0)+' ('+pct+'%)</div></div>';
     }).join('');
     var genderBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#9874;&#65039; Gender Breakdown — '+scopeLabel+' ('+genderTotal+')</div>'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">Gender Breakdown — '+scopeLabel+' ('+genderTotal+')</div>'
       + genderRows + '</div>';
 
     // ── Block 5: Household composition ─────────────────────────────
@@ -334,7 +334,7 @@ function runPeopleInsights(scope) {
         + '<div style="flex:0 0 90px;text-align:right;font-size:.82rem;color:var(--warm-gray);">'+it.value+' ('+pct+'%)</div></div>';
     }).join('');
     var hhBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#127968; Household Composition — '+scopeLabel+' ('+hhTotal2+')</div>'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">Household Composition — '+scopeLabel+' ('+hhTotal2+')</div>'
       + hhRows2 + '</div>';
 
     // ── Block 6: Baptism & Confirmation (members only) ──────────────
@@ -356,7 +356,7 @@ function runPeopleInsights(scope) {
         + '<div style="flex:0 0 90px;text-align:right;font-size:.82rem;color:var(--warm-gray);">'+it.value+' ('+pct+'%)</div></div>';
     }).join('');
     var pipelineBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;">'
-      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#9989; Baptism &amp; Confirmation ('+plTotal+' members)</div>'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">Baptism &amp; Confirmation ('+plTotal+' members)</div>'
       + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:8px;">Members only — baptized and confirmed flags from Breeze profile.</div>'
       + plRows + '</div>';
 
@@ -853,11 +853,11 @@ function runContactCompleteness(scope) {
   api('/admin/api/reports/contact-completeness?scope=' + encodeURIComponent(scope)).then(function(d) {
     var total = d.total || 0;
     var cats = [
-      { k: 'email',   lbl: 'Missing Email',   n: d.missing_email,   icon: '&#9993;' },
-      { k: 'phone',   lbl: 'Missing Phone',   n: d.missing_phone,   icon: '&#9742;' },
-      { k: 'address', lbl: 'Missing Address', n: d.missing_address, icon: '&#127968;' },
-      { k: 'dob',     lbl: 'Missing DOB',     n: d.missing_dob,     icon: '&#127874;' },
-      { k: 'photo',   lbl: 'Missing Photo',   n: d.missing_photo,   icon: '&#128247;' },
+      { k: 'email',   lbl: 'Missing Email',   n: d.missing_email,   icon: '' },
+      { k: 'phone',   lbl: 'Missing Phone',   n: d.missing_phone,   icon: '' },
+      { k: 'address', lbl: 'Missing Address', n: d.missing_address, icon: '' },
+      { k: 'dob',     lbl: 'Missing DOB',     n: d.missing_dob,     icon: '' },
+      { k: 'photo',   lbl: 'Missing Photo',   n: d.missing_photo,   icon: '' },
     ];
     var bars = cats.map(function(c) {
       var pct = total > 0 ? Math.round(c.n * 100 / total) : 0;
@@ -865,7 +865,7 @@ function runContactCompleteness(scope) {
       var cpct = total > 0 ? Math.round(complete * 100 / total) : 100;
       return '<div style="margin-bottom:10px;cursor:pointer;" onclick="runContactCompletenessField(\'' + c.k + '\',\'' + scope + '\')">'
         + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;">'
-        + '<div style="font-size:.88rem;color:var(--charcoal);font-weight:600;">' + c.icon + ' ' + esc(c.lbl) + '</div>'
+        + '<div style="font-size:.88rem;color:var(--charcoal);font-weight:600;">' + esc(c.lbl) + '</div>'
         + '<div style="font-size:.82rem;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + c.n.toLocaleString() + ' of ' + total.toLocaleString() + ' (' + pct + '%)</div></div>'
         + '<div style="background:var(--linen);border-radius:4px;height:12px;overflow:hidden;position:relative;">'
         + '<div style="background:var(--sage);height:100%;width:' + cpct + '%;transition:width .2s;" title="Complete: ' + cpct + '%"></div>'
@@ -925,7 +925,7 @@ function runGivingInsights() {
     }).join('');
     var topTotal = (d.top_givers||[]).reduce(function(s,r){return s+(r.total_cents||0);},0);
     var topBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#127942; Top ' + (d.top_givers||[]).length + ' Givers — ' + yr + '</div>'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">Top ' + (d.top_givers||[]).length + ' Givers — ' + yr + '</div>'
       + '<table class="rpt-table"><thead><tr><th style="text-align:right;">#</th><th>Name</th><th>Type</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Total</th></tr></thead>'
       + '<tbody>' + (topRows || '<tr><td colspan="5" style="text-align:center;color:var(--warm-gray);padding:20px;">No giving data for ' + yr + '.</td></tr>') + '</tbody></table>'
       + '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:8px;">Top '+(d.top_givers||[]).length+' combined: ' + fmtMoney(topTotal) + '</div></div>';
@@ -941,9 +941,9 @@ function runGivingInsights() {
     }).join('');
     var lapsedTotal = (d.lapsed||[]).reduce(function(s,r){return s+(r.prior_total_cents||0);},0);
     var lapsedBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#128276; Lapsed Givers — gave in ' + (yr-1) + ', nothing in ' + yr + '</div>'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">Lapsed Givers — gave in ' + (yr-1) + ', nothing in ' + yr + '</div>'
       + '<table class="rpt-table"><thead><tr><th>Name</th><th>Type</th><th style="text-align:right;">' + (yr-1) + ' Gifts</th><th style="text-align:right;">' + (yr-1) + ' Total</th><th>Last Gift</th></tr></thead>'
-      + '<tbody>' + (lapsedRows || '<tr><td colspan="5" style="text-align:center;color:var(--warm-gray);padding:20px;">No lapsed givers — everyone who gave last year gave this year too. &#127881;</td></tr>') + '</tbody></table>'
+      + '<tbody>' + (lapsedRows || '<tr><td colspan="5" style="text-align:center;color:var(--warm-gray);padding:20px;">No lapsed givers — everyone who gave last year gave this year too.</td></tr>') + '</tbody></table>'
       + '<div style="font-size:.8rem;color:var(--warm-gray);margin-top:8px;">' + (d.lapsed||[]).length + ' lapsed givers, ' + fmtMoney(lapsedTotal) + ' given in ' + (yr-1) + '.</div></div>';
 
     var totalGivers = (d.frequency||[]).reduce(function(s,b){return s+(b.n||0);}, 0);
@@ -956,7 +956,7 @@ function runGivingInsights() {
         + '<div style="flex:0 0 110px;text-align:right;font-size:.82rem;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + b.n + ' (' + pct + '%)</div></div>';
     }).join('');
     var freqBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#128200; Giving Frequency — ' + yr + ' (' + totalGivers + ' givers)</div>'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">Giving Frequency — ' + yr + ' (' + totalGivers + ' givers)</div>'
       + freqRows + '</div>';
 
     var trendRows = (d.trend||[]).map(function(r) {
@@ -969,7 +969,7 @@ function runGivingInsights() {
         + '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtMoney(r.avg_giver_cents||0) + '</td></tr>';
     }).join('');
     var trendBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;">'
-      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">&#128640; Average Gift Trends — last 5 years</div>'
+      + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:8px;">Average Gift Trends — last 5 years</div>'
       + '<table class="rpt-table"><thead><tr><th>Year</th><th style="text-align:right;">Givers</th><th style="text-align:right;">Gifts</th><th style="text-align:right;">Total</th><th style="text-align:right;">Avg / Gift</th><th style="text-align:right;">Avg / Giver</th></tr></thead>'
       + '<tbody>' + trendRows + '</tbody></table></div>';
 
@@ -1049,7 +1049,7 @@ function renderGivingPlateaus(d) {
 
   var exclNote = (excl.count > 0)
     ? '<div style="font-size:.78rem;color:var(--warm-gray);background:var(--linen);border-radius:8px;padding:8px 12px;margin-bottom:14px;">'
-      + '&#9888;&#65039; ' + excl.count + ' giver' + (excl.count===1?'':'s') + ' totaling ' + fmtWholeDollars(excl.total_cents) + ' ' + (excl.count===1?'was':'were') + ' recorded under an organization-type record in ' + yr + ' and excluded from this report. If any of these are actually a donor\'s stock/IRA (QCD) custodian rather than a real organization, consider re-linking the gift to the giver\'s own person record so it counts toward their giving.</div>'
+      + '' + excl.count + ' giver' + (excl.count===1?'':'s') + ' totaling ' + fmtWholeDollars(excl.total_cents) + ' ' + (excl.count===1?'was':'were') + ' recorded under an organization-type record in ' + yr + ' and excluded from this report. If any of these are actually a donor\'s stock/IRA (QCD) custodian rather than a real organization, consider re-linking the gift to the giver\'s own person record so it counts toward their giving.</div>'
     : '';
 
   if (!tiers.length) {
@@ -1085,7 +1085,7 @@ function renderGivingPlateaus(d) {
       + '<td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--sage);font-weight:600;">' + fmtWholeDollars(t.upside_modest_annual_cents) + '&ndash;' + fmtWholeDollars(t.upside_generous_annual_cents) + '</td></tr>';
   }).join('');
   var tierBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128201; Nudge Targets (Standard option)</div>'
+    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">Nudge Targets (Standard option)</div>'
     + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">Each ' + (byHh ? 'household' : 'giver') + '&rsquo;s weekly-equivalent level (whole year &divide; 52), grouped by their Standard increase option. Expand a tier below for the full Modest / Standard / Generous choice per ' + (byHh?'household':'person') + '.</div>'
     + '<table class="rpt-table"><thead><tr><th>Nudge to</th><th style="text-align:right;">' + (byHh ? 'Households' : 'People') + '</th><th style="text-align:right;">Now (weekly range)</th><th style="text-align:right;">Avg increase</th><th style="text-align:right;">Est. +$/yr (Modest&ndash;Generous)</th></tr></thead>'
     + '<tbody>' + tierRows
@@ -1119,7 +1119,7 @@ function renderGivingPlateaus(d) {
       + '</div></div>';
   }).join('');
   var peopleBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:10px;">&#128101; Who&rsquo;s in each tier</div>'
+    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:10px;">Who&rsquo;s in each tier</div>'
     + peopleBlocks + '</div>';
 
   // Fine distribution histogram (how many givers land at each weekly-equivalent amount)
@@ -1133,7 +1133,7 @@ function renderGivingPlateaus(d) {
       + '<div style="flex:0 0 46px;text-align:right;font-size:.8rem;color:var(--warm-gray);font-variant-numeric:tabular-nums;">' + (r.n||0) + '</div></div>';
   }).join('');
   var distBlock = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128200; Weekly-Equivalent Distribution</div>'
+    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">Weekly-Equivalent Distribution</div>'
     + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">Number of ' + noun + ' at each weekly-equivalent giving level (whole-year total &divide; 52) &mdash; the spikes are your real plateaus.</div>'
     + distRows + '</div>';
 
@@ -1168,7 +1168,7 @@ function platOccasionalBlock(list, maxGifts, byHh) {
       + '<td>' + badge + '</td></tr>';
   }).join('');
   return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128197; Occasional Givers (' + maxGifts + '&times;/yr or less)</div>'
+    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">Occasional Givers (' + maxGifts + '&times;/yr or less)</div>'
     + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">For your reference &mdash; not a suggestion anything needs to change. Sorted by total given, so a large one-time gift (e.g. a stock or IRA/QCD transfer) shows first. If it&rsquo;s ever useful, this is a natural starting point for mentioning recurring/automatic giving to someone whose gifts are all check/cash.'
     + (givingUrl ? ' Online giving: <a href="' + esc(givingUrl) + '" target="_blank" rel="noopener">' + esc(givingUrl) + '</a>.' : ' (Set an Online Giving URL in Giving &rarr; Settings to show it here.)')
     + '</div>'
@@ -1313,7 +1313,7 @@ function renderGivingBands(d) {
     + '</div>';
 
   var table = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;">'
-    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">&#128202; ' + nounCap + ' by giving level ($/' + per + ')</div>'
+    + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">' + nounCap + ' by giving level ($/' + per + ')</div>'
     + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:10px;">Each ' + noun.replace(/s$/,'') + '&rsquo;s level is their ' + d.year + ' giving &divide; ' + d.periods_elapsed + ' ' + perWord + 's' + (d.partial ? ' so far' : '') + '. The last column is what that band would add over a full year if each ' + noun.replace(/s$/,'') + ' gave +' + up + ' more per ' + perWord + '.</div>'
     + '<table class="rpt-table"><thead><tr><th>Band</th><th></th><th style="text-align:right;">' + nounCap + '</th><th style="text-align:right;">Avg</th><th style="text-align:right;">Given ' + d.year + '</th><th style="text-align:right;">+' + up + '/' + per + ' &rarr; +$/yr</th></tr></thead>'
     + '<tbody>' + rows
@@ -1502,7 +1502,7 @@ function runGivingStatement() {
       + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">'
       + '<button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print</button>'
       + '<button class="btn-secondary" style="font-size:.8rem;" onclick="runGivingStatementLetter(&#39;year_end&#39;)">View Letter</button>'
-      + '<button class="btn-secondary" style="font-size:.8rem;" onclick="emailGivingLetter(&#39;year_end&#39;)">&#9993; Email Letter</button>'
+      + '<button class="btn-secondary" style="font-size:.8rem;" onclick="emailGivingLetter(&#39;year_end&#39;)">Email Letter</button>'
       + '<button class="btn-secondary" style="font-size:.8rem;" onclick="runGivingStatementLetter(&#39;midyear&#39;)">Mid-Year Update Letter</button>'
       + '<button class="btn-secondary" style="font-size:.8rem;" onclick="downloadStatement()">Download CSV</button>'
       + '</div>'
@@ -1623,7 +1623,7 @@ function showGivingLetter(letterType) {
     + '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">'
     + '<button class="btn-secondary" style="font-size:.8rem;" onclick="runGivingStatement()">&#8592; Back to Statement</button>'
     + '<button class="btn-secondary" style="font-size:.8rem;" onclick="window.print()">Print Letter</button>'
-    + (email ? '<button class="btn-primary" style="font-size:.8rem;" onclick="emailGivingLetter(&#39;' + (letterType||'year_end') + '&#39;)">&#9993; Email to ' + esc(email) + '</button>' : '')
+    + (email ? '<button class="btn-primary" style="font-size:.8rem;" onclick="emailGivingLetter(&#39;' + (letterType||'year_end') + '&#39;)">Email to ' + esc(email) + '</button>' : '')
     + '<div id="letter-email-status" class="import-status" style="align-self:center;"></div>'
     + '</div>'
     + '<div id="letter-body" style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:28px 32px;font-size:.92rem;line-height:1.65;">'
@@ -1736,7 +1736,7 @@ function runGivingYoy() {
     function makeBlock(icon, title, subtitle, items) {
       if (!items.length) return '';
       return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;">'
-        + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">' + icon + ' ' + title + ' (' + items.length + ')</div>'
+        + '<div style="font-weight:700;color:var(--steel-anchor);font-size:.95rem;margin-bottom:4px;">' + (icon ? icon + ' ' : '') + title + ' (' + items.length + ')</div>'
         + '<div style="font-size:.78rem;color:var(--warm-gray);margin-bottom:8px;">' + subtitle + '</div>'
         + '<div style="overflow-x:auto;"><table class="rpt-table"><thead>' + thead + '</thead><tbody>' + items.map(makeRow).join('') + '</tbody></table></div></div>';
     }
@@ -1750,10 +1750,10 @@ function runGivingYoy() {
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
       + '<h3 style="font-family:var(--font-head);color:var(--steel-anchor);">Giving Trends &#8212; ' + yr + '</h3>'
       + '<button class="btn-secondary" style="font-size:.8rem;padding:4px 10px;" onclick="window.print()">Print</button></div>'
-      + (increased.length ? makeBlock('&#128200;', 'Increased — ' + priorYear + ' → ' + baseYear, 'Gave more this year than last year, sorted by biggest change.', increased) : '')
-      + (decreased.length ? makeBlock('&#128203;', 'Decreased — ' + priorYear + ' → ' + baseYear, 'Gave less this year than last year.', decreased) : '')
-      + (newGivers.length ? makeBlock('&#127381;', 'New Givers — first gift in ' + baseYear, 'Gave this year but not in ' + priorYear + '.', newGivers) : '')
-      + (lapsed.length ? makeBlock('&#128276;', 'Stopped Giving — gave in ' + priorYear + ', not in ' + baseYear, 'Gave last year but nothing recorded this year yet.', lapsed) : '')
+      + (increased.length ? makeBlock('', 'Increased — ' + priorYear + ' → ' + baseYear, 'Gave more this year than last year, sorted by biggest change.', increased) : '')
+      + (decreased.length ? makeBlock('', 'Decreased — ' + priorYear + ' → ' + baseYear, 'Gave less this year than last year.', decreased) : '')
+      + (newGivers.length ? makeBlock('', 'New Givers — first gift in ' + baseYear, 'Gave this year but not in ' + priorYear + '.', newGivers) : '')
+      + (lapsed.length ? makeBlock('', 'Stopped Giving — gave in ' + priorYear + ', not in ' + baseYear, 'Gave last year but nothing recorded this year yet.', lapsed) : '')
       + (!increased.length && !decreased.length && !newGivers.length && !lapsed.length ? '<div style="padding:20px;color:var(--warm-gray);">No giving data found for ' + yr + ' or ' + priorYear + '.</div>' : '')
     );
   });

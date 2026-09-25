@@ -289,7 +289,6 @@ function renderRegisterList(entries, matchCount) {
   if (matchCount === undefined) matchCount = entries.length;
   if (!entries.length) {
     el.innerHTML = '<div class="reg-empty">'
-      + '<div class="reg-empty-icon">\uD83D\uDCDA</div>'
       + '<div class="reg-empty-ttl">No ' + lbl.title.toLowerCase() + ' found</div>'
       + '<div class="reg-empty-sub">' + (_regEntries.length ? 'Try adjusting the search or year filter.' : 'Use the form to record the first entry.') + '</div></div>';
     return;
@@ -332,7 +331,7 @@ function renderRegisterList(entries, matchCount) {
       var scanForPage = e.pdf_page ? _regScanPages[String(e.pdf_page).trim()] : null;
       var pdfPart = e.pdf_page
         ? ('<br><span class="reg-page">' + (scanForPage
-            ? '<a href="#" class="reg-page-link" data-page="'+esc(String(e.pdf_page).trim())+'" onclick="event.preventDefault();openRegScanViewer(this.dataset.page)" title="View scanned page">p.'+esc(e.pdf_page)+' &#128247;</a>'
+            ? '<a href="#" class="reg-page-link" data-page="'+esc(String(e.pdf_page).trim())+'" onclick="event.preventDefault();openRegScanViewer(this.dataset.page)" title="View scanned page">p.'+esc(e.pdf_page)+' (scan)</a>'
             : 'p.'+esc(e.pdf_page)) + '</span>')
         : '';
       return '<tr>'
@@ -518,7 +517,7 @@ function printRegister() {
     +'.yr-hdr td{background:#eeeeee;font-weight:bold;font-size:9pt;letter-spacing:.05em;padding:7px 6px 4px;border-bottom:1px solid #bbb;}'
     +'small{font-size:7.5pt;color:#777;}em{color:#555;}'
     +'@media print{body{padding:0;}.no-print{display:none;}@page{size:landscape;}}</style></head><body>'
-    +'<div class="no-print" style="margin-bottom:16px;"><button onclick="window.print()">&#128424; Print</button></div>'
+    +'<div class="no-print" style="margin-bottom:16px;"><button onclick="window.print()">Print</button></div>'
     +'<h1>'+(churchName ? esc(churchName)+' \u2014 ' : '')+lbl.title+' Register</h1>'
     +'<h2>'+(year||'All Years')+' \u00b7 '+entries.length+' '+(entries.length===1?'entry':'entries')+'</h2>'
     +'<table><thead>'+thead+'</thead><tbody>'+tableRows+'</tbody></table>'
@@ -605,7 +604,7 @@ function printRegisterCertificateGeneric(entry) {
     + '.cert-sig{flex:1;border-top:1px solid #8a6d3b;padding-top:6px;font-size:9pt;color:#666;}'
     + '.cert-page{margin-top:18px;font-size:8pt;color:#999;}'
     + '@media print{body{padding:0;background:#fff;}.no-print{display:none;}.cert{box-shadow:none;}}</style></head><body>'
-    + '<div class="no-print" style="max-width:680px;margin:0 auto 16px;"><button onclick="window.print()">&#128424; Print</button></div>'
+    + '<div class="no-print" style="max-width:680px;margin:0 auto 16px;"><button onclick="window.print()">Print</button></div>'
     + '<div class="cert">'
     + '<div class="cert-church">' + (churchName ? esc(churchName) : 'Church Register') + '</div>'
     + '<div class="cert-title">' + esc(regCertTitle(entry.type)) + '</div>'
@@ -634,7 +633,7 @@ function printRegisterCertificateTemplate(entry, tmpl) {
     + '.cert-wrap{position:relative;max-width:1000px;margin:0 auto;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.15);}'
     + '.cert-wrap img{width:100%;display:block;}'
     + '@media print{body{padding:0;background:#fff;}.no-print{display:none;}.cert-wrap{box-shadow:none;max-width:none;}}</style></head><body>'
-    + '<div class="no-print" style="max-width:1000px;margin:0 auto 16px;"><button onclick="window.print()">&#128424; Print</button></div>'
+    + '<div class="no-print" style="max-width:1000px;margin:0 auto 16px;"><button onclick="window.print()">Print</button></div>'
     + '<div class="cert-wrap"><img src="' + esc(tmpl.url) + '" alt="">' + overlays + '</div>'
     + '</body></html>');
   printWin.document.close();
@@ -741,7 +740,7 @@ function renderRegCertTemplateEditor() {
   var defs = REG_CERT_FIELD_DEFS[_regType] || [];
   if (!tmpl) {
     el.innerHTML = '<p style="font-size:.85rem;color:var(--warm-gray);">No certificate image uploaded yet for ' + esc((_regLabels[_regType]||{}).title||'') + '. Upload one already rotated to its final print orientation (landscape or portrait, however it should print) — position controls below work in percent of the image, so any size works.</p>'
-      + '<label class="btn-secondary require-admin" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;">&#8679; Upload Certificate Image<input type="file" accept="image/*" style="display:none;" onchange="regCertTemplateFileChosen(this)"></label>'
+      + '<label class="btn-secondary require-admin" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;">Upload Certificate Image<input type="file" accept="image/*" style="display:none;" onchange="regCertTemplateFileChosen(this)"></label>'
       + '<div id="reg-cert-tmpl-status" style="font-size:.8rem;color:var(--warm-gray);margin-top:8px;"></div>';
     return;
   }
@@ -772,7 +771,7 @@ function renderRegCertTemplateEditor() {
     + '<p style="font-size:.75rem;color:var(--warm-gray);margin-top:8px;">X/Y are percent from the top-left corner of the image. Check a field to place it; uncheck to leave that field off the certificate.</p>'
     + '<div style="display:flex;gap:8px;margin-top:10px;">'
     + '<button class="btn-primary require-admin" onclick="regCertTemplateSave()">Save Positions</button>'
-    + '<label class="btn-secondary require-admin" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">&#8679; Replace Image<input type="file" accept="image/*" style="display:none;" onchange="regCertTemplateFileChosen(this)"></label>'
+    + '<label class="btn-secondary require-admin" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">Replace Image<input type="file" accept="image/*" style="display:none;" onchange="regCertTemplateFileChosen(this)"></label>'
     + '<button class="btn-secondary require-admin" style="color:var(--danger);" onclick="regCertTemplateDelete()">Remove Template</button>'
     + '</div>'
     + '<div id="reg-cert-tmpl-status" style="font-size:.8rem;color:var(--warm-gray);margin-top:8px;"></div>'

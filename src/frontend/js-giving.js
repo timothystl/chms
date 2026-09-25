@@ -2123,7 +2123,7 @@ function givRenderDistribution(d) {
   var el = document.getElementById('giv-analysis-dist');
   if (!el) return;
   if (!d || !d.givers) {
-    el.innerHTML = '<h3 style="margin-top:0;">&#128202; Giving Distribution</h3><div class="board-empty">No giving recorded for ' + (d && d.year ? d.year : '') + '.</div>';
+    el.innerHTML = '<h3 style="margin-top:0;">Giving Distribution</h3><div class="board-empty">No giving recorded for ' + (d && d.year ? d.year : '') + '.</div>';
     return;
   }
   var chips = givAnalysisChip('Giving households', d.givers.toLocaleString())
@@ -2147,7 +2147,7 @@ function givRenderDistribution(d) {
       +   '<div style="font-size:.72rem;color:var(--warm-gray);margin-top:1px;">' + t.total_pct + '% of total</div>'
       + '</td></tr>';
   }).join('');
-  el.innerHTML = '<h3 style="margin-top:0;">&#128202; Giving Distribution &middot; ' + d.year + '</h3>'
+  el.innerHTML = '<h3 style="margin-top:0;">Giving Distribution &middot; ' + d.year + '</h3>'
     + '<p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 12px;">Households grouped by their full-year giving. The <strong>median</strong> is the honest &ldquo;typical&rdquo; gift &mdash; a few large gifts pull the mean up.</p>'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">' + chips + '</div>'
     + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'
@@ -2163,7 +2163,7 @@ function givRenderMultiyear(d) {
   var el = document.getElementById('giv-analysis-trend');
   if (!el) return;
   var years = (d && d.years) || [];
-  if (!years.length) { el.innerHTML = '<h3 style="margin-top:0;">&#128200; Five-Year Trend</h3><div class="board-empty">No data.</div>'; return; }
+  if (!years.length) { el.innerHTML = '<h3 style="margin-top:0;">Five-Year Trend</h3><div class="board-empty">No data.</div>'; return; }
   var base = d.base_year;
   var anyEst = years.some(function(y){ return y.cpi_estimated; });
   var chart = renderGroupedBarChart({
@@ -2194,7 +2194,7 @@ function givRenderMultiyear(d) {
       + '<td style="padding:6px 8px;font-size:.85rem;text-align:right;white-space:nowrap;color:var(--warm-gray);">' + fmtMoney(y.adjusted_cents) + '</td>'
       + '</tr>';
   }).join('');
-  el.innerHTML = '<h3 style="margin-top:0;">&#128200; Five-Year Trend' + (base ? ' &middot; through ' + base : '') + '</h3>'
+  el.innerHTML = '<h3 style="margin-top:0;">Five-Year Trend' + (base ? ' &middot; through ' + base : '') + '</h3>'
     + '<p style="font-size:.82rem;color:var(--warm-gray);margin:0 0 10px;">Actual giving vs. the same totals restated in ' + base + ' dollars (CPI-U). If the gold bars are flat while the navy bars rise, giving is only keeping pace with inflation.</p>'
     + (chart || '')
     + '<div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;border-collapse:collapse;">'
@@ -2260,7 +2260,7 @@ function givNudgesRenderShell() {
     return '<button class="pill' + (o.key === st.option ? ' active' : '') + '" onclick="givNudgesSetOption(' + jsAttr(o.key) + ')">' + esc(o.label) + '</button>';
   }).join('');
   root.innerHTML = '<div class="import-card" style="margin:0 0 14px;">'
-    + '<h3 style="margin-top:0;">&#128233; Giving nudges</h3>'
+    + '<h3 style="margin-top:0;">Giving nudges</h3>'
     + '<p style="font-size:.85rem;color:var(--warm-gray);margin:0 0 10px;">Invites each giver to a specific next step, in the rhythm they already give in &mdash; a monthly giver is asked to move from one monthly amount to the next, not from a weekly figure they never see. Who appears here, and what each is asked, comes straight from <span style="color:var(--color-teal);font-weight:700;cursor:pointer;" onclick="givSetView(&quot;analysis&quot;)">Plateaus &amp; Nudges</span> under Reports. <strong>Every letter states back what that person currently gives &mdash; preview one before you send.</strong></p>'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:10px;">'
     + '<div class="field" style="margin:0;"><label>Year</label><input type="number" id="giv-nudge-year" value="' + st.year + '" onchange="givNudgesSetYear(this.value)" style="font-size:.85rem;padding:4px 8px;width:90px;"></div>'
