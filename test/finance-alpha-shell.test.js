@@ -335,13 +335,13 @@ describe('Finance alpha staging shell', () => {
   });
 
   it('offers a clearly-labeled, non-authoritative council-view preview that hides write forms', async () => {
-    const off = await (await worker.fetch(new Request('https://finance.test/?section=giving'), env)).text();
+    const off = await (await worker.fetch(new Request('https://finance.test/?section=giving&page=quick-entry'), env)).text();
     expect(off).not.toContain('class="council-preview"');
     expect(off).toContain('title="Preview council view: hides editing controls without changing permissions">Council</a>');
     expect(off).toContain('href="/?section=giving&amp;page=quick-entry&amp;council=1"');
     expect(off).toContain('<form method="POST" action="/api/v1/connect-giving-quick-entry">');
 
-    const on = await (await worker.fetch(new Request('https://finance.test/?section=giving&council=1'), env)).text();
+    const on = await (await worker.fetch(new Request('https://finance.test/?section=giving&page=quick-entry&council=1'), env)).text();
     expect(on).toContain('<body class="council-preview">');
     expect(on).toContain('Your actual verified permissions still apply');
     expect(on).toContain('Editing controls are hidden');
