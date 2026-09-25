@@ -25,12 +25,17 @@ import {
   GIVING_ANALYTICS_STYLES, renderHouseholdBandsPage, renderNudgesPage, renderPledgesPage, renderStatementsPage, renderTrendsPage,
   renderWhatIfPage, renderYearOverYearPage,
 } from './giving-analytics-pages.js';
-import { isSameOriginPost } from './form-post.js';
+import { describeFormStatus, handleFinanceFormWrite, isSameOriginPost } from './form-post.js';
 import { HR_WRITERS, buildHrView, readHr } from './hr-service.js';
 import { canEditHr, describeHrStatus, handleHrWrite } from './hr-routes.js';
 import { HR_STYLES, renderHrPage } from './hr-pages.js';
 import { FACILITIES_WRITERS, buildFacilitiesView, isoDay, readFacilities } from './facilities-service.js';
 import { canEditFacilities, describeFacilitiesStatus, handleFacilitiesWrite } from './facilities-routes.js';
+import { PLANNING_WRITERS, canEditPlanning, readPlanningScenarios } from './planning-scenarios-service.js';
+import { PLANNING_V3_STYLES, renderForecastPage, renderScenariosPage } from './planning-v3-pages.js';
+import { describePlanningBasisFailure, fetchPlanningBasis } from './connect-planning-client.js';
+import { fetchLiveFinanceCashRunway } from './finance-cash-runway-client.js';
+import { defaultLiveBudgetFiscalYear } from './finance-budget-client.js';
 import { FACILITIES_STYLES, renderFacilitiesPage } from './facilities-pages.js';
 import { SHELL_STYLES, collapseDuplicateHeading, identityInitials, renderSectionNav, renderViewingAs } from './shell-layout.js';
 import {
@@ -103,7 +108,7 @@ import {
   isPropertyLedgerWritesEnabled, recordPropertyReserveMonthly, recordPropertyReserveDisbursement,
   recordPropertyDistribution, recordPropertyCapitalLedgerEntry, PropertyLedgerValidationError,
 } from './property-ledger-write-service.js';
-import { buildResolvedCashRunwayView, resolveCashRunway } from './cash-runway-service.js';
+import { buildLiveCashRunwayView, buildResolvedCashRunwayView, resolveCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView, buildLiveFinancialMixView } from './financial-mix-service.js';
 import { buildEntityOverview } from './entity-overview-service.js';
 import { buildOperatingBridge } from './operating-bridge-service.js';
@@ -1213,6 +1218,14 @@ function renderSectionBody(ctx) {
       propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
     });
   }
+  if (section.id === 'planning' && ['scenarios', 'multi-year'].includes(page.id)) {
+    const basis = ctx.planningBasis?.ok ? { ok: true, data: ctx.planningBasis.basis } : { ok: false, message: describePlanningBasisFailure(ctx.planningBasis) };
+    if (!ctx.planningScenarios || isSyntheticUnavailable(ctx.planningScenarios)) {
+      return renderDataUnavailablePage({ eyebrow: section.label, heading: page.label, reason: 'Planning scenarios could not be read for this request.' });
+    }
+    if (page.id === 'multi-year') return renderForecastPage({ basis, planning: ctx.planningScenarios, runway: ctx.planningRunway, params: ctx.searchParams });
+    return renderScenariosPage({ basis, planning: ctx.planningScenarios, canEdit: !councilPreview && canEditPlanning(roleResult), status: describeFormStatus(ctx.searchParams, 'planning') });
+  }
   if (section.id === 'planning') {
     // Same gate as the legacy in-Connect Budget Planner's override-bulk route (admin or council
     // only) -- UI hiding is never authorization, the real gate is finance-budget-write-v1's own
@@ -1368,7 +1381,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/tlc-logo.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -3068,6 +3081,11 @@ export default {
       return handleHrWrite(request, env, route.id, url);
     }
 
+    if (PLANNING_WRITERS[route.id]) {
+      await ensureFinanceOwnedSchema(env.FINANCE_DB, 'planning');
+      return handleFinanceFormWrite({ request, env, url, section: 'planning', writer: PLANNING_WRITERS[route.id], canEdit: canEditPlanning });
+    }
+
     if (FACILITIES_WRITERS[route.id]) {
       return handleFacilitiesWrite(request, env, route.id, url);
     }
@@ -3320,6 +3338,19 @@ export default {
           ? await safeSyntheticRead(() => readSyntheticPropertyDistributions(env.FINANCE_DB)) : null;
         const budgetReport = section.id === 'planning'
           ? await safeSyntheticRead(() => resolveBudgetReport(env, env.FINANCE_DB)) : null;
+        // Scenarios and the forecast read the plan's lines sorted into groups (Connect), Finance's
+        // own scenario settings, and, for the forecast, today's operating cash.
+        const planningPageId = section.id === 'planning' ? resolveFinancePage(section, pageId).id : null;
+        const planningV3 = ['scenarios', 'multi-year'].includes(planningPageId);
+        const [planningBasis, planningScenarios, planningRunwayResult] = planningV3 ? await Promise.all([
+          fetchPlanningBasis(env, defaultLiveBudgetFiscalYear()),
+          safeSyntheticRead(async () => {
+            await ensureFinanceOwnedSchema(env.FINANCE_DB, 'planning');
+            return readPlanningScenarios(env.FINANCE_DB, defaultLiveBudgetFiscalYear());
+          }),
+          planningPageId === 'multi-year' ? fetchLiveFinanceCashRunway(env, new Date().getUTCFullYear()) : null,
+        ]) : [null, null, null];
+        const planningRunway = planningRunwayResult?.ok ? buildLiveCashRunwayView(planningRunwayResult.runway) : null;
         const accountsReport = ['accounts', 'quickbooks'].includes(section.id)
           ? await safeSyntheticRead(() => resolveAccountsReport(env, env.FINANCE_DB)) : null;
         // Finance's own QuickBooks connection, once enabled (quickbooks-oauth-routes.js). The budget
@@ -3589,7 +3620,7 @@ export default {
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
-          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, searchParams: url.searchParams,
+          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, planningBasis, planningScenarios, planningRunway, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
