@@ -1409,7 +1409,6 @@ describe('Finance alpha staging shell', () => {
     for (const [pageId, phrase] of [
       ['receivables', 'no tenant-receivable'],
       ['bank-rec', 'no balance sheet or bank account'],
-      ['debt', 'loan-payment and interest-expense columns'],
     ]) {
       const html = await (await worker.fetch(new Request(`https://finance.test/?section=property&page=${pageId}`), env)).text();
       expect(html).toContain('Not yet available');

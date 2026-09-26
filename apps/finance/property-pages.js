@@ -315,6 +315,38 @@ function renderCapitalPolicy(policyResult, canManage, status, message) {
   </section>`;
 }
 
+function renderPropertyDebt(debtResult, canManage, status, message) {
+  if (!debtResult?.ok) return `<section aria-label="Property debt unavailable">${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Debt payoff & future', badge: 'Unavailable' })}<p class="status status-pending">The saved loan record could not be read. Existing property and loan records are unaffected.</p></section>`;
+  const { loan, activity, projection } = debtResult.debt;
+  const dollars = (cents) => cents == null ? '' : (cents / 100).toFixed(2);
+  const pct = loan.interestRatePct == null ? '' : String(Number((loan.interestRatePct * 100).toFixed(5)));
+  const payoffHint = projection.status === 'ready'
+    ? `${projection.monthsRemaining} month${projection.monthsRemaining === 1 ? '' : 's'} remaining`
+    : projection.status === 'payment_too_low' ? 'Payment does not cover monthly interest' : 'Complete the loan terms to calculate payoff';
+  const annualMismatch = loan.storedAnnualDebtServiceCents != null && projection.derivedAnnualDebtServiceCents != null
+    && Math.abs(loan.storedAnnualDebtServiceCents - projection.derivedAnnualDebtServiceCents) > 100;
+  return `<section class="report" aria-label="Commercial Property debt payoff">
+    ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Debt payoff & future', badge: 'Live from Connect' })}
+    ${policyStatus(status, message)}
+    ${renderKpiCards([
+      { label: 'Current mortgage balance', value: projection.currentBalanceCents == null ? 'Unavailable' : formatCents(projection.currentBalanceCents), hint: projection.currentBalanceAsOf ? `Through ${projection.currentBalanceAsOf}` : 'No balance date saved' },
+      { label: 'Monthly payment', value: loan.monthlyPaymentCents == null ? 'Unavailable' : formatCents(loan.monthlyPaymentCents), hint: loan.interestRatePct == null ? 'Interest rate not saved' : `${pct}% annual interest` },
+      { label: 'Projected payoff', value: projection.payoffPeriod || 'Unavailable', hint: payoffHint },
+      { label: 'Remaining interest', value: projection.totalInterestRemainingCents == null ? 'Unavailable' : formatCents(projection.totalInterestRemainingCents), hint: 'Projection, not a lender statement' },
+    ])}
+    ${annualMismatch ? `<p class="status status-error">Review the saved annual debt service (${formatCents(loan.storedAnnualDebtServiceCents)}): it does not match 12 monthly payments (${formatCents(projection.derivedAnnualDebtServiceCents)}).</p>` : ''}
+    ${activity.length ? renderTable({ head: ['Month', 'Payment', 'Interest', 'Principal', 'Balance after'], rows: activity.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${formatCents(row.paymentCents)}</td><td>${formatCents(row.interestCents)}</td><td>${formatCents(row.principalCents)}</td><td>${formatCents(row.balanceAfterCents)}</td></tr>`).join('') }) : '<p><small>No complete monthly principal/interest rows occur after the saved balance date.</small></p>'}
+    ${canManage ? `<form method="POST" action="/api/v1/connect-property-meta-write"><input type="hidden" name="debt_policy_form" value="1"><div class="grid form-grid">
+      <div class="field"><label for="pd-lender">Lender</label><input id="pd-lender" name="lender" maxlength="120" value="${escapeHtml(loan.lender || '')}"></div>
+      <div class="field"><label for="pd-balance">Confirmed balance ($)</label><input id="pd-balance" type="number" name="balance" min="0" step="0.01" value="${dollars(loan.balanceCents)}" required></div>
+      <div class="field"><label for="pd-as-of">Balance as of</label><input id="pd-as-of" type="date" name="balance_as_of_date" value="${escapeHtml(loan.balanceAsOfDate || '')}" required></div>
+      <div class="field"><label for="pd-rate">Annual interest rate (%)</label><input id="pd-rate" type="number" name="interest_rate" min="0" max="100" step="0.00001" value="${pct}" required></div>
+      <div class="field"><label for="pd-payment">Monthly payment ($)</label><input id="pd-payment" type="number" name="monthly_payment" min="0.01" step="0.01" value="${dollars(loan.monthlyPaymentCents)}" required></div>
+    </div><button type="submit">Save confirmed loan terms</button></form>` : ''}
+    <p><small>The current balance rolls the confirmed balance forward only through months that contain both payment and interest. The payoff projection uses the saved fixed rate and payment; verify it against lender statements before a financial decision.</small></p>
+  </section>`;
+}
+
 // Shared status/error line for a Remove action -- same shape as every entry form's own status
 // paragraph above, but "Removed"/"Not removed" wording since these buttons sit inline in a table
 // row rather than their own form section (see budget-plan-remove-v1's identical precedent in
@@ -380,8 +412,9 @@ export function renderPropertyPage(pageId, {
   propertyReserveDisbursementRemoveStatus, propertyReserveDisbursementRemoveMessage,
   propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
   propertyRepairRemoveStatus, propertyRepairRemoveMessage,
-  propertyMetaEntryStatus, propertyMetaEntryMessage, propertyPolicy,
+  propertyMetaEntryStatus, propertyMetaEntryMessage, propertyPolicy, propertyDebt,
   propertyReservePolicyStatus, propertyReservePolicyMessage, propertyCapitalPolicyStatus, propertyCapitalPolicyMessage,
+  propertyDebtStatus, propertyDebtMessage,
   propertyBudgetImportStatus, propertyBudgetImportMessage,
   propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
 }) {
@@ -553,10 +586,10 @@ export function renderPropertyPage(pageId, {
       ${fallbackNote}
     </section>${canManagePropertyLedgers ? renderPropertyDistributionForm(propertyDistributionEntryStatus, propertyDistributionEntryMessage) : ''}`;
   }
+  if (pageId === 'debt') return renderPropertyDebt(propertyDebt, canManagePropertyLedgers, propertyDebtStatus, propertyDebtMessage);
   const unavailable = {
     receivables: { heading: 'Receivables & deposits', reason: 'There is no tenant-receivable or security-deposit table -- the property model tracks monthly totals and ledgers, not per-tenant balances.' },
     'bank-rec': { heading: 'Position & bank rec', reason: 'The property has no balance sheet or bank account of its own to reconcile -- only income/expense and reserve tables exist.' },
-    debt: { heading: 'Debt payoff & future', reason: 'The monthly property table has loan-payment and interest-expense columns, but the synthetic fixture leaves them empty and nothing populates them yet -- there is no loan schedule to project.' },
   };
   if (unavailable[pageId]) return renderUnavailablePage({ eyebrow: 'Commercial Property', ...unavailable[pageId] });
 

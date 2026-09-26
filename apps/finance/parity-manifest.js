@@ -99,7 +99,7 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
       { id: 'valuation', label: 'Valuation', status: 'live' },
       { id: 'forecast', label: 'Run-rate forecast', status: 'live' },
       { id: 'distributions', label: 'Distributions', status: 'live' },
-      { id: 'debt', label: 'Debt payoff & future', status: 'unavailable', reason: 'The monthly property table has loan-payment and interest-expense columns, but the synthetic fixture leaves them empty and nothing populates them yet -- there is no loan schedule to project.' },
+      { id: 'debt', label: 'Debt payoff & future', status: 'live' },
       { id: 'acquisition', label: 'Acquisition model', status: 'live' },
     ],
   },
