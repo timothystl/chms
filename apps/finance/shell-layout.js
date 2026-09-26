@@ -22,15 +22,19 @@ export function identityInitials(identity) {
   return letters.toUpperCase();
 }
 
-function pageHref(section, page, { councilPreview } = {}) {
-  const base = section.pages.length <= 1 ? `/?section=${section.id}` : `/?section=${section.id}&amp;page=${page.id}`;
+// The Giving pages share one fund choice (?fund=), so moving between them keeps it.
+const FUND_SCOPED_SECTIONS = new Set(['giving-analytics']);
+
+function pageHref(section, page, { councilPreview, fund } = {}) {
+  let base = section.pages.length <= 1 ? `/?section=${section.id}` : `/?section=${section.id}&amp;page=${page.id}`;
+  if (fund && fund !== 'all' && FUND_SCOPED_SECTIONS.has(section.id)) base += `&amp;fund=${encodeURIComponent(fund)}`;
   return councilPreview ? `${base}&amp;council=1` : base;
 }
 
 // One sidebar entry per design group ("Accounts & Data" folds two sections together). The active
 // group opens to list its pages; a single-page group is a plain link. When the role is verified,
 // sections that role cannot open are left out rather than shown and then refused.
-export function renderSectionNav(activeSection, activePage, { roleResult, councilPreview } = {}) {
+export function renderSectionNav(activeSection, activePage, { roleResult, councilPreview, fund } = {}) {
   const visible = roleResult && roleResult.ok
     ? FINANCE_PARITY_SECTIONS.filter((s) => roleCanAccessSection(roleResult.role, s, roleResult.permissions))
     : FINANCE_PARITY_SECTIONS;
@@ -45,7 +49,7 @@ export function renderSectionNav(activeSection, activePage, { roleResult, counci
       ? `<div class="nav-pages">${pages.map(({ section, page }) => {
         const current = section.id === activeSection.id && page.id === activePage.id;
         const label = section.pages.length <= 1 ? section.label : page.label;
-        return `<a href="${pageHref(section, page, { councilPreview })}"${current ? ' aria-current="page"' : ''}>${escapeHtml(label)}</a>`;
+        return `<a href="${pageHref(section, page, { councilPreview, fund })}"${current ? ' aria-current="page"' : ''}>${escapeHtml(label)}</a>`;
       }).join('')}</div>`
       : '';
     return `<div class="nav-group${isActiveGroup ? ' is-open' : ''}"><a class="nav-item${isActiveGroup ? ' is-active' : ''}" href="${pageHref(first.section, first.page, { councilPreview })}">${escapeHtml(group)}<span class="nav-count">${pages.length}</span></a>${links}</div>`;
