@@ -23,6 +23,7 @@ import { describeGivingBatchFailure, fetchGivingBatchLedger, fetchGivingBatchWor
 import { fetchGivingAnalytics, fetchGivingAnalyticsPeople, postGivingFollowupWrite } from './connect-giving-analytics-client.js';
 import { fetchAccessRoles } from './connect-access-client.js';
 import { fetchFinanceClassification } from './finance-classification-client.js';
+import { fetchFinancePropertyPolicy } from './finance-property-policy-client.js';
 import { renderClassificationEditors } from './classification-pages.js';
 import { ACCESS_STYLES, renderAccessPage } from './access-pages.js';
 import {
@@ -918,7 +919,7 @@ function renderSectionBody(ctx) {
   const {
     section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends,
     daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
-    propertyLedgers, propertyLedgersLive, propertyValuation,
+    propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy,
     propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, classification, compensationReport,
     compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage, givingEntryStatus, givingEntryMessage,
     budgetEntryStatus, budgetEntryMessage, payrollBundle,
@@ -953,6 +954,7 @@ function renderSectionBody(ctx) {
     propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
     propertyRepairRemoveStatus, propertyRepairRemoveMessage,
     propertyMetaEntryStatus, propertyMetaEntryMessage,
+    propertyReservePolicyStatus, propertyReservePolicyMessage, propertyCapitalPolicyStatus, propertyCapitalPolicyMessage,
     propertyBudgetImportStatus, propertyBudgetImportMessage,
     propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
     classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
@@ -1222,7 +1224,7 @@ function renderSectionBody(ctx) {
     const canManagePropertyLedgers = roleResult.ok && roleResult.role === 'admin';
     return renderPropertyPage(page.id, {
       propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
-      propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions,
+      propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyForecast, propertyForecastLive, propertyDistributions,
       canManagePropertyMonthly, propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
       canManagePropertyRepairs, propertyRepairEntryStatus, propertyRepairEntryMessage,
       canManagePropertyLedgers,
@@ -1242,6 +1244,7 @@ function renderSectionBody(ctx) {
       propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
       propertyRepairRemoveStatus, propertyRepairRemoveMessage,
       propertyMetaEntryStatus, propertyMetaEntryMessage,
+      propertyReservePolicyStatus, propertyReservePolicyMessage, propertyCapitalPolicyStatus, propertyCapitalPolicyMessage,
       propertyBudgetImportStatus, propertyBudgetImportMessage,
       propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
     });
@@ -2356,6 +2359,33 @@ export default {
         if (result.message) params.set('message', String(result.message).slice(0, 200));
         return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
       }
+      if (form.get('reserve_policy_form') === '1') {
+        const amount = Number(form.get('base_minimum'));
+        if (!Number.isFinite(amount) || amount < 0) return response(null, { status: 303, headers: { Location: '/?section=property&page=reserve-distribution&op=reserve-policy&status=error&reason=invalid_input' } });
+        const result = await postConnectPropertyMetaWrite(env, accessJwt, { reserves: { base_minimum_cents: Math.round(amount * 100) } });
+        if (result.ok) return response(null, { status: 303, headers: { Location: '/?section=property&page=reserve-distribution&op=reserve-policy&status=ok' } });
+        const params = new URLSearchParams({ section: 'property', page: 'reserve-distribution', op: 'reserve-policy', status: 'error', reason: result.reason || 'unknown' });
+        if (result.message) params.set('message', String(result.message).slice(0, 200));
+        return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+      }
+      if (form.get('capital_policy_form') === '1') {
+        const method = String(form.get('method') || '');
+        const allowed = new Set(['ledger', 'flat', 'per_sqft', 'flat_plus_sqft']);
+        const optionalCents = (name) => {
+          const raw = String(form.get(name) ?? '').trim();
+          if (raw === '') return null;
+          const number = Number(raw);
+          return Number.isFinite(number) && number >= 0 ? Math.round(number * 100) : NaN;
+        };
+        const annual = optionalCents('annual_allowance');
+        const perSquareFoot = optionalCents('per_square_foot');
+        if (!allowed.has(method) || Number.isNaN(annual) || Number.isNaN(perSquareFoot)) return response(null, { status: 303, headers: { Location: '/?section=property&page=valuation&op=capital-policy&status=error&reason=invalid_input' } });
+        const result = await postConnectPropertyMetaWrite(env, accessJwt, { capital: { method, annual_allowance_cents: annual, per_sqft_cents: perSquareFoot } });
+        if (result.ok) return response(null, { status: 303, headers: { Location: '/?section=property&page=valuation&op=capital-policy&status=ok' } });
+        const params = new URLSearchParams({ section: 'property', page: 'valuation', op: 'capital-policy', status: 'error', reason: result.reason || 'unknown' });
+        if (result.message) params.set('message', String(result.message).slice(0, 200));
+        return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+      }
       const body = {};
       for (const section of ['property', 'valuation', 'loan', 'reserves', 'capital']) {
         const raw = form.get(section);
@@ -3370,6 +3400,8 @@ export default {
         // resolveBalanceSheet above.
         const propertyValuation = section.id === 'property'
           ? await safeSyntheticRead(() => resolvePropertyValuation(env, env.FINANCE_DB)) : null;
+        const propertyPolicy = section.id === 'property'
+          ? await fetchFinancePropertyPolicy(env) : null;
         // Property Operating results/Reserves & distribution/Capital & repairs ledgers each try
         // their own real connect.finance-property-*.v1 endpoint first and fall back to the same
         // synthetic fixtures read just above, labeled -- same live-first pattern as Property
@@ -3657,10 +3689,16 @@ export default {
         const propertyRepairRemoveMessage = propertyRepairRemoveStatus === 'error'
           ? describePropertyRepairRemoveError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
-        const propertyMetaEntryStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyMetaEntryStatus = section.id === 'property' && !url.searchParams.get('op') ? url.searchParams.get('status') : null;
         const propertyMetaEntryMessage = propertyMetaEntryStatus === 'error'
           ? describePropertyMetaEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        const propertyReservePolicyStatus = section.id === 'property' && url.searchParams.get('op') === 'reserve-policy' ? url.searchParams.get('status') : null;
+        const propertyReservePolicyMessage = propertyReservePolicyStatus === 'error'
+          ? describePropertyMetaEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
+        const propertyCapitalPolicyStatus = section.id === 'property' && url.searchParams.get('op') === 'capital-policy' ? url.searchParams.get('status') : null;
+        const propertyCapitalPolicyMessage = propertyCapitalPolicyStatus === 'error'
+          ? describePropertyMetaEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
         const propertyBudgetImportStatus = section.id === 'property' ? url.searchParams.get('status') : null;
         const propertyBudgetImportMessage = propertyBudgetImportStatus === 'error'
           ? describePropertyBudgetImportError(url.searchParams.get('reason'), url.searchParams.get('message'))
@@ -3705,7 +3743,7 @@ export default {
           healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, planningBasis, planningScenarios, planningRunway, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
-          propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
+          propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, classification, classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
           quickbooksOwn, quickbooksBudgets, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
@@ -3738,6 +3776,7 @@ export default {
           propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
           propertyRepairRemoveStatus, propertyRepairRemoveMessage,
           propertyMetaEntryStatus, propertyMetaEntryMessage,
+          propertyReservePolicyStatus, propertyReservePolicyMessage, propertyCapitalPolicyStatus, propertyCapitalPolicyMessage,
           propertyBudgetImportStatus, propertyBudgetImportMessage,
           propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
         }), {

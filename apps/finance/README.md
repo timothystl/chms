@@ -797,7 +797,18 @@ Valuation has an admin editor (rent roll, utility reimbursement, vacancy, operat
 management fee, cap rate) that posts `valuation_form=1` to `property-meta-write-v1`; shell.js
 rebuilds legacy `finValSave`'s `valuation` section, including the computed outputs legacy's equity
 figure reads (`property-valuation-form.js`). Base-minimum reserve and capital-allowance settings
-remain legacy-only because no contract exposes them yet.
+are completed by the later property-policy slice below.
+
+The property-policy slice removes those final two settings from the compatibility UI. The narrow
+read-only `connect.finance-property-policy.v1` contract exposes only Ivanhoe's base-minimum reserve
+and capital-allowance basis/amounts from the existing metadata record. Reserve & distribution
+shows the saved base minimum; Valuation shows the saved capital basis and inputs. Verified admins
+can edit either through the existing `property-meta-write-v1` relay, which merges only the submitted
+`reserves` or `capital` section. Connect remains the sole writer, other property metadata is left
+untouched, and a failed contract read is labeled unavailable rather than replaced by a guessed
+policy. Coverage lives in `test/finance-property-policy-contract.test.js`,
+`test/finance-property-policy-endpoint.test.js`, `test/finance-property-policy-client.test.js`,
+and `test/finance-property-parity-ui.test.js`.
 
 Tests: nine contract tests (`test/finance-property-monthly-remove-contract.test.js`,
 `test/finance-property-distribution-remove-contract.test.js`,

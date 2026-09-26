@@ -280,6 +280,41 @@ export function renderPropertyValuationForm(valuation, entryStatus, entryMessage
   </section>`;
 }
 
+function policyStatus(status, message) {
+  if (status === 'ok') return '<p class="status">Saved in Connect.</p>';
+  if (status === 'error') return `<p class="status status-error">Not saved: ${escapeHtml(message || 'unknown error')}</p>`;
+  return '';
+}
+
+function renderBaseMinimumPolicy(policyResult, canManage, status, message) {
+  if (!policyResult?.ok) return `<section aria-label="Property reserve policy unavailable">${renderSectionHeading({ eyebrow: 'Reserve & distribution', heading: 'Base minimum reserve', badge: 'Unavailable' })}<p class="status status-pending">The saved property policy could not be read. Existing reserve records are unaffected.</p></section>`;
+  const cents = policyResult.policy.reservePolicy.baseMinimumCents;
+  return `<section aria-label="Base minimum reserve policy">
+    ${renderSectionHeading({ eyebrow: 'Reserve & distribution', heading: 'Base minimum reserve', badge: 'Live from Connect' })}
+    ${policyStatus(status, message)}
+    <p><strong>${formatCents(cents)}</strong> is held back as a flat operating-cash cushion before distributions. It is not an accumulating reserve bucket.</p>
+    ${canManage ? `<form method="POST" action="/api/v1/connect-property-meta-write"><input type="hidden" name="reserve_policy_form" value="1"><div class="field"><label for="pp-base-minimum">Base minimum ($)</label><input id="pp-base-minimum" type="number" name="base_minimum" min="0" step="0.01" value="${(cents / 100).toFixed(2)}" required></div><button type="submit">Save reserve policy</button></form>` : ''}
+  </section>`;
+}
+
+function renderCapitalPolicy(policyResult, canManage, status, message) {
+  if (!policyResult?.ok) return `<section aria-label="Capital allowance policy unavailable">${renderSectionHeading({ eyebrow: 'Valuation', heading: 'Capital allowance', badge: 'Unavailable' })}<p class="status status-pending">The saved capital policy could not be read. The valuation worksheet remains available.</p></section>`;
+  const policy = policyResult.policy.capitalPolicy;
+  const dollars = (cents) => cents == null ? '' : (cents / 100).toFixed(2);
+  const labels = { ledger: 'Ledger average (history)', flat: 'Flat amount per year', per_sqft: 'Amount per square foot per year', flat_plus_sqft: 'Flat amount plus amount per square foot' };
+  return `<section aria-label="Capital allowance policy">
+    ${renderSectionHeading({ eyebrow: 'Valuation', heading: 'Capital allowance', badge: 'Live from Connect' })}
+    ${policyStatus(status, message)}
+    <p>Current basis: <strong>${escapeHtml(labels[policy.method])}</strong>.</p>
+    ${canManage ? `<form method="POST" action="/api/v1/connect-property-meta-write"><input type="hidden" name="capital_policy_form" value="1"><div class="grid form-grid">
+      <div class="field"><label for="pp-capital-method">Basis</label><select id="pp-capital-method" name="method"><option value="ledger"${policy.method === 'ledger' ? ' selected' : ''}>Ledger average (history)</option><option value="flat"${policy.method === 'flat' ? ' selected' : ''}>Flat $ per year</option><option value="per_sqft"${policy.method === 'per_sqft' ? ' selected' : ''}>$ per square foot per year</option><option value="flat_plus_sqft"${policy.method === 'flat_plus_sqft' ? ' selected' : ''}>Flat $ plus $ per square foot</option></select></div>
+      <div class="field"><label for="pp-capital-flat">Flat amount ($/yr)</label><input id="pp-capital-flat" type="number" name="annual_allowance" min="0" step="0.01" value="${dollars(policy.annualAllowanceCents)}"></div>
+      <div class="field"><label for="pp-capital-sqft">Rate ($/SF/yr)</label><input id="pp-capital-sqft" type="number" name="per_square_foot" min="0" step="0.01" value="${dollars(policy.perSquareFootCents)}"></div>
+    </div><button type="submit">Save capital policy</button></form>` : ''}
+    <p><small>The selected basis drives the property's forward cash-to-church calculation. Ledger history remains the fallback only when that basis is selected.</small></p>
+  </section>`;
+}
+
 // Shared status/error line for a Remove action -- same shape as every entry form's own status
 // paragraph above, but "Removed"/"Not removed" wording since these buttons sit inline in a table
 // row rather than their own form section (see budget-plan-remove-v1's identical precedent in
@@ -345,7 +380,8 @@ export function renderPropertyPage(pageId, {
   propertyReserveDisbursementRemoveStatus, propertyReserveDisbursementRemoveMessage,
   propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
   propertyRepairRemoveStatus, propertyRepairRemoveMessage,
-  propertyMetaEntryStatus, propertyMetaEntryMessage,
+  propertyMetaEntryStatus, propertyMetaEntryMessage, propertyPolicy,
+  propertyReservePolicyStatus, propertyReservePolicyMessage, propertyCapitalPolicyStatus, propertyCapitalPolicyMessage,
   propertyBudgetImportStatus, propertyBudgetImportMessage,
   propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
 }) {
@@ -424,7 +460,7 @@ export function renderPropertyPage(pageId, {
       ${canManagePropertyLedgers ? renderRemoveStatus(propertyDistributionRemoveStatus, propertyDistributionRemoveMessage) : ''}
       ${renderTable({ head: ['Period', 'Amount distributed', ...(canManagePropertyLedgers ? [''] : [])], rows: renderPropertyDistributionRows(distributions.rows, canManagePropertyLedgers) })}
       ${fallbackNote}
-    </section>${canManagePropertyLedgers ? renderPropertyReserveMonthlyForm(propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage) + renderPropertyReserveDisbursementForm(propertyReserveDisbursementEntryStatus, propertyReserveDisbursementEntryMessage) : ''}`;
+    </section>${renderBaseMinimumPolicy(propertyPolicy, canManagePropertyLedgers, propertyReservePolicyStatus, propertyReservePolicyMessage)}${canManagePropertyLedgers ? renderPropertyReserveMonthlyForm(propertyReserveMonthlyEntryStatus, propertyReserveMonthlyEntryMessage) + renderPropertyReserveDisbursementForm(propertyReserveDisbursementEntryStatus, propertyReserveDisbursementEntryMessage) : ''}`;
   }
   if (pageId === 'capital') {
     // Live-first: tries connect.finance-property-ledgers.v1 (property-report-service.js's
@@ -454,7 +490,7 @@ export function renderPropertyPage(pageId, {
       ])}
       ${renderTable({ head: ['Operating cost', 'Annual amount'], rows: renderPropertyCostRows(valuation.operatingCosts) })}
       ${fallbackNote}
-    </section>${canManagePropertyLedgers && isLive ? renderPropertyValuationForm(valuation, propertyMetaEntryStatus, propertyMetaEntryMessage) : ''}`;
+    </section>${renderCapitalPolicy(propertyPolicy, canManagePropertyLedgers, propertyCapitalPolicyStatus, propertyCapitalPolicyMessage)}${canManagePropertyLedgers && isLive ? renderPropertyValuationForm(valuation, propertyMetaEntryStatus, propertyMetaEntryMessage) : ''}`;
   }
   if (pageId === 'forecast') {
     // Live-first: tries connect.finance-property-forecast.v1 (property-forecast-service.js's
