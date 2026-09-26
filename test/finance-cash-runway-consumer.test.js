@@ -27,6 +27,13 @@ describe('finance cash runway contract consumer', () => {
     expect(validateFinanceCashRunwayV1(input).ok).toBe(true);
   });
 
+  it('accepts the additive full policy settings while remaining compatible with the older shape', () => {
+    const extended = { ...valid(), policySettings: { floorMonths: 3, cashOnHandCents: null, cashAccountCode: '11027', generalFundBudgetCode: '40085' } };
+    expect(validateFinanceCashRunwayV1(extended)).toEqual({ ok: true, errors: [] });
+    expect(validateFinanceCashRunwayV1(valid())).toEqual({ ok: true, errors: [] });
+    expect(validateFinanceCashRunwayV1({ ...extended, policySettings: { ...extended.policySettings, floorMonths: 4 } }).ok).toBe(false);
+  });
+
   it('fails closed on extra fields, unreconciled expense splits, or missing available values', () => {
     expect(validateFinanceCashRunwayV1({ ...valid(), extra: true }).ok).toBe(false);
     expect(validateFinanceCashRunwayV1({ ...valid(), allExpensesYtdCents: 1 }).ok).toBe(false);

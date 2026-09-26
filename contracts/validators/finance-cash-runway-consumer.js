@@ -8,6 +8,7 @@ const ROOT_KEYS = [
   'gapToFloorCents', 'cashSource', 'cashAccounts', 'asOfDate', 'daycareExcludedCents',
   'allExpensesYtdCents',
 ];
+const POLICY_KEYS = ['floorMonths', 'cashOnHandCents', 'cashAccountCode', 'generalFundBudgetCode'];
 const CASH_SOURCES = new Set(['manual', 'balance_sheet', 'quickbooks', 'none']);
 
 function isRecord(value) {
@@ -36,7 +37,9 @@ function isNullableNumber(value) {
 
 export function validateFinanceCashRunwayV1(value) {
   const errors = [];
-  if (!hasExactKeys(value, ROOT_KEYS)) return { ok: false, errors: ['root must contain exactly the cash-runway fields'] };
+  const rootKeys = value && Object.prototype.hasOwnProperty.call(value, 'policySettings')
+    ? [...ROOT_KEYS, 'policySettings'] : ROOT_KEYS;
+  if (!hasExactKeys(value, rootKeys)) return { ok: false, errors: ['root must contain exactly the cash-runway fields'] };
   if (value.contract !== CONTRACT) errors.push(`contract must be ${CONTRACT}`);
   if (value.dataClassification !== 'aggregate') errors.push('dataClassification must be aggregate');
   if (value.sourceProduct !== 'connect') errors.push('sourceProduct must be connect');
@@ -58,6 +61,18 @@ export function validateFinanceCashRunwayV1(value) {
   if (!CASH_SOURCES.has(value.cashSource)) errors.push('cashSource must be manual, balance_sheet, quickbooks, or none');
   if (!Array.isArray(value.cashAccounts) || value.cashAccounts.some((name) => typeof name !== 'string' || name.trim() === '')) errors.push('cashAccounts must be an array of non-empty strings');
   if (typeof value.asOfDate !== 'string') errors.push('asOfDate must be a string');
+  if (Object.prototype.hasOwnProperty.call(value, 'policySettings')) {
+    const policy = value.policySettings;
+    if (!hasExactKeys(policy, POLICY_KEYS)) errors.push('policySettings must contain exactly the policy fields');
+    else {
+      if (!(typeof policy.floorMonths === 'number' && Number.isFinite(policy.floorMonths) && policy.floorMonths >= 0 && policy.floorMonths <= 60)) errors.push('policySettings.floorMonths must be between 0 and 60');
+      if (policy.cashOnHandCents !== null && !Number.isInteger(policy.cashOnHandCents)) errors.push('policySettings.cashOnHandCents must be integer cents or null');
+      for (const key of ['cashAccountCode', 'generalFundBudgetCode']) {
+        if (typeof policy[key] !== 'string' || (policy[key] && !/^[\w.-]{1,32}$/.test(policy[key]))) errors.push(`policySettings.${key} must be a valid account code or empty`);
+      }
+      if (policy.floorMonths !== value.policyFloorMonths) errors.push('policySettings.floorMonths must match policyFloorMonths');
+    }
+  }
   if (Number.isInteger(value.expensesYtdCents) && Number.isInteger(value.daycareExcludedCents)
       && Number.isInteger(value.allExpensesYtdCents)
       && value.expensesYtdCents + value.daycareExcludedCents !== value.allExpensesYtdCents) {

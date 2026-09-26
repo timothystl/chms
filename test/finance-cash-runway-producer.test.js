@@ -41,6 +41,7 @@ describe('buildFinanceCashRunwayV1', () => {
       expensesYtdCents: 900000, daycareExcludedCents: 300000, allExpensesYtdCents: 1200000,
       monthsElapsed: 9, averageMonthlyExpenseCents: 100000, monthsOfCash: 24,
       floorCents: 300000, gapToFloorCents: 0, cashAccounts: ['11027 Lindell Checking'],
+      policySettings: { floorMonths: 3, cashOnHandCents: null, cashAccountCode: '11027', generalFundBudgetCode: '' },
     });
   });
 

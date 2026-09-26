@@ -65,6 +65,7 @@ export function buildLiveCashRunwayView(input) {
     floorCents: input.floorCents,
     gapToFloorCents: input.gapToFloorCents,
     daycareExcludedCents: input.daycareExcludedCents,
+    policySettings: input.policySettings || null,
   };
 }
 
