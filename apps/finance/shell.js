@@ -22,6 +22,8 @@ import { GIFT_BATCH_STYLES, renderBatchPage, renderBatchReportsPage, renderRecon
 import { describeGivingBatchFailure, fetchGivingBatchLedger, fetchGivingBatchWorkspace, postGivingBatchWrite } from './connect-giving-batch-client.js';
 import { fetchGivingAnalytics, fetchGivingAnalyticsPeople, postGivingFollowupWrite } from './connect-giving-analytics-client.js';
 import { fetchAccessRoles } from './connect-access-client.js';
+import { fetchFinanceClassification } from './finance-classification-client.js';
+import { renderClassificationEditors } from './classification-pages.js';
 import { ACCESS_STYLES, renderAccessPage } from './access-pages.js';
 import {
   GIVING_ANALYTICS_STYLES, renderConcentrationPage, renderHouseholdBandsPage, renderNudgesPage, renderPledgesPage, renderStatementsPage, renderTrendsPage,
@@ -916,7 +918,7 @@ function renderSectionBody(ctx) {
     section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends,
     daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
     propertyLedgers, propertyLedgersLive, propertyValuation,
-    propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
+    propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, classification, compensationReport,
     compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage, givingEntryStatus, givingEntryMessage,
     budgetEntryStatus, budgetEntryMessage, payrollBundle,
     compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
@@ -952,6 +954,7 @@ function renderSectionBody(ctx) {
     propertyMetaEntryStatus, propertyMetaEntryMessage,
     propertyBudgetImportStatus, propertyBudgetImportMessage,
     propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
+    classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
     roleResult, councilPreview,
   } = ctx;
   if (section.id === 'health') {
@@ -1326,7 +1329,11 @@ function renderSectionBody(ctx) {
       <div class="section-heading trend-heading"><div><div class="eyebrow">Source freshness</div><h2>${status.freshness === 'stale' ? `Review before relying on this ${isLive ? 'data' : 'fixture'}` : `${isLive ? 'Data' : 'Fixture'} is within the review window`}</h2></div><span class="badge">${status.freshness}</span></div>
       <div class="grid"><div class="card"><small>${isLive ? 'Most recent import' : 'Last fixture import'}</small><strong>${escapeHtml(status.lastImportedAt)}</strong></div><div class="card"><small>Age at request</small><strong>${status.ageDays} days</strong><span>Policy window ${status.freshnessWindowDays} days</span></div></div>
       <p><small>${isLive ? "Fetched live from Connect's real, aggregate-only finance-data-status contract endpoint." : `The committed synthetic fixture (the live endpoint is not configured or did not answer${dataStatus.fallbackReason ? `: ${escapeHtml(dataStatus.fallbackReason)}` : ''}).`}</small></p>
-    </section>`;
+    </section>${renderClassificationEditors(classification, {
+      canManage: roleResult.ok && roleResult.role === 'admin',
+      revenueStatus: classificationRevenueStatus, revenueMessage: classificationRevenueMessage,
+      expenseStatus: classificationExpenseStatus, expenseMessage: classificationExpenseMessage,
+    })}`;
   }
   if (section.id === 'payroll') {
     return renderPayrollSection(payrollBundle);
@@ -1411,13 +1418,13 @@ function renderShell(ctx) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
-  <link rel="icon" href="/assets/tlc-logo.png">
+  <link rel="icon" href="/assets/finance-mark.png"><link rel="apple-touch-icon" href="/assets/finance-icon.png">
   <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
     <div class="app-header-row">
-      <a class="sidebar-brand" href="/"><img src="/assets/tlc-logo.png" alt="Timothy Lutheran Church" width="40" height="40"><span class="brand-text"><span class="brand-name">Timothy Finance</span><span class="brand-sub">Timothy Lutheran · St. Louis</span></span></a>
+      <a class="sidebar-brand" href="/"><img src="/assets/finance-mark.png" alt="" width="40" height="40"><span class="brand-text"><span class="brand-name">Timothy Finance</span><span class="brand-sub">Timothy Lutheran · St. Louis</span></span></a>
       ${production ? '' : '<span class="env-pill" title="Isolated staging environment. Test data may be present.">Staging workspace</span>'}
       <div class="header-right">
         ${renderViewingAs(section, page, { roleResult, councilPreview })}
@@ -2435,9 +2442,9 @@ export default {
       labels.forEach((label, i) => { if (label) map[String(label)] = streams[i] || ''; });
       const result = await postConnectRevenueStreamsWrite(env, accessJwt, { map });
       if (result.ok) {
-        return response(null, { status: 303, headers: { Location: '/?status=ok' } });
+        return response(null, { status: 303, headers: { Location: '/?section=data&op=revenue-streams&status=ok' } });
       }
-      const params = new URLSearchParams({ status: 'error', reason: result.reason || 'unknown' });
+      const params = new URLSearchParams({ section: 'data', op: 'revenue-streams', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -2456,9 +2463,9 @@ export default {
       labels.forEach((label, i) => { if (label) map[String(label)] = keys[i] || ''; });
       const result = await postConnectFlowExpenseMapWrite(env, accessJwt, { map });
       if (result.ok) {
-        return response(null, { status: 303, headers: { Location: '/?status=ok' } });
+        return response(null, { status: 303, headers: { Location: '/?section=data&op=flow-expense-map&status=ok' } });
       }
-      const params = new URLSearchParams({ status: 'error', reason: result.reason || 'unknown' });
+      const params = new URLSearchParams({ section: 'data', op: 'flow-expense-map', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -3413,6 +3420,15 @@ export default {
           ? await listQuickbooksBudgets(env, env.FINANCE_DB, {}).catch((e) => ({ ok: false, error: e.message })) : null;
         const dataStatus = ['data', 'health', 'quickbooks'].includes(section.id)
           ? await safeSyntheticRead(() => resolveDataStatus(env, env.FINANCE_DB)) : null;
+        const classification = section.id === 'data'
+          ? await fetchFinanceClassification(env, defaultLiveBudgetFiscalYear()) : null;
+        const classificationOp = section.id === 'data' ? url.searchParams.get('op') : null;
+        const classificationRevenueStatus = classificationOp === 'revenue-streams' ? url.searchParams.get('status') : null;
+        const classificationRevenueMessage = classificationRevenueStatus === 'error'
+          ? describeRevenueStreamsEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
+        const classificationExpenseStatus = classificationOp === 'flow-expense-map' ? url.searchParams.get('status') : null;
+        const classificationExpenseMessage = classificationExpenseStatus === 'error'
+          ? describeFlowExpenseMapEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
         const compensationReport = section.id === 'compensation'
           ? await safeSyntheticRead(() => readSyntheticCompensationReport(env.FINANCE_DB)) : null;
         // The 'plan' page of the compensation section tries the real connect.finance-compensation.v1
@@ -3684,7 +3700,8 @@ export default {
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
-          dataStatus, quickbooksOwn, quickbooksBudgets, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,
+          dataStatus, classification, classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
+          quickbooksOwn, quickbooksBudgets, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
     compensationProjection,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,

@@ -5,7 +5,7 @@ const ROUTES = [
   { id: 'shell', paths: ['/', '/index.html'], dataSource: 'synthetic-d1', queryBudget: 'summary', optionalQueryBudgets: ['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'compensationPlanRaw', 'cashRunway', 'facilities', 'hr'] },
   { id: 'health', paths: ['/health'], dataSource: 'none' },
   // Self-hosted logo and fonts for the v3 design (see brand-assets.js); static bytes, no data.
-  { id: 'brand-asset', paths: ['/assets/tlc-logo.png', '/assets/fonts/outfit.woff2', '/assets/fonts/figtree.woff2'], dataSource: 'none' },
+  { id: 'brand-asset', paths: ['/assets/finance-mark.png', '/assets/finance-icon.png', '/assets/fonts/outfit.woff2', '/assets/fonts/figtree.woff2'], dataSource: 'none' },
   { id: 'summary-v1', paths: ['/api/v1/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', contract: 'finance.summary.v1' },
   { id: 'giving-preview-v1', paths: ['/api/v1/connect-giving-preview'], dataSource: 'synthetic-static', contract: 'connect.giving-summary.v1' },
   { id: 'giving-transport-evidence-v1', paths: ['/api/v1/connect-giving-transport-evidence'], dataSource: 'synthetic-static', contract: 'finance.connect-giving-transport-evidence.v1' },
@@ -172,8 +172,9 @@ const ROUTES = [
   // cash-runway policy settings): each relays to its own Connect contract endpoint (never writes
   // to Finance's own database), matching the legacy in-Connect finance/revenue-streams,
   // finance/flow-expense-map, and finance/cash-policy PUT routes exactly (admin-only). Cash &
-  // reserve now exposes the cash-policy form when the live runway contract includes its additive
-  // policySettings detail. Revenue streams and the flow map still have no read-backed form.
+  // reserve exposes the cash-policy form when the live runway contract includes its additive
+  // policySettings detail. Data & Imports reads the current-year account groups through the
+  // narrow finance-classification-v1 contract and exposes the other two forms to admins.
   { id: 'revenue-streams-write-v1', paths: ['/api/v1/connect-revenue-streams-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-revenue-streams-write-relay.v1' },
   { id: 'flow-expense-map-write-v1', paths: ['/api/v1/connect-flow-expense-map-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-flow-expense-map-write-relay.v1' },
   { id: 'cash-policy-write-v1', paths: ['/api/v1/connect-cash-policy-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-cash-policy-write-relay.v1' },

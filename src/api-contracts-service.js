@@ -17,6 +17,7 @@ import { handleGivingAnalyticsContracts } from './api-giving-analytics-contracts
 import { respondWithFinancePlanningBasisV1 } from './api-planning-contracts.js';
 import { respondWithFinanceAccessRolesV1 } from './api-access-contracts.js';
 import { respondWithFinanceBudgetBuilderV1 } from './api-budget-builder-contracts.js';
+import { respondWithFinanceClassificationV1 } from './api-classification-contracts.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
@@ -63,6 +64,10 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-data-status-v1' && req.method === 'GET') {
     return respondWithFinanceDataStatusV1(env.DB);
+  }
+
+  if (path === '/api/contracts/finance-classification-v1' && req.method === 'GET') {
+    return respondWithFinanceClassificationV1(new URL(req.url), env.DB);
   }
 
   if (path === '/api/contracts/finance-cash-runway-v1' && req.method === 'GET') {
