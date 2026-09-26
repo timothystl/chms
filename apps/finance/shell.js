@@ -116,6 +116,7 @@ import {
   QB_PAGE, qbEnabled, readConnectionSummary as readQbConnectionSummary, listQuickbooksBudgets, handleConnect as handleQbConnect, handleCallback as handleQbCallback, handleDisconnect as handleQbDisconnect,
   handleSync as handleQbSync, handleSyncYears as handleQbSyncYears, handleBudgetSelect as handleQbBudgetSelect,
 } from './quickbooks-oauth-routes.js';
+import { loadQuickbooksTransactions } from './quickbooks-transactions-service.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
@@ -1357,6 +1358,7 @@ function renderSectionBody(ctx) {
   if (section.id === 'quickbooks') {
     return renderQuickbooksPage(page.id, {
       dataStatus, accountsReport, quickbooksOwn: ctx.quickbooksOwn, quickbooksBudgets: ctx.quickbooksBudgets,
+      quickbooksTransactions: ctx.quickbooksTransactions,
       canManageQuickbooks: roleResult.ok && roleResult.role === 'admin', searchParams: ctx.searchParams,
     });
   }
@@ -3595,6 +3597,10 @@ export default {
         const quickbooksBudgets = quickbooksOwn && quickbooksOwn.connected && url.searchParams.get('budgets') === '1'
           && roleResult.ok && roleResult.role === 'admin'
           ? await listQuickbooksBudgets(env, env.FINANCE_DB, {}).catch((e) => ({ ok: false, error: e.message })) : null;
+        const quickbooksTransactions = section.id === 'quickbooks'
+          && ['transactions', 'expense-drilldown', 'vendor-spend', 'exceptions'].includes(resolveFinancePage(section, pageId).id)
+          && qbEnabled(env) && env.FINANCE_DB
+          ? await loadQuickbooksTransactions(env, url.searchParams).catch((error) => ({ ok: false, error: error.message })) : null;
         const dataStatus = ['data', 'health', 'quickbooks'].includes(section.id)
           ? await safeSyntheticRead(() => resolveDataStatus(env, env.FINANCE_DB)) : null;
         const classification = section.id === 'data'
@@ -3887,7 +3893,7 @@ export default {
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyDebt, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, classification, classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
-          quickbooksOwn, quickbooksBudgets, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,
+          quickbooksOwn, quickbooksBudgets, quickbooksTransactions, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
     compensationProjection,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
