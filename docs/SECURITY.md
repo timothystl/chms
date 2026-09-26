@@ -10,6 +10,26 @@ audited.
 Cloudflare Access protects the entire Finance staging Worker. This is a staging access boundary,
 not shared production staff identity and not authorization to connect production data.
 
+Connect also supports a staged shared-staff login exchange. When
+`CONNECT_ACCESS_TEAM_DOMAIN` and `CONNECT_ACCESS_AUD` are configured, a request carrying
+Cloudflare's `Cf-Access-Jwt-Assertion` can enter through `/admin/access-login` (or the normal
+Connect root). Connect independently verifies the token signature, issuer, audience and lifetime,
+then maps its lowercased email to an existing, active `app_users` row. It never provisions an
+account or derives a role from the Access policy. The resulting `vol_auth` session uses the same
+live role/deactivation check as password login, so product authorization and immediate local
+revocation remain unchanged.
+
+Before enabling the Access application on a hostname:
+
+- use the Google Workspace identity provider for `@timothystl.org` staff;
+- add any non-Workspace operator only through a named email allowlist, never `Everyone`;
+- keep the Access session at one hour or less and retain the documented two-step offboarding
+  procedure (disable the IdP account and revoke the Access user session);
+- populate and verify each authorized Connect account's email before cutover; an unassigned or
+  inactive identity receives no Connect session;
+- exercise admin, staff, member/volunteer exception, deactivation and password break-glass paths
+  in staging before applying the policy to the production hostname.
+
 ## Sensitive data
 
 Do not expose credentials, session material, personal records, gifts, payroll/HR data, childcare
