@@ -1389,13 +1389,13 @@ function renderShell(ctx) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
-  <link rel="icon" href="/assets/tlc-logo.png">
+  <link rel="icon" href="/assets/finance-mark.png"><link rel="apple-touch-icon" href="/assets/finance-icon.png">
   <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
     <div class="app-header-row">
-      <a class="sidebar-brand" href="/"><img src="/assets/tlc-logo.png" alt="Timothy Lutheran Church" width="40" height="40"><span class="brand-text"><span class="brand-name">Timothy Finance</span><span class="brand-sub">Timothy Lutheran · St. Louis</span></span></a>
+      <a class="sidebar-brand" href="/"><img src="/assets/finance-mark.png" alt="" width="40" height="40"><span class="brand-text"><span class="brand-name">Timothy Finance</span><span class="brand-sub">Timothy Lutheran · St. Louis</span></span></a>
       ${production ? '' : '<span class="env-pill" title="Isolated staging environment. Test data may be present.">Staging workspace</span>'}
       <div class="header-right">
         ${renderViewingAs(section, page, { roleResult, councilPreview })}
