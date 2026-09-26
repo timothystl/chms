@@ -142,3 +142,39 @@ describe('Plan page projection', () => {
     expect(html).not.toContain('hidden from council');
   });
 });
+
+describe('Benefits & taxes and Benchmarks pages: built from the saved plan', () => {
+  it('shows each worker’s benefits, the Concordia rates and health quote options for an admin', async () => {
+    const calls = [];
+    const { html } = await get('/?section=compensation&page=benefits&plan_year=2027', env({ calls }));
+    expect(calls).toContain('/api/contracts/finance-compensation-plan-v1');
+    expect(html).toContain('Benefits &amp; taxes by worker');
+    expect(html).toContain('Pension &mdash; Concordia Retirement Plan');
+    expect(html).toContain('11.70%');
+    expect(html).toContain('Group health plan');
+    expect(html).toContain('Reference figures used');
+    // Admins see every counted worker, including one hidden from council; the MDO worker is paid elsewhere.
+    expect(html).toContain('Hidden B');
+    expect(html).toContain('Music C');
+    expect(html).not.toContain('Synthetic Compensation Report benefits');
+  });
+
+  it('compares salaries with the district worksheet and Concordia ranges, hiding council-hidden workers from council', async () => {
+    const admin = await get('/?section=compensation&page=benchmarks&plan_year=2027', env());
+    expect(admin.html).toContain('Salaries against the district scale and Concordia ranges');
+    expect(admin.html).toContain('Share of district scale');
+    expect(admin.html).toContain('$50,000 &ndash; $60,000');
+    expect(admin.html).toContain('Music C &mdash; Concordia Plans ranges');
+    expect(admin.html).toContain('Hidden B');
+    const council = await get('/?section=compensation&page=benchmarks&plan_year=2027', env({ role: 'council' }));
+    expect(council.html).toContain('Music C');
+    expect(council.html).not.toContain('Hidden B');
+  });
+
+  it('says so plainly when the saved plan cannot be read', async () => {
+    const { html } = await get('/?section=compensation&page=benefits', env({ planStatus: 500 }));
+    expect(html).toContain('built from the saved compensation plan, which could not be read');
+    expect(html).not.toContain('Benefits &amp; taxes by worker');
+  });
+});
+

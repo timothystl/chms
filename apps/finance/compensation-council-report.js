@@ -242,6 +242,14 @@ export function renderCouncilReport({ model, computed, totals }) {
     </section>`;
   }).join('');
 
+  const healthPage = renderHealthPlanSection({ model, computed, totals });
+  const refPage = renderReferenceSection({ model });
+
+  return cover + workerPages + healthPage + refPage;
+}
+
+export function renderHealthPlanSection({ model, computed, totals }) {
+  const planCalc = model.healthPlanTotal(model.plan.healthPlanOption);
   const selected = model.plan.healthPlanOption;
   const planRows = FIN_COMP_PLAN_KEYS.map((key) => {
     const calc = model.healthPlanTotal(key);
@@ -259,14 +267,19 @@ export function renderCouncilReport({ model, computed, totals }) {
           : `${moneyCents(rate || 0)}/mo &times; 12, plus a share of dental and vision`;
     return `<tr><td>${escapeHtml(w.name || '(unnamed)')}</td><td>${model.isCashOnly(w) ? `Not eligible &mdash; ${model.ftePct(w)}% time` : escapeHtml(healthTierLabel(tier))}</td>${n(money(computed[i].benefits.healthCents))}<td><small>${basis}</small></td></tr>`;
   }).join('');
-  const healthPage = `<section class="report print-newpage" aria-label="Group health plan">
+  return `<section class="report print-newpage" aria-label="Group health plan">
     ${renderSectionHeading({ eyebrow: 'Benefits', heading: 'Group health plan' })}
-    <div class="table-wrap"><table><thead><tr><th>Option</th>${FIN_HEALTH_TIERS.map((t) => `<th class="num">${escapeHtml(t.label)} / mo</th>`).join('')}<th class="num">Dental</th><th class="num">Vision</th><th class="num">Family deductible</th><th class="num">Out-of-pocket max</th><th class="num">Total premium</th><th class="num">vs Renewal</th></tr></thead><tbody>${planRows}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th style="min-width:14rem">Option</th>${FIN_HEALTH_TIERS.map((t) => `<th class="num">${escapeHtml(t.label)} / mo</th>`).join('')}<th class="num">Dental</th><th class="num">Vision</th><th class="num">Family deductible</th><th class="num">Out-of-pocket max</th><th class="num">Total premium</th><th class="num">vs Renewal</th></tr></thead><tbody>${planRows}</tbody></table></div>
     <p>The church covers ${escapeHtml(planCalc ? planCalc.label : 'the selected plan')} in full. A worker who chooses another option pays the premium difference themselves &mdash; the last column above, per worker per year.</p>
     <div class="table-wrap"><table><thead><tr><th>Worker</th><th>Coverage</th><th class="num">Church cost</th><th>Basis</th></tr></thead><tbody>${tierRows}
       <tr class="total"><td colspan="2"><b>Total health cost</b></td>${n(money(totals.healthCents))}<td></td></tr></tbody></table></div>
   </section>`;
 
+}
+
+export function renderReferenceSection({ model }) {
+  const planCalc = model.healthPlanTotal(model.plan.healthPlanOption);
+  const pensionPct = pctFmt(model.pensionRate(model.targetYear).rate);
   const t = model.targetYear;
   const baseNow = model.baseSalary(t), basePrior = model.baseSalary(t - 1);
   const enrolled = model.enrolledCount();
@@ -281,12 +294,90 @@ export function renderCouncilReport({ model, computed, totals }) {
     ['Group health quote', `${money(planCalc ? planCalc.totalCents : 0)} over ${plural(enrolled, 'contract')}`, model.sourceDoc('quoteSource'), ''],
   ].map((r) => `<tr><td>${r[0]}</td>${n(`<b>${r[1]}</b>`)}<td><small>${escapeHtml(r[2])}</small></td><td><small>${r[3]}</small></td></tr>`).join('');
   const withReports = model.roster.filter((w) => model.usableRanges(w).length).length;
-  const refPage = `<section class="report print-newpage" aria-label="Reference figures used">
+  return `<section class="report print-newpage" aria-label="Reference figures used">
     ${renderSectionHeading({ eyebrow: 'Sources', heading: 'Reference figures used' })}
     <div class="table-wrap"><table><thead><tr><th>Figure</th><th class="num">Value</th><th>Source document</th><th>Change</th></tr></thead><tbody>${refRows}</tbody></table></div>
     <p><small>${withReports} of ${model.roster.length} roster worker${model.roster.length === 1 ? ' has' : 's have'} a Concordia Plans Compensation Decision Support report on file. Where a worker has none, this plan is measured against the District Compensation Worksheet alone.</small></p>
     <p><small>Built from ${escapeHtml(model.sourceDoc('districtSource'))}, ${escapeHtml(model.sourceDoc('concordiaSource'))}, and ${escapeHtml(model.sourceDoc('quoteSource'))}.</small></p>
   </section>`;
 
-  return cover + workerPages + healthPage + refPage;
+}
+
+function benefitBreakdownTable(model, computed) {
+  const bd = model.benefitBreakdown(computed);
+  return `<div class="table-wrap"><table><thead><tr><th>Cost</th><th class="num">Workers</th><th class="num">FY${model.targetYear}</th><th class="num">Share</th></tr></thead><tbody>
+      ${bd.rows.map((r) => { const [label, note] = BREAKDOWN_LABELS[r.key](r); return `<tr><td>${label}<br><small>${note}</small></td>${n(`${r.people} of ${bd.countedCount}`)}${n(`<b>${money(r.cents)}</b>`)}${n(`${bd.totalCents ? Math.round(r.cents / bd.totalCents * 100) : 0}%`)}</tr>`; }).join('')}
+      <tr class="total"><td><b>Total benefits &amp; taxes</b></td><td></td>${n(money(bd.totalCents))}${n('100%')}</tr>
+    </tbody></table></div>`;
+}
+
+// Compensation → Benefits & taxes: the same figures as the Council report's benefits, health-plan
+// and reference pages, per worker, from the saved plan and the LCMS/Concordia reference figures.
+export function renderBenefitsTaxesPage({ model, computed, totals }) {
+  if (!model.roster.length) return '<p>No compensation roster has been saved yet.</p>';
+  const bd = model.benefitBreakdown(computed);
+  const rows = model.roster.map((w, i) => {
+    if (model.isExternallyFunded(w)) return '';
+    const c = computed[i], b = c.benefits;
+    return `<tr><td><b>${escapeHtml(w.name || '(unnamed)')}</b><br><small>${escapeHtml(w.position || '')}${b.cashOnly ? ` &middot; cash only, ${model.ftePct(w)}% time` : ''}</small></td>${n(money(c.salaryCents))}${n(money(b.pensionCents))}${n(money(b.healthCents))}${n(money(b.disabilityCents))}${n(money(b.ficaCents))}${n(`<b>${money(b.totalCents)}</b>`)}${n(money(c.churchCostCents))}</tr>`;
+  }).join('');
+  const sum = (key) => model.countedEntries().reduce((t, e) => t + computed[e.i].benefits[key], 0);
+  const secaNote = bd.secaSelfCents ? `<p><small>Ministers pay the employer half of FICA themselves as SECA (${money(bd.secaSelfCents)} in total at these salaries). That is not a church cost and is in no total here.</small></p>` : '';
+  return `<section class="report" aria-label="Benefits and taxes">
+    ${renderSectionHeading({ eyebrow: `FY${model.targetYear} · from the saved plan`, heading: 'Benefits &amp; taxes by worker', badge: 'LCMS Missouri District · Concordia Plans' })}
+    ${ledgerWarning(model)}
+    ${renderKpiCards([
+      { label: 'Benefits & taxes', value: money(totals.benefitsCents), hint: `${totals.totalCents ? Math.round(totals.benefitsCents / totals.totalCents * 100) : 0}% of total compensation` },
+      { label: 'Concordia pension', value: pctFmt(model.pensionRate(model.targetYear).rate), hint: 'Retirement Plan, Traditional option' },
+      { label: 'Health plan', value: money(totals.healthCents), hint: escapeHtml((model.healthPlanTotal(model.plan.healthPlanOption) || {}).label || 'No option selected') },
+    ])}
+    ${benefitBreakdownTable(model, computed)}
+    <div class="table-wrap"><table><thead><tr><th style="min-width:11rem">Worker</th><th class="num">Cash salary</th><th class="num">Pension</th><th class="num">Health</th><th class="num">Disability</th><th class="num">Employer FICA</th><th class="num">Benefits &amp; taxes</th><th class="num">Church cost</th></tr></thead><tbody>${rows}
+      <tr class="total"><td><b>Total</b></td>${n(money(totals.salaryCents))}${n(money(sum('pensionCents')))}${n(money(sum('healthCents')))}${n(money(sum('disabilityCents')))}${n(money(sum('ficaCents')))}${n(money(totals.benefitsCents))}${n(money(totals.totalCents))}</tr></tbody></table></div>
+    ${secaNote}
+  </section>
+  ${renderHealthPlanSection({ model, computed, totals })}
+  ${renderReferenceSection({ model })}`;
+}
+
+// Compensation → Benchmarks: each worker's proposed salary against the LCMS Missouri District
+// worksheet figure and their Concordia Plans Compensation Decision Support ranges.
+export function renderBenchmarksPage({ model, computed, totals }) {
+  if (!model.roster.length) return '<p>No compensation roster has been saved yet.</p>';
+  const med = model.medianTotal(computed);
+  const gap = model.fullScaleGap(computed);
+  const scaleRatio = totals.worksheetCents ? Math.round(totals.salaryCents / totals.worksheetCents * 100) : null;
+  const rows = model.roster.map((w, i) => {
+    if (model.isExternallyFunded(w)) return '';
+    const c = computed[i];
+    const scale = model.vsScale(c.salaryCents, c.worksheetCents);
+    const v = model.verdict(w, c.salaryCents);
+    const lcms = model.lcmsRange(w);
+    return `<tr><td><b>${escapeHtml(w.name || '(unnamed)')}</b><br><small>${escapeHtml(w.position || '')} &middot; ${Number(w.yearsExperience) || 0} yrs</small></td>${n(`<b>${money(c.salaryCents)}</b>`)}${n(c.worksheetCents == null ? '&mdash;' : money(c.worksheetCents))}${n(scale.pct == null ? '&mdash;' : tone(scale.tone, `<b>${scale.pct}%</b>`))}${n(lcms ? `${money(lcms.lowCents)} &ndash; ${money(lcms.highCents)}` : '&mdash;')}${n(lcms && lcms.midCents ? money(lcms.midCents) : '&mdash;')}<td>${tone(v.tone, verdictText(v))}</td></tr>`;
+  }).join('');
+  const detail = model.roster.map((w, i) => {
+    if (model.isExternallyFunded(w)) return '';
+    const usable = model.usableRanges(w);
+    if (!usable.length) return '';
+    const c = computed[i];
+    const asOf = (w.concordia && w.concordia.asOfDate) ? ` &middot; report run ${escapeHtml(w.concordia.asOfDate)}` : '';
+    return `<details class="panel panel-spaced"><summary>${escapeHtml(w.name || '(unnamed)')} &mdash; Concordia Plans ranges${asOf}</summary>
+      <div class="table-wrap"><table><thead><tr><th>Range</th><th class="num">Lower</th><th class="num">Midpoint</th><th class="num">Higher</th><th class="num">This plan vs. midpoint</th></tr></thead><tbody>${usable.map((r) => {
+        const vs = r.midCents ? c.salaryCents - r.midCents : null;
+        return `<tr><td>${escapeHtml(r.label)}</td>${n(money(r.lowCents))}${n(r.midCents ? money(r.midCents) : '&mdash;')}${n(money(r.highCents))}${n(vs == null ? '&mdash;' : moneySigned(vs))}</tr>`;
+      }).join('')}</tbody></table></div></details>`;
+  }).join('');
+  const withReports = model.roster.filter((w) => !model.isExternallyFunded(w) && model.usableRanges(w).length).length;
+  return `<section class="report" aria-label="Compensation benchmarks">
+    ${renderSectionHeading({ eyebrow: `FY${model.targetYear} · from the saved plan`, heading: 'Salaries against the district scale and Concordia ranges', badge: 'LCMS Missouri District · Concordia Plans' })}
+    ${ledgerWarning(model)}
+    ${renderKpiCards([
+      { label: 'Share of district scale', value: scaleRatio == null ? '&mdash;' : `${scaleRatio}%`, hint: `${money(totals.salaryCents)} of ${money(totals.worksheetCents)} on the district worksheet` },
+      { label: 'Share of LCMS midpoints', value: med.pct == null ? '&mdash;' : `${med.pct}%`, hint: med.count ? `${plural(med.count, 'worker')} with a Concordia report` : 'No Concordia reports on file' },
+      { label: 'Cost to reach full scale', value: money(gap.totalCents), hint: gap.totalCents ? `${money(gap.salaryGapCents)} salary + ${money(gap.benefitsGapCents)} benefits` : 'Everyone is at or above scale' },
+    ])}
+    <div class="table-wrap"><table><thead><tr><th style="min-width:11rem">Worker</th><th class="num">FY${model.targetYear} salary</th><th class="num">District worksheet</th><th class="num">% of scale</th><th class="num">Concordia LCMS range</th><th class="num">LCMS midpoint</th><th>Reading</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p><small>The district worksheet figure is the LCMS Missouri District Compensation Guidelines base salary for FY${model.targetYear} times each worker's role, education and experience multiplier. ${withReports} of ${model.countedEntries().length} workers have a Concordia Plans Compensation Decision Support report on file; when a report is re-run, update its figures in Connect's Compensation planner.</small></p>
+  </section>
+  ${detail}`;
 }

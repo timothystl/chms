@@ -3418,7 +3418,7 @@ export default {
         // Plan and Council also show the raise projection (compensation-projection.js), so every
         // role allowed into this section reads the saved plan there; Connect's contract applies the
         // same role check and hides hideFromCouncil workers from council logins.
-        const compensationPlanRaw = (section.id === 'compensation' && ['plan', 'council'].includes(effectivePageId) && compensationRoleVerified)
+        const compensationPlanRaw = (section.id === 'compensation' && ['plan', 'council', 'benefits', 'benchmarks'].includes(effectivePageId) && compensationRoleVerified)
           ? await fetchConnectSalaryPlannerState(env, request.headers.get('Cf-Access-Jwt-Assertion') || '') : null;
         const compensationProjection = compensationPlanRaw && compensationPlanRaw.ok && compensationPlanRaw.data
           ? await buildCompensationProjection(env, compensationPlanRaw.data, {
