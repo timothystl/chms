@@ -2,6 +2,7 @@ import { buildPropertyReportView, buildPropertyValuationView } from './property-
 import { buildPropertyForecastView, buildLivePropertyForecastView } from './property-forecast-service.js';
 import { buildPropertyDistributionsView } from './property-distributions-service.js';
 import { escapeHtml, formatCents, formatSignedCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
+import { amortize, byYear } from './property-books-service.js';
 
 // A per-row Remove action (admin only, matching the legacy DELETE finance/property/ivanhoe/
 // monthly/:period route's own gate) is appended as a last column when `canManage` -- relayed live
@@ -315,6 +316,75 @@ function renderCapitalPolicy(policyResult, canManage, status, message) {
   </section>`;
 }
 
+// Payoff by year and an extra-principal what-if, worked from the same balance, rate and payment
+// the debt contract projects with. A GET field; nothing is saved.
+const nextPeriod = (ym) => {
+  const [y, m] = ym.split('-').map(Number);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+};
+
+function renderDebtOutlook(debt, searchParams) {
+  const { loan, activity, projection } = debt;
+  const lastPayment = activity.at(-1);
+  const mismatch = lastPayment && loan.monthlyPaymentCents != null && lastPayment.paymentCents !== loan.monthlyPaymentCents
+    ? `<p class="status status-pending">The loan record lists a ${formatCents(loan.monthlyPaymentCents)} monthly payment, but the ${escapeHtml(lastPayment.period)} report shows ${formatCents(lastPayment.paymentCents)}. The projection uses the loan record; update it from the next lender statement if the payment has changed.</p>` : '';
+  if (projection.status !== 'ready') return mismatch;
+  const start = nextPeriod(String(projection.currentBalanceAsOf).slice(0, 7));
+  const terms = { balanceCents: projection.currentBalanceCents, annualRate: loan.interestRatePct, paymentCents: loan.monthlyPaymentCents, startMonth: start };
+  const base = amortize(terms);
+  const years = byYear(base.months);
+  const extraRaw = Number(String(searchParams?.get?.('extra') || '').replace(/[$,\s]/g, ''));
+  const extraCents = Number.isFinite(extraRaw) && extraRaw > 0 && extraRaw <= 100000 ? Math.round(extraRaw * 100) : 0;
+  let extraLine = '<p><small>Enter an amount to see how much sooner the loan is paid off and the interest it saves. Nothing is saved.</small></p>';
+  if (extraCents) {
+    const faster = amortize({ ...terms, extraCents });
+    const interest = (a) => a.months.reduce((sum, mo) => sum + mo.interestCents, 0);
+    const saved = base.months.length - faster.months.length;
+    extraLine = `<p>${formatCents(extraCents)} more each month pays the loan off in <b>${escapeHtml(faster.months.at(-1)?.period || '')}</b>, ${saved} month${saved === 1 ? '' : 's'} sooner, and saves <b>${formatCents(interest(base) - interest(faster))}</b> in interest.</p>`;
+  }
+  return `${mismatch}
+    ${renderSectionHeading({ eyebrow: 'Projection', heading: 'Payoff by year' })}
+    ${renderTable({ head: ['Year', 'Payments', 'Interest', 'Principal', 'Balance at year end'], rows: years.map((y) => `<tr><td>${y.year}${y.count < 12 ? ` <small>(${y.count} payment${y.count === 1 ? '' : 's'})</small>` : ''}</td><td>${formatCents(y.paymentCents)}</td><td>${formatCents(y.interestCents)}</td><td>${formatCents(y.principalCents)}</td><td>${formatCents(y.balanceCents)}</td></tr>`).join('') })}
+    <p><small>After payoff, the ${formatCents(loan.monthlyPaymentCents)} monthly payment (${formatCents(loan.monthlyPaymentCents * 12)} a year) stays with the property.</small></p>
+    ${renderSectionHeading({ eyebrow: 'What if', heading: 'Paying extra principal' })}
+    <form method="GET" action="/" class="inline-form"><input type="hidden" name="section" value="property"><input type="hidden" name="page" value="debt">
+      <label for="pd-extra">Extra each month ($)</label> <input id="pd-extra" name="extra" inputmode="decimal" value="${extraCents ? (extraCents / 100).toFixed(0) : ''}" placeholder="500"> <button type="submit" class="button-outline">Show</button></form>
+    ${extraLine}`;
+}
+
+function renderPropertyDebt(debtResult, canManage, status, message, searchParams) {
+  if (!debtResult?.ok) return `<section aria-label="Property debt unavailable">${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Debt payoff & future', badge: 'Unavailable' })}<p class="status status-pending">The saved loan record could not be read. Existing property and loan records are unaffected.</p></section>`;
+  const { loan, activity, projection } = debtResult.debt;
+  const dollars = (cents) => cents == null ? '' : (cents / 100).toFixed(2);
+  const pct = loan.interestRatePct == null ? '' : String(Number((loan.interestRatePct * 100).toFixed(5)));
+  const payoffHint = projection.status === 'ready'
+    ? `${projection.monthsRemaining} month${projection.monthsRemaining === 1 ? '' : 's'} remaining`
+    : projection.status === 'payment_too_low' ? 'Payment does not cover monthly interest' : 'Complete the loan terms to calculate payoff';
+  const annualMismatch = loan.storedAnnualDebtServiceCents != null && projection.derivedAnnualDebtServiceCents != null
+    && Math.abs(loan.storedAnnualDebtServiceCents - projection.derivedAnnualDebtServiceCents) > 100;
+  return `<section class="report" aria-label="Commercial Property debt payoff">
+    ${renderSectionHeading({ eyebrow: 'Commercial Property', heading: 'Debt payoff & future', badge: 'Live from Connect' })}
+    ${policyStatus(status, message)}
+    ${renderKpiCards([
+      { label: 'Current mortgage balance', value: projection.currentBalanceCents == null ? 'Unavailable' : formatCents(projection.currentBalanceCents), hint: projection.currentBalanceAsOf ? `Through ${projection.currentBalanceAsOf}` : 'No balance date saved' },
+      { label: 'Monthly payment', value: loan.monthlyPaymentCents == null ? 'Unavailable' : formatCents(loan.monthlyPaymentCents), hint: loan.interestRatePct == null ? 'Interest rate not saved' : `${pct}% annual interest` },
+      { label: 'Projected payoff', value: projection.payoffPeriod || 'Unavailable', hint: payoffHint },
+      { label: 'Remaining interest', value: projection.totalInterestRemainingCents == null ? 'Unavailable' : formatCents(projection.totalInterestRemainingCents), hint: 'Projection, not a lender statement' },
+    ])}
+    ${annualMismatch ? `<p class="status status-error">Review the saved annual debt service (${formatCents(loan.storedAnnualDebtServiceCents)}): it does not match 12 monthly payments (${formatCents(projection.derivedAnnualDebtServiceCents)}).</p>` : ''}
+    ${activity.length ? renderTable({ head: ['Month', 'Payment', 'Interest', 'Principal', 'Balance after'], rows: activity.map((row) => `<tr><td>${escapeHtml(row.period)}</td><td>${formatCents(row.paymentCents)}</td><td>${formatCents(row.interestCents)}</td><td>${formatCents(row.principalCents)}</td><td>${formatCents(row.balanceAfterCents)}</td></tr>`).join('') }) : '<p><small>No complete monthly principal/interest rows occur after the saved balance date.</small></p>'}
+    ${renderDebtOutlook(debtResult.debt, searchParams)}
+    ${canManage ? `<form method="POST" action="/api/v1/connect-property-meta-write"><input type="hidden" name="debt_policy_form" value="1"><div class="grid form-grid">
+      <div class="field"><label for="pd-lender">Lender</label><input id="pd-lender" name="lender" maxlength="120" value="${escapeHtml(loan.lender || '')}"></div>
+      <div class="field"><label for="pd-balance">Confirmed balance ($)</label><input id="pd-balance" type="number" name="balance" min="0" step="0.01" value="${dollars(loan.balanceCents)}" required></div>
+      <div class="field"><label for="pd-as-of">Balance as of</label><input id="pd-as-of" type="date" name="balance_as_of_date" value="${escapeHtml(loan.balanceAsOfDate || '')}" required></div>
+      <div class="field"><label for="pd-rate">Annual interest rate (%)</label><input id="pd-rate" type="number" name="interest_rate" min="0" max="100" step="0.00001" value="${pct}" required></div>
+      <div class="field"><label for="pd-payment">Monthly payment ($)</label><input id="pd-payment" type="number" name="monthly_payment" min="0.01" step="0.01" value="${dollars(loan.monthlyPaymentCents)}" required></div>
+    </div><button type="submit">Save confirmed loan terms</button></form>` : ''}
+    <p><small>The current balance rolls the confirmed balance forward only through months that contain both payment and interest. The payoff projection uses the saved fixed rate and payment; verify it against lender statements before a financial decision.</small></p>
+  </section>`;
+}
+
 // Shared status/error line for a Remove action -- same shape as every entry form's own status
 // paragraph above, but "Removed"/"Not removed" wording since these buttons sit inline in a table
 // row rather than their own form section (see budget-plan-remove-v1's identical precedent in
@@ -380,8 +450,9 @@ export function renderPropertyPage(pageId, {
   propertyReserveDisbursementRemoveStatus, propertyReserveDisbursementRemoveMessage,
   propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
   propertyRepairRemoveStatus, propertyRepairRemoveMessage,
-  propertyMetaEntryStatus, propertyMetaEntryMessage, propertyPolicy,
+  propertyMetaEntryStatus, propertyMetaEntryMessage, propertyPolicy, propertyDebt,
   propertyReservePolicyStatus, propertyReservePolicyMessage, propertyCapitalPolicyStatus, propertyCapitalPolicyMessage,
+  propertyDebtStatus, propertyDebtMessage, searchParams,
   propertyBudgetImportStatus, propertyBudgetImportMessage,
   propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
 }) {
@@ -553,6 +624,7 @@ export function renderPropertyPage(pageId, {
       ${fallbackNote}
     </section>${canManagePropertyLedgers ? renderPropertyDistributionForm(propertyDistributionEntryStatus, propertyDistributionEntryMessage) : ''}`;
   }
+  if (pageId === 'debt') return renderPropertyDebt(propertyDebt, canManagePropertyLedgers, propertyDebtStatus, propertyDebtMessage, searchParams);
 
   // 'overview' (default) -- use the reconciled annual summary from the same live contract as
   // Operating results. Monthly live rows legitimately contain null expense/reserve fields, so

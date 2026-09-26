@@ -66,11 +66,20 @@ const LIVE_POLICY = {
   capitalPolicy: { method: 'flat_plus_sqft', annualAllowanceCents: 1200000, perSquareFootCents: 20 },
 };
 
+const LIVE_DEBT = {
+  contract: 'connect.finance-property-debt.v1', dataClassification: 'aggregate',
+  sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD', propertyKey: 'ivanhoe', generatedAt: '2026-09-26T00:00:00Z',
+  loan: { lender: 'LCEF', balanceCents: 27969113, balanceAsOfDate: '2026-07-20', interestRatePct: 0.06375, monthlyPaymentCents: 428303, storedAnnualDebtServiceCents: 4539636 },
+  activity: [{ period: '2026-08', paymentCents: 428303, interestCents: 94203, principalCents: 334100, balanceAfterCents: 27635013 }],
+  projection: { currentBalanceCents: 27635013, currentBalanceAsOf: '2026-08', derivedAnnualDebtServiceCents: 5139636, monthsRemaining: 76, payoffPeriod: '2032-12', totalInterestRemainingCents: 5040000, status: 'ready' },
+};
+
 const LIVE_BY_PATH = {
   '/api/contracts/finance-property-ledgers-v1': LIVE_LEDGERS,
   '/api/contracts/finance-property-reserves-v1': LIVE_RESERVES,
   '/api/contracts/finance-property-valuation-v1': LIVE_VALUATION,
   '/api/contracts/finance-property-policy-v1': LIVE_POLICY,
+  '/api/contracts/finance-property-debt-v1': LIVE_DEBT,
 };
 
 function roleEnv(role, onWrite = async () => new Response('not found', { status: 404 })) {
@@ -252,6 +261,67 @@ describe('Commercial Property reserve and capital policy editors', () => {
     const response = await worker.fetch(new Request('https://finance.test/api/v1/connect-property-meta-write', {
       method: 'POST', headers: { ...JWT, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ capital_policy_form: '1', method: 'invented', annual_allowance: '-1' }).toString(),
+    }), env);
+    expect(response.headers.get('location')).toContain('reason=invalid_input');
+    expect(relayed).toBe(false);
+  });
+});
+
+describe('Commercial Property debt payoff', () => {
+  it('replaces the placeholder with the live payoff projection and an admin editor', async () => {
+    const html = await page(roleEnv('admin'), 'section=property&page=debt');
+    expect(html).toContain('Debt payoff &amp; future');
+    expect(html).toContain('$276,350');
+    expect(html).toContain('2032-12');
+    expect(html).toContain('name="debt_policy_form" value="1"');
+    expect(html).toContain('name="interest_rate" min="0" max="100" step="0.00001" value="6.375"');
+    expect(html).toContain('Review the saved annual debt service');
+  });
+
+  it('adds payoff by year and an extra-principal what-if to the projection', async () => {
+    const html = await page(roleEnv('admin'), 'section=property&page=debt&extra=500');
+    expect(html).toContain('Payoff by year');
+    expect(html).toContain('Balance at year end');
+    expect(html).toContain('months sooner');
+    expect(html).toContain('stays with the property');
+    expect(html).not.toContain('The loan record lists a');
+    expect(html).not.toContain('NaN');
+  });
+
+  it('flags a reported payment that differs from the loan record', async () => {
+    const saved = LIVE_DEBT.activity;
+    LIVE_DEBT.activity = [{ ...saved[0], paymentCents: 378303 }];
+    try {
+      const html = await page(roleEnv('admin'), 'section=property&page=debt');
+      expect(html).toContain('The loan record lists a $4,283 monthly payment, but the 2026-08 report shows $3,783.');
+    } finally {
+      LIVE_DEBT.activity = saved;
+    }
+  });
+
+  it('keeps the debt page read-only for a finance viewer', async () => {
+    const html = await page(roleEnv('finance'), 'section=property&page=debt');
+    expect(html).toContain('$276,350');
+    expect(html).not.toContain('debt_policy_form');
+  });
+
+  it('relays only the loan section and derives annual debt service from the monthly payment', async () => {
+    let sent;
+    const env = roleEnv('admin', async (req) => { sent = JSON.parse(await req.text()); return new Response(JSON.stringify({ ok: true })); });
+    const response = await worker.fetch(new Request('https://finance.test/api/v1/connect-property-meta-write', {
+      method: 'POST', headers: { ...JWT, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ debt_policy_form: '1', lender: 'LCEF', balance: '270000.25', balance_as_of_date: '2026-09-20', interest_rate: '6.375', monthly_payment: '4283.03' }).toString(),
+    }), env);
+    expect(response.headers.get('location')).toBe('/?section=property&page=debt&op=property-debt&status=ok');
+    expect(sent).toEqual({ loan: { lender: 'LCEF', balance_cents: 27000025, balance_as_of_date: '2026-09-20', interest_rate_pct: 0.06375, monthly_payment_cents: 428303, annual_debt_service_cents: 5139636 } });
+  });
+
+  it('rejects invalid loan terms before the relay', async () => {
+    let relayed = false;
+    const env = roleEnv('admin', async () => { relayed = true; return new Response('{}'); });
+    const response = await worker.fetch(new Request('https://finance.test/api/v1/connect-property-meta-write', {
+      method: 'POST', headers: { ...JWT, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ debt_policy_form: '1', balance: '-1', balance_as_of_date: 'bad', interest_rate: '101', monthly_payment: '0' }).toString(),
     }), env);
     expect(response.headers.get('location')).toContain('reason=invalid_input');
     expect(relayed).toBe(false);

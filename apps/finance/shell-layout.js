@@ -69,6 +69,8 @@ export function renderViewingAs(section, page, { roleResult, councilPreview }) {
 }
 
 export const SHELL_STYLES = `
+    @font-face { font-family:"Hero"; src:url(/assets/fonts/hero-regular.woff2) format("woff2"); font-weight:400 500; font-display:swap; }
+    @font-face { font-family:"Hero"; src:url(/assets/fonts/hero-bold.woff2) format("woff2"); font-weight:600 900; font-display:swap; }
     @font-face { font-family:"Outfit"; src:url(/assets/fonts/outfit.woff2) format("woff2"); font-weight:100 900; font-display:swap; }
     @font-face { font-family:"Figtree"; src:url(/assets/fonts/figtree.woff2) format("woff2"); font-weight:300 900; font-display:swap; }
     :root { color-scheme: light; font-family:"Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -81,13 +83,15 @@ export const SHELL_STYLES = `
     body { min-height:100vh; margin:0; background:var(--page); color:var(--ink); -webkit-font-smoothing:antialiased; font-variant-numeric:tabular-nums; }
     a { color:var(--navy); text-decoration:underline; text-decoration-color:var(--gold); text-underline-offset:3px; }
     a:hover { color:var(--gold-ink); }
-    h1, h2, h3, .display { font-family:"Outfit", "Figtree", system-ui, sans-serif; font-weight:500; color:var(--navy); letter-spacing:-.01em; }
+    /* Hero, the Timothy brand typeface, for headings and the name. Figures stay in Outfit:
+       Hero has no tabular digits, and the dollar columns and cards rely on them lining up. */
+    h1, h2, h3, .display { font-family:"Hero", "Outfit", "Figtree", system-ui, sans-serif; font-weight:500; color:var(--navy); letter-spacing:-.01em; }
     .app-header { position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid var(--line); }
     .app-header-row { display:flex; align-items:center; gap:16px; height:64px; padding:0 clamp(16px,3vw,28px); }
     .sidebar-brand { display:flex; align-items:center; gap:12px; flex-shrink:0; text-decoration:none; }
     .sidebar-brand img { width:40px; height:40px; }
     .brand-text { display:flex; flex-direction:column; line-height:1.1; }
-    .brand-name { font-family:"Outfit", sans-serif; font-weight:600; font-size:19px; color:var(--navy); }
+    .brand-name { font-family:"Hero", "Outfit", sans-serif; font-weight:700; font-size:19px; color:var(--navy); }
     .brand-sub { font-size:11px; letter-spacing:.12em; color:var(--gold-ink); text-transform:uppercase; }
     .env-pill { padding:4px 10px; border-radius:999px; background:var(--cream); color:var(--gold-ink); font-size:12px; font-weight:600; }
     .header-right { margin-left:auto; display:flex; align-items:center; gap:12px; flex-shrink:0; }
