@@ -172,8 +172,9 @@ const ROUTES = [
   // cash-runway policy settings): each relays to its own Connect contract endpoint (never writes
   // to Finance's own database), matching the legacy in-Connect finance/revenue-streams,
   // finance/flow-expense-map, and finance/cash-policy PUT routes exactly (admin-only). Cash &
-  // reserve now exposes the cash-policy form when the live runway contract includes its additive
-  // policySettings detail. Revenue streams and the flow map still have no read-backed form.
+  // reserve exposes the cash-policy form when the live runway contract includes its additive
+  // policySettings detail. Data & Imports reads the current-year account groups through the
+  // narrow finance-classification-v1 contract and exposes the other two forms to admins.
   { id: 'revenue-streams-write-v1', paths: ['/api/v1/connect-revenue-streams-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-revenue-streams-write-relay.v1' },
   { id: 'flow-expense-map-write-v1', paths: ['/api/v1/connect-flow-expense-map-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-flow-expense-map-write-relay.v1' },
   { id: 'cash-policy-write-v1', paths: ['/api/v1/connect-cash-policy-write'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-cash-policy-write-relay.v1' },

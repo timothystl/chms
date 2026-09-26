@@ -556,16 +556,27 @@ forms above (`canManageDaycareAllocation`/`canManageDaycareBudgetOverride`); the
 Church-Budget-import forms reuse the existing looser `canRecordDaycareEntry` gate (any verified
 role that can reach the Daycare section), matching their relay contracts' own permission check.
 
-Revenue-stream and flow-expense-map remain without UI forms because no live page reads those maps.
-Cash policy is now complete in standalone Finance: `connect.finance-cash-runway.v1` optionally
+Cash policy is complete in standalone Finance: `connect.finance-cash-runway.v1` optionally
 adds the full saved policy settings (Finance accepts old and extended v1 payloads so releases can
 land in either order), and Charts → Cash & reserve shows the existing admin-only relay form only
 when that live detail is present. It saves all four fields through Connect's established
-`finance-cash-policy-write-v1` handler, never through a second Finance writer. The two map routes
-remain fully POST-able contract paths for a later read-backed screen.
+`finance-cash-policy-write-v1` handler, never through a second Finance writer.
+
+Alpha.48 completes the two remaining classification editors in standalone Finance. Data & Imports
+reads the selected fiscal year's account groups and saved mappings from Connect through the narrow
+`connect.finance-classification.v1` contract (`src/api-classification-contracts.js`, validated by
+`contracts/validators/finance-classification-consumer.js`). The response contains aggregate group
+totals and mapping choices only; it does not expose source row ids or create another writer.
+`apps/finance/classification-pages.js` renders revenue-stream and money-flow expense-category
+tables, labels name-derived defaults as guessed, and exposes complete save forms only to a verified
+administrator. Those forms continue to use the existing protected relay routes, so Connect remains
+the sole authoritative writer and repeats the administrator check independently.
 
 Tests: `test/finance-revenue-streams-write-contract.test.js`,
 `test/finance-flow-expense-map-write-contract.test.js`,
+`test/finance-classification-contract.test.js`,
+`test/finance-classification-client.test.js`, and
+`test/finance-classification-route.test.js`,
 `test/finance-cash-policy-write-contract.test.js`,
 `test/finance-daycare-allocation-config-write-contract.test.js`, and
 `test/finance-daycare-budget-override-write-contract.test.js` (the same admin/finance-role/
