@@ -58,3 +58,45 @@ export function buildEntityOverview({ church, daycare, property }) {
     ],
   };
 }
+
+// Connect's legacy Financial Health periods and formulas (connect.finance-health.v1): the church
+// for this fiscal year from the church ledger (Income and Expenses classifications, with the
+// year's full net income as the result), and the daycare for the current calendar year from its
+// counted ledger rows plus the MDO share of utilities and insurance. Commercial Property keeps
+// its own latest-year annual summary, the same "Annual Net" Connect's property figures state.
+// A daycare year with nothing imported is reported as such, never as a $0 result.
+export function buildHealthEntityOverview(health, property) {
+  const church = {
+    id: 'church', label: 'Church', periodLabel: `FY${health.fiscalYear}`, available: true,
+    incomeCents: health.church.incomeActualCents,
+    expenseCents: health.church.expenseActualCents,
+    resultCents: health.church.netActualCents, source: 'live',
+  };
+  const dc = health.daycare;
+  const daycare = dc && dc.available
+    ? {
+      id: 'daycare', label: 'Daycare', periodLabel: String(dc.year), available: true,
+      incomeCents: dc.incomeActualCents, expenseCents: dc.expenseActualCents,
+      resultCents: dc.netActualCents, source: 'live',
+    }
+    : {
+      id: 'daycare', label: 'Daycare', periodLabel: dc ? String(dc.year) : 'This year', available: false, source: 'live',
+      unavailableNote: dc ? `No ${dc.year} daycare figures imported yet.` : 'The daycare figures could not be read for this request — not a zero.',
+    };
+  const entities = [church, daycare];
+  if (property) {
+    entities.push({
+      id: 'property', label: 'Commercial Property', available: true,
+      periodLabel: property.periodStart === property.periodEnd ? property.periodEnd : `${property.periodStart}–${property.periodEnd}`,
+      incomeCents: property.totals.revenueCents,
+      expenseCents: property.totals.expenseCents,
+      resultCents: property.totals.netIncomeCents, source: property.source || 'synthetic-fallback',
+    });
+  } else {
+    entities.push({
+      id: 'property', label: 'Commercial Property', periodLabel: 'Latest year', available: false, source: 'live',
+      unavailableNote: 'The Commercial Property figures could not be read for this request — not a zero.',
+    });
+  }
+  return { consolidated: false, fromHealthContract: true, entities };
+}

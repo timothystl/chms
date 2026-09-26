@@ -3184,32 +3184,39 @@ export async function importPropertyMonthlyCsv(db, propertyKey, csvText, sourceR
   return { ok: true, imported: rows.length, periods: rows.map(r => r.period) };
 }
 
+// The whole Commercial Property payload, as the Property tab reads it. Shared with Financial
+// Health's contract (src/api-finance-health-contract.js), whose entity, lever and decision cards
+// read the same monthly, reserve and distribution rows the legacy tab computes from.
+export async function readPropertyPayload(db, propertyKey) {
+  const monthly = (await db.prepare('SELECT * FROM finance_property_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
+  const distributions = (await db.prepare('SELECT period, amount_cents FROM finance_property_distributions WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
+  const metaRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
+  let meta = null;
+  if (metaRow) { try { meta = JSON.parse(metaRow.value); } catch { meta = null; } }
+  const annualSummary = computePropertyAnnualSummary(monthly, distributions, meta?.annual_notes);
+  let equity = null;
+  if (meta?.valuation?.capitalized_value_cents != null && meta?.loan?.balance_cents != null) {
+    const value = meta.valuation.capitalized_value_cents;
+    const balance = meta.loan.balance_cents;
+    equity = { market_value_cents: value, mortgage_balance_cents: balance, equity_cents: value - balance, loan_to_value_pct: value ? balance / value : null };
+  }
+  const reserveRows = (await db.prepare('SELECT * FROM finance_property_reserves WHERE property_key=? ORDER BY reserve_key ASC, report_month ASC').bind(propertyKey).all()).results || [];
+  const reserves = {};
+  for (const r of reserveRows) { (reserves[r.reserve_key] || (reserves[r.reserve_key] = [])).push(r); }
+  const disbursementRows = (await db.prepare('SELECT * FROM finance_property_reserve_disbursements WHERE property_key=? ORDER BY reserve_key ASC, period_key ASC').bind(propertyKey).all()).results || [];
+  const reserveDisbursements = {};
+  for (const d of disbursementRows) { (reserveDisbursements[d.reserve_key] || (reserveDisbursements[d.reserve_key] = [])).push(d); }
+  const capitalLedger = (await db.prepare('SELECT * FROM finance_property_capital_ledger WHERE property_key=? ORDER BY sort_order ASC, entry_date ASC, id ASC').bind(propertyKey).all()).results || [];
+  const capitalLedgerTotalCents = capitalLedger.reduce((sum, r) => sum + (r.amount_cents || 0), 0);
+  const repairs = (await db.prepare('SELECT * FROM finance_property_repairs WHERE property_key=? ORDER BY entry_date ASC, id ASC').bind(propertyKey).all()).results || [];
+  const budgetMonthly = (await db.prepare('SELECT * FROM finance_property_budget_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
+
+  return { propertyKey, meta, monthly, budgetMonthly, distributions, annualSummary, equity, reserves, reserveDisbursements, capitalLedger, capitalLedgerTotalCents, repairs };
+}
+
 async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey) {
   if (seg === `finance/property/${propertyKey}` && method === 'GET') {
-    const monthly = (await db.prepare('SELECT * FROM finance_property_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
-    const distributions = (await db.prepare('SELECT period, amount_cents FROM finance_property_distributions WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
-    const metaRow = await db.prepare("SELECT value FROM finance_settings WHERE key=?").bind(`finance_property_${propertyKey}_meta`).first();
-    let meta = null;
-    if (metaRow) { try { meta = JSON.parse(metaRow.value); } catch { meta = null; } }
-    const annualSummary = computePropertyAnnualSummary(monthly, distributions, meta?.annual_notes);
-    let equity = null;
-    if (meta?.valuation?.capitalized_value_cents != null && meta?.loan?.balance_cents != null) {
-      const value = meta.valuation.capitalized_value_cents;
-      const balance = meta.loan.balance_cents;
-      equity = { market_value_cents: value, mortgage_balance_cents: balance, equity_cents: value - balance, loan_to_value_pct: value ? balance / value : null };
-    }
-    const reserveRows = (await db.prepare('SELECT * FROM finance_property_reserves WHERE property_key=? ORDER BY reserve_key ASC, report_month ASC').bind(propertyKey).all()).results || [];
-    const reserves = {};
-    for (const r of reserveRows) { (reserves[r.reserve_key] || (reserves[r.reserve_key] = [])).push(r); }
-    const disbursementRows = (await db.prepare('SELECT * FROM finance_property_reserve_disbursements WHERE property_key=? ORDER BY reserve_key ASC, period_key ASC').bind(propertyKey).all()).results || [];
-    const reserveDisbursements = {};
-    for (const d of disbursementRows) { (reserveDisbursements[d.reserve_key] || (reserveDisbursements[d.reserve_key] = [])).push(d); }
-    const capitalLedger = (await db.prepare('SELECT * FROM finance_property_capital_ledger WHERE property_key=? ORDER BY sort_order ASC, entry_date ASC, id ASC').bind(propertyKey).all()).results || [];
-    const capitalLedgerTotalCents = capitalLedger.reduce((sum, r) => sum + (r.amount_cents || 0), 0);
-    const repairs = (await db.prepare('SELECT * FROM finance_property_repairs WHERE property_key=? ORDER BY entry_date ASC, id ASC').bind(propertyKey).all()).results || [];
-    const budgetMonthly = (await db.prepare('SELECT * FROM finance_property_budget_monthly WHERE property_key=? ORDER BY period ASC').bind(propertyKey).all()).results || [];
-
-    return json({ propertyKey, meta, monthly, budgetMonthly, distributions, annualSummary, equity, reserves, reserveDisbursements, capitalLedger, capitalLedgerTotalCents, repairs });
+    return json(await readPropertyPayload(db, propertyKey));
   }
 
   // Imports a property manager's "Budget Detail" export (AHRA) — see
@@ -3791,6 +3798,10 @@ async function recordImport(db, importerKey, note) {
 // A Worker isolate serves many requests at once, and the Finance tab fires three requests for
 // the same year within milliseconds of each other, which is exactly the window this closes.
 const _churchYearInflight = new Map();
+// The legacy tab's own read path, coalesced. Financial Health's contract reads through this too.
+export function readChurchThisYear(db, year) {
+  return coalesceChurchYear(year, () => buildChurchThisYear(db, year));
+}
 function coalesceChurchYear(year, compute) {
   const key = String(year);
   const running = _churchYearInflight.get(key);
@@ -4290,6 +4301,88 @@ export async function applySalaryPlannerWrite(db, role, username, body) {
   return { ok: true };
 }
 
+// Room-level aggregates for one period (the latest when none is named). Shared with Financial
+// Health's contract, whose fundraising callout reads the same waiting-family count.
+export async function readDaycareRooms(db, requested) {
+  const latest = requested
+    ? { period: requested }
+    : await db.prepare('SELECT period FROM finance_daycare_rooms ORDER BY period DESC LIMIT 1').first();
+  if (!latest?.period) return { available: false, period: null, rooms: [], occupancy: computeRoomOccupancy([]) };
+  const rooms = (await db.prepare(
+    'SELECT * FROM finance_daycare_rooms WHERE period=? ORDER BY room_name'
+  ).bind(latest.period).all()).results || [];
+  if (!rooms.length) return { available: false, period: latest.period, rooms: [], occupancy: computeRoomOccupancy([]) };
+  const periodsRow = (await db.prepare('SELECT DISTINCT period FROM finance_daycare_rooms ORDER BY period').all()).results || [];
+  return {
+    available: true,
+    period: latest.period,
+    periods: periodsRow.map(p => p.period),
+    rooms,
+    occupancy: computeRoomOccupancy(rooms),
+    syncedAt: rooms[0].synced_at || '',
+  };
+}
+
+// The MDO share of the church's Utilities/Insurance actuals for each requested year, at the
+// admin-set percentages. Shared with Financial Health's contract (its daycare engine card).
+export async function readDaycareAllocation(db, years) {
+  const cfgRow = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_daycare_allocation_config'").first();
+  let cfg = { utilityPct: 0.5, insurancePct: 0.5 };
+  if (cfgRow) { try { cfg = { ...cfg, ...JSON.parse(cfgRow.value) }; } catch { /* keep default */ } }
+  const placeholders = years.map(() => '?').join(',');
+  const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders}) AND period_month=0`).bind(...years).all()).results || [];
+  const rowsByYear = {};
+  for (const year of years) rowsByYear[year] = resolveChurchYearPrecedence(allRows.filter(r => r.fiscal_year === year));
+  const allocation = computeMdoUtilityInsuranceAllocation(rowsByYear, cfg.utilityPct, cfg.insurancePct);
+  return { years, utilityPct: cfg.utilityPct, insurancePct: cfg.insurancePct, allocation };
+}
+
+// Church Report Multi-Year, and the five-year mix on Financial Health (legacy tab and Finance's
+// contract alike). `yearsParam` is the route's own comma-separated `years` value; null/empty means
+// every year with real reported figures. Returns null when an explicit list names no valid year.
+export async function buildChurchMultiYear(db, yearsParam) {
+  const currentYear = new Date().getFullYear();
+  // Default is EVERY year that has real reported figures, not a rolling five-year window — the
+  // same fix made for the Balance Sheet trend, and this table is the one that actually had the
+  // hidden history: this church's income statement runs back to 2019 while the default started
+  // at currentYear-4, so 2019-2021 were on file and invisible until someone widened From/To.
+  //
+  // ⚠ `plan_committed` is EXCLUDED from what sets the default, deliberately. That source is a
+  // future year's committed budget plan (see the Planning tab's commit action), and this view is
+  // a historical actuals-and-budget trend — letting a forecast year in by default would put a
+  // projection on the chart beside real years with nothing saying which is which. It still
+  // resolves normally when a range explicitly names it, and `resolveChurchYearPrecedence` is
+  // untouched. `manual_actual_override` is NOT excluded: it is a correction to a real actual.
+  let years;
+  if (yearsParam) {
+    years = yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite);
+  } else {
+    const yearRows = (await db.prepare(
+      `SELECT DISTINCT fiscal_year FROM finance_church_entries
+        WHERE period_month=0 AND source != 'plan_committed' ORDER BY fiscal_year`
+    ).all()).results || [];
+    years = yearRows.map(r => Number(r.fiscal_year)).filter(Number.isFinite);
+    // Nothing imported or synced yet: fall back to the rolling window, so the From/To picker
+    // rendered above the empty state still shows a sensible pair rather than a blank or NaN.
+    if (!years.length) years = [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
+  }
+  if (!years.length) return null;
+  const placeholders = years.map(() => '?').join(',');
+  const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders}) AND period_month=0`).bind(...years).all()).results || [];
+  const resolved = resolveChurchYearPrecedence(allRows);
+  const byYear = {};
+  const streamsByYear = {};
+  const streamOverridesMulti = await readRevenueStreamOverrides(db);
+  years.forEach(y => {
+    const yearRows = resolved.filter(r => r.fiscal_year === y);
+    byYear[y] = computeYearSummary(yearRows);
+    // Donor/earned/passive per year, so the Health page's five-year mix chart reads the same
+    // classification the current-year mix bar does rather than a second, parallel rule.
+    streamsByYear[y] = computeRevenueStreams(yearRows, streamOverridesMulti);
+  });
+  return { years, byYear, streamsByYear };
+}
+
 export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, isFinance, role = 'admin') {
   if (!isFinance) return json({ error: 'Access denied: finance data requires finance access' }, 403);
 
@@ -4699,24 +4792,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // category-by-year table instead of blanking: the daycare app's own endpoint for this does not
   // exist yet (see DAYCARE_API.md in the design handoff), and this half has to ship without it.
   if (seg === 'finance/daycare/rooms' && method === 'GET') {
-    const requested = url.searchParams.get('period');
-    const latest = requested
-      ? { period: requested }
-      : await db.prepare('SELECT period FROM finance_daycare_rooms ORDER BY period DESC LIMIT 1').first();
-    if (!latest?.period) return json({ available: false, period: null, rooms: [], occupancy: computeRoomOccupancy([]) });
-    const rooms = (await db.prepare(
-      'SELECT * FROM finance_daycare_rooms WHERE period=? ORDER BY room_name'
-    ).bind(latest.period).all()).results || [];
-    if (!rooms.length) return json({ available: false, period: latest.period, rooms: [], occupancy: computeRoomOccupancy([]) });
-    const periodsRow = (await db.prepare('SELECT DISTINCT period FROM finance_daycare_rooms ORDER BY period').all()).results || [];
-    return json({
-      available: true,
-      period: latest.period,
-      periods: periodsRow.map(p => p.period),
-      rooms,
-      occupancy: computeRoomOccupancy(rooms),
-      syncedAt: rooms[0].synced_at || '',
-    });
+    return json(await readDaycareRooms(db, url.searchParams.get('period')));
   }
 
   // Wholesale-replaces one period's rooms, the same pattern finance/daycare/sync uses for the
@@ -4847,15 +4923,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
     const yearsParam = url.searchParams.get('years') || '';
     const years = yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite);
     if (!years.length) return json({ error: 'years is required (comma-separated)' }, 400);
-    const cfgRow = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_daycare_allocation_config'").first();
-    let cfg = { utilityPct: 0.5, insurancePct: 0.5 };
-    if (cfgRow) { try { cfg = { ...cfg, ...JSON.parse(cfgRow.value) }; } catch { /* keep default */ } }
-    const placeholders = years.map(() => '?').join(',');
-    const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders}) AND period_month=0`).bind(...years).all()).results || [];
-    const rowsByYear = {};
-    for (const year of years) rowsByYear[year] = resolveChurchYearPrecedence(allRows.filter(r => r.fiscal_year === year));
-    const allocation = computeMdoUtilityInsuranceAllocation(rowsByYear, cfg.utilityPct, cfg.insurancePct);
-    return json({ years, utilityPct: cfg.utilityPct, insurancePct: cfg.insurancePct, allocation });
+    return json(await readDaycareAllocation(db, years));
   }
 
   const dcMatch = seg.match(/^finance\/daycare\/(\d+)$/);
@@ -4874,52 +4942,14 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // ── Church Report v2: This Year — persisted-table read, no live QuickBooks call ────────
   if (seg === 'finance/church/this-year' && method === 'GET') {
     const year = parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear();
-    return json(await coalesceChurchYear(year, () => buildChurchThisYear(db, year)));
+    return json(await readChurchThisYear(db, year));
   }
 
   // ── Church Report v2: Multi-Year — persisted-table read, one bulk query + JS grouping ──
   if (seg === 'finance/church/multi-year' && method === 'GET') {
-    const yearsParam = url.searchParams.get('years');
-    const currentYear = new Date().getFullYear();
-    // Default is EVERY year that has real reported figures, not a rolling five-year window — the
-    // same fix made for the Balance Sheet trend, and this table is the one that actually had the
-    // hidden history: this church's income statement runs back to 2019 while the default started
-    // at currentYear-4, so 2019-2021 were on file and invisible until someone widened From/To.
-    //
-    // ⚠ `plan_committed` is EXCLUDED from what sets the default, deliberately. That source is a
-    // future year's committed budget plan (see the Planning tab's commit action), and this view is
-    // a historical actuals-and-budget trend — letting a forecast year in by default would put a
-    // projection on the chart beside real years with nothing saying which is which. It still
-    // resolves normally when a range explicitly names it, and `resolveChurchYearPrecedence` is
-    // untouched. `manual_actual_override` is NOT excluded: it is a correction to a real actual.
-    let years;
-    if (yearsParam) {
-      years = yearsParam.split(',').map(y => parseInt(y, 10)).filter(Number.isFinite);
-    } else {
-      const yearRows = (await db.prepare(
-        `SELECT DISTINCT fiscal_year FROM finance_church_entries
-          WHERE period_month=0 AND source != 'plan_committed' ORDER BY fiscal_year`
-      ).all()).results || [];
-      years = yearRows.map(r => Number(r.fiscal_year)).filter(Number.isFinite);
-      // Nothing imported or synced yet: fall back to the rolling window, so the From/To picker
-      // rendered above the empty state still shows a sensible pair rather than a blank or NaN.
-      if (!years.length) years = [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
-    }
-    if (!years.length) return json({ error: 'No valid years requested' }, 400);
-    const placeholders = years.map(() => '?').join(',');
-    const allRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${placeholders}) AND period_month=0`).bind(...years).all()).results || [];
-    const resolved = resolveChurchYearPrecedence(allRows);
-    const byYear = {};
-    const streamsByYear = {};
-    const streamOverridesMulti = await readRevenueStreamOverrides(db);
-    years.forEach(y => {
-      const yearRows = resolved.filter(r => r.fiscal_year === y);
-      byYear[y] = computeYearSummary(yearRows);
-      // Donor/earned/passive per year, so the Health page's five-year mix chart reads the same
-      // classification the current-year mix bar does rather than a second, parallel rule.
-      streamsByYear[y] = computeRevenueStreams(yearRows, streamOverridesMulti);
-    });
-    return json({ years, byYear, streamsByYear });
+    const multiYear = await buildChurchMultiYear(db, url.searchParams.get('years'));
+    if (!multiYear) return json({ error: 'No valid years requested' }, 400);
+    return json(multiYear);
   }
 
   // ── Church Report v2: Budget import (backfill/resilience path when live QuickBooks sync
@@ -5639,7 +5669,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
 //   2. Normal reads never scan giving_entries. Fund figures come from month/fund rows and donor
 //      cards from one annual stats row. A relevant write marks its year dirty; the next reader
 //      performs one household aggregation and locks that compact result in again.
-async function buildChurchThisYear(db, year) {
+export async function buildChurchThisYear(db, year) {
   const allRows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
   const entries = resolveChurchYearPrecedence(allRows);
   const summary = computeYearSummary(entries);

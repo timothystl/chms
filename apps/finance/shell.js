@@ -66,7 +66,7 @@ import {
   postConnectChurchBudgetXlsxPreview, postConnectChurchBudgetXlsxCommit,
   postConnectChurchMultiPeriodXlsxPreview, postConnectChurchMultiPeriodXlsxCommit,
   postConnectChurchMonthlyXlsxImport, postConnectChurchActivityXlsxImport, postConnectChurchBudgetMultiYearXlsxImport,
-  fetchLiveFinanceChurchReport,
+  fetchLiveFinanceChurchReport, defaultLiveChurchReportFiscalYear,
 } from './finance-church-report-client.js';
 import { projectCompensation } from './compensation-projection.js';
 import { defaultCompensationTargetYear } from './compensation-editor-pages.js';
@@ -134,7 +134,9 @@ import {
 } from './property-ledger-write-service.js';
 import { buildLiveCashRunwayView, buildResolvedCashRunwayView, resolveCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView, buildLiveFinancialMixView } from './financial-mix-service.js';
-import { buildEntityOverview } from './entity-overview-service.js';
+import { buildEntityOverview, buildHealthEntityOverview } from './entity-overview-service.js';
+import { fetchLiveFinanceHealth } from './finance-health-client.js';
+import { HEALTH_PARITY_STYLES, renderCashRunwayCard, renderCashRunwayNotYetAvailable, renderHealthParity } from './health-parity-pages.js';
 import { buildOperatingBridge } from './operating-bridge-service.js';
 import { readSyntheticPropertyForecast, resolvePropertyForecast } from './property-forecast-service.js';
 import { readSyntheticCompensationBenchmarks } from './compensation-benchmark-service.js';
@@ -932,7 +934,7 @@ function budgetGrowthFraction(form) {
 }
 
 function renderEntityCards(entities) {
-  return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)} · ${entity.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>`).join('');
+  return entities.map((entity) => (entity.available === false ? renderUnavailableCard(`${entity.label} · ${entity.periodLabel}`, entity.unavailableNote) : `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)} · ${entity.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>`)).join('');
 }
 
 function renderSectionBody(ctx) {
@@ -1038,9 +1040,16 @@ function renderSectionBody(ctx) {
         } }
       : (propertyReportLive && !isSyntheticUnavailable(propertyReportLive) && !isSyntheticUnavailable(propertyReportLive.rows)
         ? { ...buildPropertyReportView(propertyReportLive.rows), source: 'synthetic-fallback' } : null);
-    const entities = (church && daycareEntity && propertyEntity)
-      ? buildEntityOverview({ church, daycare: daycareEntity, property: propertyEntity })
-      : null;
+    // connect.finance-health.v1 (see health-parity-pages.js): when it came back, the entity
+    // figures use Connect's legacy Financial Health periods and formulas -- this fiscal year's
+    // church ledger and this calendar year's daycare -- instead of each report's own period.
+    const financeHealthResult = ctx.financeHealth;
+    const liveHealth = financeHealthResult?.ok ? financeHealthResult.health : null;
+    const entities = liveHealth
+      ? buildHealthEntityOverview(liveHealth, propertyEntity)
+      : (church && daycareEntity && propertyEntity)
+        ? buildEntityOverview({ church, daycare: daycareEntity, property: propertyEntity })
+        : null;
     // Church operating bridge prefers the live church view instead: buildOperatingBridge reads only
     // fiscalYear/totals.{incomeActualCents,expenseActualCents,actualNetCents}, which is exactly what
     // buildLiveChurchReportView's output already provides (see church-report-service.js) -- no
@@ -1058,6 +1067,11 @@ function renderSectionBody(ctx) {
     if (!health.giving.reconciled) attentionItems.push('Giving totals do not reconcile yet — review before relying on them.');
     if (health.operating && health.operating.varianceCents < 0) attentionItems.push(`Operating result is ${formatSignedCents(health.operating.varianceCents)} behind budget.`);
     const unavailableNote = (what) => `<p class="status status-pending">${escapeHtml(what)} could not be read for this request. Nothing shown here is a real $0 or blank figure — see Data &amp; Imports.</p>`;
+    // A live runway Connect could not compute yet (no cash figure or no church expense actuals) is
+    // said in those words; a runway that could not be read at all says that instead.
+    const runwayNotYetAvailable = cashRunway && !isSyntheticUnavailable(cashRunway)
+      && cashRunway.source === 'live' && cashRunway.runway && !cashRunway.runway.available;
+    const runwayCard = runwayNotYetAvailable ? renderCashRunwayNotYetAvailable() : renderCashRunwayCard(runway);
     const healthView = resolveHealthView(ctx.healthView);
     if (healthView === 'summary') {
       return renderHealthSummary({ health, runway, mix, entities, incomeVsBudget: resolveIncomeVsBudget(churchReportLive), attentionItems });
@@ -1075,10 +1089,12 @@ function renderSectionBody(ctx) {
         ${health.position ? `<div class="card"><small>Financial position</small><strong>${formatCents(health.position.netAssetsCents)}</strong><span>Assets ${formatCents(health.position.assetsCents)} · liabilities ${formatCents(health.position.liabilitiesCents)} · ${health.position.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>` : renderUnavailableCard('Financial position')}
         <div class="card"><small>General Fund giving</small><strong>${formatCents(health.giving.netCents)}</strong><span>${health.giving.sourceRecordCount} aggregate records · ${health.giving.reconciled ? 'totals match' : 'review required'} · ${givingSource === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>
       </div>
+      ${liveHealth
+        ? renderHealthParity(liveHealth, { runwayCard, isAdmin: roleResult.ok && roleResult.role === 'admin', appeal: ctx.healthAppeal, flow: ctx.healthFlow, councilPreview })
+        : `<div class="section-heading trend-heading"><div><div class="eyebrow">Where the money comes from</div><h2>Revenue mix, streams, designated funds, money flow, engines, giving pace, fundraising and decisions</h2></div><span class="badge">Unavailable</span></div>
+      ${unavailableNote('The Financial Health figures from Connect')}
       <div class="section-heading trend-heading"><div><div class="eyebrow">Liquidity</div><h2>Operating cash runway</h2></div><span class="badge">${runway ? `As of ${escapeHtml(runway.asOfDate)}` : 'Unavailable'}</span></div>
-      ${runway
-        ? `<div class="grid"><div class="card"><small>Operating cash</small><strong>${formatCents(runway.operatingCashCents)}</strong><span>${escapeHtml(runway.accountName)} · ${runway.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div><div class="card"><small>Average monthly expense</small><strong>${formatCents(runway.monthlyExpenseCents)}</strong><span>FY${runway.fiscalYear} annualized expense ${formatCents(runway.annualExpenseCents)} · ${runway.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div><div class="card"><small>Expense coverage</small><strong>${runway.runwayMonths.toFixed(1)} months</strong><span>Cash divided by average monthly expense · read-only</span></div></div>`
-        : unavailableNote('Operating cash runway')}
+      <div class="hp">${runwayCard}</div>`}
       <div class="section-heading trend-heading"><div><div class="eyebrow">Operating mix</div><h2>Where money comes from and goes</h2></div><span class="badge">${mix ? `FY${mix.fiscalYear} · reconciled · ${isChurchLive ? 'Live from Connect' : 'Synthetic staging'}` : 'Unavailable'}</span></div>
       ${mix
         ? `<div class="grid"><div><h3>Revenue mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.income.items)}</tbody></table></div></div><div><h3>Expense mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.expenses.items)}</tbody></table></div></div></div>`
@@ -1093,7 +1109,7 @@ function renderSectionBody(ctx) {
         ? `<div class="grid"><div class="card"><small>1 · Income</small><strong>${formatCents(bridge.incomeCents)}</strong></div><div class="card"><small>2 · Expenses</small><strong>−${formatCents(bridge.expenseCents)}</strong></div><div class="card"><small>3 · ${bridge.resultLabel}</small><strong>${formatSignedCents(bridge.resultCents)}</strong><span>Income minus expenses</span></div></div>
       <p>This is an arithmetic operating bridge, not donor-to-expense tracing or a claim that particular revenue funded particular costs.</p>`
         : unavailableNote('The Church operating bridge')}
-      <div class="decision-grid">${FINANCE_HEALTH_DECISIONS.map((decision) => `<div class="decision"><small>${decision.stream}</small><b>${decision.authority}</b><span>${decision.action}</span></div>`).join('')}</div>
+      ${liveHealth ? '' : `<div class="decision-grid">${FINANCE_HEALTH_DECISIONS.map((decision) => `<div class="decision"><small>${decision.stream}</small><b>${decision.authority}</b><span>${decision.action}</span></div>`).join('')}</div>`}
     </section>`;
   }
   const page = resolveFinancePage(section, pageId);
@@ -1476,7 +1492,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/finance-mark.png"><link rel="apple-touch-icon" href="/assets/finance-icon.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}${ACQUISITION_STYLES}${PROPERTY_BOOKS_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${HEALTH_PARITY_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}${ACQUISITION_STYLES}${PROPERTY_BOOKS_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -3737,6 +3753,11 @@ export default {
           : null;
         let cashRunway = ['health', 'charts'].includes(section.id)
           ? safeSyntheticRead(() => resolveCashRunway(env, env.FINANCE_DB)) : null;
+        // Everything Connect's legacy Financial Health tab shows (connect.finance-health.v1). Always
+        // answered by Connect, since it needs Giving's rollups; a failure leaves the rest of the
+        // page standing and says so where these sections would have been.
+        let financeHealth = section.id === 'health'
+          ? fetchLiveFinanceHealth(env, defaultLiveChurchReportFiscalYear()) : null;
         const canManageCashPolicy = section.id === 'charts' && effectivePageId === 'cash-reserve'
           && roleResult.ok && roleResult.role === 'admin';
         const cashPolicyStatus = canManageCashPolicy && url.searchParams.get('op') === 'cash-policy'
@@ -3969,11 +3990,11 @@ export default {
           : null;
         // Every load above started without waiting on the others; one slow Connect answer now
         // costs its own timeout once, not once per section read in turn.
-        [summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle] = await Promise.all([summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle]);
+        [summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle, financeHealth] = await Promise.all([summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle, financeHealth]);
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
-          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, boardLayout, planningBasis, planningScenarios, planningRunway, propertyBooks, searchParams: url.searchParams,
+          healthView: url.searchParams.get('view'), healthAppeal: url.searchParams.get('appeal'), healthFlow: url.searchParams.get('flow'), financeHealth, facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, boardLayout, planningBasis, planningScenarios, planningRunway, propertyBooks, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyDebt, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
