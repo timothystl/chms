@@ -280,6 +280,22 @@ CREATE TABLE IF NOT EXISTS finance_role_cache (
 );
 `;
 
+export const IMPORT_HISTORY_SCHEMA_SQL = `-- Append-only record of completed Finance imports. The existing finance_import_log remains the
+-- one-row-per-importer freshness index; this table supplies the human-readable history page.
+CREATE TABLE IF NOT EXISTS finance_import_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  importer_key TEXT NOT NULL,
+  imported_at TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT ''
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS finance_import_history_event
+  ON finance_import_history (importer_key, imported_at, note);
+
+CREATE INDEX IF NOT EXISTS finance_import_history_recent
+  ON finance_import_history (imported_at DESC, id DESC);
+`;
+
 export const FINANCE_OWNED_SCHEMAS = Object.freeze({
   facilities: Object.freeze({ migration: '0010_finance_facilities.sql', sql: FACILITIES_SCHEMA_SQL }),
   hr: Object.freeze({ migration: '0011_finance_hr.sql', sql: HR_SCHEMA_SQL }),
@@ -287,6 +303,7 @@ export const FINANCE_OWNED_SCHEMAS = Object.freeze({
   planning: Object.freeze({ migration: '0013_finance_planning.sql', sql: PLANNING_SCHEMA_SQL }),
   propertyBooks: Object.freeze({ migration: '0014_finance_property_books.sql', sql: PROPERTY_BOOKS_SCHEMA_SQL }),
   roleCache: Object.freeze({ migration: '0015_finance_role_cache.sql', sql: ROLE_CACHE_SCHEMA_SQL }),
+  importHistory: Object.freeze({ migration: '0016_finance_import_history.sql', sql: IMPORT_HISTORY_SCHEMA_SQL }),
 });
 
 // Splits a migration file into single statements: comment lines dropped, split on ';'.

@@ -7,6 +7,7 @@ export const FINANCE_TABLES = new Set([
   'finance_property_reserves', 'finance_property_budget_monthly', 'finance_property_repairs',
   'finance_property_capital_ledger', 'finance_property_distributions', 'finance_import_log',
   'finance_property_reserve_disbursements', 'finance_daycare_rooms',
+  'finance_import_history',
 ]);
 // Once QuickBooks is owned by Finance (QBO_MANAGED_BY_FINANCE="1", Andrew 2026-09-25), the
 // connection and its report cache live only in Finance's database: Connect's legacy screens and

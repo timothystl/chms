@@ -121,6 +121,7 @@ import {
   handleSync as handleQbSync, handleSyncYears as handleQbSyncYears, handleBudgetSelect as handleQbBudgetSelect,
 } from './quickbooks-oauth-routes.js';
 import { loadQuickbooksTransactions } from './quickbooks-transactions-service.js';
+import { readImportHistory } from './import-history-service.js';
 import { resolveAccountsReport } from './accounts-report-service.js';
 import { buildDataStatusView, resolveDataStatus } from './data-status-service.js';
 import { readSyntheticCompensationReport, resolveCompensationReport, COMPENSATION_LIVE_ALLOWED_ROLES } from './compensation-report-service.js';
@@ -1362,7 +1363,7 @@ function renderSectionBody(ctx) {
   if (section.id === 'quickbooks') {
     return renderQuickbooksPage(page.id, {
       dataStatus, accountsReport, quickbooksOwn: ctx.quickbooksOwn, quickbooksBudgets: ctx.quickbooksBudgets,
-      quickbooksTransactions: ctx.quickbooksTransactions,
+      quickbooksTransactions: ctx.quickbooksTransactions, importHistory: ctx.importHistory,
       canManageQuickbooks: roleResult.ok && roleResult.role === 'admin', searchParams: ctx.searchParams,
     });
   }
@@ -3662,6 +3663,8 @@ export default {
           && ['transactions', 'expense-drilldown', 'vendor-spend', 'exceptions'].includes(resolveFinancePage(section, pageId).id)
           && qbEnabled(env) && env.FINANCE_DB
           ? await loadQuickbooksTransactions(env, url.searchParams).catch((error) => ({ ok: false, error: error.message })) : null;
+        const importHistory = section.id === 'quickbooks' && resolveFinancePage(section, pageId).id === 'import-history'
+          ? await readImportHistory(env.FINANCE_DB).catch((error) => ({ ok: false, error: error.message })) : null;
         const dataStatus = ['data', 'health', 'quickbooks'].includes(section.id)
           ? await safeSyntheticRead(() => resolveDataStatus(env, env.FINANCE_DB)) : null;
         const classification = section.id === 'data'
@@ -3954,7 +3957,7 @@ export default {
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyDebt, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, classification, classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
-          quickbooksOwn, quickbooksBudgets, quickbooksTransactions, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,
+          quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
     compensationProjection,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,

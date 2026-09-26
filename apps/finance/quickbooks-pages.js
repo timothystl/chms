@@ -113,10 +113,24 @@ function renderTransactionPage(pageId, result) {
     ${filter}${renderKpiCards([{ label: 'Transactions loaded', value: String(rows.length) }, { label: 'Loaded at', value: escapeHtml(result.syncedAt.slice(0, 16).replace('T', ' ')), hint: 'UTC' }])}${table}</section>`;
 }
 
-export function renderQuickbooksPage(pageId, { dataStatus, accountsReport, quickbooksOwn = null, quickbooksBudgets = null, quickbooksTransactions = null, canManageQuickbooks = false, searchParams = null }) {
+function renderImportHistory(result) {
+  if (!result?.ok) return `<section class="report" aria-label="Import history">
+    ${renderSectionHeading({ eyebrow: 'QuickBooks', heading: 'Import history', badge: 'Unavailable' })}
+    <p class="status status-error">${escapeHtml(result?.error || 'Import history is unavailable.')}</p></section>`;
+  const rows = result.rows || [];
+  return `<section class="report" aria-label="Import history">
+    ${renderSectionHeading({ eyebrow: 'Accounts & data', heading: 'Import history', badge: 'Live' })}
+    <p>Completed Finance imports, newest first. The first entry for an older importer may be the latest pre-history status retained when tracking began.</p>
+    ${renderKpiCards([{ label: 'Events shown', value: String(rows.length) }])}
+    ${renderTable({ head: ['Completed', 'Importer', 'Coverage / note'], rows: rows.map((row) => `<tr><td>${escapeHtml(String(row.importedAt || '').replace('T', ' ').replace('Z', ' UTC'))}</td><td>${escapeHtml(row.importerLabel)}</td><td>${escapeHtml(row.note || '—')}</td></tr>`).join('') })}
+  </section>`;
+}
+
+export function renderQuickbooksPage(pageId, { dataStatus, accountsReport, quickbooksOwn = null, quickbooksBudgets = null, quickbooksTransactions = null, importHistory = null, canManageQuickbooks = false, searchParams = null }) {
   if (['transactions', 'expense-drilldown', 'vendor-spend', 'exceptions'].includes(pageId)) {
     return renderTransactionPage(pageId, quickbooksTransactions);
   }
+  if (pageId === 'import-history') return renderImportHistory(importHistory);
   if (pageId === 'account-mapping') {
     const isLive = accountsReport.source === 'live';
     const report = buildAccountsReportView(accountsReport.rows);

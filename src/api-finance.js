@@ -3763,12 +3763,26 @@ async function deriveImportDates(db, missingKeys) {
   return out;
 }
 async function recordImport(db, importerKey, note) {
+  const importedAt = new Date().toISOString();
   try {
     await db.prepare(
       `INSERT INTO finance_import_log (importer_key,last_imported_at,note) VALUES (?,?,?)
        ON CONFLICT(importer_key) DO UPDATE SET last_imported_at=excluded.last_imported_at, note=excluded.note`
-    ).bind(importerKey, new Date().toISOString(), note || '').run();
+    ).bind(importerKey, importedAt, note || '').run();
   } catch { /* the import itself succeeded; staleness bookkeeping must never fail it */ }
+  try {
+    await db.prepare(
+      `CREATE TABLE IF NOT EXISTS finance_import_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        importer_key TEXT NOT NULL,
+        imported_at TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT ''
+      )`
+    ).run();
+    await db.prepare(
+      `INSERT OR IGNORE INTO finance_import_history (importer_key, imported_at, note) VALUES (?, ?, ?)`
+    ).bind(importerKey, importedAt, note || '').run();
+  } catch { /* history is best-effort and must never turn a completed import into a failure */ }
 }
 
 // Concurrent identical reads share one computation. The map holds only genuinely IN-FLIGHT
