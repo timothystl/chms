@@ -4,7 +4,7 @@ import { buildCompensationBenefitsView } from './compensation-benefits-service.j
 import { escapeHtml, formatCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
 import { COUNCIL_COMP_METHODS, COUNCIL_COMP_METHOD_LABELS } from './compensation-council-overlay.js';
 import { renderCompensationPlanEditor } from './compensation-editor-pages.js';
-import { renderCouncilReport, renderProjectionSummary } from './compensation-council-report.js';
+import { renderBenchmarksPage, renderBenefitsTaxesPage, renderCouncilReport, renderProjectionSummary } from './compensation-council-report.js';
 
 // Which plan year the projection is for; a plain GET form, so the choice is a link like any other.
 function renderPlanYearForm(pageId, projection) {
@@ -114,22 +114,22 @@ export function renderCompensationPage(pageId, {
       : `<p class="status status-pending">Your raise-plan draft is unavailable right now: ${escapeHtml(compensationPlanRaw.message || compensationPlanRaw.reason || 'unknown error')}.</p>`)
     : '';
 
-  // Benchmarks and Benefits stay synthetic for every role, unconditionally -- unlike Plan and
-  // Council below, no honest live version of either exists to switch to. Benchmarks needs a real
-  // external district/market salary reference; the only "benchmark" concept anywhere in this
-  // codebase is finCompWorksheetCents (src/frontend/js-finance.js), a live computation off LCMS
-  // pay-scale multiplier tables, per WORKER, not a stored per-role figure, and porting that whole
-  // table-driven calculation server-side is separate, larger work this contract's own producer
-  // comment (src/api-contracts.js) already declines to duplicate. There is no other real benchmark
-  // source anywhere in Connect (checked finance_compensation_benchmarks and its one fixture-only
-  // migration/fixture pair -- every row is source_kind='synthetic_fixture'). Benefits needs a real
-  // per-role Pension/Group health/Disability/Employer-taxes DOLLAR breakdown; those figures
-  // (pensionCents/healthCents/disabilityCents in js-finance.js) are likewise computed client-side
-  // from formulas and rate/health-tier tables for the currently-viewed target year, never stored --
-  // there is nothing in finance_settings or the real contract to read them from. Fabricating either
-  // from real salary data (e.g. "120% of current pay" or a guessed split of benefits_cents) would
-  // be exactly the kind of invented number this codebase's every other contract avoids, so both
-  // pages keep reading the same synthetic role-level fixture regardless of viewer role.
+  // With the saved plan (admin, council and compensation roles), both pages are built from the same
+  // projection as the Council report: the LCMS Missouri District tables, the Concordia Plans rates
+  // and health quote, and each worker's Concordia Compensation Decision Support ranges. The
+  // synthetic role-level fixtures below remain only for viewers the saved plan is not shown to.
+  if (pageId === 'benchmarks' && compensationProjection && compensationProjection.ok) {
+    return renderPlanYearForm('benchmarks', compensationProjection) + renderBenchmarksPage(compensationProjection);
+  }
+  if (pageId === 'benefits' && compensationProjection && compensationProjection.ok) {
+    return renderPlanYearForm('benefits', compensationProjection) + renderBenefitsTaxesPage(compensationProjection);
+  }
+  if (['benchmarks', 'benefits'].includes(pageId) && compensationProjection && !compensationProjection.ok) {
+    return renderProjectionUnavailable(compensationProjection);
+  }
+  if (['benchmarks', 'benefits'].includes(pageId) && compensationPlanRaw && !compensationPlanRaw.ok) {
+    return `<p class="status status-error">This page is built from the saved compensation plan, which could not be read: ${escapeHtml(compensationPlanRaw.message || compensationPlanRaw.reason || 'unknown error')}. Nothing here is a real $0.</p>`;
+  }
   if (pageId === 'benchmarks') {
     const benchmark = buildCompensationBenchmarkView(buildCompensationReportView(compensationReport), compensationBenchmarks);
     return `<section class="report" aria-label="Synthetic Compensation Report benchmarks">
@@ -183,11 +183,8 @@ export function renderCompensationPage(pageId, {
       ])}
     </section>`;
   }
-  // 'plan' (default) -- the first page of this section with a live equivalent (the real,
-  // per-person finance-salary-planner roster). Benchmarks and Benefits above are unchanged and
-  // stay synthetic for every role: they are built around a role-level rollup this real roster does
-  // not (and, at 7 real workers, safely cannot) produce, and no honest real substitute exists for
-  // either (see the comment above the 'benchmarks'/'benefits' branches). Council above now has its
+  // 'plan' (default) -- the real, per-person finance-salary-planner roster. Benchmarks and Benefits
+  // above are built from the same saved plan for the roles allowed to read it. Council above has its
   // own honest live rollup for the same allowed roles, built only from real, already-stored
   // aggregate facts -- see buildLiveCompensationCouncilSnapshot's header comment.
   //

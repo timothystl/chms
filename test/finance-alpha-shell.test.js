@@ -1517,7 +1517,7 @@ describe('Finance alpha staging shell', () => {
     expect(benefitsHtml).toContain('must exactly match the benefits plan');
   });
 
-  describe('live Compensation Council snapshot for admin/council/compensation, Benchmarks/Benefits stay synthetic', () => {
+  describe('live Compensation Council snapshot for admin/council/compensation', () => {
     // Every name/dollar figure below is entirely fabricated for this test -- never a real
     // production value. Mirrors VALID_LIVE_PAYLOAD in finance-compensation-service.test.js.
     function liveCompensationEnv(role) {
@@ -1561,14 +1561,17 @@ describe('Finance alpha staging shell', () => {
       expect(html).toContain('Excludes any worker not shown to council');
     });
 
-    it('Benchmarks and Benefits stay fully synthetic even for admin with a live compensation roster available', async () => {
+    // Benchmarks and Benefits are built from the saved plan now (see
+    // test/finance-compensation-council-report.test.js); with no readable plan they say so rather
+    // than show sample figures to someone who can see the real roster.
+    it('Benchmarks and Benefits never fall back to sample figures for a role that reads the real plan', async () => {
       const roleEnv = liveCompensationEnv('admin');
       const benchmarkHtml = await (await worker.fetch(req('https://finance.test/?section=compensation&page=benchmarks'), roleEnv)).text();
-      expect(benchmarkHtml).toContain('Synthetic · not published guidance');
-      expect(benchmarkHtml).not.toContain('Worker A');
+      expect(benchmarkHtml).not.toContain('Synthetic · not published guidance');
+      expect(benchmarkHtml).toContain('built from the saved compensation plan, which could not be read');
       const benefitsHtml = await (await worker.fetch(req('https://finance.test/?section=compensation&page=benefits'), roleEnv)).text();
-      expect(benefitsHtml).toContain('No personal identities are included');
-      expect(benefitsHtml).not.toContain('Worker A');
+      expect(benefitsHtml).not.toContain('No personal identities are included');
+      expect(benefitsHtml).toContain('built from the saved compensation plan, which could not be read');
     });
 
     it('admin sees every worker verbatim on the Plan page, including one flagged hideFromCouncil', async () => {

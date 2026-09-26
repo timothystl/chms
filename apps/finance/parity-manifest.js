@@ -132,13 +132,10 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
       { id: 'compensation-link', label: 'Compensation', status: 'live' },
     ],
   },
-  // 'plan' and 'council' each have a real live version of their page for the SAME roles who may
-  // see the real per-person connect.finance-compensation.v1 roster (admin/council/compensation --
-  // see COMPENSATION_LIVE_ALLOWED_ROLES in compensation-report-service.js); every other role keeps
-  // reading the exact synthetic content unchanged. 'benchmarks' and 'benefits' stay synthetic for
-  // every role, permanently -- not a gap to close later, but a finding: no real per-role external
-  // benchmark salary or benefits-component dollar breakdown exists anywhere in Connect to honestly
-  // replace them with (see compensation-pages.js's comment above those two branches).
+  // 'plan', 'council', 'benefits' and 'benchmarks' are built from the saved compensation plan
+  // (LCMS Missouri District tables, Concordia Plans rates and health quote, each worker's Concordia
+  // Compensation Decision Support ranges) for the roles allowed to read it (admin/council/
+  // compensation -- see COMPENSATION_LIVE_ALLOWED_ROLES); other roles keep the synthetic fixture.
   {
     id: 'compensation', label: 'Compensation', group: 'Compensation', permission: 'compensation',
     capabilities: ['salary planning', 'benefits', 'district comparisons', 'council report'],
