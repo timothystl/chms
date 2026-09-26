@@ -157,7 +157,7 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
       { id: 'expense-drilldown', label: 'Expense drill-down', status: 'live' },
       { id: 'vendor-spend', label: 'Vendor spend', status: 'live' },
       { id: 'exceptions', label: 'Exceptions', status: 'live' },
-      { id: 'import-history', label: 'Import history', status: 'unavailable', reason: 'The import-log table keeps one current-status row per importer, not a history of past imports -- showing more than "current status" needs a schema change, not just a new query.' },
+      { id: 'import-history', label: 'Import history', status: 'live' },
     ],
   },
   {

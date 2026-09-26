@@ -2062,6 +2062,16 @@ async function _doInitDb(db) {
       last_imported_at TEXT NOT NULL,
       note             TEXT NOT NULL DEFAULT ''
     )`,
+    `CREATE TABLE IF NOT EXISTS finance_import_history (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      importer_key TEXT NOT NULL,
+      imported_at  TEXT NOT NULL,
+      note         TEXT NOT NULL DEFAULT ''
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS finance_import_history_event
+       ON finance_import_history(importer_key, imported_at, note)`,
+    `CREATE INDEX IF NOT EXISTS finance_import_history_recent
+       ON finance_import_history(imported_at DESC, id DESC)`,
     // Real per-month loan payment + interest expense (see migrations/0026_...) — lets the
     // confirmed mortgage balance roll forward automatically instead of needing a fresh lender
     // confirmation every time (finComputeMortgageRemainingCents in js-finance.js).
