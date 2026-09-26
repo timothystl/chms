@@ -333,6 +333,14 @@ const ROUTES = [
   { id: 'qb-sync-v1', paths: ['/api/v1/qb/sync'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.quickbooks-sync.v1' },
   { id: 'qb-sync-years-v1', paths: ['/api/v1/qb/sync-years'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.quickbooks-sync-years.v1' },
   { id: 'qb-budget-select-v1', paths: ['/api/v1/qb/budget-select'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.quickbooks-budget-select.v1' },
+  // Connect's own Compensation Planner, served inside Finance for side-by-side use (see
+  // connect-planner.js): the page, its scripts and stylesheet, the reads it makes through
+  // Connect's contracts, and its save, which relays to Connect's finance-compensation-write-v1
+  // (a council member's save goes to their private draft in Finance's database instead).
+  { id: 'connect-planner-page', paths: ['/connect-planner'], dataSource: 'live-relay-read' },
+  { id: 'connect-planner-asset', paths: ['/connect-planner/app.js', '/connect-planner/app.css'], dataSource: 'none' },
+  { id: 'connect-planner-read-v1', paths: ['/api/v1/connect-planner/salary', '/api/v1/connect-planner/church-year', '/api/v1/connect-planner/board-categories', '/api/v1/connect-planner/purpose-tags'], dataSource: 'live-relay-read' },
+  { id: 'connect-planner-save-v1', paths: ['/api/v1/connect-planner/salary-save'], methods: WRITE_METHODS, dataSource: 'live-relay', writer: true, contract: 'connect.finance-compensation-write-relay.v1' },
 ];
 
 export const FINANCE_ROUTE_MANIFEST = Object.freeze(ROUTES.map((route) => Object.freeze({

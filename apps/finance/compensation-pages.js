@@ -107,6 +107,12 @@ export function renderCompensationPage(pageId, {
       + renderRaiseMethodsEditor(compensationPlanRaw.data, compensationProjection, { planYear })
       + renderPlanProjection(compensationProjection, { councilDraft: false, viewerRole });
   }
+  // Connect's own planner (connect-planner.js), framed here so both versions can be used side by
+  // side: the same five tabs, live totals and autosave as in Connect, saving to the same plan.
+  if (pageId === 'connect') {
+    return `<p class="muted-line">Connect’s Compensation Planner, running in Finance with the same tabs and autosave. It edits the same saved plan as Finance’s Plan and Rates &amp; ranges pages. <a href="/connect-planner" target="_blank" rel="noopener">Open full screen</a></p>
+      <iframe src="/connect-planner" title="Compensation Planner (Connect)" style="width:100%;height:calc(100vh - 150px);min-height:720px;border:1px solid #E3E7EE;border-radius:10px;background:#F3F7FA"></iframe>`;
+  }
   // Legacy's "This year's rates" and market comparison data: editable by admin/compensation,
   // shown read-only to the other roles allowed to read the saved plan.
   if (pageId === 'rates') {

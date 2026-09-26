@@ -46,6 +46,10 @@ import { PLANNING_V3_STYLES, renderForecastPage, renderScenariosPage } from './p
 import { describePlanningBasisFailure, fetchPlanningBasis } from './connect-planning-client.js';
 import { fetchBudgetBuilder } from './finance-budget-builder-client.js';
 import { fetchBoardLayout } from './finance-board-layout-client.js';
+import {
+  CONNECT_PLANNER_CSP, CONNECT_PLANNER_CSS, CONNECT_PLANNER_JS, churchYearFromReport, councilDraftFromPlan,
+  plannerViewer, renderConnectPlannerPage,
+} from './connect-planner.js';
 import { buildBoardLayoutWrites, normalizeBoardLayout } from './board-layout.js';
 import { BUDGET_BUILDER_STYLES, renderBudgetBuilderPage } from './planning-builder-pages.js';
 import { fetchLiveFinanceCashRunway } from './finance-cash-runway-client.js';
@@ -195,7 +199,7 @@ const SECURITY_HEADERS = Object.freeze({
   // external JS can run on this page regardless.
   // img-src/font-src 'self' only admit the logo and fonts served by this Worker itself
   // (brand-assets.js) -- still no third-party origins and no script of any kind.
-  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-src 'self'; frame-ancestors 'none'",
   'Cross-Origin-Opener-Policy': 'same-origin',
   // same-origin, not no-referrer: no-referrer makes browsers send `Origin: null` on this app's
   // own form posts. Nothing still leaves for another origin.
@@ -1554,6 +1558,51 @@ function describeRoleFailure(result) {
   return byReason[result.reason] || String(result.reason || 'unknown');
 }
 
+// The Connect planner's page, reads and save. Every call re-checks the viewer's Connect role; the
+// reads and the shared-plan save then relay to Connect's own contracts, which verify it again.
+async function handleConnectPlanner(request, env, url, route) {
+  const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+  const jsonResponse = (body, status = 200) => response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+  const roleResult = await fetchVerifiedRole(env, accessJwt);
+  const viewer = plannerViewer(roleResult);
+  if (route.id === 'connect-planner-page') {
+    if (!viewer) {
+      return response('<!doctype html><meta charset="utf-8"><p style="font-family:sans-serif">The compensation planner is available to admin, compensation and council accounts.</p>', { status: 403, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+    const html = request.method === 'HEAD' ? null : renderConnectPlannerPage({ viewer, baseYear: defaultCompensationTargetYear() - 1, version: env.RELEASE_SHA });
+    const res = response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+    res.headers.set('Content-Security-Policy', CONNECT_PLANNER_CSP);
+    res.headers.set('X-Frame-Options', 'SAMEORIGIN');
+    return res;
+  }
+  if (!viewer) return jsonResponse({ error: 'Access denied: the compensation planner needs an admin, compensation or council account' }, 403);
+  if (route.id === 'connect-planner-save-v1') {
+    if (!isSameOriginPost(request, url)) return jsonResponse({ error: 'That save did not come from Timothy Finance.' }, 403);
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON body' }, 400); }
+    if (viewer.role === 'council') {
+      if (viewer.permissions.compensation !== 'edit') return jsonResponse({ error: 'Access denied: view only' }, 403);
+      const saved = await saveCouncilOverlay(env.FINANCE_DB, roleResult.username, councilDraftFromPlan(body));
+      return saved.ok ? jsonResponse({ ok: true, draft: true }) : jsonResponse({ error: saved.error }, saved.status || 500);
+    }
+    const result = await postConnectFinanceCompensationWrite(env, accessJwt, body);
+    return result.ok ? jsonResponse(result.result || { ok: true }) : jsonResponse({ error: result.message || describeCompensationEntryError(result.reason) }, result.status || 502);
+  }
+  if (url.pathname === '/api/v1/connect-planner/salary') {
+    const plan = await fetchConnectSalaryPlannerState(env, accessJwt);
+    return plan.ok ? jsonResponse({ data: plan.data }) : jsonResponse({ error: plan.message || describeCompensationEntryError(plan.reason) }, 502);
+  }
+  if (url.pathname === '/api/v1/connect-planner/church-year') {
+    const year = Number(url.searchParams.get('year'));
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) return jsonResponse({ error: 'year must be a 4-digit year' }, 400);
+    const ledger = await fetchLiveFinanceChurchReport(env, year);
+    return ledger.ok ? jsonResponse(churchYearFromReport(ledger.report)) : jsonResponse({ error: 'The church ledger could not be read' }, 502);
+  }
+  const layout = await fetchBoardLayout(env);
+  if (!layout.ok) return jsonResponse({ error: 'The chart of accounts layout could not be read' }, 502);
+  return jsonResponse(url.pathname.endsWith('/purpose-tags') ? layout.layout.purposeTags : layout.layout.boardCategories);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -1575,6 +1624,18 @@ export default {
       return response(request.method === 'HEAD' ? null : brandAssetBytes(asset), {
         headers: { 'Content-Type': asset.contentType },
       }, { cacheControl: 'public, max-age=86400' });
+    }
+
+    // Connect's Compensation Planner inside Finance (connect-planner.js). Its page may be framed by
+    // Finance and runs Connect's scripts, so it carries its own CSP; everything else keeps Finance's.
+    if (route.id === 'connect-planner-asset') {
+      const isJs = url.pathname.endsWith('.js');
+      return response(request.method === 'HEAD' ? null : (isJs ? CONNECT_PLANNER_JS : CONNECT_PLANNER_CSS), {
+        headers: { 'Content-Type': isJs ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8' },
+      }, { cacheControl: 'private, max-age=86400' });
+    }
+    if (route.id === 'connect-planner-page' || route.id === 'connect-planner-read-v1' || route.id === 'connect-planner-save-v1') {
+      return handleConnectPlanner(request, env, url, route);
     }
 
     if (route.id === 'health') {

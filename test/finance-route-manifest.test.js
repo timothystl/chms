@@ -38,9 +38,10 @@ const WRITE_ROUTE_IDS = new Set([
   'daycare-entry-edit-v1', 'daycare-entry-remove-v1', 'daycare-sync-v1', 'daycare-rooms-sync-v1',
   'gift-batch-write-v1',
   'giving-followup-write-v1',
+  'connect-planner-save-v1',
 ]);
 const OWN_DB_WRITE_ROUTE_IDS = new Set(['budget-plan-save-v1']);
-const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1']);
+const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1', 'connect-planner-page', 'connect-planner-read-v1']);
 const LIVE_POST_READ_ROUTE_IDS = new Set([
   'church-budget-xlsx-preview-v1', 'church-balances-xlsx-preview-v1',
   'church-monthly-xlsx-preview-v1', 'church-activity-xlsx-preview-v1',
@@ -127,6 +128,9 @@ describe('Finance staging route manifest', () => {
       '/api/v1/compensation-raise-plan-save', '/api/v1/compensation-council-draft-save', '/api/v1/compensation-council-overlay-save',
       '/print/board-packet',
       '/api/v1/qb/connect', '/api/v1/qb/callback', '/api/v1/qb/disconnect', '/api/v1/qb/sync', '/api/v1/qb/sync-years', '/api/v1/qb/budget-select',
+      '/connect-planner', '/connect-planner/app.js', '/connect-planner/app.css',
+      '/api/v1/connect-planner/salary', '/api/v1/connect-planner/church-year', '/api/v1/connect-planner/board-categories', '/api/v1/connect-planner/purpose-tags',
+      '/api/v1/connect-planner/salary-save',
     ]);
     for (const route of FINANCE_ROUTE_MANIFEST) {
       if (WRITE_ROUTE_IDS.has(route.id)) {
