@@ -3,7 +3,21 @@
 // can return a 503 without additional conditional logic.
 // All methods return a raw fetch Response — callers retain their own .json() /
 // .text() calls and error handling exactly as before.
-export function makeBreezeClient(env) {
+//
+// Every request carries a timeout. Without one, a Breeze call that never answers
+// holds the Worker request open indefinitely and the browser sits on "Syncing…"
+// forever. A timed-out call rejects with a BreezeTimeoutError naming the endpoint,
+// which callers' existing try/catch blocks turn into a visible error.
+export const BREEZE_TIMEOUT_MS = 60000;
+
+export class BreezeTimeoutError extends Error {
+  constructor(path, ms) {
+    super(`Breeze did not respond within ${Math.round(ms / 1000)}s (${path})`);
+    this.name = 'BreezeTimeoutError';
+  }
+}
+
+export function makeBreezeClient(env, { timeoutMs = BREEZE_TIMEOUT_MS } = {}) {
   const subdomain = env.BREEZE_SUBDOMAIN;
   const apiKey    = env.BREEZE_API_KEY;
   if (!subdomain || !apiKey) return null;
@@ -11,9 +25,22 @@ export function makeBreezeClient(env) {
   const base = `https://${subdomain}.breezechms.com/api`;
   const hdrs = { 'Api-key': apiKey };
 
+  // All Breeze requests go through here so each one gets the timeout.
+  // Only the path (never the query string or key) goes into the error message.
+  async function send(pathWithQuery, init) {
+    try {
+      return await fetch(`${base}/${pathWithQuery}`, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (e) {
+      if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+        throw new BreezeTimeoutError(pathWithQuery.split('?')[0], timeoutMs);
+      }
+      throw e;
+    }
+  }
+
   // Core: build a full URL from a path + pre-built query string and fetch it.
   function get(pathWithQuery) {
-    return fetch(`${base}/${pathWithQuery}`, { headers: hdrs });
+    return send(pathWithQuery, { headers: hdrs });
   }
 
   // Build a query string from a plain params object.
@@ -69,7 +96,7 @@ export function makeBreezeClient(env) {
     addPerson: (first, last, fieldsJson) => {
       const body = new URLSearchParams({ first, last });
       if (fieldsJson) body.set('fields_json', fieldsJson);
-      return fetch(`${base}/people/add`, {
+      return send('people/add', {
         method: 'POST',
         headers: { ...hdrs, 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),
@@ -83,7 +110,7 @@ export function makeBreezeClient(env) {
       if (first) body.set('first', first);
       if (last) body.set('last', last);
       if (fieldsJson) body.set('fields_json', fieldsJson);
-      return fetch(`${base}/people/update`, {
+      return send('people/update', {
         method: 'POST',
         headers: { ...hdrs, 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),

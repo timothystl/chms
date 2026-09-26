@@ -1645,15 +1645,21 @@ if (seg === 'import/breeze-giving' && method === 'POST') { try {
     warnings: logWarnings,
   };
   let glRaw = [];
+  // giving/list is the only source for Tithely/processor gifts (not in the audit log) and the
+  // reference set for orphan cleanup, so a failure here must be visible, not silently empty.
+  let givingListOk = false;
   try {
     // Use the sync window (with grace period) instead of all-time. The all-time
     // range with limit=10000 was silently truncating early-year entries — a church
     // with 15,000+ all-time contributions loses ~2025-01 entries entirely.
     // A single year has ~3,000 contributions, safely under the 10,000 limit.
     const glRes = await breeze.givingList({ start: lateStart, end, details: 1, limit: 10000 });
+    if (!glRes.ok) logWarnings.push(`giving/list: Breeze API error ${glRes.status} — online/Tithely gifts were not imported this run`);
     if (glRes.ok) {
       const gl = await glRes.json();
+      if (!Array.isArray(gl)) logWarnings.push('giving/list: unexpected response format — online/Tithely gifts were not imported this run');
       if (Array.isArray(gl)) {
+        givingListOk = true;
         glRaw = gl;
         // Capture raw structure of first 3 entries for diagnostics
         diag.givingListSample = gl.slice(0, 3).map(g => ({
@@ -1680,7 +1686,8 @@ if (seg === 'import/breeze-giving' && method === 'POST') { try {
         }
       }
     }
-  } catch (e) { /* giving/list is best-effort — fund names only */ }
+  } catch (e) { logWarnings.push(`giving/list: ${e.message} — online/Tithely gifts were not imported this run`); }
+  diag.givingListOk = givingListOk;
 
   // Record all harvested fund names after both /api/funds and giving/list
   diag.breezeFundNamesAfterHarvest = Object.entries(breezeFundNames).map(([id, name]) => ({ id, name }));
@@ -1731,7 +1738,7 @@ if (seg === 'import/breeze-giving' && method === 'POST') { try {
 
   // Contributions = audit log entries + giving/list supplement (Tithely and other non-logged imports)
   const allEntries = [...entries, ...glSupplementEntries];
-  if (allEntries.length === 0) return json({ ok: true, imported: 0, skipped: 0, total: 0, date_range: { start, end } });
+  if (allEntries.length === 0) return json({ ok: true, imported: 0, skipped: 0, total: 0, date_range: { start, end }, diagnostics: diag });
 
   // Capture raw audit log details for first 3 entries
   diag.auditLogSample = allEntries.slice(0, 3).map(e => {
@@ -2179,7 +2186,8 @@ if (seg === 'import/breeze-giving' && method === 'POST') { try {
 
     const truncationLikely = glByPaymentId.size >= GIVING_LIST_LIMIT;
     const ratioExceeded = winRows.length > 0 && (orphaned.length / winRows.length) > ORPHAN_MAX_RATIO;
-    const safetyAbort = truncationLikely || ratioExceeded;
+    // Without a giving/list response every stored gift looks like an orphan.
+    const safetyAbort = !givingListOk || truncationLikely || ratioExceeded;
 
     if (orphaned.length > 0 && !safetyAbort) {
       const deleteOps = [];
@@ -2205,7 +2213,9 @@ if (seg === 'import/breeze-giving' && method === 'POST') { try {
     diag.orphansRemoved = orphansRemoved;
     diag.orphanCandidates = orphaned.length;
     diag.orphanSafetyAbort = safetyAbort;
-    if (safetyAbort) diag.orphanSafetyReason = truncationLikely
+    if (safetyAbort) diag.orphanSafetyReason = !givingListOk
+      ? 'giving/list did not load, so there is nothing to compare against'
+      : truncationLikely
       ? `giving/list returned ${glByPaymentId.size} payments (>= limit ${GIVING_LIST_LIMIT}), likely truncated`
       : `would delete ${orphaned.length} of ${winRows.length} rows (> ${ORPHAN_MAX_RATIO * 100}%)`;
     diag.breezePaymentsForCleanup = glByPaymentId.size;

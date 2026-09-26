@@ -1010,17 +1010,42 @@ function runBreezeFeeCheck() {
   });
 }
 
+// Breeze giving sync request. The server times out each Breeze call, so a normal run
+// finishes or errors on its own; this client-side cap is only a backstop so the status
+// line can never sit on "Syncing…" forever. onTick receives elapsed seconds.
+var BREEZE_GIVING_CLIENT_TIMEOUT_MS = 6 * 60 * 1000;
+function breezeGivingRequest(from, to, onTick) {
+  var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  var started = Date.now();
+  var ticker = setInterval(function() { onTick(Math.round((Date.now() - started) / 1000)); }, 1000);
+  var timer = setTimeout(function() { if (ctrl) ctrl.abort(); }, BREEZE_GIVING_CLIENT_TIMEOUT_MS);
+  var opts = {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({start: from, end: to})
+  };
+  if (ctrl) opts.signal = ctrl.signal;
+  function done() { clearInterval(ticker); clearTimeout(timer); }
+  return api('/admin/api/import/breeze-giving', opts).then(function(d) { done(); return d; }, function(e) {
+    done();
+    if (e && e.name === 'AbortError') throw new Error('No response after ' + Math.round(BREEZE_GIVING_CLIENT_TIMEOUT_MS / 60000) + ' minutes. Breeze may be slow or down; try a shorter date range or try again later.');
+    throw e;
+  });
+}
+
 function runBreezeGivingSync() {
   var from = document.getElementById('giving-sync-from').value;
   var to = document.getElementById('giving-sync-to').value;
   var status = document.getElementById('giving-sync-status');
   if (!from || !to) { status.textContent = 'Please select a date range.'; status.className = 'import-status err'; return; }
-  status.textContent = 'Syncing ' + from + ' to ' + to + '…'; status.className = 'import-status';
-  api('/admin/api/import/breeze-giving', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({start: from, end: to})
+  if (status.getAttribute('data-running') === '1') return;
+  status.setAttribute('data-running', '1');
+  var label = 'Syncing ' + from + ' to ' + to + '…';
+  status.textContent = label; status.className = 'import-status';
+  breezeGivingRequest(from, to, function(sec) {
+    status.textContent = label + ' (' + sec + 's' + (sec >= 90 ? ', still waiting on Breeze' : '') + ')';
   }).then(function(d) {
+    status.removeAttribute('data-running');
     if (d.error) { status.textContent = 'Error: ' + d.error; status.className = 'import-status err'; return; }
     var msg = 'Done. ' + (d.imported||0) + ' imported';
     if (d.lateImported) msg += ', ' + d.lateImported + ' cross-year late entries imported';
@@ -1035,7 +1060,10 @@ function runBreezeGivingSync() {
     if (d.fundsMade) msg += ', ' + d.fundsMade + ' funds created';
     if (d.errors && d.errors.length) msg += ', ' + d.errors.length + ' error(s)';
     msg += '.';
-    status.textContent = msg; status.className = 'import-status ok';
+    var warns = (d.diagnostics && d.diagnostics.warnings) || [];
+    var glFailed = d.diagnostics && d.diagnostics.givingListOk === false;
+    if (glFailed) msg += ' Breeze giving list did not load; online gifts may be missing. See diagnostics and re-run.';
+    status.textContent = msg; status.className = 'import-status ' + (glFailed ? 'err' : 'ok');
     var diagEl = document.getElementById('giving-sync-diagnostics');
     if (diagEl) {
       diagEl.style.display = 'block';
@@ -1045,7 +1073,7 @@ function runBreezeGivingSync() {
       if (d.diagnostics) out.diagnostics = d.diagnostics;
       diagEl.textContent = JSON.stringify(Object.keys(out).length ? out : d, null, 2);
     }
-  }).catch(function(e) { status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
+  }).catch(function(e) { status.removeAttribute('data-running'); status.textContent = 'Error: ' + e.message; status.className = 'import-status err'; });
 }
 
 function runBreezeGivingAll() {
@@ -1066,12 +1094,11 @@ function runBreezeGivingAll() {
       return;
     }
     var yr = years[idx++];
-    status.textContent = 'Syncing ' + yr + '… (' + idx + '/' + years.length + ' years)';
+    var label = 'Syncing ' + yr + '… (' + idx + '/' + years.length + ' years)';
+    status.textContent = label;
     status.className = 'import-status';
-    api('/admin/api/import/breeze-giving', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({start: yr + '-01-01', end: yr + '-12-31'})
+    breezeGivingRequest(yr + '-01-01', yr + '-12-31', function(sec) {
+      status.textContent = label + ' ' + sec + 's';
     }).then(function(d) {
       if (d.error) {
         btn.disabled = false;
