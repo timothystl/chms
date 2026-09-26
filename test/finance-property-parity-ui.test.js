@@ -58,10 +58,19 @@ const LIVE_VALUATION = {
   },
 };
 
+const LIVE_POLICY = {
+  contract: 'connect.finance-property-policy.v1', dataClassification: 'aggregate',
+  sourceProduct: 'connect', consumerProduct: 'finance', currency: 'USD',
+  propertyKey: 'ivanhoe', generatedAt: '2026-09-26T00:00:00Z',
+  reservePolicy: { baseMinimumCents: 450000 },
+  capitalPolicy: { method: 'flat_plus_sqft', annualAllowanceCents: 1200000, perSquareFootCents: 20 },
+};
+
 const LIVE_BY_PATH = {
   '/api/contracts/finance-property-ledgers-v1': LIVE_LEDGERS,
   '/api/contracts/finance-property-reserves-v1': LIVE_RESERVES,
   '/api/contracts/finance-property-valuation-v1': LIVE_VALUATION,
+  '/api/contracts/finance-property-policy-v1': LIVE_POLICY,
 };
 
 function roleEnv(role, onWrite = async () => new Response('not found', { status: 404 })) {
@@ -192,6 +201,59 @@ describe('Commercial Property valuation editor', () => {
     expect(location.searchParams.get('page')).toBe('valuation');
     expect(location.searchParams.get('status')).toBe('error');
     expect(location.searchParams.get('message')).toContain('cap rate');
+    expect(relayed).toBe(false);
+  });
+});
+
+describe('Commercial Property reserve and capital policy editors', () => {
+  it('shows current policy and admin-only forms on the pages those figures drive', async () => {
+    const reserves = await page(roleEnv('admin'), 'section=property&page=reserve-distribution');
+    expect(reserves).toContain('Base minimum reserve');
+    expect(reserves).toContain('$4,500');
+    expect(reserves).toContain('name="reserve_policy_form" value="1"');
+    const valuation = await page(roleEnv('admin'), 'section=property&page=valuation');
+    expect(valuation).toContain('Capital allowance');
+    expect(valuation).toContain('name="capital_policy_form" value="1"');
+    expect(valuation).toContain('<option value="flat_plus_sqft" selected>');
+    expect(valuation).toContain('name="annual_allowance" min="0" step="0.01" value="12000.00"');
+  });
+
+  it('renders the policy read-only to finance viewers', async () => {
+    const reserves = await page(roleEnv('finance'), 'section=property&page=reserve-distribution');
+    expect(reserves).toContain('$4,500');
+    expect(reserves).not.toContain('reserve_policy_form');
+    const valuation = await page(roleEnv('finance'), 'section=property&page=valuation');
+    expect(valuation).toContain('Flat amount plus amount per square foot');
+    expect(valuation).not.toContain('capital_policy_form');
+  });
+
+  it('relays reserve and capital sections without touching other property metadata', async () => {
+    const sent = [];
+    const env = roleEnv('admin', async (req) => { sent.push(JSON.parse(await req.text())); return new Response(JSON.stringify({ ok: true })); });
+    const reserve = await worker.fetch(new Request('https://finance.test/api/v1/connect-property-meta-write', {
+      method: 'POST', headers: { ...JWT, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ reserve_policy_form: '1', base_minimum: '5000.25' }).toString(),
+    }), env);
+    expect(reserve.headers.get('location')).toContain('op=reserve-policy&status=ok');
+    const capital = await worker.fetch(new Request('https://finance.test/api/v1/connect-property-meta-write', {
+      method: 'POST', headers: { ...JWT, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ capital_policy_form: '1', method: 'per_sqft', annual_allowance: '', per_square_foot: '0.25' }).toString(),
+    }), env);
+    expect(capital.headers.get('location')).toContain('op=capital-policy&status=ok');
+    expect(sent).toEqual([
+      { reserves: { base_minimum_cents: 500025 } },
+      { capital: { method: 'per_sqft', annual_allowance_cents: null, per_sqft_cents: 25 } },
+    ]);
+  });
+
+  it('rejects malformed policy values before relaying', async () => {
+    let relayed = false;
+    const env = roleEnv('admin', async () => { relayed = true; return new Response('{}'); });
+    const response = await worker.fetch(new Request('https://finance.test/api/v1/connect-property-meta-write', {
+      method: 'POST', headers: { ...JWT, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ capital_policy_form: '1', method: 'invented', annual_allowance: '-1' }).toString(),
+    }), env);
+    expect(response.headers.get('location')).toContain('reason=invalid_input');
     expect(relayed).toBe(false);
   });
 });
