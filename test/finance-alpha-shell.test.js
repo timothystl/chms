@@ -1405,18 +1405,6 @@ describe('Finance alpha staging shell', () => {
     expect(six).toContain('value="390000"');
   });
 
-  it('renders honestly-labeled "not yet available" pages for the Commercial Property gaps', async () => {
-    for (const [pageId, phrase] of [
-      ['receivables', 'no tenant-receivable'],
-      ['bank-rec', 'no balance sheet or bank account'],
-      ['debt', 'loan-payment and interest-expense columns'],
-    ]) {
-      const html = await (await worker.fetch(new Request(`https://finance.test/?section=property&page=${pageId}`), env)).text();
-      expect(html).toContain('Not yet available');
-      expect(html).toContain(phrase);
-    }
-  });
-
   it('renders a reconciled synthetic Budget outlook with base and growth assumptions', async () => {
     statements.length = 0;
     const res = await worker.fetch(new Request('https://finance.test/?section=planning'), env);
@@ -1617,7 +1605,7 @@ describe('Finance alpha staging shell', () => {
   });
 
   it('enforces the named summary query budget and read-only statements', async () => {
-    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, propertyValuation: 3, propertyForecast: 1, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1, compensationBenchmark: 1, compensationBenefits: 1, cashRunway: 2, propertyDistributions: 1, facilities: 5, hr: 8, planning: 2 });
+    expect(FINANCE_QUERY_BUDGETS).toEqual({ summary: 4, churchReport: 1, churchTrends: 1, balanceSheet: 1, balanceTrends: 1, daycareReport: 1, daycareAllocation: 2, propertyReport: 1, propertyReserves: 1, propertyLedgers: 2, propertyValuation: 3, propertyForecast: 1, budgetReport: 1, accountsReport: 1, dataStatus: 1, compensationReport: 1, compensationBenchmark: 1, compensationBenefits: 1, cashRunway: 2, propertyDistributions: 1, facilities: 5, hr: 8, planning: 2, propertyBooks: 2 });
     await expect(runBudgetedReadBatch(env.FINANCE_DB, 'summary', [
       'SELECT 1', 'SELECT 2', 'SELECT 3', 'SELECT 4', 'SELECT 5',
     ])).rejects.toThrow('Finance query budget exceeded: summary');

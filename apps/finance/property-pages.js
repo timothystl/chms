@@ -1,7 +1,7 @@
 import { buildPropertyReportView, buildPropertyValuationView } from './property-report-service.js';
 import { buildPropertyForecastView, buildLivePropertyForecastView } from './property-forecast-service.js';
 import { buildPropertyDistributionsView } from './property-distributions-service.js';
-import { escapeHtml, formatCents, formatSignedCents, renderKpiCards, renderSectionHeading, renderTable, renderUnavailablePage } from './render-helpers.js';
+import { escapeHtml, formatCents, formatSignedCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
 
 // A per-row Remove action (admin only, matching the legacy DELETE finance/property/ivanhoe/
 // monthly/:period route's own gate) is appended as a last column when `canManage` -- relayed live
@@ -553,12 +553,6 @@ export function renderPropertyPage(pageId, {
       ${fallbackNote}
     </section>${canManagePropertyLedgers ? renderPropertyDistributionForm(propertyDistributionEntryStatus, propertyDistributionEntryMessage) : ''}`;
   }
-  const unavailable = {
-    receivables: { heading: 'Receivables & deposits', reason: 'There is no tenant-receivable or security-deposit table -- the property model tracks monthly totals and ledgers, not per-tenant balances.' },
-    'bank-rec': { heading: 'Position & bank rec', reason: 'The property has no balance sheet or bank account of its own to reconcile -- only income/expense and reserve tables exist.' },
-    debt: { heading: 'Debt payoff & future', reason: 'The monthly property table has loan-payment and interest-expense columns, but the synthetic fixture leaves them empty and nothing populates them yet -- there is no loan schedule to project.' },
-  };
-  if (unavailable[pageId]) return renderUnavailablePage({ eyebrow: 'Commercial Property', ...unavailable[pageId] });
 
   // 'overview' (default) -- use the reconciled annual summary from the same live contract as
   // Operating results. Monthly live rows legitimately contain null expense/reserve fields, so

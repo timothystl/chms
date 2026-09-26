@@ -228,6 +228,13 @@ const ROUTES = [
   { id: 'facilities-file-v1', paths: ['/api/v1/facilities/file'], dataSource: 'finance-files-read', contract: 'finance.facilities-file.v1' },
   // HR & Staff (v3 design): admin-only personnel records in Finance's own tables (migration 0011,
   // hr-service.js). Form posts that redirect back.
+  // Commercial Property books (v3 design): receivables, deposits and bank reconciliations in
+  // Finance's own tables (migration 0014, property-books-service.js). Admin-only form posts.
+  { id: 'property-receivable-save-v1', paths: ['/api/v1/property/receivable-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.property-receivable-save.v1' },
+  { id: 'property-receivable-import-v1', paths: ['/api/v1/property/receivable-import'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.property-receivable-import.v1' },
+  { id: 'property-receivable-remove-v1', paths: ['/api/v1/property/receivable-remove'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.property-receivable-remove.v1' },
+  { id: 'property-bank-rec-save-v1', paths: ['/api/v1/property/bank-rec-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.property-bank-rec-save.v1' },
+  { id: 'property-bank-rec-remove-v1', paths: ['/api/v1/property/bank-rec-remove'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.property-bank-rec-remove.v1' },
   { id: 'planning-scenario-save-v1', paths: ['/api/v1/planning/scenario-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.planning-scenario-save.v1' },
   { id: 'planning-scenario-basis-v1', paths: ['/api/v1/planning/scenario-basis'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.planning-scenario-basis.v1' },
   { id: 'hr-person-save-v1', paths: ['/api/v1/hr/person-save'], methods: WRITE_METHODS, dataSource: 'finance-db-write', writer: true, contract: 'finance.hr-person-save.v1' },
