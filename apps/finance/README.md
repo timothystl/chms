@@ -557,17 +557,13 @@ forms above (`canManageDaycareAllocation`/`canManageDaycareBudgetOverride`); the
 Church-Budget-import forms reuse the existing looser `canRecordDaycareEntry` gate (any verified
 role that can reach the Daycare section), matching their relay contracts' own permission check.
 
-The three settings-blob routes (revenue-streams, flow-expense-map, cash-policy) are deliberately
-shipped WITHOUT a UI form: no existing live page in this app surfaces their read data at all today
-(Financial Health/Charts do not yet render revenue-stream classification, the flow-diagram
-expense-category mapping, or the cash-runway policy settings anywhere, read-only or otherwise), so
-there is no sensible page to attach an edit form to. Each is still a fully real, directly
-POST-able write path end to end -- shared function, contract handler, `route-manifest.js` entry
-(`revenue-streams-write-v1`/`flow-expense-map-write-v1`/`cash-policy-write-v1`), and a `shell.js`
-POST route (`postConnectRevenueStreamsWrite`/`postConnectFlowExpenseMapWrite`/
-`postConnectCashPolicyWrite` in `finance-chart-of-accounts-client.js`) -- just not yet linked from
-a form; adding one is a later, separate UI change once these settings get a read-only home to
-attach it to.
+Revenue-stream and flow-expense-map remain without UI forms because no live page reads those maps.
+Cash policy is now complete in standalone Finance: `connect.finance-cash-runway.v1` optionally
+adds the full saved policy settings (Finance accepts old and extended v1 payloads so releases can
+land in either order), and Charts → Cash & reserve shows the existing admin-only relay form only
+when that live detail is present. It saves all four fields through Connect's established
+`finance-cash-policy-write-v1` handler, never through a second Finance writer. The two map routes
+remain fully POST-able contract paths for a later read-backed screen.
 
 Tests: `test/finance-revenue-streams-write-contract.test.js`,
 `test/finance-flow-expense-map-write-contract.test.js`,

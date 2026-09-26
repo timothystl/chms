@@ -274,6 +274,16 @@ export async function buildFinanceCashRunwayV1(db, { fiscalYear, now = new Date(
     asOfDate,
     daycareExcludedCents: expenseSplit.daycareCents,
     allExpensesYtdCents: expenseSplit.totalCents,
+    // Optional additive detail lets Finance render the same admin-only policy editor as the
+    // compatibility UI without guessing or overwriting fields it cannot see. Finance accepts
+    // both the pre-addition and extended v1 shapes so Connect and Finance can deploy in either
+    // order; the write remains the existing identity-checked Connect relay.
+    policySettings: {
+      floorMonths: policy.policy_floor_months,
+      cashOnHandCents: policy.cash_on_hand_cents,
+      cashAccountCode: policy.cash_account_code,
+      generalFundBudgetCode: policy.general_fund_budget_code,
+    },
   };
 }
 

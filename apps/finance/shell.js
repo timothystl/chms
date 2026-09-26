@@ -907,7 +907,7 @@ function renderSectionBody(ctx) {
     daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
     propertyLedgers, propertyLedgersLive, propertyValuation,
     propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
-    compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, givingEntryStatus, givingEntryMessage,
+    compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage, givingEntryStatus, givingEntryMessage,
     budgetEntryStatus, budgetEntryMessage, payrollBundle,
     compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
     compensationProjection,
@@ -1128,7 +1128,7 @@ function renderSectionBody(ctx) {
     return renderAccessPage({ result: ctx.accessRoles?.ok ? { ok: true, data: ctx.accessRoles.result } : { ok: false, message: describeGivingBatchFailure(ctx.accessRoles) } });
   }
   if (section.id === 'charts') {
-    return renderChartsPage(page.id, { churchReport, churchReportLive, cashRunway, propertyReserves, propertyReservesLive, giving, givingSource });
+    return renderChartsPage(page.id, { churchReport, churchReportLive, cashRunway, propertyReserves, propertyReservesLive, giving, givingSource, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage });
   }
   if (section.id === 'church') {
     // Same admin-only gate as the legacy in-Connect Church Report's own actual-override route --
@@ -2395,12 +2395,10 @@ export default {
     }
 
     // Revenue-stream classification, flow-expense-category mapping, and the cash-runway policy
-    // settings -- no existing live page in this app surfaces their read data yet (see
-    // route-manifest.js's own comment), so these three routes have no linked form and redirect
-    // back to the plain root rather than a specific `section`/`page`. Still a fully real,
-    // directly POST-able write path: `label`/`stream` (resp. `label`/`key`) are parallel repeated
-    // fields so a future form can submit the whole map at once (Connect's own
-    // saveRevenueStreamMap()/saveFlowExpenseMap() overwrite the whole stored map, same as legacy).
+    // settings. Revenue/flow still have no read-backed form; Cash & reserve now renders the
+    // complete policy from the extended live runway contract. Every save still relays to the
+    // existing Connect writer. `label`/`stream` (resp. `label`/`key`) are parallel repeated fields
+    // for the two map routes (Connect overwrites the whole stored map, same as legacy).
     if (route.id === 'revenue-streams-write-v1') {
       const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
       let form;
@@ -2451,17 +2449,21 @@ export default {
       } catch {
         return response(null, { status: 303, headers: { Location: '/?status=error&reason=invalid_json' } });
       }
+      const dollarsRaw = form.get('cash_on_hand_dollars');
+      const dollars = dollarsRaw == null || String(dollarsRaw).trim() === '' ? null : Number(dollarsRaw);
       const body = {
         policy_floor_months: form.get('policy_floor_months') || '',
-        cash_on_hand_cents: form.get('cash_on_hand_cents') || '',
+        cash_on_hand_cents: dollarsRaw != null
+          ? (dollars == null ? '' : Number.isFinite(dollars) ? Math.round(dollars * 100) : String(dollarsRaw))
+          : form.get('cash_on_hand_cents') || '',
         cash_account_code: form.get('cash_account_code') || '',
         general_fund_budget_code: form.get('general_fund_budget_code') || '',
       };
       const result = await postConnectCashPolicyWrite(env, accessJwt, body);
       if (result.ok) {
-        return response(null, { status: 303, headers: { Location: '/?status=ok' } });
+        return response(null, { status: 303, headers: { Location: '/?section=charts&page=cash-reserve&op=cash-policy&status=ok' } });
       }
-      const params = new URLSearchParams({ status: 'error', reason: result.reason || 'unknown' });
+      const params = new URLSearchParams({ section: 'charts', page: 'cash-reserve', op: 'cash-policy', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -3436,6 +3438,12 @@ export default {
           : null;
         const cashRunway = ['health', 'charts'].includes(section.id)
           ? await safeSyntheticRead(() => resolveCashRunway(env, env.FINANCE_DB)) : null;
+        const canManageCashPolicy = section.id === 'charts' && effectivePageId === 'cash-reserve'
+          && roleResult.ok && roleResult.role === 'admin';
+        const cashPolicyStatus = canManageCashPolicy && url.searchParams.get('op') === 'cash-policy'
+          ? url.searchParams.get('status') : null;
+        const cashPolicyMessage = cashPolicyStatus === 'error'
+          ? describeCashPolicyEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
         const { giving, source: givingSource } = ['health', 'giving', 'charts', 'packet'].includes(section.id)
           ? await resolveGivingSummary(env) : { giving: SYNTHETIC_GIVING, source: 'synthetic-fallback' };
         const givingEntryStatus = section.id === 'giving' ? url.searchParams.get('status') : null;
@@ -3653,7 +3661,7 @@ export default {
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
-          dataStatus, quickbooksOwn, quickbooksBudgets, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway,
+          dataStatus, quickbooksOwn, quickbooksBudgets, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
     compensationProjection,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,

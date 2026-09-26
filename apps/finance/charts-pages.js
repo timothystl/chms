@@ -3,6 +3,26 @@ import { buildFinancialMixView, buildLiveFinancialMixView } from './financial-mi
 import { buildResolvedCashRunwayView } from './cash-runway-service.js';
 import { escapeHtml, formatCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
 
+function renderCashPolicyForm(policy, status, message) {
+  if (!policy) return '';
+  const dollars = policy.cashOnHandCents == null ? '' : (policy.cashOnHandCents / 100).toFixed(2);
+  return `<section class="report" aria-label="Cash reserve policy editor">
+    ${renderSectionHeading({ eyebrow: 'Cash & reserve', heading: 'Cash reserve policy', badge: 'Admin · saved in Connect' })}
+    ${status === 'ok' ? '<p class="status status-ok">Cash reserve policy saved.</p>' : ''}
+    ${status === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(message || 'the request did not complete.')}</p>` : ''}
+    <p><small>The runway uses church operating expenses only. A manual cash amount overrides the selected balance-sheet account; leave it blank to use the account code.</small></p>
+    <form method="POST" action="/api/v1/connect-cash-policy-write">
+      <div class="form-grid">
+        <label>Policy floor (months)<input type="number" name="policy_floor_months" min="0" max="60" step="0.5" required value="${escapeHtml(policy.floorMonths)}"></label>
+        <label>Operating cash account code<input type="text" name="cash_account_code" maxlength="32" pattern="[A-Za-z0-9_.-]{1,32}" value="${escapeHtml(policy.cashAccountCode)}" placeholder="11027"></label>
+        <label>General Fund budget account code<input type="text" name="general_fund_budget_code" maxlength="32" pattern="[A-Za-z0-9_.-]{1,32}" value="${escapeHtml(policy.generalFundBudgetCode)}" placeholder="40085"></label>
+        <label>Cash on hand override ($)<input type="number" name="cash_on_hand_dollars" step="0.01" value="${escapeHtml(dollars)}"></label>
+      </div>
+      <button type="submit">Save policy</button>
+    </form>
+  </section>`;
+}
+
 export function renderFinancialMixRows(rows) {
   return rows.map((row) => `<tr><td>${row.accountName}</td><td>${formatCents(row.amountCents)}</td><td>${row.sharePct.toFixed(1)}%</td></tr>`).join('');
 }
@@ -17,7 +37,7 @@ export function renderFinancialMixRows(rows) {
 // Property) still depend on, so this page reads them only as its own synthetic fallback, never
 // re-fetching. Cash runway independently resolves through its own aggregate contract and retains
 // the labeled synthetic fallback when Connect is unavailable.
-export function renderChartsPage(pageId, { churchReport, churchReportLive, cashRunway, propertyReserves, propertyReservesLive, giving, givingSource }) {
+export function renderChartsPage(pageId, { churchReport, churchReportLive, cashRunway, propertyReserves, propertyReservesLive, giving, givingSource, canManageCashPolicy = false, cashPolicyStatus = null, cashPolicyMessage = null }) {
   const isChurchLive = churchReportLive?.source === 'live';
   const mix = isChurchLive
     ? buildLiveFinancialMixView(churchReportLive.accounts, churchReportLive.fiscalYear, churchReportLive.totals)
@@ -49,7 +69,7 @@ export function renderChartsPage(pageId, { churchReport, churchReportLive, cashR
         { label: 'Property tax reserve', value: formatCents(latestReserve.reserve_after_cents), hint: `${latestReserve.funded_pct.toFixed(1)}% funded, ${latestReserve.report_month} · ${isReserveLive ? 'live from Connect' : 'synthetic fixture'}` },
       ])}
       ${reserveFallbackNote}
-    </section>`;
+    </section>${canManageCashPolicy && runway?.source === 'live' ? renderCashPolicyForm(runway.policySettings, cashPolicyStatus, cashPolicyMessage) : ''}`;
   }
   if (pageId === 'giving-pace') {
     const church = isChurchLive
