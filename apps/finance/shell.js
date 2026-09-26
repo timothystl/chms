@@ -1540,7 +1540,12 @@ function describeRoleFailure(result) {
     const byStatus = { 401: 'Connect did not accept the Finance sign-in or contract key (401)', 403: 'Connect found no active account for this sign-in (403)', 503: 'Connect sign-in verification is not configured (503)' };
     return byStatus[result.status] || `Connect answered ${result.status}`;
   }
-  const byReason = { network_error: 'Connect did not answer in time', no_access_identity: 'the request carried no Cloudflare Access sign-in', not_configured: 'Finance is not connected to Connect', invalid_json: 'Connect sent an unreadable answer', invalid_role: 'Connect sent no role' };
+  const took = Number.isFinite(result.elapsedMs) ? ` after ${(result.elapsedMs / 1000).toFixed(1)}s` : '';
+  if (result.reason === 'network_error') {
+    const detail = [...String(result.detail || '')].filter((ch) => /[\w .:,'()/-]/.test(ch)).join('').slice(0, 120);
+    return `${result.timedOut ? 'Connect did not answer in time' : 'the call to Connect failed'}${took}${detail ? ` — ${detail}` : ''}`;
+  }
+  const byReason = { no_access_identity: 'the request carried no Cloudflare Access sign-in', not_configured: 'Finance is not connected to Connect', invalid_json: 'Connect sent an unreadable answer', invalid_role: 'Connect sent no role' };
   return byReason[result.reason] || String(result.reason || 'unknown');
 }
 
@@ -3377,7 +3382,9 @@ export default {
         const effectivePageId = resolveFinancePage(section, pageId).id;
         const councilPreview = url.searchParams.get('council') === '1';
         const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
+        const roleStarted = Date.now();
         const roleResult = await fetchVerifiedRole(env, accessJwt);
+        const roleElapsedMs = Date.now() - roleStarted;
         // Production reads require the current Connect permission matrix. Only
         // unconfigured staging may show fixtures without a verified identity.
         const roleVerificationBrokenUnsafely = !roleResult.ok && (env.ENVIRONMENT !== 'staging' || roleResult.reason !== 'not_configured');
@@ -3392,7 +3399,7 @@ export default {
           const returnLink = availableSection
             ? `<p><a href="/?section=${escapeHtml(availableSection.id)}">Return to your available section</a></p>` : '';
           const denialMessage = roleVerificationBrokenUnsafely
-            ? `Role verification failed and access cannot be safely confirmed for this request. Try reloading the page; if this continues, contact the Finance administrator. (Reason: ${describeRoleFailure(roleResult)})`
+            ? `Role verification failed and access cannot be safely confirmed for this request. Try reloading the page; if this continues, contact the Finance administrator. (Reason: ${describeRoleFailure({ ...roleResult, elapsedMs: roleElapsedMs })})`
             : 'Your verified Connect role does not have access to this section of Finance.';
           return response(
             `<!doctype html><html><body style="font-family:Arial,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1.5rem;color:#1a1a2a">`

@@ -13,7 +13,8 @@ function envWith(responses) {
         async fetch() {
           const next = responses[Math.min(calls, responses.length - 1)];
           calls += 1;
-          if (next === 'throw') throw new Error('timed out');
+          if (next === 'throw') throw new Error('Network connection lost.');
+          if (next === 'timeout') { const e = new Error('The operation was aborted due to timeout'); e.name = 'TimeoutError'; throw e; }
           return next();
         },
       },
@@ -34,6 +35,12 @@ describe('Finance role verification', () => {
     expect(b.calls()).toBe(2);
   });
 
+  it('does not retry a timeout', async () => {
+    const a = envWith(['timeout', ok]);
+    expect(await fetchVerifiedRole(a.env, 'jwt')).toMatchObject({ ok: false, timedOut: true });
+    expect(a.calls()).toBe(1);
+  });
+
   it('never retries a refusal', async () => {
     const a = envWith([status(403), ok]);
     expect(await fetchVerifiedRole(a.env, 'jwt')).toMatchObject({ ok: false, status: 403 });
@@ -44,12 +51,13 @@ describe('Finance role verification', () => {
     for (const [responses, text] of [
       [[status(403)], 'Connect found no active account for this sign-in (403)'],
       [[status(401)], 'Connect did not accept the Finance sign-in or contract key (401)'],
-      [['throw'], 'Connect did not answer in time'],
+      [['throw'], 'the call to Connect failed after'],
+      [['timeout'], 'Connect did not answer in time after'],
     ]) {
       const { env } = envWith(responses);
       const res = await worker.fetch(new Request('https://finance.test/', { headers: { 'Cf-Access-Jwt-Assertion': 'jwt' } }), env);
       expect(res.status).toBe(403);
-      expect(await res.text()).toContain(`(Reason: ${text})`);
+      expect(await res.text()).toContain(`(Reason: ${text}`);
     }
   });
 });
