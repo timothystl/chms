@@ -4,6 +4,7 @@
 // existing relay routes to Connect (budget-plan-write, base-projection-write, generate, generate-all,
 // commit, remove); nothing here stores a copy.
 import { escapeHtml as e } from './render-helpers.js';
+import { accountDisplayName, buildBoardSections } from './board-layout.js';
 
 const USD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const money = (cents) => (cents == null ? '—' : USD.format(Math.round(cents / 100)));
@@ -13,6 +14,12 @@ const TABS = [['grow', 'Grow every line'], ['project', 'Project one category'], 
 
 function href(params) {
   return `/?${new URLSearchParams({ section: 'planning', page: 'builder', ...params }).toString().replace(/&/g, '&amp;')}`;
+}
+
+// A line's shown name: its Chart of Accounts rename when the board layout is loaded, else its
+// QuickBooks name.
+function lineName(l, layout) {
+  return layout ? accountDisplayName(layout, l.category, l.name) : l.name;
 }
 
 function statusLine({ budgetEntryStatus, budgetEntryMessage, planOpKind, planOpStatus, planOpMessage, baseProjectionEntryStatus, baseProjectionEntryMessage }) {
@@ -42,7 +49,7 @@ export function summarizeBuilder(builder) {
   };
 }
 
-function tabPanel(builder, tab) {
+function tabPanel(builder, tab, layout) {
   const { targetYear, baseYear } = builder;
   const current = TABS.find(([k]) => k === tab)?.[0] || 'grow';
   const nav = `<div class="bb-tabs" role="tablist">${TABS.map(([k, label]) => (k === current
@@ -51,7 +58,7 @@ function tabPanel(builder, tab) {
   let body;
   if (current === 'project') {
     body = `<form method="POST" action="/api/v1/connect-budget-generate" class="bb-form">
-        <label class="field"><span>Category</span><select name="category" required>${builder.lines.map((l) => `<option value="${e(l.category)}">${e(l.name)}</option>`).join('')}</select></label>
+        <label class="field"><span>Category</span><select name="category" required>${builder.lines.map((l) => `<option value="${e(l.category)}">${e(lineName(l, layout))}</option>`).join('')}</select></label>
         <label class="field"><span>Income or expense</span><select name="classification"><option value="Expenses">Expense</option><option value="Income">Income</option></select></label>
         <label class="field"><span>Starting amount ($)</span><input type="number" name="base_amount" step="1" min="0" required></label>
         <label class="field"><span>Growth per year (%)</span><input type="number" name="growth_percent" step="0.1" value="3" required></label>
@@ -76,7 +83,7 @@ function tabPanel(builder, tab) {
   return `<div class="panel panel-spaced bb-tools">${nav}${body}</div>`;
 }
 
-function lineRow(l, builder, { canEditBudget, canManageBudgetPlan }) {
+function lineRow(l, builder, { canEditBudget, canManageBudgetPlan, layout }) {
   const { targetYear, baseYear } = builder;
   const plan = l.plan;
   const change = plan && l.baseBudgetCents != null ? plan.plannedAmountCents - l.baseBudgetCents : null;
@@ -91,45 +98,74 @@ function lineRow(l, builder, { canEditBudget, canManageBudgetPlan }) {
     : `<b>${money(plan?.plannedAmountCents)}</b>`;
   const remove = canManageBudgetPlan && plan
     ? `<form method="POST" action="/api/v1/connect-budget-plan-remove" class="bb-cell-form"><input type="hidden" name="category" value="${e(l.category)}"><input type="hidden" name="fiscal_year" value="${targetYear}"><button type="submit" class="link-button" title="Remove this line from the FY${targetYear} plan">Remove</button></form>` : '';
-  return `<tr><td><b>${e(l.name)}</b><small>${e(l.category)}</small></td>
+  const shown = lineName(l, layout);
+  return `<tr><td><b>${e(shown)}</b><small>${e(shown !== l.name ? `${l.name} · ${l.category}` : l.category)}</small></td>
     <td>${money(l.priorActualCents)}</td><td>${money(l.baseBudgetCents)}</td><td>${projected}</td>
     <td>${basis}</td><td>${growth}</td><td>${planCell}</td>
     <td class="${change == null ? '' : change < 0 ? 'tone-bad' : 'tone-good'}">${change == null ? '—' : signed(change)}</td>
     <td class="bb-notes">${e(plan?.notes || '')}${remove}</td></tr>`;
 }
 
-export function renderBudgetBuilderPage({ builder, canEditBudget, canManageBudgetPlan, tab, statuses, councilViewer = false }) {
+// One subtotal row over `rows`, in the table's column order.
+function totalRow(label, rows, cls = 'bb-total') {
+  const sum = (pick) => rows.reduce((s, l) => s + (pick(l) || 0), 0);
+  const plan = sum((l) => l.plan?.plannedAmountCents);
+  const baseBudget = sum((l) => l.baseBudgetCents);
+  return `<tr class="${cls}"><td>${e(label)}</td><td>${money(sum((l) => l.priorActualCents))}</td><td>${money(baseBudget)}</td><td>${money(sum((l) => l.projectedCents))}</td><td></td><td></td><td>${money(plan)}</td><td class="${plan - baseBudget < 0 ? 'tone-bad' : 'tone-good'}">${signed(plan - baseBudget)}</td><td></td></tr>`;
+}
+
+// Legacy's Board view: each side split into board categories in the fixed order, each with a
+// heading and a "Total ..." row, Unrestricted and Restricted gifts nested under the Donor Income
+// wrapper, then the side's own total.
+function boardRows(builder, layout, opts) {
+  const sections = buildBoardSections(builder.lines, layout, (l) => ({ path: l.category, name: l.name, isRevenue: l.classification === 'Income' }));
+  const renderGroup = (g, cls) => `<tr class="${cls}"><td colspan="9">${e(g.label)}</td></tr>
+      ${g.items.map((l) => lineRow(l, builder, opts)).join('')}
+      ${totalRow(`Total ${g.label}`, g.items, 'bb-subtotal')}`;
+  const side = (label, list) => {
+    const all = list.flatMap((s) => (s.kind === 'wrapper' ? s.groups.flatMap((g) => g.items) : s.items));
+    const body = list.map((s) => (s.kind === 'wrapper'
+      ? `<tr class="bb-cat"><td colspan="9">${e(s.label)}</td></tr>${s.groups.map((g) => renderGroup(g, 'bb-subcat')).join('')}${totalRow(`Total ${s.label}`, s.groups.flatMap((g) => g.items), 'bb-subtotal')}`
+      : renderGroup(s, 'bb-cat'))).join('');
+    return `<tr class="bb-group"><td colspan="9">${label}</td></tr>${body || '<tr><td colspan="9" class="tone-muted">No lines.</td></tr>'}${totalRow(`Total ${label.toLowerCase()}`, all)}`;
+  };
+  return side('Revenue', sections.revenue) + side('Expenses', sections.expense);
+}
+
+export function renderBudgetBuilderPage({ builder, canEditBudget, canManageBudgetPlan, tab, statuses, councilViewer = false, layout = null, view = 'board' }) {
   const { targetYear, baseYear, priorYear } = builder;
   const t = summarizeBuilder(builder);
   const result = t.incomeCents - t.expenseCents;
   const baseResult = t.baseBudgetIncomeCents - t.baseBudgetExpenseCents;
+  const boardView = Boolean(layout) && view !== 'qb';
   const banner = `<div class="bb-banner">
       <div><small>Planned income</small><strong>${money(t.incomeCents)}</strong><span>${signed(t.incomeCents - t.baseBudgetIncomeCents)} vs. FY${baseYear} budget</span></div>
       <div><small>Planned expenses</small><strong>${money(t.expenseCents)}</strong><span>${signed(t.expenseCents - t.baseBudgetExpenseCents)} vs. FY${baseYear} budget</span></div>
       <div><small>Planned result</small><strong>${signed(result)}</strong><span>FY${baseYear} budget: ${signed(baseResult)}</span></div>
       <div><small>Lines</small><strong>${t.planned}</strong><span>${t.grown} grown · ${t.manual} manual${t.unplanned ? ` · ${t.unplanned} not planned` : ''}</span></div>
     </div>`;
+  const opts = { canEditBudget, canManageBudgetPlan, layout };
   const group = (cls, label) => {
     const rows = builder.lines.filter((l) => l.classification === cls);
-    const sum = (pick) => rows.reduce((s, l) => s + (pick(l) || 0), 0);
-    const plan = sum((l) => l.plan?.plannedAmountCents);
-    const baseBudget = sum((l) => l.baseBudgetCents);
     return `<tr class="bb-group"><td colspan="9">${label}</td></tr>
-      ${rows.map((l) => lineRow(l, builder, { canEditBudget, canManageBudgetPlan })).join('') || '<tr><td colspan="9" class="tone-muted">No lines.</td></tr>'}
-      <tr class="bb-total"><td>Total ${label.toLowerCase()}</td><td>${money(sum((l) => l.priorActualCents))}</td><td>${money(baseBudget)}</td><td>${money(sum((l) => l.projectedCents))}</td><td></td><td></td><td>${money(plan)}</td><td class="${plan - baseBudget < 0 ? 'tone-bad' : 'tone-good'}">${signed(plan - baseBudget)}</td><td></td></tr>`;
+      ${rows.map((l) => lineRow(l, builder, opts)).join('') || '<tr><td colspan="9" class="tone-muted">No lines.</td></tr>'}
+      ${totalRow(`Total ${label.toLowerCase()}`, rows)}`;
   };
+  const viewToggle = layout
+    ? `<div class="bb-view" role="group" aria-label="Layout">${boardView ? '<span class="is-on">Board layout</span>' : `<a href="${href({ view: 'board' })}">Board layout</a>`}${boardView ? `<a href="${href({ view: 'qb' })}">QuickBooks order</a>` : '<span class="is-on">QuickBooks order</span>'}${canManageBudgetPlan ? '<a href="/?section=accounts&amp;page=chart#layout">Edit the layout in Chart of Accounts</a>' : ''}</div>`
+    : '<p class="muted-line">The board layout from Chart of Accounts could not be read, so lines are listed in QuickBooks order.</p>';
   const table = `<div class="panel panel-spaced list-panel"><div class="table-scroll"><table class="pm-table bb-table"><thead><tr>
       <th>Category</th><th>FY${String(priorYear).slice(2)} actual</th><th>FY${String(baseYear).slice(2)} budget</th><th>FY${String(baseYear).slice(2)} projected</th><th>Basis</th><th>Growth</th><th>FY${String(targetYear).slice(2)} plan</th><th>Change</th><th>Notes</th>
     </tr></thead><tbody>
-      ${group('Income', 'Income')}
-      ${group('Expenses', 'Expenses')}
+      ${boardView ? boardRows(builder, layout, opts) : `${group('Income', 'Income')}${group('Expenses', 'Expenses')}`}
       <tr class="bb-result"><td>Planned result</td><td></td><td>${signed(baseResult)}</td><td></td><td></td><td></td><td>${signed(result)}</td><td>${signed(result - baseResult)}</td><td></td></tr>
     </tbody></table></div></div>`;
   return `<p class="lede">The FY${targetYear} church budget plan. Each line is either grown from FY${baseYear}, entered by hand, or not planned yet. Saved to Connect’s budget plan; FY${baseYear} “projected” is ${builder.prorated ? `the year-to-date actual extended to a full year (week ${builder.throughWeek} of 52)` : 'the full-year actual'}, unless a correction has been set.</p>
     ${statusLine(statuses)}
     ${councilViewer ? '<p class="muted-line">This is the shared plan. A council member’s own changes to budget lines are kept as a private copy in Connect’s Budget Planner.</p>' : ''}
     ${banner}
-    ${canManageBudgetPlan ? tabPanel(builder, tab) : ''}
+    ${canManageBudgetPlan ? tabPanel(builder, tab, layout) : ''}
+    ${viewToggle}
     ${table}
     ${canEditBudget ? `<details class="panel panel-spaced edit-panel"><summary>Add a line that is not listed</summary>
       <form method="POST" action="/api/v1/connect-budget-plan-write" class="bb-form">
@@ -160,6 +196,15 @@ export const BUDGET_BUILDER_STYLES = `
     .bb-table td.bb-notes { font-size:13px; color:#4B5563; min-width:120px; max-width:180px; }
     .bb-group td { font-weight:700; background:#F4F6F9; text-align:left !important; }
     .bb-total td { font-weight:700; border-top:1px solid #C3CDDD; }
+    .bb-cat td { font-weight:700; color:var(--navy); text-align:left !important; padding-top:12px; }
+    .bb-subcat td { font-weight:600; color:#374151; text-align:left !important; padding-left:20px; }
+    .bb-subtotal td { font-weight:600; font-size:13px; color:#374151; border-top:1px dashed #D5DAE3; }
+    .bb-view { display:flex; flex-wrap:wrap; gap:16px; margin:14px 0 4px; font-size:14px; }
+    .bb-view .is-on { font-weight:700; color:var(--navy); }
+    .coa-layout td { vertical-align:top; }
+    .coa-side td { font-weight:700; background:#F4F6F9; }
+    .coa-cat td, .coa-wrapper td { padding-top:12px; color:var(--navy); }
+    .coa-sub td { padding-left:20px; color:#374151; }
     .bb-result td { font-weight:700; background:#FBF5E6; border-top:2px solid var(--navy); }
     .bb-badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600; }
     .bb-badge.is-grown { background:#EEF0F4; color:#374151; }
