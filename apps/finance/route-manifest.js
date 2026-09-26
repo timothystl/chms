@@ -5,7 +5,7 @@ const ROUTES = [
   { id: 'shell', paths: ['/', '/index.html'], dataSource: 'synthetic-d1', queryBudget: 'summary', optionalQueryBudgets: ['churchReport', 'churchTrends', 'balanceSheet', 'balanceTrends', 'daycareReport', 'daycareAllocation', 'propertyReport', 'propertyReserves', 'propertyLedgers', 'propertyValuation', 'propertyForecast', 'budgetReport', 'accountsReport', 'dataStatus', 'compensationReport', 'compensationBenchmark', 'compensationBenefits', 'compensationPlanRaw', 'cashRunway', 'facilities', 'hr'] },
   { id: 'health', paths: ['/health'], dataSource: 'none' },
   // Self-hosted logo and fonts for the v3 design (see brand-assets.js); static bytes, no data.
-  { id: 'brand-asset', paths: ['/assets/finance-mark.png', '/assets/finance-icon.png', '/assets/fonts/outfit.woff2', '/assets/fonts/figtree.woff2'], dataSource: 'none' },
+  { id: 'brand-asset', paths: ['/assets/finance-mark.png', '/assets/finance-icon.png', '/assets/fonts/hero-regular.woff2', '/assets/fonts/hero-bold.woff2', '/assets/fonts/outfit.woff2', '/assets/fonts/figtree.woff2'], dataSource: 'none' },
   { id: 'summary-v1', paths: ['/api/v1/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', contract: 'finance.summary.v1' },
   { id: 'giving-preview-v1', paths: ['/api/v1/connect-giving-preview'], dataSource: 'synthetic-static', contract: 'connect.giving-summary.v1' },
   { id: 'giving-transport-evidence-v1', paths: ['/api/v1/connect-giving-transport-evidence'], dataSource: 'synthetic-static', contract: 'finance.connect-giving-transport-evidence.v1' },

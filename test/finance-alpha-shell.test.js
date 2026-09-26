@@ -321,7 +321,7 @@ describe('Finance alpha staging shell', () => {
     expect(page.headers.get('Content-Security-Policy')).toContain("img-src 'self'; font-src 'self'");
     expect(page.headers.get('Content-Security-Policy')).not.toMatch(/script-src|https?:/);
     expect(page.headers.get('Cache-Control')).toBe('no-store');
-    for (const [path, type] of [['/assets/finance-mark.png', 'image/png'], ['/assets/finance-icon.png', 'image/png'], ['/assets/fonts/outfit.woff2', 'font/woff2'], ['/assets/fonts/figtree.woff2', 'font/woff2']]) {
+    for (const [path, type] of [['/assets/finance-mark.png', 'image/png'], ['/assets/finance-icon.png', 'image/png'], ['/assets/fonts/hero-regular.woff2', 'font/woff2'], ['/assets/fonts/hero-bold.woff2', 'font/woff2'], ['/assets/fonts/outfit.woff2', 'font/woff2'], ['/assets/fonts/figtree.woff2', 'font/woff2']]) {
       const res = await worker.fetch(new Request(`https://finance.test${path}`), env);
       expect(res.status, path).toBe(200);
       expect(res.headers.get('Content-Type')).toBe(type);
