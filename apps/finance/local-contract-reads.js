@@ -23,10 +23,15 @@ import { respondWithFinanceBudgetBuilderV1 } from '../../src/api-budget-builder-
 import { respondWithFinancePlanningBasisV1 } from '../../src/api-planning-contracts.js';
 import { respondWithFinancePropertyPolicyV1 } from '../../src/api-property-policy-contracts.js';
 import { respondWithFinancePropertyDebtV1 } from '../../src/api-property-debt-contracts.js';
+import { respondWithFinanceImportStatusV1, respondWithFinanceDaycareChurchBudgetPreviewV1 } from '../../src/api-data-imports-contracts.js';
 
 const LOCAL_READS = {
   'finance-data-status-v1': (url, db) => respondWithFinanceDataStatusV1(db),
   'finance-classification-v1': respondWithFinanceClassificationV1,
+  // finance_import_log plus the imported tables it derives dates from, and finance_church_entries:
+  // all Finance-owned. (The board packet also reads Giving's fund totals, so it stays with Connect.)
+  'finance-import-status-v1': (url, db) => respondWithFinanceImportStatusV1(db),
+  'finance-daycare-church-budget-preview-v1': respondWithFinanceDaycareChurchBudgetPreviewV1,
   'finance-cash-runway-v1': respondWithFinanceCashRunwayV1,
   'finance-chart-of-accounts-v1': (url, db) => respondWithFinanceChartOfAccountsV1(db),
   'finance-board-layout-v1': (url, db) => respondWithFinanceBoardLayoutV1(db),

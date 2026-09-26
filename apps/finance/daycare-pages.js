@@ -1,4 +1,5 @@
 import { buildDaycareReportView, buildLiveDaycareReportView } from './daycare-report-service.js';
+import { renderDaycareChurchBudgetPreview } from './data-pages.js';
 import { escapeHtml, formatCents, formatSignedCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
 
 export function renderDaycareRows(rows) {
@@ -52,24 +53,6 @@ function renderDaycareBulkForm(bulkStatus, bulkMessage) {
       <button type="submit">Import rows</button>
     </form>
     <p><small>Amount is whole dollars; entry_type defaults to "actual" if omitted. All-or-nothing: any invalid row rejects the whole paste.</small></p>
-  </section>`;
-}
-
-// Church-Budget re-derivation -- relayed live to Connect's real finance_daycare_entries table
-// (see finance-daycare-church-budget-import-write-v1 in src/api-contracts-service.js). Same looser
-// gate as the single-entry/bulk forms above.
-function renderDaycareChurchBudgetImportForm(importStatus, importMessage) {
-  return `<section aria-label="Import Daycare entries from Church Budget">
-    ${renderSectionHeading({ eyebrow: 'Daycare Report', heading: 'Import from Church Budget (MDO accounts)', badge: 'Relayed live to Connect' })}
-    ${importStatus === 'ok' ? '<p class="status">Imported from the Church Budget in Connect.</p>' : ''}
-    ${importStatus === 'error' ? `<p class="status status-error">Not imported: ${escapeHtml(importMessage || 'unknown error')}</p>` : ''}
-    <form method="POST" action="/api/v1/connect-daycare-church-budget-import-write">
-      <div class="grid form-grid">
-        <div class="field"><label for="dc-cbi-year">Fiscal year</label><input id="dc-cbi-year" type="number" name="year" step="1" required></div>
-      </div>
-      <button type="submit">Re-derive from Church Budget</button>
-    </form>
-    <p><small>Re-extracts every MDO-tagged account from that year's already-imported Church Budget vs. Actuals and replaces this year's church-budget-derived rows. Requires that year's Church Budget to already be imported (Church Report &rarr; Import Budget).</small></p>
   </section>`;
 }
 
@@ -199,6 +182,7 @@ export function renderDaycarePage(pageId, {
   canManageDaycareBudgetOverride, daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
   daycareBulkEntryStatus, daycareBulkEntryMessage,
   daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
+  daycarePreviewYear = null, daycarePreview = null,
   canSyncDaycare, daycareSyncStatus, daycareSyncMessage,
   canSyncDaycareRooms, daycareRoomsSyncStatus, daycareRoomsSyncMessage,
 }) {
@@ -221,7 +205,10 @@ export function renderDaycarePage(pageId, {
       ${fallbackNote}
     </section>${renderDaycareEntryList(daycareEntries, daycareEditId, canRecordDaycareEntry)}${canRecordDaycareEntry ? renderDaycareEntryForm(report.period, daycareEntryStatus, daycareEntryMessage) : ''}
     ${canRecordDaycareEntry ? renderDaycareBulkForm(daycareBulkEntryStatus, daycareBulkEntryMessage) : ''}
-    ${canImportDaycareChurchBudget ? renderDaycareChurchBudgetImportForm(daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage) : ''}`;
+    ${canImportDaycareChurchBudget ? renderDaycareChurchBudgetPreview({
+      year: daycarePreviewYear, preview: daycarePreview, canManage: true, returnSection: 'daycare',
+      importStatus: daycareChurchBudgetImportEntryStatus, importMessage: daycareChurchBudgetImportEntryMessage,
+    }) : ''}`;
   }
   if (pageId === 'budget-comparison') {
     return `<section class="report" aria-label="Daycare Report budget comparison">

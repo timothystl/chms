@@ -41,7 +41,7 @@ const WRITE_ROUTE_IDS = new Set([
   'connect-planner-save-v1',
 ]);
 const OWN_DB_WRITE_ROUTE_IDS = new Set(['budget-plan-save-v1']);
-const LIVE_READ_ROUTE_IDS = new Set(['payroll-relay-diagnostic-v1', 'payroll-csv-v1', 'connect-planner-page', 'connect-planner-read-v1']);
+const LIVE_READ_ROUTE_IDS = new Set(['board-packet-export-v1', 'payroll-relay-diagnostic-v1', 'payroll-csv-v1', 'connect-planner-page', 'connect-planner-read-v1']);
 const LIVE_POST_READ_ROUTE_IDS = new Set([
   'church-budget-xlsx-preview-v1', 'church-balances-xlsx-preview-v1',
   'church-monthly-xlsx-preview-v1', 'church-activity-xlsx-preview-v1',
@@ -80,7 +80,7 @@ describe('Finance staging route manifest', () => {
     expect(new Set(paths).size).toBe(paths.length);
     expect(paths).toEqual([
       '/', '/index.html', '/health', '/assets/finance-mark.png', '/assets/finance-icon.png', '/assets/fonts/hero-regular.woff2', '/assets/fonts/hero-bold.woff2', '/assets/fonts/outfit.woff2', '/assets/fonts/figtree.woff2', '/api/v1/summary',
-      '/api/v1/connect-giving-preview', '/api/v1/connect-giving-transport-evidence',
+      '/api/v1/connect-giving-preview', '/api/v1/board-packet-export', '/api/v1/connect-giving-transport-evidence',
       '/api/v1/connect-giving-quick-entry', '/api/v1/budget-plan-save', '/api/v1/connect-budget-plan-write', '/api/v1/connect-compensation-plan-write',
       '/api/v1/connect-budget-generate', '/api/v1/connect-budget-generate-all', '/api/v1/connect-budget-commit', '/api/v1/connect-budget-plan-remove',
       '/api/v1/connect-base-projection-write',

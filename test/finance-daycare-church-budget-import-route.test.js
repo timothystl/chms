@@ -64,14 +64,35 @@ describe('Daycare Report — Church-Budget import form and relay route', () => {
     expect(html).not.toContain('/api/v1/connect-daycare-church-budget-import-write');
   });
 
-  it('shows the import form for an admin viewer (imports are admin-only, 2026-09-25)', async () => {
-    const env = roleEnv('admin', async () => new Response('not found', { status: 404 }));
+  it('shows the preview step for an admin viewer, and the import only after a preview (imports are admin-only, 2026-09-25)', async () => {
+    const env = roleEnv('admin', async (req) => {
+      const url = new URL(req.url);
+      if (url.pathname === '/api/contracts/finance-daycare-church-budget-preview-v1') {
+        expect(url.searchParams.get('year')).toBe('2025');
+        return new Response(JSON.stringify({
+          contract: 'connect.finance-daycare-church-budget-preview.v1', dataClassification: 'aggregate',
+          sourceProduct: 'connect', consumerProduct: 'finance', generatedAt: '2026-09-15T12:00:00Z', currency: 'USD',
+          fiscalYear: 2025, available: true, message: '', found: 1,
+          byCategory: [{ category: 'Tuition Income', actualCents: 120000, budgetCents: 0 }],
+          entries: [{ period: '2025', category: 'Tuition Income', entryType: 'actual', amountCents: 120000, notes: 'Imported from Budget vs Actuals FY2025 (MDO Tuition)' }],
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    });
     const res = await worker.fetch(new Request('https://finance.test/?section=daycare&page=actuals', {
       headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
     }), env);
     const html = await res.text();
-    expect(html).toContain('<form method="POST" action="/api/v1/connect-daycare-church-budget-import-write">');
-    expect(html).toContain('name="year"');
+    expect(html).toContain('name="dc_cb_year"');
+    expect(html).not.toContain('<form method="POST" action="/api/v1/connect-daycare-church-budget-import-write">');
+
+    const previewed = await (await worker.fetch(new Request('https://finance.test/?section=daycare&page=actuals&dc_cb_year=2025', {
+      headers: { 'Cf-Access-Jwt-Assertion': 'signed.jwt.here' },
+    }), env)).text();
+    expect(previewed).toContain('Found 1 daycare entry for FY2025');
+    expect(previewed).toContain('<form method="POST" action="/api/v1/connect-daycare-church-budget-import-write">');
+    expect(previewed).toContain('<input type="hidden" name="year" value="2025">');
+    expect(previewed).toContain('<input type="hidden" name="return_to" value="daycare">');
   });
 
   it('hides the import form from a finance-role viewer (imports are admin-only)', async () => {

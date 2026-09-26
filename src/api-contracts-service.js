@@ -21,6 +21,7 @@ import { respondWithFinanceAccessRolesV1 } from './api-access-contracts.js';
 import { respondWithFinanceBudgetBuilderV1 } from './api-budget-builder-contracts.js';
 import { respondWithFinanceClassificationV1 } from './api-classification-contracts.js';
 import { respondWithFinanceBoardLayoutV1 } from './api-board-layout-contracts.js';
+import { respondWithFinanceImportStatusV1, respondWithFinanceDaycareChurchBudgetPreviewV1, respondWithFinanceBoardPacketV1 } from './api-data-imports-contracts.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
@@ -67,6 +68,20 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-data-status-v1' && req.method === 'GET') {
     return respondWithFinanceDataStatusV1(env.DB);
+  }
+
+  // Data & Imports (Finance's Data page): per-importer staleness, the MDO-from-Church-Budget
+  // preview, and the board packet JSON export -- see api-data-imports-contracts.js.
+  if (path === '/api/contracts/finance-import-status-v1' && req.method === 'GET') {
+    return respondWithFinanceImportStatusV1(env.DB);
+  }
+
+  if (path === '/api/contracts/finance-daycare-church-budget-preview-v1' && req.method === 'GET') {
+    return respondWithFinanceDaycareChurchBudgetPreviewV1(new URL(req.url), env.DB);
+  }
+
+  if (path === '/api/contracts/finance-board-packet-v1' && req.method === 'GET') {
+    return respondWithFinanceBoardPacketV1(new URL(req.url), env.DB);
   }
 
   if (path === '/api/contracts/finance-classification-v1' && req.method === 'GET') {

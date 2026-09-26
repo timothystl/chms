@@ -4651,19 +4651,9 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // precedence resolved, same as the Church Report views), extracts MDO-tagged accounts, and
   // returns the per-category actual/budget totals for review before commit.
   if (seg === 'finance/daycare/church-budget-preview' && method === 'GET') {
-    const year = parseInt(url.searchParams.get('year'), 10);
-    if (!Number.isFinite(year)) return json({ error: 'year is required' }, 400);
-    const rows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
-    if (!rows.length) return json({ error: `No imported Church Budget found for ${year} — import that year's Budget vs. Actuals first (Church Report → Import Budget).` }, 400);
-    const resolved = resolveChurchYearPrecedence(rows);
-    const entries = extractMdoDaycareEntries(resolved, year);
-    if (!entries.length) return json({ year, found: 0, by_category: {}, entries: [] });
-    const byCategory = {};
-    for (const e of entries) {
-      if (!byCategory[e.category]) byCategory[e.category] = { actual_cents: 0, budget_cents: 0 };
-      byCategory[e.category][e.entry_type === 'actual' ? 'actual_cents' : 'budget_cents'] += e.amount_cents;
-    }
-    return json({ year, found: entries.length, by_category: byCategory, entries });
+    const result = await previewDaycareFromChurchBudget(db, parseInt(url.searchParams.get('year'), 10));
+    if (result.error) return json({ error: result.error }, result.status || 400);
+    return json(result);
   }
 
   // Commit step: same extraction, then wholesale-replace this year's church_budget_import rows.
@@ -4803,12 +4793,7 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
 
   // ── Import staleness (Data & Imports tab) ────────────────────────────────────────────────
   if (seg === 'finance/import-status' && method === 'GET') {
-    const rows = (await db.prepare('SELECT * FROM finance_import_log').all()).results || [];
-    const byKey = {};
-    for (const r of rows) byKey[r.importer_key] = { lastImportedAt: r.last_imported_at, note: r.note || '', derived: false };
-    const missing = new Set(FINANCE_IMPORTERS.map(i => i.key).filter(k => !byKey[k]));
-    Object.assign(byKey, await deriveImportDates(db, missing));
-    return json({ importers: FINANCE_IMPORTERS.map(i => ({ ...i, ...(byKey[i.key] || { lastImportedAt: '', note: '', derived: false }) })) });
+    return json({ importers: await buildImportStatus(db) });
   }
 
   // ── Daycare: per-cell Budget override (editable directly in the Daycare Report table) ────
@@ -5574,59 +5559,97 @@ export async function handleFinanceApi(req, env, url, method, seg, db, isAdmin, 
   // disagree with what's on screen) plus 5 years of trend context and the full raw daycare
   // ledger, so nothing needs a second export to answer a follow-up question.
   if (seg === 'finance/board-packet' && method === 'GET') {
-    const year = parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear();
-    const trendYears = [year - 4, year - 3, year - 2, year - 1, year];
-    const trendPlaceholders = trendYears.map(() => '?').join(',');
-
-    const thisYearEntriesRaw = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
-    const thisYearEntries = resolveChurchYearPrecedence(thisYearEntriesRaw);
-    const thisYearSummary = computeYearSummary(thisYearEntries);
-    const givingByFundRows = (await db.prepare(
-      `SELECT f.name AS fund_name, COALESCE(SUM(mt.total_cents),0) AS total
-         FROM giving_monthly_fund_totals mt JOIN funds f ON f.id=mt.fund_id
-        WHERE mt.month BETWEEN ? AND ?
-        GROUP BY mt.fund_id ORDER BY total DESC`
-    ).bind(`${year}-01`, `${year}-12`).all()).results || [];
-    const givingByFund = givingByFundRows.map(r => ({ fundName: r.fund_name, cents: r.total || 0 }));
-    const givingCents = givingByFund.reduce((sum, r) => sum + r.cents, 0);
-
-    const trendIncomeRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${trendPlaceholders}) AND period_month=0`).bind(...trendYears).all()).results || [];
-    const trendIncomeResolved = resolveChurchYearPrecedence(trendIncomeRows);
-    const incomeStatementByYear = {};
-    trendYears.forEach(y => { incomeStatementByYear[y] = computeYearSummary(trendIncomeResolved.filter(r => r.fiscal_year === y)); });
-
-    const balanceRows = (await db.prepare('SELECT * FROM finance_church_balances WHERE fiscal_year=? ORDER BY category_path').bind(year).all()).results || [];
-    const balanceSheet = balanceRows.length
-      ? { asOfDate: balanceRows[0].as_of_date || '', rows: balanceRows, summary: computeBalanceSummary(balanceRows) }
-      : { asOfDate: '', rows: [], summary: null };
-
-    const trendBalanceRows = (await db.prepare(`SELECT * FROM finance_church_balances WHERE fiscal_year IN (${trendPlaceholders})`).bind(...trendYears).all()).results || [];
-    const balanceSheetByYear = {};
-    trendYears.forEach(y => {
-      const rowsY = trendBalanceRows.filter(r => r.fiscal_year === y);
-      balanceSheetByYear[y] = rowsY.length ? computeBalanceSummary(rowsY) : null;
-    });
-
-    const daycareEntries = (await db.prepare(
-      'SELECT period, category, entry_type, amount_cents, notes, source FROM finance_daycare_entries ORDER BY period ASC, category ASC'
-    ).all()).results || [];
-
-    return json({
-      generated_at: new Date().toISOString(),
-      year,
-      church: {
-        income_statement_this_year: { year, ...thisYearSummary, giving_reference_cents: givingCents, giving_by_fund: givingByFund, accounts: thisYearEntries },
-        income_statement_5yr_trend: { years: trendYears, by_year: incomeStatementByYear },
-        balance_sheet_this_year: { year, ...balanceSheet },
-        balance_sheet_5yr_trend: { years: trendYears, by_year: balanceSheetByYear },
-      },
-      daycare: { entries: daycareEntries },
-    });
+    return json(await buildBoardPacket(db, parseInt(url.searchParams.get('year'), 10) || new Date().getFullYear()));
   }
 
   return null;
 }
 
+
+// ── Data & Imports read helpers ──────────────────────────────────────────────────────────────
+// Each is used by its legacy finance/* route above and by a Finance read contract
+// (src/api-data-imports-contracts.js), so the two entry points can never drift.
+
+// Every importer with its last recorded run (or a best-effort date derived from the imported
+// rows themselves, marked `derived`). Reads only finance_import_log and the imported tables.
+export async function buildImportStatus(db) {
+  const rows = (await db.prepare('SELECT * FROM finance_import_log').all()).results || [];
+  const byKey = {};
+  for (const r of rows) byKey[r.importer_key] = { lastImportedAt: r.last_imported_at, note: r.note || '', derived: false };
+  const missing = new Set(FINANCE_IMPORTERS.map(i => i.key).filter(k => !byKey[k]));
+  Object.assign(byKey, await deriveImportDates(db, missing));
+  return FINANCE_IMPORTERS.map(i => ({ ...i, ...(byKey[i.key] || { lastImportedAt: '', note: '', derived: false }) }));
+}
+
+// Preview step for importDaycareFromChurchBudget: the same extraction, no DB write. Reads
+// finance_church_entries for the requested year (source-precedence resolved, same as the Church
+// Report views), extracts MDO-tagged accounts, and returns the per-category actual/budget totals
+// for review before commit.
+export async function previewDaycareFromChurchBudget(db, year) {
+  if (!Number.isFinite(year)) return { error: 'year is required', status: 400 };
+  const rows = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=?').bind(year).all()).results || [];
+  if (!rows.length) return { error: `No imported Church Budget found for ${year} — import that year's Budget vs. Actuals first (Church Report → Import Budget).`, status: 400 };
+  const resolved = resolveChurchYearPrecedence(rows);
+  const entries = extractMdoDaycareEntries(resolved, year);
+  if (!entries.length) return { year, found: 0, by_category: {}, entries: [] };
+  const byCategory = {};
+  for (const e of entries) {
+    if (!byCategory[e.category]) byCategory[e.category] = { actual_cents: 0, budget_cents: 0 };
+    byCategory[e.category][e.entry_type === 'actual' ? 'actual_cents' : 'budget_cents'] += e.amount_cents;
+  }
+  return { year, found: entries.length, by_category: byCategory, entries };
+}
+
+// The Board Packet export payload (see the finance/board-packet route above).
+export async function buildBoardPacket(db, year) {
+  const trendYears = [year - 4, year - 3, year - 2, year - 1, year];
+  const trendPlaceholders = trendYears.map(() => '?').join(',');
+
+  const thisYearEntriesRaw = (await db.prepare('SELECT * FROM finance_church_entries WHERE fiscal_year=? AND period_month=0').bind(year).all()).results || [];
+  const thisYearEntries = resolveChurchYearPrecedence(thisYearEntriesRaw);
+  const thisYearSummary = computeYearSummary(thisYearEntries);
+  const givingByFundRows = (await db.prepare(
+    `SELECT f.name AS fund_name, COALESCE(SUM(mt.total_cents),0) AS total
+       FROM giving_monthly_fund_totals mt JOIN funds f ON f.id=mt.fund_id
+      WHERE mt.month BETWEEN ? AND ?
+      GROUP BY mt.fund_id ORDER BY total DESC`
+  ).bind(`${year}-01`, `${year}-12`).all()).results || [];
+  const givingByFund = givingByFundRows.map(r => ({ fundName: r.fund_name, cents: r.total || 0 }));
+  const givingCents = givingByFund.reduce((sum, r) => sum + r.cents, 0);
+
+  const trendIncomeRows = (await db.prepare(`SELECT * FROM finance_church_entries WHERE fiscal_year IN (${trendPlaceholders}) AND period_month=0`).bind(...trendYears).all()).results || [];
+  const trendIncomeResolved = resolveChurchYearPrecedence(trendIncomeRows);
+  const incomeStatementByYear = {};
+  trendYears.forEach(y => { incomeStatementByYear[y] = computeYearSummary(trendIncomeResolved.filter(r => r.fiscal_year === y)); });
+
+  const balanceRows = (await db.prepare('SELECT * FROM finance_church_balances WHERE fiscal_year=? ORDER BY category_path').bind(year).all()).results || [];
+  const balanceSheet = balanceRows.length
+    ? { asOfDate: balanceRows[0].as_of_date || '', rows: balanceRows, summary: computeBalanceSummary(balanceRows) }
+    : { asOfDate: '', rows: [], summary: null };
+
+  const trendBalanceRows = (await db.prepare(`SELECT * FROM finance_church_balances WHERE fiscal_year IN (${trendPlaceholders})`).bind(...trendYears).all()).results || [];
+  const balanceSheetByYear = {};
+  trendYears.forEach(y => {
+    const rowsY = trendBalanceRows.filter(r => r.fiscal_year === y);
+    balanceSheetByYear[y] = rowsY.length ? computeBalanceSummary(rowsY) : null;
+  });
+
+  const daycareEntries = (await db.prepare(
+    'SELECT period, category, entry_type, amount_cents, notes, source FROM finance_daycare_entries ORDER BY period ASC, category ASC'
+  ).all()).results || [];
+
+  return {
+    generated_at: new Date().toISOString(),
+    year,
+    church: {
+      income_statement_this_year: { year, ...thisYearSummary, giving_reference_cents: givingCents, giving_by_fund: givingByFund, accounts: thisYearEntries },
+      income_statement_5yr_trend: { years: trendYears, by_year: incomeStatementByYear },
+      balance_sheet_this_year: { year, ...balanceSheet },
+      balance_sheet_5yr_trend: { years: trendYears, by_year: balanceSheetByYear },
+    },
+    daycare: { entries: daycareEntries },
+  };
+}
 
 // ── Church Report "This Year": the payload builder, extracted from its route ───────────────
 // This one payload feeds THREE screens (Financial Health, Church Report, Budget/Planning), so

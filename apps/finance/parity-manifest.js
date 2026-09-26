@@ -179,12 +179,11 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
       { id: 'access', label: 'Access & roles', status: 'live' },
     ],
   },
-  // 'connection status' and 'staleness' are real now, via the connect.finance-data-status.v1
-  // contract (import-log recency + QuickBooks connection presence, no tokens) -- see
-  // finance-data-status-client.js and data-status-service.js's resolveDataStatus, same
-  // live-with-synthetic-fallback pattern Giving Entry established. File imports,
-  // classification/policy, and administrative tools remain synthetic-only for now.
-  { id: 'data', label: 'Data & Imports', group: 'Accounts & Data', permission: 'finance', capabilities: ['connection status', 'file imports', 'staleness', 'classification and policy', 'administrative tools'], pages: [{ id: 'overview', label: 'Data & Imports', status: 'live' }] },
+  // Data & Imports offers everything Connect's legacy tab does (data-pages.js): connections, each
+  // importer's staleness (connect.finance-import-status.v1) linked to the page that runs it, the
+  // MDO-from-Church-Budget preview, adjustments and removals linked to their pages, classification
+  // and policy, the board packet JSON export, and the cached raw QuickBooks output.
+  { id: 'data', label: 'Data & Imports', group: 'Accounts & Data', permission: 'finance', capabilities: ['connection status', 'file imports', 'staleness', 'classification and policy', 'administrative tools', 'board packet export', 'raw QuickBooks output'], pages: [{ id: 'overview', label: 'Data & Imports', status: 'live' }] },
   // Full payroll parity with Website's admin/payroll.html, relayed live to Website's existing
   // payroll proxy and payroll/email and (now) push/payroll-ready routes the same way Giving
   // Entry relays to Connect (never stored in Finance) -- see payroll-section.js,

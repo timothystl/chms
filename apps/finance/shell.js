@@ -29,6 +29,9 @@ import { resolvePageRole } from './role-cache.js';
 import { PROPERTY_BOOKS_WRITERS, canEditPropertyBooks, readPropertyBooks } from './property-books-service.js';
 import { PROPERTY_BOOKS_STYLES, renderBankRecPage, renderReceivablesPage } from './property-books-pages.js';
 import { renderClassificationEditors } from './classification-pages.js';
+import { renderDataPage } from './data-pages.js';
+import { readQuickbooksSnapshot } from './quickbooks-snapshot-service.js';
+import { fetchDaycareChurchBudgetPreview, fetchFinanceBoardPacket, fetchFinanceImportStatus } from './finance-data-imports-client.js';
 import { ACCESS_STYLES, renderAccessPage } from './access-pages.js';
 import {
   GIVING_ANALYTICS_STYLES, renderConcentrationPage, renderHouseholdBandsPage, renderNudgesPage, renderPledgesPage, renderStatementsPage, renderTrendsPage,
@@ -979,6 +982,7 @@ function renderSectionBody(ctx) {
     propertyBudgetImportStatus, propertyBudgetImportMessage,
     propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
     classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
+    importStatus, quickbooksSnapshot, daycarePreviewYear, daycarePreview, dataDaycareImportStatus, dataDaycareImportMessage,
     roleResult, councilPreview,
   } = ctx;
   if (section.id === 'health') {
@@ -1224,6 +1228,7 @@ function renderSectionBody(ctx) {
       canManageDaycareBudgetOverride, daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
       daycareBulkEntryStatus, daycareBulkEntryMessage,
       daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
+      daycarePreviewYear, daycarePreview,
       canSyncDaycare: canRecordDaycareEntry, daycareSyncStatus, daycareSyncMessage,
       canSyncDaycareRooms, daycareRoomsSyncStatus, daycareRoomsSyncMessage,
     });
@@ -1373,22 +1378,19 @@ function renderSectionBody(ctx) {
     return renderPacketPage({ churchReportLive, balanceSheetLive: balanceSheet, churchTrendLive, giving, givingSource });
   }
   if (section.id === 'data') {
-    const isLive = dataStatus.source === 'live';
-    const status = buildDataStatusView(dataStatus.row, new Date(), {
-      productionConnected: dataStatus.productionConnected,
-      writerConnected: dataStatus.writerConnected,
+    // Imports, removals and classification edits are admin-only on Connect's side (except the
+    // daycare hand-entry forms linked from here); this flag only decides what is offered.
+    const canManage = roleResult.ok && roleResult.role === 'admin';
+    return renderDataPage({
+      dataStatus, importStatus, quickbooksOwn: ctx.quickbooksOwn, quickbooksEnabled: !!ctx.quickbooksEnabled, quickbooksSnapshot,
+      daycarePreviewYear, daycarePreview, daycareImportStatus: dataDaycareImportStatus, daycareImportMessage: dataDaycareImportMessage,
+      canManage, packetYear: new Date().getUTCFullYear(),
+      classificationHtml: renderClassificationEditors(classification, {
+        canManage,
+        revenueStatus: classificationRevenueStatus, revenueMessage: classificationRevenueMessage,
+        expenseStatus: classificationExpenseStatus, expenseMessage: classificationExpenseMessage,
+      }),
     });
-    return `<section class="report" aria-label="${isLive ? 'Data and Imports Status' : 'Synthetic Data and Imports Status'}">
-      <div class="section-heading"><div><div class="eyebrow">Data &amp; Imports</div><h2>Source and isolation status</h2></div><span class="badge">${isLive ? 'Live from Connect' : 'Synthetic staging'}</span></div>
-      <div class="grid"><div class="card"><small>${isLive ? 'Import activity' : 'Fixture source'}</small><strong>${escapeHtml(status.source)}</strong><span>${escapeHtml(status.note)}</span></div><div class="card"><small>Production connection</small><strong>${status.productionConnected ? 'Connected' : 'Disconnected'}</strong></div><div class="card"><small>QuickBooks writer</small><strong>${status.writerConnected ? 'Connected' : 'Disconnected'}</strong><span>${isLive ? "Connect's real finance_qb_connection state" : 'No competing staging writer'}</span></div></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Source freshness</div><h2>${status.freshness === 'stale' ? `Review before relying on this ${isLive ? 'data' : 'fixture'}` : `${isLive ? 'Data' : 'Fixture'} is within the review window`}</h2></div><span class="badge">${status.freshness}</span></div>
-      <div class="grid"><div class="card"><small>${isLive ? 'Most recent import' : 'Last fixture import'}</small><strong>${escapeHtml(status.lastImportedAt)}</strong></div><div class="card"><small>Age at request</small><strong>${status.ageDays} days</strong><span>Policy window ${status.freshnessWindowDays} days</span></div></div>
-      <p><small>${isLive ? "Fetched live from Connect's real, aggregate-only finance-data-status contract endpoint." : `The committed synthetic fixture (the live endpoint is not configured or did not answer${dataStatus.fallbackReason ? `: ${escapeHtml(dataStatus.fallbackReason)}` : ''}).`}</small></p>
-    </section>${renderClassificationEditors(classification, {
-      canManage: roleResult.ok && roleResult.role === 'admin',
-      revenueStatus: classificationRevenueStatus, revenueMessage: classificationRevenueMessage,
-      expenseStatus: classificationExpenseStatus, expenseMessage: classificationExpenseMessage,
-    })}`;
   }
   if (section.id === 'payroll') {
     return renderPayrollSection(payrollBundle);
@@ -2797,10 +2799,14 @@ export default {
       }
       const body = { year: form.get('year') || '' };
       const result = await postConnectDaycareChurchBudgetImportWrite(env, accessJwt, body);
+      // The Data page's preview-then-import returns there; the Daycare page's returns to Actuals.
+      const back = form.get('return_to') === 'data'
+        ? { section: 'data', op: 'daycare-church-budget' }
+        : { section: 'daycare', page: 'actuals' };
       if (result.ok) {
-        return response(null, { status: 303, headers: { Location: '/?section=daycare&page=actuals&status=ok' } });
+        return response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ ...back, status: 'ok' }).toString()}#daycare-church-budget` } });
       }
-      const params = new URLSearchParams({ section: 'daycare', page: 'actuals', status: 'error', reason: result.reason || 'unknown' });
+      const params = new URLSearchParams({ ...back, status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -3364,6 +3370,26 @@ export default {
       return handleFacilitiesWrite(request, env, route.id, url);
     }
 
+    // Board packet JSON export (Connect's legacy finExportBoardPacket): the same packet, read through
+    // connect.finance-board-packet.v1, downloaded as a file. Anyone who may open Data & Imports may
+    // download it, matching the legacy finance/board-packet route's finance-access gate.
+    if (route.id === 'board-packet-export-v1') {
+      const json = (payload, status) => response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
+      const roleResult = await fetchVerifiedRole(env, request.headers.get('Cf-Access-Jwt-Assertion') || '');
+      const dataSection = FINANCE_PARITY_SECTIONS.find((s) => s.id === 'data');
+      if (!roleResult.ok || !roleCanAccessSection(roleResult.role, dataSection, roleResult.permissions)) return json({ error: 'Access denied' }, 403);
+      const rawYear = url.searchParams.get('year');
+      const year = rawYear ? Number(rawYear) : new Date().getUTCFullYear();
+      if (!Number.isInteger(year) || year < 2000 || year > 2100) return json({ error: 'year must be a 4-digit year' }, 400);
+      const result = await fetchFinanceBoardPacket(env, year);
+      if (!result.ok) return json({ error: 'The board packet could not be read from Connect right now.', reason: result.reason }, 502);
+      if (request.method === 'HEAD') return response(null, { headers: { 'Content-Type': 'application/json; charset=utf-8' } });
+      return response(JSON.stringify(result.packet, null, 2), { headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="board-packet-${year}.json"`,
+      } });
+    }
+
     // One attached Facilities photo or document, for a verified viewer of the Facilities section.
     // Built without response()'s page headers: a PDF must open in the browser's own viewer.
     if (route.id === 'facilities-file-v1') {
@@ -3667,7 +3693,7 @@ export default {
           ? safeSyntheticRead(() => resolveAccountsReport(env, env.FINANCE_DB)) : null;
         // Finance's own QuickBooks connection, once enabled (quickbooks-oauth-routes.js). The budget
         // list is a live QuickBooks call, so it is fetched only when an admin asks for it.
-        let quickbooksOwn = section.id === 'quickbooks' && qbEnabled(env) && env.FINANCE_DB
+        let quickbooksOwn = ['quickbooks', 'data'].includes(section.id) && qbEnabled(env) && env.FINANCE_DB
           ? safeSyntheticRead(() => readQbConnectionSummary(env.FINANCE_DB)) : null;
         let quickbooksBudgets = url.searchParams.get('budgets') === '1' && roleResult.ok && roleResult.role === 'admin'
           ? after(quickbooksOwn, (own) => (own && own.connected
@@ -3682,6 +3708,22 @@ export default {
           ? safeSyntheticRead(() => resolveDataStatus(env, env.FINANCE_DB)) : null;
         let classification = section.id === 'data'
           ? fetchFinanceClassification(env, defaultLiveBudgetFiscalYear()) : null;
+        // Data & Imports: per-importer staleness (connect.finance-import-status.v1), Finance's own
+        // QuickBooks connection and report cache (read-only -- never a QuickBooks call), and the
+        // MDO-from-Church-Budget preview, which the Daycare Report's Actuals page also offers.
+        let importStatus = section.id === 'data' ? fetchFinanceImportStatus(env) : null;
+        let quickbooksSnapshot = section.id === 'data' && qbEnabled(env) && env.FINANCE_DB
+          ? readQuickbooksSnapshot(env.FINANCE_DB).catch(() => ({ ok: false })) : null;
+        const daycarePreviewPage = section.id === 'data'
+          || (section.id === 'daycare' && resolveFinancePage(section, pageId).id === 'actuals');
+        const daycarePreviewYearRaw = daycarePreviewPage ? Number(url.searchParams.get('dc_cb_year')) : NaN;
+        const daycarePreviewYear = Number.isInteger(daycarePreviewYearRaw) && daycarePreviewYearRaw >= 2000 && daycarePreviewYearRaw <= 2100
+          ? daycarePreviewYearRaw : null;
+        let daycarePreview = daycarePreviewYear ? fetchDaycareChurchBudgetPreview(env, daycarePreviewYear) : null;
+        const dataDaycareImportStatus = section.id === 'data' && url.searchParams.get('op') === 'daycare-church-budget'
+          ? url.searchParams.get('status') : null;
+        const dataDaycareImportMessage = dataDaycareImportStatus === 'error'
+          ? describeDaycareChurchBudgetImportEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
         const classificationOp = section.id === 'data' ? url.searchParams.get('op') : null;
         const classificationRevenueStatus = classificationOp === 'revenue-streams' ? url.searchParams.get('status') : null;
         const classificationRevenueMessage = classificationRevenueStatus === 'error'
@@ -3969,7 +4011,7 @@ export default {
           : null;
         // Every load above started without waiting on the others; one slow Connect answer now
         // costs its own timeout once, not once per section read in turn.
-        [summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle] = await Promise.all([summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle]);
+        [summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, importStatus, quickbooksSnapshot, daycarePreview, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle] = await Promise.all([summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, importStatus, quickbooksSnapshot, daycarePreview, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle]);
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
@@ -3978,6 +4020,7 @@ export default {
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyDebt, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, classification, classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
+          importStatus, quickbooksSnapshot, daycarePreviewYear, daycarePreview, dataDaycareImportStatus, dataDaycareImportMessage, quickbooksEnabled: qbEnabled(env),
           quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
     compensationProjection,
