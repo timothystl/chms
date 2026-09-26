@@ -67,6 +67,8 @@
   "vars": {
     "ENVIRONMENT": "production",
     "RELEASE_SHA": "unreleased",
+    "FINANCE_ACCESS_TEAM_DOMAIN": "timothystl.cloudflareaccess.com",
+    "FINANCE_ACCESS_AUD": "74de33dfe1e65b4eea9b8bf51e04d654e470a60773175bf34d74d55e940b66eb",
     // QuickBooks is owned by Finance once this is "1" (see docs/QUICKBOOKS_FINANCE_CUTOVER.md).
     // FINANCE_QB_CLIENT_ID / FINANCE_QB_CLIENT_SECRET are Worker secrets, never listed here.
     "FINANCE_QB_ENABLED": "1",

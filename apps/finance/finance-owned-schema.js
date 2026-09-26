@@ -267,12 +267,26 @@ CREATE TABLE IF NOT EXISTS finance_property_bank_recs (
 );
 `;
 
+export const ROLE_CACHE_SCHEMA_SQL = `-- The last role Connect confirmed for each signed-in person, so Finance can still open read-only
+-- pages when Connect is slow or unreachable. Connect stays the only place roles are managed; a row
+-- here is refreshed on every successful check and is used for at most seven days after it.
+
+CREATE TABLE IF NOT EXISTS finance_role_cache (
+  identity TEXT PRIMARY KEY CHECK (length(trim(identity)) > 0),
+  role TEXT NOT NULL,
+  permissions_json TEXT NOT NULL DEFAULT '{}',
+  username TEXT NOT NULL DEFAULT '',
+  verified_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`;
+
 export const FINANCE_OWNED_SCHEMAS = Object.freeze({
   facilities: Object.freeze({ migration: '0010_finance_facilities.sql', sql: FACILITIES_SCHEMA_SQL }),
   hr: Object.freeze({ migration: '0011_finance_hr.sql', sql: HR_SCHEMA_SQL }),
   facilityFiles: Object.freeze({ migration: '0012_finance_facility_files.sql', sql: FACILITY_FILES_SCHEMA_SQL }),
   planning: Object.freeze({ migration: '0013_finance_planning.sql', sql: PLANNING_SCHEMA_SQL }),
   propertyBooks: Object.freeze({ migration: '0014_finance_property_books.sql', sql: PROPERTY_BOOKS_SCHEMA_SQL }),
+  roleCache: Object.freeze({ migration: '0015_finance_role_cache.sql', sql: ROLE_CACHE_SCHEMA_SQL }),
 });
 
 // Splits a migration file into single statements: comment lines dropped, split on ';'.
