@@ -144,8 +144,42 @@ describe('Giving analytics contracts (giving-analytics-*-v1, giving-followup-wri
     gift(ids.acme, '2026-02-01', 5000);
     raw.prepare("INSERT INTO giving_entries (batch_id, person_id, fund_id, amount, method, contribution_date) VALUES (1, NULL, ?, 11400, 'cash', '2026-09-20')").run(general);
     raw.prepare('INSERT INTO pledges (person_id, fiscal_year, amount_cents) VALUES (?, 2026, 600000)').run(ids.walter);
-    return { db, ids, general };
+    return { db, ids, general, building };
   }
+
+  it('scopes every total to all funds, the General Fund, or one fund', async () => {
+    const { db, general, building } = setup();
+    const read = async (fund) => (await call(db, '/api/contracts/giving-analytics-v1', { query: `?as_of=2026-09-20${fund ? `&fund=${fund}` : ''}` })).json();
+    const all = await read('');
+    const gf = await read('general');
+    const bf = await read(String(building));
+    expect(all.fund).toMatchObject({ key: 'all', label: 'All funds' });
+    expect(gf.fund).toMatchObject({ key: 'general', label: 'General Fund', fund_count: 1 });
+    expect(bf.fund).toMatchObject({ key: String(building), label: 'Building Fund' });
+    // Mary's $500 online gift in March is the only Building Fund gift.
+    expect(bf.totals.ytd_cents).toBe(50000);
+    expect(bf.totals.ytd_online_cents).toBe(50000);
+    expect(gf.totals.ytd_cents).toBe(all.totals.ytd_cents - 50000);
+    expect(gf.totals.prior_ytd_cents).toBe(all.totals.prior_ytd_cents);
+    expect(bf.months).toEqual([{ month: '2026-03', cents: 50000, gifts: 1 }]);
+    expect(gf.months.find((m) => m.month === '2026-03').cents).toBe(all.months.find((m) => m.month === '2026-03').cents - 50000);
+    expect(bf.weeks.every((w) => w.cents === 0)).toBe(true);
+    expect(bf.households).toMatchObject({ ytd_households: 1, last_year_households: 0, both_years_households: 0, t12_cents: 50000 });
+    expect(gf.households.both_years_households).toBe(all.households.both_years_households);
+    // Walter's pledge is received from General Fund gifts; none went to the Building Fund.
+    expect(gf.pledges.received_cents).toBe(180000);
+    expect(bf.pledges).toMatchObject({ pledgers: 1, received_cents: 0, not_started: 1 });
+    // The by-fund breakdown and first-time givers always cover every fund.
+    expect(bf.funds).toEqual(all.funds);
+    expect(bf.totals.first_time_givers).toBe(all.totals.first_time_givers);
+    expect(all.fund_options.map((o) => o.key)).toEqual(['all', 'general', String(building), String(general)]);
+    // An unknown fund reads as all funds, never an empty page.
+    for (const bogus of ['999', 'drop%20table', '-1']) {
+      const r = await read(bogus);
+      expect(r.fund.key).toBe('all');
+      expect(r.totals.ytd_cents).toBe(all.totals.ytd_cents);
+    }
+  });
 
   it('reports totals, weeks, funds, household bands and pledges without naming anyone', async () => {
     const { db } = setup();

@@ -15,7 +15,7 @@
 // re-verified here and the person's real Connect role decides access.
 import { json } from './auth.js';
 import { verifyAccessJwt } from './access-jwt.js';
-import { getRolePermissions, permissionsForRole } from './api-utils.js';
+import { getRolePermissions, permissionsForRole, resolveGeneralFundIds } from './api-utils.js';
 
 const ONLINE_METHODS = "('online','card','ach')";
 const HOUSEHOLD_KEY = `CASE WHEN p.household_id IS NOT NULL AND p.household_id != 0
@@ -82,10 +82,37 @@ export function resolveAsOf(url, now = new Date()) {
   return isDay(requested) ? requested : now.toISOString().slice(0, 10);
 }
 
+// Which slice of giving the totals describe: ?fund=all (the default), ?fund=general (every fund
+// Connect counts as the General Fund, the same resolveGeneralFundIds rule the board report's fund
+// lens uses), or ?fund=<fund id> for one fund. Anything unrecognized reads as all funds, never as
+// an empty slice. `ids` is null for all funds; otherwise the fund ids to filter on.
+export function resolveFundScope(requested, fundRows) {
+  const rows = Array.isArray(fundRows) ? fundRows : [];
+  const want = String(requested || '').trim().toLowerCase();
+  if (want === 'general') {
+    const { ids } = resolveGeneralFundIds(rows);
+    return { key: 'general', label: 'General Fund', ids: [...ids] };
+  }
+  if (/^\d{1,9}$/.test(want)) {
+    const fund = rows.find((f) => String(f.id) === want);
+    if (fund) return { key: String(fund.id), label: fund.name, ids: [fund.id] };
+  }
+  return { key: 'all', label: 'All funds', ids: null };
+}
+
+// SQL fragment and bindings restricting a giving query to the scope's funds. An empty General
+// Fund family matches nothing rather than everything.
+function fundFilter(scope, column = 'fund_id') {
+  if (!scope?.ids) return { sql: '', args: [] };
+  if (!scope.ids.length) return { sql: ' AND 0', args: [] };
+  return { sql: ` AND ${column} IN (${scope.ids.map(() => '?').join(',')})`, args: scope.ids };
+}
+
 // One row per giving household (or single person without a household) with its totals in each
 // window the pages compare. Organizations are left out, as in Connect's household rollups.
 // Returned to this Worker only; the aggregate contract reduces it to counts and bands.
-async function readHouseholdWindows(db, asOf) {
+async function readHouseholdWindows(db, asOf, scope) {
+  const filter = fundFilter(scope, 'ge.fund_id');
   const year = Number(asOf.slice(0, 4));
   const priorSameDay = sameDayLastYear(asOf);
   const t12Start = shiftDay(asOf, -364);
@@ -98,7 +125,7 @@ async function readHouseholdWindows(db, asOf) {
             SUM(CASE WHEN ge.contribution_date BETWEEN ? AND ? THEN ge.amount ELSE 0 END) AS t12
        FROM giving_entries ge JOIN people p ON p.id=ge.person_id
       WHERE ge.contribution_date BETWEEN ? AND ?
-        AND LOWER(COALESCE(p.member_type,'')) != 'organization'
+        AND LOWER(COALESCE(p.member_type,'')) != 'organization'${filter.sql}
       GROUP BY hk`
   ).bind(
     `${year - 2}-01-01`, `${year - 2}-12-31`,
@@ -107,6 +134,7 @@ async function readHouseholdWindows(db, asOf) {
     `${year}-01-01`, asOf,
     t12Start, asOf,
     `${year - 2}-01-01`, asOf,
+    ...filter.args,
   ).all()).results || [];
   return rows.map((r) => ({ hk: r.hk, y2: r.y2 || 0, y1: r.y1 || 0, prior_ytd: r.prior_ytd || 0, ytd: r.ytd || 0, t12: r.t12 || 0 }));
 }
@@ -167,9 +195,15 @@ export function concentrationOf(t12Cents, lastYearCents) {
   };
 }
 
-// GET giving-analytics-v1?as_of=YYYY-MM-DD — aggregate only.
+// GET giving-analytics-v1?as_of=YYYY-MM-DD&fund=all|general|<fund id> — aggregate only. The fund
+// scope applies to every total, month, week, household figure and pledge receipt; the by-fund
+// breakdown and first-time givers always cover all funds.
 export async function respondWithGivingAnalyticsV1(url, db) {
   const asOf = resolveAsOf(url);
+  const fundRows = (await db.prepare(`SELECT id, name, category FROM funds ORDER BY name`).all()).results || [];
+  const scope = resolveFundScope(url.searchParams.get('fund'), fundRows);
+  const plain = fundFilter(scope);
+  const aliased = fundFilter(scope, 'ge.fund_id');
   const year = Number(asOf.slice(0, 4));
   const priorSameDay = sameDayLastYear(asOf);
   const monthStart = `${asOf.slice(0, 7)}-01`;
@@ -177,7 +211,7 @@ export async function respondWithGivingAnalyticsV1(url, db) {
   const lastSunday = shiftDay(asOf, -new Date(`${asOf}T00:00:00Z`).getUTCDay());
   const weeksFrom = shiftDay(lastSunday, -90);
 
-  const [totals, months, funds, weeks, firstTime, pledges, householdRows] = await Promise.all([
+  const [totals, months, funds, weeks, firstTime, pledges, householdRows, usedFunds] = await Promise.all([
     db.prepare(
       `SELECT
          COALESCE(SUM(CASE WHEN contribution_date BETWEEN ? AND ? THEN amount END),0) AS ytd_cents,
@@ -187,19 +221,20 @@ export async function respondWithGivingAnalyticsV1(url, db) {
          COALESCE(SUM(CASE WHEN contribution_date BETWEEN ? AND ? AND method IN ${ONLINE_METHODS} THEN amount END),0) AS ytd_online_cents,
          COALESCE(SUM(CASE WHEN contribution_date BETWEEN ? AND ? AND method IN ${ONLINE_METHODS} THEN amount END),0) AS prior_ytd_online_cents,
          COUNT(CASE WHEN contribution_date BETWEEN ? AND ? THEN 1 END) AS ytd_gifts
-       FROM giving_entries WHERE contribution_date BETWEEN ? AND ?`
+       FROM giving_entries WHERE contribution_date BETWEEN ? AND ?${plain.sql}`
     ).bind(
       `${year}-01-01`, asOf, `${year - 1}-01-01`, priorSameDay,
       monthStart, asOf, priorMonthStart, priorSameDay,
       `${year}-01-01`, asOf, `${year - 1}-01-01`, priorSameDay,
       `${year}-01-01`, asOf, `${year - 1}-01-01`, asOf,
+      ...plain.args,
     ).first(),
     db.prepare(
       `SELECT month, COALESCE(SUM(total_cents),0) AS cents, COALESCE(SUM(gift_count),0) AS gifts
-         FROM giving_monthly_fund_totals WHERE month BETWEEN ? AND ? GROUP BY month ORDER BY month`
-    ).bind(`${year - 1}-01`, `${year}-12`).all(),
+         FROM giving_monthly_fund_totals WHERE month BETWEEN ? AND ?${plain.sql} GROUP BY month ORDER BY month`
+    ).bind(`${year - 1}-01`, `${year}-12`, ...plain.args).all(),
     db.prepare(
-      `SELECT f.name AS fund_name, SUM(ge.amount) AS cents
+      `SELECT f.id AS fund_id, f.name AS fund_name, SUM(ge.amount) AS cents
          FROM giving_entries ge JOIN funds f ON f.id=ge.fund_id
         WHERE ge.contribution_date BETWEEN ? AND ?
         GROUP BY f.id ORDER BY cents DESC`
@@ -207,9 +242,9 @@ export async function respondWithGivingAnalyticsV1(url, db) {
     // Weeks end on Sunday (Monday–Sunday), so each bar is "the Sunday" and the gifts around it.
     db.prepare(
       `SELECT date(contribution_date, 'weekday 0') AS week_ending, SUM(amount) AS cents, COUNT(*) AS gifts
-         FROM giving_entries WHERE contribution_date BETWEEN ? AND ?
+         FROM giving_entries WHERE contribution_date BETWEEN ? AND ?${plain.sql}
         GROUP BY week_ending ORDER BY week_ending`
-    ).bind(shiftDay(weeksFrom, -6), lastSunday).all(),
+    ).bind(shiftDay(weeksFrom, -6), lastSunday, ...plain.args).all(),
     db.prepare(
       `SELECT COUNT(*) AS n FROM (
          SELECT person_id, MIN(contribution_date) AS first_day FROM giving_entries
@@ -220,10 +255,14 @@ export async function respondWithGivingAnalyticsV1(url, db) {
     db.prepare(
       `SELECT pl.amount_cents,
               COALESCE((SELECT SUM(ge.amount) FROM giving_entries ge
-                         WHERE ge.person_id=pl.person_id AND ge.contribution_date BETWEEN ? AND ?),0) AS received_cents
+                         WHERE ge.person_id=pl.person_id AND ge.contribution_date BETWEEN ? AND ?${aliased.sql}),0) AS received_cents
          FROM pledges pl WHERE pl.fiscal_year=? AND pl.amount_cents > 0`
-    ).bind(`${year}-01-01`, asOf, year).all(),
-    readHouseholdWindows(db, asOf),
+    ).bind(`${year}-01-01`, asOf, ...aliased.args, year).all(),
+    readHouseholdWindows(db, asOf, scope),
+    // Funds with any gift in the three calendar years the pages compare, for the fund picker.
+    db.prepare(
+      `SELECT DISTINCT fund_id FROM giving_monthly_fund_totals WHERE month BETWEEN ? AND ? AND gift_count > 0`
+    ).bind(`${year - 2}-01`, `${year}-12`).all(),
   ]);
 
   const elapsed = yearElapsedShare(asOf);
@@ -252,6 +291,8 @@ export async function respondWithGivingAnalyticsV1(url, db) {
     as_of: asOf,
     year,
     year_elapsed: elapsed,
+    fund: { key: scope.key, label: scope.label, fund_count: scope.ids ? scope.ids.length : fundRows.length },
+    fund_options: fundOptions(fundRows, new Set((usedFunds.results || []).map((r) => r.fund_id)), scope),
     totals: { ...totals, first_time_givers: firstTime?.n || 0 },
     months: months.results || [],
     funds: funds.results || [],
@@ -259,6 +300,17 @@ export async function respondWithGivingAnalyticsV1(url, db) {
     households: summarizeHouseholds(householdRows),
     pledges: pledgeSummary,
   });
+}
+
+// All funds, the General Fund, then each fund given to in the compared years (plus the chosen
+// fund, so the picker never loses the current selection).
+function fundOptions(fundRows, usedIds, scope) {
+  return [
+    { key: 'all', label: 'All funds' },
+    { key: 'general', label: 'General Fund' },
+    ...fundRows.filter((f) => usedIds.has(f.id) || String(f.id) === scope.key)
+      .map((f) => ({ key: String(f.id), label: f.name })),
+  ];
 }
 
 export function yearElapsedShare(asOf) {

@@ -1147,18 +1147,19 @@ function renderSectionBody(ctx) {
     const canEditNudges = !councilPreview && roleResult.ok && (roleResult.role === 'admin' || roleResult.permissions?.giving === 'edit');
     const status = ctx.searchParams.get('status') === 'ok' ? { ok: true, message: ctx.searchParams.get('msg') || 'Saved in Connect.' }
       : ctx.searchParams.get('status') === 'error' ? { ok: false, message: `Not saved: ${ctx.searchParams.get('message') || 'the request did not complete.'}` } : null;
+    const keep = councilPreview ? { council: '1' } : {};
     switch (page.id) {
-      case 'year-over-year': return renderYearOverYearPage({ result: totals });
-      case 'household-bands': return renderHouseholdBandsPage({ result: totals });
-      case 'pledges': return renderPledgesPage({ result: totals });
-      case 'what-if': return renderWhatIfPage({ result: totals, params: ctx.searchParams });
+      case 'year-over-year': return renderYearOverYearPage({ result: totals, keep });
+      case 'household-bands': return renderHouseholdBandsPage({ result: totals, keep });
+      case 'pledges': return renderPledgesPage({ result: totals, keep });
+      case 'what-if': return renderWhatIfPage({ result: totals, params: ctx.searchParams, keep });
       case 'statements': return renderStatementsPage({ result: asResult(ctx.givingAnalyticsPeople), councilPreview: namedHidden });
       case 'nudges': return renderNudgesPage({ result: asResult(ctx.givingAnalyticsPeople), totals, params: ctx.searchParams, canEdit: canEditNudges, councilPreview: namedHidden, status });
-      default: return renderTrendsPage({ result: totals });
+      default: return renderTrendsPage({ result: totals, keep });
     }
   }
   if (section.id === 'charts' && page.id === 'concentration') {
-    return renderConcentrationPage({ result: ctx.givingAnalytics?.ok ? { ok: true, data: ctx.givingAnalytics.result } : { ok: false, message: describeGivingBatchFailure(ctx.givingAnalytics) } });
+    return renderConcentrationPage({ result: ctx.givingAnalytics?.ok ? { ok: true, data: ctx.givingAnalytics.result } : { ok: false, message: describeGivingBatchFailure(ctx.givingAnalytics) }, keep: councilPreview ? { council: '1' } : {} });
   }
   if (section.id === 'accounts' && page.id === 'access') {
     return renderAccessPage({ result: ctx.accessRoles?.ok ? { ok: true, data: ctx.accessRoles.result } : { ok: false, message: describeGivingBatchFailure(ctx.accessRoles) } });
@@ -1489,7 +1490,7 @@ function renderShell(ctx) {
   </header>
   <div class="app-shell">
     <aside class="app-sidebar">
-      <nav aria-label="Finance workspace">${renderSectionNav(section, page, { roleResult, councilPreview })}</nav>
+      <nav aria-label="Finance workspace">${renderSectionNav(section, page, { roleResult, councilPreview, fund: /^(?:all|\d{1,9})$/.test(ctx?.searchParams?.get('fund') || '') ? ctx.searchParams.get('fund') : '' })}</nav>
       <div class="sidebar-foot">${production ? 'Production · Timothy Lutheran<br>Access verified through Connect' : 'Isolated staging environment<br>Test data may be present'}</div>
     </aside>
     <main>
@@ -3936,7 +3937,7 @@ export default {
         const accessRoles = section.id === 'accounts' && resolveFinancePage(section, pageId).id === 'access'
           ? await fetchAccessRoles(env, accessJwt) : null;
         const [givingAnalytics, givingAnalyticsPeople] = analyticsPageId ? await Promise.all([
-          analyticsPageId === 'statements' ? null : fetchGivingAnalytics(env, accessJwt),
+          analyticsPageId === 'statements' ? null : fetchGivingAnalytics(env, accessJwt, { fund: url.searchParams.get('fund') || 'general' }),
           ['statements', 'nudges'].includes(analyticsPageId) && !councilPreview
             && !(roleResult.ok && roleResult.role !== 'admin' && roleResult.permissions?.giving === 'anon')
             ? fetchGivingAnalyticsPeople(env, accessJwt) : null,
