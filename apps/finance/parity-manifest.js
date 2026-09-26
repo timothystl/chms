@@ -167,13 +167,14 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
     pages: [{ id: 'builder', label: 'Board packet', status: 'live' }],
   },
   // The account tree and board-category/purpose-tag presentation are real now, via the
-  // connect.finance-chart-of-accounts.v1 contract (account names + QuickBooks-derived category
-  // paths + Finance's own categorization of them, never a dollar figure) -- see
-  // finance-chart-of-accounts-client.js and accounts-report-service.js's resolveAccountsReport,
-  // same live-with-synthetic-fallback pattern Giving Entry and Data & Imports established.
+  // connect.finance-chart-of-accounts.v1 contract (one fiscal year's accounts with their own
+  // actual/budget, QuickBooks-derived category paths, and Finance's own categorization and renames
+  // of them) -- see finance-chart-of-accounts-client.js and accounts-report-service.js's
+  // resolveAccountsReport, same live-with-synthetic-fallback pattern Giving Entry and Data &
+  // Imports established. Legacy's Resources by Purpose report is on the same page.
   {
     id: 'accounts', label: 'Chart of Accounts', group: 'Accounts & Data', permission: 'finance',
-    capabilities: ['account tree', 'board-category presentation'],
+    capabilities: ['account tree', 'board-category presentation', 'fiscal-year actuals', 'resources by purpose'],
     pages: [
       { id: 'chart', label: 'Chart of accounts', status: 'live' },
       { id: 'access', label: 'Access & roles', status: 'live' },

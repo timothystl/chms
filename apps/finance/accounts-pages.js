@@ -1,5 +1,7 @@
-import { buildAccountsReportView } from './accounts-report-service.js';
-import { escapeHtml, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
+import {
+  buildAccountsReportView, buildChartOfAccountsView, buildPurposeTotals, chartLeafRows, isRevenueClassification, layoutFromChartRows,
+} from './accounts-report-service.js';
+import { escapeHtml, formatSignedCents, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
 import {
   BOARD_EXPENSE_ORDER, BOARD_REVENUE_ORDER, DONOR_WRAPPER_DEFAULT_LABEL, BOARD_EXPENSE_DEFAULT_LABELS,
   BOARD_REVENUE_DEFAULT_LABELS, boardCategoryFor, boardLabelFor, buildBoardSections, defaultBoardCategory,
@@ -109,22 +111,16 @@ export function renderAccountHierarchy(nodes) {
   }).join('');
 }
 
-// Leaf accounts only: a path no other account sits under. Group rows (QuickBooks parents) are
-// not budget lines and carry no board category of their own.
-function leafAccountRows(rows) {
-  const paths = rows.map((r) => r.category_path);
-  return rows.filter((r) => !paths.some((p) => p !== r.category_path && p.startsWith(`${r.category_path}:`)));
-}
-
 // Legacy Chart of Accounts (finRenderChartOfAccounts in src/frontend/js-finance.js): the budget's
 // board layout, edited in one place. Headings rename the Budget builder's categories and the Donor
 // Income wrapper; each account can be moved to another category (one at a time or by selecting
 // several), renamed for display, and tagged with a purpose. Only changed rows are sent, so an
-// account still on its name-based default is not pinned to it by saving another row.
+// account still on its name-based default is not pinned to it by saving another row. The accounts
+// are the same year's chart leaves the main table above lists.
 function renderLayoutEditor(rows, layout, entryStatus, entryMessage) {
   const e = escapeHtml;
-  const leaves = leafAccountRows(rows);
-  const sections = buildBoardSections(leaves, layout, (r) => ({ path: r.category_path, name: r.account_name, isRevenue: r.classification === 'Income' }));
+  const leaves = chartLeafRows(rows);
+  const sections = buildBoardSections(leaves, layout, (r) => ({ path: r.category_path, name: r.account_name, isRevenue: isRevenueClassification(r.classification) }));
   const tagOptions = (selected) => `<option value="">—</option>${layout.tags.map((t) => `<option value="${e(t.id)}"${t.id === selected ? ' selected' : ''}>${e(t.label)}</option>`).join('')}`;
   const catOptions = (isRevenue, row) => {
     const { key, assigned } = boardCategoryFor(layout, row.category_path, row.account_name, isRevenue);
@@ -183,33 +179,126 @@ function renderLayoutEditor(rows, layout, entryStatus, entryMessage) {
   </section>`;
 }
 
+// Which fiscal year the chart shows: a plain GET form (the page runs no script), listing every
+// year with ledger rows plus the one being shown.
+function renderFiscalYearForm(fiscalYear, availableFiscalYears) {
+  const years = [...new Set([fiscalYear, ...availableFiscalYears])].sort((a, b) => b - a);
+  return `<form method="GET" action="/" class="inline-form" aria-label="Fiscal year">
+    <input type="hidden" name="section" value="accounts"><input type="hidden" name="page" value="chart">
+    <label for="coa-fiscal-year">Fiscal year</label>
+    <select id="coa-fiscal-year" name="fiscal_year">${years.map((y) => `<option value="${y}"${y === fiscalYear ? ' selected' : ''}>FY${y}</option>`).join('')}</select>
+    <button type="submit">Show</button>
+  </form>`;
+}
+
+const money = (cents) => (cents === null || cents === undefined ? '—' : formatSignedCents(cents));
+
+// The main table: legacy's two cards (Revenue, then Expenses), every board category in legacy's
+// order with its accounts under it by display name, plus each account's and each category's year
+// actual and budget. A category with no accounts still shows, as it does in legacy.
+function renderChartTable(view, fiscalYear) {
+  const e = escapeHtml;
+  const fy = fiscalYear ? `FY${fiscalYear} ` : '';
+  const figures = view.hasFigures;
+  const amount = (cents, hasBudget = true) => `<td class="num">${figures && hasBudget ? money(cents) : '—'}</td>`;
+  const leafRow = (leaf) => `<tr><td style="padding-left:1.95rem">${e(leaf.label)}<br><small>${leaf.label !== leaf.qbName ? `QuickBooks: ${e(leaf.qbName)} · ` : ''}${e(leaf.path)}${leaf.assigned ? '' : ' · automatic category'}</small></td>${amount(leaf.actualCents)}<td class="num">${leaf.budgetCents === null ? '—' : money(leaf.budgetCents)}</td><td>${leaf.purposeTagLabel ? e(leaf.purposeTagLabel) : '—'}</td></tr>`;
+  const groupRows = (g) => `<tr><td style="padding-left:.85rem"><strong>${e(g.label)}</strong> <small>${g.items.length} account${g.items.length === 1 ? '' : 's'}</small></td>${amount(g.actualCents)}${amount(g.budgetCents, g.hasBudget)}<td></td></tr>${g.items.length
+    ? g.items.map(leafRow).join('')
+    : '<tr><td colspan="4" style="padding-left:1.95rem"><small>No accounts read under this category yet.</small></td></tr>'}`;
+  const side = (title, totalLabel, s) => `<tr><td colspan="4"><strong>${title}</strong> <small>${s.count} account${s.count === 1 ? '' : 's'} · ${s.groups.length} categories</small></td></tr>${s.groups.map(groupRows).join('')}<tr><td><strong>${totalLabel}</strong></td>${amount(s.actualCents)}${amount(s.budgetCents, s.hasBudget)}<td></td></tr>`;
+  return renderTable({
+    head: ['Account', `${fy}Actual`, `${fy}Budget`, 'Purpose'],
+    rows: side('Revenue', 'Total revenue', view.revenue) + side('Expenses', 'Total expenses', view.expense),
+  }).replace(/<th>([^<]*(?:Actual|Budget))<\/th>/g, '<th class="num">$1</th>');
+}
+
+// Legacy finRenderPurposeReport: one row per saved purpose tag, with what is tagged under it. The
+// payroll column is shown only when the viewer's role can read the Compensation plan.
+function renderPurposeReport(purpose, fiscalYear, { payrollNote }) {
+  const e = escapeHtml;
+  const head = purpose.payrollAvailable
+    ? ['Purpose', `Payroll (FY${fiscalYear + 1} plan)`, `Accounts (FY${fiscalYear} actual)`, 'Total', 'Tagged']
+    : ['Purpose', `Accounts (FY${fiscalYear} actual)`, 'Tagged'];
+  const rows = purpose.rows.map((r) => {
+    const detail = [];
+    if (r.workers.length) detail.push(`${r.workers.length} ${r.workers.length === 1 ? 'worker' : 'workers'}: ${r.workers.map(e).join(', ')}`);
+    if (r.accounts.length) detail.push(`${r.accounts.length} ${r.accounts.length === 1 ? 'account' : 'accounts'}: ${r.accounts.map(e).join(', ')}`);
+    const cells = purpose.payrollAvailable
+      ? `<td class="num">${money(r.payrollCents)}</td><td class="num">${money(r.accountCents)}</td><td class="num"><strong>${money(r.totalCents)}</strong></td>`
+      : `<td class="num">${money(r.accountCents)}</td>`;
+    return `<tr><td><strong>${e(r.label)}</strong></td>${cells}<td><small>${detail.length ? detail.join(' · ') : 'Nothing tagged yet.'}</small></td></tr>`;
+  }).join('');
+  return `<section aria-label="Resources by Purpose">
+    ${renderSectionHeading({ eyebrow: 'Chart of Accounts', heading: 'Resources by Purpose', badge: `FY${fiscalYear}` })}
+    <p>Compensation workers and accounts tagged with a purpose, rolled up by purpose — a second view of the same dollars, alongside the board categories. An untagged worker or account does not appear here. A tagged account whose number matches a tagged worker's account is counted once, under the worker.</p>
+    ${renderTable({ head, rows }).replace(/<th>((?:Payroll|Accounts|Total)[^<]*)<\/th>/g, '<th class="num">$1</th>')}
+    ${payrollNote ? `<p><small>${e(payrollNote)}</small></p>` : ''}
+  </section>`;
+}
+
+// Legacy's Resources by Purpose counts each tagged worker's full church cost from the Compensation
+// plan (its raise projection for the year after the chart's year). `compensationProjection` is
+// that projection when the viewer's role can read the plan and it could be built; otherwise the
+// payroll column is left out and the note says why.
+function purposePayroll(compensationProjection, canReadCompensation) {
+  if (!canReadCompensation) {
+    return { payroll: null, payrollNote: 'Payroll cost from the Compensation plan is shown only to roles that can open Compensation; the totals above are tagged accounts only.' };
+  }
+  if (!compensationProjection || !compensationProjection.ok) {
+    return { payroll: null, payrollNote: 'The Compensation plan could not be read, so payroll cost is left out; the totals above are tagged accounts only.' };
+  }
+  const { model, computed } = compensationProjection;
+  return { payroll: { roster: model.roster, computed, isExternallyFunded: model.isExternallyFunded }, payrollNote: '' };
+}
+
 export function renderAccountsPage(pageId, {
   accountsReport, canManageBoardCategories, boardCategoryEntryStatus, boardCategoryEntryMessage,
   canManagePurposeTags, purposeTagsEntryStatus, purposeTagsEntryMessage, boardLayout = null,
+  compensationProjection = null, canReadCompensation = false,
 }) {
   const isLive = accountsReport.source === 'live';
-  // With the board layout loaded, an account with no saved category shows the category it is
-  // actually placed in on the Budget builder (legacy's name-based default), marked automatic.
-  const rows = boardLayout && isLive
-    ? accountsReport.rows.map((row) => {
-      const isRevenue = row.classification === 'Income';
-      const { key, assigned } = boardCategoryFor(boardLayout, row.category_path, row.account_name, isRevenue);
-      const label = boardLabelFor(boardLayout, key, isRevenue);
-      return { ...row, board_category_key: key, board_category_label: assigned ? label : `${label} (automatic)` };
-    })
-    : accountsReport.rows;
+  const fiscalYear = isLive ? accountsReport.fiscalYear ?? null : null;
+  const availableFiscalYears = accountsReport.availableFiscalYears || [];
+  // The saved board layout when it could be read; otherwise the assignments, renames and tags the
+  // chart rows themselves carry. Either way an account with no saved category shows the category
+  // it is actually placed in (legacy's name-based default), marked automatic.
+  const layout = boardLayout && isLive ? boardLayout : layoutFromChartRows(accountsReport.rows);
+  const rows = accountsReport.rows.map((row) => {
+    const isRevenue = isRevenueClassification(row.classification);
+    const { key, assigned } = boardCategoryFor(layout, row.category_path, row.account_name, isRevenue);
+    const label = boardLabelFor(layout, key, isRevenue);
+    return { ...row, board_category_key: key, board_category_label: assigned ? label : `${label} (automatic)` };
+  });
   const report = buildAccountsReportView(rows);
+  const view = buildChartOfAccountsView(rows, layout);
+  const usedCategories = [...view.revenue.groups, ...view.expense.groups].filter((g) => g.items.length).length;
+  const { payroll, payrollNote } = purposePayroll(compensationProjection, canReadCompensation);
+  const purpose = buildPurposeTotals(view, layout, payroll);
+  const latestYear = availableFiscalYears.length ? Math.max(...availableFiscalYears) : null;
+  const emptyYear = fiscalYear !== null && view.leaves.length === 0;
   return `<section class="report" aria-label="${isLive ? 'Chart of Accounts' : 'Synthetic Chart of Accounts'}">
-    ${renderSectionHeading({ eyebrow: 'Chart of Accounts', heading: 'Account presentation', badge: isLive ? 'Live from Connect' : 'Synthetic staging' })}
+    ${renderSectionHeading({ eyebrow: 'Chart of Accounts', heading: 'Account presentation', badge: isLive ? (fiscalYear ? `FY${fiscalYear} · live` : 'Live from Connect') : 'Synthetic staging' })}
+    ${fiscalYear !== null ? renderFiscalYearForm(fiscalYear, availableFiscalYears) : ''}
+    ${emptyYear ? `<p class="status status-pending">No ledger rows are on file for FY${fiscalYear} yet.${latestYear !== null && latestYear !== fiscalYear ? ` <a href="/?section=accounts&amp;page=chart&amp;fiscal_year=${latestYear}">Show FY${latestYear}</a>, the most recent year on file.` : ''}</p>` : ''}
     ${renderKpiCards([
-      { label: 'Total accounts', value: String(report.counts.total), hint: `${report.counts.income} income · ${report.counts.expenses} expense` },
-      { label: 'Board categories', value: String(report.counts.boardCategories), hint: 'Presentation only; ledger paths unchanged' },
-      { label: 'Purpose tags', value: String(report.counts.purposeTags), hint: 'Independent reporting lens over the same accounts' },
+      { label: 'Total accounts', value: String(view.leaves.length), hint: `${view.revenue.count} revenue · ${view.expense.count} expense` },
+      ...(view.hasFigures ? [
+        { label: `FY${fiscalYear} revenue`, value: escapeHtml(money(view.revenue.actualCents)), hint: 'Actual, accounts listed below' },
+        { label: `FY${fiscalYear} expenses`, value: escapeHtml(money(view.expense.actualCents)), hint: 'Actual, accounts listed below' },
+      ] : []),
+      { label: 'Board categories', value: String(usedCategories), hint: 'Presentation only; ledger paths unchanged' },
+      { label: 'Purpose tags', value: String(layout.tags.length), hint: 'Independent reporting lens over the same accounts' },
     ])}
+    ${renderSectionHeading({ eyebrow: 'Chart of Accounts', heading: 'Accounts by board category', badge: 'Display names; QuickBooks unchanged' })}
+    ${renderChartTable(view, fiscalYear)}
+    ${view.unlistedRevenueCents || view.unlistedExpenseCents ? `<p><small>Posted directly to account groups rather than to an account, so not listed above (the Church Report includes it): ${escapeHtml(money(view.unlistedRevenueCents))} revenue, ${escapeHtml(money(view.unlistedExpenseCents))} expenses.</small></p>` : ''}
+    <p><small>Income and Other Income accounts are revenue; Expenses, Other Expenses and Cost of Goods Sold accounts are expenses. As on Connect's Chart of Accounts, a line with no actual and no budget this year is left out, and an account with no saved category is placed by its QuickBooks name. Actuals are each account's own postings, not including sub-accounts.</small></p>
+  </section>${layout.tags.length && fiscalYear !== null ? renderPurposeReport(purpose, fiscalYear, { payrollNote }) : ''}
+  <section class="report" aria-label="Ledger hierarchy">
     ${renderSectionHeading({ eyebrow: 'Ledger hierarchy', heading: 'Account tree', badge: 'Paths preserved', trend: true })}
     ${renderTable({ head: ['Hierarchy', 'Ledger path', 'Account', 'Board category', 'Purpose'], rows: renderAccountHierarchy(report.hierarchy) })}
     <p><small>${isLive
-      ? "Fetched live from Connect's real, structural-only finance-chart-of-accounts contract endpoint. No dollar figure, gift, donor, or person crosses this contract."
+      ? `Fetched live from Connect's finance-chart-of-accounts contract${fiscalYear ? ` for FY${fiscalYear}` : ''}: account names, ledger paths and each account's year totals. No gift, donor, or person crosses this contract.`
       : `The committed synthetic fixture (the live endpoint is not configured or did not answer${accountsReport.fallbackReason ? `: ${escapeHtml(accountsReport.fallbackReason)}` : ''}).`}</small></p>
   </section>${canManageBoardCategories && boardLayout && isLive
     ? renderLayoutEditor(report.rows, boardLayout, boardCategoryEntryStatus, boardCategoryEntryMessage)

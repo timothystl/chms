@@ -2,33 +2,49 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:timothy:connect:finance-chart-of-accounts:v1",
   "title": "Connect Finance Chart of Accounts v1",
-  "description": "Structural ledger account inventory (names, QuickBooks-derived category paths) plus Finance's own board-category and purpose-tag presentation of it. No dollar figure, gift, donor, or person crosses this contract.",
+  "description": "One fiscal year's ledger accounts (names, QuickBooks-derived category paths, and each account's own actual/budget cents for that year) plus Finance's own board-category, display-name and purpose-tag presentation of them. Requested with ?fiscal_year=YYYY; without it, the church's current calendar year. No gift, donor, or person crosses this contract. The consumer validator also accepts the earlier year-less structural shape (no fiscalYear/availableFiscalYears, Income/Expenses accounts only, no dollar fields, dataClassification 'structural', the four original reconciliation counts) so a newer Finance keeps working against an older Connect.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "generatedAt", "accounts", "reconciliation"],
+  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "generatedAt", "fiscalYear", "availableFiscalYears", "accounts", "reconciliation"],
   "properties": {
     "contract": { "const": "connect.finance-chart-of-accounts.v1" },
-    "dataClassification": { "const": "structural" },
+    "dataClassification": { "const": "aggregate" },
     "sourceProduct": { "const": "connect" },
     "consumerProduct": { "const": "finance" },
     "generatedAt": { "type": "string", "format": "date-time" },
+    "fiscalYear": { "type": "integer", "minimum": 2000, "maximum": 2100, "description": "The year every account row and dollar figure belongs to." },
+    "availableFiscalYears": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "integer", "minimum": 2000, "maximum": 2100 },
+      "description": "Every fiscal year with annual ledger rows, newest first. The requested year is not replaced by another when it has none."
+    },
     "accounts": {
       "type": "array",
+      "description": "The year's precedence-resolved ledger rows (resolveChurchYearPrecedence), in import order.",
       "items": { "$ref": "#/$defs/account" }
     },
     "reconciliation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["accountCount", "incomeCount", "expenseCount", "unassignedCount"],
+      "required": [
+        "accountCount", "incomeCount", "expenseCount", "otherIncomeCount", "otherExpenseCount",
+        "costOfGoodsSoldCount", "unassignedCount", "revenueActualCents", "expenseActualCents"
+      ],
       "properties": {
         "accountCount": { "type": "integer", "minimum": 0, "description": "Must equal accounts.length." },
         "incomeCount": { "type": "integer", "minimum": 0 },
         "expenseCount": { "type": "integer", "minimum": 0 },
+        "otherIncomeCount": { "type": "integer", "minimum": 0 },
+        "otherExpenseCount": { "type": "integer", "minimum": 0 },
+        "costOfGoodsSoldCount": { "type": "integer", "minimum": 0 },
         "unassignedCount": {
           "type": "integer",
           "minimum": 0,
           "description": "Accounts with boardCategoryKey 'unassigned' -- Chart of Accounts is filled in gradually, so this is expected to be nonzero and is surfaced rather than hidden."
-        }
+        },
+        "revenueActualCents": { "type": "integer", "description": "Sum of actualCents over Income and Other Income accounts." },
+        "expenseActualCents": { "type": "integer", "description": "Sum of actualCents over every other account." }
       }
     }
   },
@@ -37,23 +53,26 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "classification", "categoryPath", "accountName", "depth", "hasChildren",
-        "boardCategoryKey", "boardCategoryLabel", "purposeTagId", "purposeTagLabel"
+        "classification", "categoryPath", "accountName", "displayName", "depth", "hasChildren",
+        "actualCents", "budgetCents", "boardCategoryKey", "boardCategoryLabel", "purposeTagId", "purposeTagLabel"
       ],
       "properties": {
-        "classification": { "enum": ["Income", "Expenses"] },
+        "classification": { "enum": ["Income", "Other Income", "Cost of Goods Sold", "Expenses", "Other Expenses"] },
         "categoryPath": {
           "type": "string",
           "minLength": 1,
-          "description": "Colon-joined ancestor chain from finance_church_entries.category_path; always starts with its own classification."
+          "description": "Colon-joined ancestor chain from finance_church_entries.category_path."
         },
-        "accountName": { "type": "string", "minLength": 1 },
+        "accountName": { "type": "string", "minLength": 1, "description": "The QuickBooks account name." },
+        "displayName": { "type": "string", "minLength": 1, "description": "The saved Chart of Accounts rename, else accountName." },
         "depth": { "type": "integer", "minimum": 0 },
         "hasChildren": { "type": "boolean" },
+        "actualCents": { "type": "integer", "description": "This account's own posted actual for fiscalYear (not including sub-accounts)." },
+        "budgetCents": { "type": ["integer", "null"], "description": "This account's own budget for fiscalYear; null when no budget is on file." },
         "boardCategoryKey": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9_]*$",
-          "description": "One of the REVENUE_STREAMS / BOARD_EXPENSE_CATEGORIES keys, or 'unassigned' when Chart of Accounts has not yet classified this account."
+          "description": "One of the REVENUE_STREAMS / BOARD_EXPENSE_CATEGORIES keys, or 'unassigned' when Chart of Accounts has not saved one for this account (the consumer applies the name-based default)."
         },
         "boardCategoryLabel": { "type": "string", "minLength": 1 },
         "purposeTagId": {

@@ -54,9 +54,9 @@ function makeTestDb() {
 
 const PATH = '/api/contracts/finance-chart-of-accounts-v1';
 
-function call({ key = 'right-secret', expectedKey = 'right-secret', db = makeTestDb() } = {}) {
+function call({ key = 'right-secret', expectedKey = 'right-secret', db = makeTestDb(), query = '?fiscal_year=2026' } = {}) {
   const env = { DB: db, FINANCE_CONTRACT_API_KEY: expectedKey };
-  const req = new Request(`https://connect.example${PATH}`, {
+  const req = new Request(`https://connect.example${PATH}${query}`, {
     headers: key === null ? {} : { 'X-Contract-Key': key },
   });
   return handleContractsServiceApi(req, env, PATH);
@@ -83,10 +83,15 @@ describe('handleContractsServiceApi finance-chart-of-accounts-v1', () => {
     const body = await res.json();
     expect(body.contract).toBe('connect.finance-chart-of-accounts.v1');
     expect(body.accounts).toEqual([]);
-    expect(body.reconciliation).toEqual({ accountCount: 0, incomeCount: 0, expenseCount: 0, unassignedCount: 0 });
+    expect(body.reconciliation).toMatchObject({ accountCount: 0, incomeCount: 0, expenseCount: 0, unassignedCount: 0 });
   });
 
-  it('reflects real ledger rows and never includes a dollar figure', async () => {
+  it('refuses a malformed fiscal_year with 400', async () => {
+    const res = await call({ query: '?fiscal_year=abcd' });
+    expect(res.status).toBe(400);
+  });
+
+  it('scopes to the requested year and carries each account\'s own actual for it', async () => {
     const db = makeTestDb();
     db._raw.prepare(
       `INSERT INTO finance_church_entries (fiscal_year, classification, category_path, account_name, own_actual_cents, synced_at) VALUES (?,?,?,?,?,?)`
@@ -95,9 +100,12 @@ describe('handleContractsServiceApi finance-chart-of-accounts-v1', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.accounts).toHaveLength(1);
-    expect(body.accounts[0]).toMatchObject({ accountName: 'Pastoral Salary', boardCategoryKey: 'unassigned' });
-    expect(JSON.stringify(body)).not.toContain('512345');
-    expect(JSON.stringify(body)).not.toMatch(/cents/i);
+    expect(body.fiscalYear).toBe(2026);
+    expect(body.accounts[0]).toMatchObject({ accountName: 'Pastoral Salary', boardCategoryKey: 'unassigned', actualCents: 512345, budgetCents: null });
+    const other = await call({ db, query: '?fiscal_year=2025' });
+    const otherBody = await other.json();
+    expect(otherBody.accounts).toEqual([]);
+    expect(otherBody.availableFiscalYears).toEqual([2026]);
   });
 
   it('answers 404 for any other path once authenticated', async () => {

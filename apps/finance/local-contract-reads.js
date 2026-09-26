@@ -28,7 +28,7 @@ const LOCAL_READS = {
   'finance-data-status-v1': (url, db) => respondWithFinanceDataStatusV1(db),
   'finance-classification-v1': respondWithFinanceClassificationV1,
   'finance-cash-runway-v1': respondWithFinanceCashRunwayV1,
-  'finance-chart-of-accounts-v1': (url, db) => respondWithFinanceChartOfAccountsV1(db),
+  'finance-chart-of-accounts-v1': respondWithFinanceChartOfAccountsV1,
   'finance-board-layout-v1': (url, db) => respondWithFinanceBoardLayoutV1(db),
   'finance-budget-builder-v1': respondWithFinanceBudgetBuilderV1,
   'finance-planning-basis-v1': respondWithFinancePlanningBasisV1,

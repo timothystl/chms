@@ -106,15 +106,24 @@ function makeTestDb() {
 describe('contracts/finance-chart-of-accounts-v1 real handler', () => {
   it('returns a real 200 contract from an empty database', async () => {
     const env = { DB: makeTestDb() };
-    const url = new URL(`https://connect.example/admin/api/${SEG}`);
+    const url = new URL(`https://connect.example/admin/api/${SEG}?fiscal_year=2026`);
     const req = { json: async () => ({}), headers: { get: () => null } };
     const res = await handleChmsApi(req, env, url, 'GET', SEG, 'admin');
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.contract).toBe('connect.finance-chart-of-accounts.v1');
-    expect(body.dataClassification).toBe('structural');
+    expect(body.dataClassification).toBe('aggregate');
+    expect(body.fiscalYear).toBe(2026);
     expect(body.accounts).toEqual([]);
-    expect(body.reconciliation).toEqual({ accountCount: 0, incomeCount: 0, expenseCount: 0, unassignedCount: 0 });
+    expect(body.reconciliation).toMatchObject({ accountCount: 0, incomeCount: 0, expenseCount: 0, unassignedCount: 0 });
+  });
+
+  it('refuses a malformed fiscal_year with 400', async () => {
+    const env = { DB: makeTestDb() };
+    const url = new URL(`https://connect.example/admin/api/${SEG}?fiscal_year=26`);
+    const req = { json: async () => ({}), headers: { get: () => null } };
+    const res = await handleChmsApi(req, env, url, 'GET', SEG, 'admin');
+    expect(res.status).toBe(400);
   });
 
   it('reflects real ledger accounts and board-category assignments', async () => {
@@ -127,15 +136,15 @@ describe('contracts/finance-chart-of-accounts-v1 real handler', () => {
       JSON.stringify({ revenue: { 'Income:Offerings:General Fund': 'donor' }, expense: {}, revenueLabels: {}, expenseLabels: {}, donorWrapperLabel: '', accountLabels: {} })
     );
     const env = { DB: db };
-    const url = new URL(`https://connect.example/admin/api/${SEG}`);
+    const url = new URL(`https://connect.example/admin/api/${SEG}?fiscal_year=2026`);
     const req = { json: async () => ({}), headers: { get: () => null } };
     const res = await handleChmsApi(req, env, url, 'GET', SEG, 'admin');
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.accounts).toEqual([{
       classification: 'Income', categoryPath: 'Income:Offerings:General Fund', accountName: 'General Fund',
-      depth: 0, hasChildren: false, boardCategoryKey: 'donor', boardCategoryLabel: 'Donor',
-      purposeTagId: null, purposeTagLabel: null,
+      displayName: 'General Fund', depth: 0, hasChildren: false, actualCents: 0, budgetCents: null,
+      boardCategoryKey: 'donor', boardCategoryLabel: 'Donor', purposeTagId: null, purposeTagLabel: null,
     }]);
   });
 });
