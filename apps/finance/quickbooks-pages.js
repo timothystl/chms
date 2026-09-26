@@ -1,6 +1,7 @@
 import { buildDataStatusView } from './data-status-service.js';
 import { buildAccountsReportView } from './accounts-report-service.js';
 import { escapeHtml, renderKpiCards, renderSectionHeading, renderTable } from './render-helpers.js';
+import { findTransactionExceptions, summarizeExpenseAccounts, summarizeVendorSpend } from './quickbooks-transactions-service.js';
 
 function flattenAccountHierarchy(nodes) {
   return nodes.flatMap((node) => [node, ...flattenAccountHierarchy(node.children)]);
@@ -60,7 +61,62 @@ export function renderQuickbooksConnection(own, { canManage, budgets, params } =
   </section>`;
 }
 
-export function renderQuickbooksPage(pageId, { dataStatus, accountsReport, quickbooksOwn = null, quickbooksBudgets = null, canManageQuickbooks = false, searchParams = null }) {
+function money(cents) {
+  return cents == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+}
+
+function transactionLink(row) {
+  return row.viewUrl
+    ? `<a href="${escapeHtml(row.viewUrl)}" target="_blank" rel="noopener">View in QuickBooks</a>`
+    : '—';
+}
+
+function renderDateFilter(pageId, result) {
+  return `<form method="GET" action="/" class="filter-form">
+    <input type="hidden" name="section" value="quickbooks"><input type="hidden" name="page" value="${escapeHtml(pageId)}">
+    <div class="field"><label for="qb-start">From</label><input id="qb-start" type="date" name="start_date" value="${escapeHtml(result?.startDate || '')}" required></div>
+    <div class="field"><label for="qb-end">Through</label><input id="qb-end" type="date" name="end_date" value="${escapeHtml(result?.endDate || '')}" required></div>
+    <button type="submit">Load</button>
+  </form>`;
+}
+
+function renderTransactionPage(pageId, result) {
+  const headings = {
+    transactions: ['Transactions', 'QuickBooks transaction detail'],
+    'expense-drilldown': ['Expense drill-down', 'Spending by account'],
+    'vendor-spend': ['Vendor spend', 'Spending by vendor'],
+    exceptions: ['Exceptions', 'Incomplete transaction details'],
+  };
+  const [heading, description] = headings[pageId];
+  const filter = renderDateFilter(pageId, result);
+  if (!result?.ok) return `<section class="report" aria-label="${escapeHtml(heading)}">
+    ${renderSectionHeading({ eyebrow: 'QuickBooks', heading, badge: 'Live read' })}
+    <p>${escapeHtml(description)}. Finance reads this directly from QuickBooks and does not change transactions.</p>
+    ${filter}<p class="status status-error">${escapeHtml(result?.error || 'Transactions are unavailable.')}</p></section>`;
+  const rows = result.transactions || [];
+  let table;
+  if (pageId === 'expense-drilldown') {
+    table = renderTable({ head: ['Account', 'Transactions', 'Total activity'], rows: summarizeExpenseAccounts(rows).map((row) => `<tr><td>${escapeHtml(row.account)}</td><td>${row.transactionCount}</td><td>${money(row.amountCents)}</td></tr>`).join('') });
+  } else if (pageId === 'vendor-spend') {
+    table = renderTable({ head: ['Vendor', 'Transactions', 'Spend'], rows: summarizeVendorSpend(rows).map((row) => `<tr><td>${escapeHtml(row.name)}</td><td>${row.transactionCount}</td><td>${money(row.amountCents)}</td></tr>`).join('') });
+  } else {
+    const displayed = pageId === 'exceptions' ? findTransactionExceptions(rows) : rows;
+    const includeReason = pageId === 'exceptions';
+    table = renderTable({
+      head: ['Date', 'Type', 'Number', 'Name', 'Account', 'Amount', ...(includeReason ? ['Reason'] : []), ''],
+      rows: displayed.map((row) => `<tr><td>${escapeHtml(row.date || '—')}</td><td>${escapeHtml(row.type || '—')}</td><td>${escapeHtml(row.docNum || '—')}</td><td>${escapeHtml(row.name || '—')}</td><td>${escapeHtml(row.account || '—')}</td><td>${row.amountCents == null ? escapeHtml(row.amount || '—') : money(row.amountCents)}</td>${includeReason ? `<td>${escapeHtml(row.reasons.join('; '))}</td>` : ''}<td>${transactionLink(row)}</td></tr>`).join(''),
+    });
+  }
+  return `<section class="report" aria-label="${escapeHtml(heading)}">
+    ${renderSectionHeading({ eyebrow: 'QuickBooks', heading, badge: 'Live from QuickBooks' })}
+    <p>${escapeHtml(description)} for ${escapeHtml(result.startDate)} through ${escapeHtml(result.endDate)}. This is read-only; use the QuickBooks link to edit a source transaction.</p>
+    ${filter}${renderKpiCards([{ label: 'Transactions loaded', value: String(rows.length) }, { label: 'Loaded at', value: escapeHtml(result.syncedAt.slice(0, 16).replace('T', ' ')), hint: 'UTC' }])}${table}</section>`;
+}
+
+export function renderQuickbooksPage(pageId, { dataStatus, accountsReport, quickbooksOwn = null, quickbooksBudgets = null, quickbooksTransactions = null, canManageQuickbooks = false, searchParams = null }) {
+  if (['transactions', 'expense-drilldown', 'vendor-spend', 'exceptions'].includes(pageId)) {
+    return renderTransactionPage(pageId, quickbooksTransactions);
+  }
   if (pageId === 'account-mapping') {
     const isLive = accountsReport.source === 'live';
     const report = buildAccountsReportView(accountsReport.rows);
