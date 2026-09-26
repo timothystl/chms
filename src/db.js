@@ -2230,6 +2230,23 @@ async function _doInitDb(db) {
        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
      )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_giving_followups_identity ON giving_followups(kind, subject_key, episode)`,
+    // (see migrations/0058_scheduler_email_log.sql): one row per Scheduler email handed to
+    // Resend, so staff can confirm whether a volunteer's email went out and was delivered.
+    `CREATE TABLE IF NOT EXISTS scheduler_email_log (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+       recipients TEXT NOT NULL DEFAULT '',
+       volunteer_name TEXT NOT NULL DEFAULT '',
+       kind TEXT NOT NULL DEFAULT '',
+       subject TEXT NOT NULL DEFAULT '',
+       accepted INTEGER NOT NULL DEFAULT 0,
+       resend_id TEXT NOT NULL DEFAULT '',
+       error TEXT NOT NULL DEFAULT '',
+       delivery_status TEXT NOT NULL DEFAULT '',
+       status_checked_at TEXT NOT NULL DEFAULT '',
+       sent_by TEXT NOT NULL DEFAULT ''
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_scheduler_email_log_sent_at ON scheduler_email_log(sent_at)`,
   ];
   // Every statement here is either an idempotent CREATE ... IF NOT EXISTS, or an ALTER TABLE
   // ADD COLUMN — SQLite has no "ADD COLUMN IF NOT EXISTS", so a re-run always throws "duplicate

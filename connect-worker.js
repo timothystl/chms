@@ -13,7 +13,7 @@ import { LCMS_CALENDAR_JSON } from './src/lectionary.js';
 import {
   handleApiEvents, handleSignup, handleCalendar,
   handleVolunteerPending, handleVolunteerGeneralPending, handleVolunteerEventPending,
-  handleSchedEmailSend, handleSchedRsvpStore, handleSchedRsvpSync, handleSchedRsvpStatus, handleEsvPassage,
+  handleSchedEmailSend, handleSchedEmailLog, handleSchedEmailLogStatus, handleSchedRsvpStore, handleSchedRsvpSync, handleSchedRsvpStatus, handleEsvPassage,
   handleSchedRsvpPortal, handleSchedRsvp, handleSchedBreezeProxy,
   handleChristmasMarketSummary, handleChristmasMarketToggle,
 } from './src/api-scheduler.js';
@@ -263,7 +263,7 @@ function isSchedCorsPath(path) {
   if (path === '/rsvp' || path.startsWith('/rsvp/portal') || path === '/rsvp/store' || path === '/rsvp/sync') return true;
   if (path === '/serve/pending' || path === '/serve/general-pending' || path === '/serve/event-pending') return true;
   if (path === '/volunteer/pending' || path === '/volunteer/general-pending' || path === '/volunteer/event-pending') return true;
-  if (path === '/email/send' || path === '/esv/passage') return true;
+  if (path === '/email/send' || path === '/email/log' || path === '/email/log/status' || path === '/esv/passage') return true;
   if (path.startsWith('/breeze/')) return true;
   if (path.startsWith('/api/')) {
     if (path === '/api/events' || path === '/api/ministry-roles') return false;
@@ -809,6 +809,8 @@ async function _fetchRouted(req, env, url, path, method) {
       || path === '/serve/general-pending' || path === '/volunteer/general-pending'
       || path === '/serve/event-pending'   || path === '/volunteer/event-pending'
       || path === '/email/send'
+      || path === '/email/log'
+      || path === '/email/log/status'
       || path === '/rsvp/store'
       || path === '/rsvp/sync'
       || path === '/rsvp/status'
@@ -822,6 +824,8 @@ async function _fetchRouted(req, env, url, path, method) {
     if ((path === '/serve/general-pending' || path === '/volunteer/general-pending') && method === 'GET') return handleVolunteerGeneralPending(env);
     if ((path === '/serve/event-pending'   || path === '/volunteer/event-pending')   && method === 'GET') return handleVolunteerEventPending(env);
     if (path === '/email/send'   && method === 'POST') return handleSchedEmailSend(req, env);
+    if (path === '/email/log'    && method === 'GET')  return handleSchedEmailLog(env, url);
+    if (path === '/email/log/status' && method === 'POST') return handleSchedEmailLogStatus(req, env);
     if (path === '/esv/passage'  && method === 'GET')  return handleEsvPassage(req, env, url);
     if (path === '/rsvp/store'   && method === 'POST') return handleSchedRsvpStore(req, env);
     if (path === '/rsvp/sync'    && method === 'POST') return handleSchedRsvpSync(req, env);
