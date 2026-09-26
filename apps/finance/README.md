@@ -34,8 +34,8 @@ shows a council member with compensation edit access an editor for the legacy co
 cutover already placed it. Connect's council write paths now refuse and point to Finance; Connect's
 plan contract still reads the same row, so existing drafts carried over unchanged. The separate
 native `compensation-council-draft-service.js` model remains unused and disabled. The raise
-projection (proposed salaries per method) is not yet ported, so the editor sets the methods without
-showing their dollar effect.
+projection is now ported and shown below the plan and on the Council report, as described under
+`compensation-projection.js` below.
 
 Remaining product gaps are distinct from storage cutover: some overview cards still use
 explicitly labeled fixture/unavailable fallbacks; the Commercial Property overview now reuses its
@@ -809,6 +809,18 @@ untouched, and a failed contract read is labeled unavailable rather than replace
 policy. Coverage lives in `test/finance-property-policy-contract.test.js`,
 `test/finance-property-policy-endpoint.test.js`, `test/finance-property-policy-client.test.js`,
 and `test/finance-property-parity-ui.test.js`.
+
+The property-debt slice replaces Debt payoff & future's unavailable placeholder. The closed
+`connect.finance-property-debt.v1` contract reads the saved confirmed balance, date, fixed rate and
+payment plus only the monthly payment/interest columns needed to roll principal forward. It returns
+the applied principal rows and a bounded fixed-payment payoff projection. Finance viewers see the
+current balance, payoff month and remaining interest; verified admins can update the confirmed loan
+terms through the existing `property-meta-write-v1` relay, which merges only the `loan` section.
+Finance creates no loan store or competing writer. Missing terms and payments that do not cover
+interest are labeled rather than guessed, and the page tells users to verify projections against
+lender statements. Coverage lives in `test/finance-property-debt-contract.test.js`,
+`test/finance-property-debt-endpoint.test.js`, `test/finance-property-debt-client.test.js`, and
+`test/finance-property-parity-ui.test.js`.
 
 Tests: nine contract tests (`test/finance-property-monthly-remove-contract.test.js`,
 `test/finance-property-distribution-remove-contract.test.js`,
