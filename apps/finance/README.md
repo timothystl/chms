@@ -72,6 +72,7 @@ noted above. Consult their source and the page registry for current per-page beh
 - `giving-analytics-pages.js`, `connect-giving-analytics-client.js` — Giving's v3 pages: Trends, Year over year, Household bands, Pledges, Giving what-if (a GET form; nothing is saved), Giving statements and Giving nudges. Connect computes every figure from its own giving tables (`src/api-giving-analytics-contracts.js`): `giving-analytics-v1` returns totals, bands and counts only, so council's anonymous Giving access may read it; `giving-analytics-people-v1` names households and needs Giving view. Statements are prepared and sent in Connect's Giving tab (Finance links there); nudges can be assigned or marked done through `giving-followup-write-v1` (Giving edit), stored in Connect's `giving_followups` table. Nothing on these pages sends a message.
 - `planning-scenarios-service.js`, `planning-v3-pages.js`, `connect-planning-client.js` — Planning's v3 Scenarios and Multi-year forecast. Both start from the fiscal year's budget plan in Connect, read through `finance-planning-basis-v1` (`src/api-planning-contracts.js`), which sorts each plan line into a group using Connect's own revenue-stream and expense classification. Conservative and Hopeful are percentage changes to those groups, stored with the chosen council basis in Finance's own `finance_planning_scenarios`/`finance_planning_basis` tables (migration `0013_finance_planning.sql`, created on first use); the Budget plan scenario is always the saved plan itself. Saving needs admin or Budget edit. The forecast is a GET form: year one is the chosen scenario, later years grow by the entered rates, and year-end cash starts from today's operating cash (the cash-runway contract).
 - `access-pages.js`, `connect-access-client.js` — Accounts & Data → Access & roles: Connect's role/permission matrix and role holders from `finance-access-roles-v1` (`src/api-access-contracts.js`, identity re-verified; names for admins only, never emails), plus what each role can open and change in Finance, worked out with Finance's own `roleCanAccessSection` and save checks. Charts → Giving concentration reads the `concentration` block of `giving-analytics-v1` (household tenths, top-ten share, median; totals only). Gift Entry now needs Giving view or edit: totals-only (council) Giving access opens the Giving pages but not Gift Entry, whose pages name donors.
+- `planning-builder-pages.js`, `finance-budget-builder-client.js` — Planning → Budget builder (v3): one table of next year's plan beside last year's actual, this year's budget and this year's projection, read from `finance-budget-builder-v1` (`src/api-budget-builder-contracts.js`, same year precedence and weeks-elapsed annualization as Connect's own planner, with saved projection corrections). Plan amounts and projection corrections are edited in place, and the grow-every-line, project-one-category and commit tabs post to the existing relay routes (growth may be entered as a percentage). Admin-only editing; council sees the shared plan read-only. Falls back to the older page if the table cannot be read.
 - `brand-assets.js` — self-hosted logo and Outfit/Figtree fonts, served from `/assets/*` so the CSP stays same-origin with no script.
 - `version.js` — intentional semantic prerelease version.
 - `migrations/` — Finance-only D1 migration ledger; never targets the shared Connect database.
@@ -556,16 +557,27 @@ forms above (`canManageDaycareAllocation`/`canManageDaycareBudgetOverride`); the
 Church-Budget-import forms reuse the existing looser `canRecordDaycareEntry` gate (any verified
 role that can reach the Daycare section), matching their relay contracts' own permission check.
 
-Revenue-stream and flow-expense-map remain without UI forms because no live page reads those maps.
-Cash policy is now complete in standalone Finance: `connect.finance-cash-runway.v1` optionally
+Cash policy is complete in standalone Finance: `connect.finance-cash-runway.v1` optionally
 adds the full saved policy settings (Finance accepts old and extended v1 payloads so releases can
 land in either order), and Charts → Cash & reserve shows the existing admin-only relay form only
 when that live detail is present. It saves all four fields through Connect's established
-`finance-cash-policy-write-v1` handler, never through a second Finance writer. The two map routes
-remain fully POST-able contract paths for a later read-backed screen.
+`finance-cash-policy-write-v1` handler, never through a second Finance writer.
+
+Alpha.48 completes the two remaining classification editors in standalone Finance. Data & Imports
+reads the selected fiscal year's account groups and saved mappings from Connect through the narrow
+`connect.finance-classification.v1` contract (`src/api-classification-contracts.js`, validated by
+`contracts/validators/finance-classification-consumer.js`). The response contains aggregate group
+totals and mapping choices only; it does not expose source row ids or create another writer.
+`apps/finance/classification-pages.js` renders revenue-stream and money-flow expense-category
+tables, labels name-derived defaults as guessed, and exposes complete save forms only to a verified
+administrator. Those forms continue to use the existing protected relay routes, so Connect remains
+the sole authoritative writer and repeats the administrator check independently.
 
 Tests: `test/finance-revenue-streams-write-contract.test.js`,
 `test/finance-flow-expense-map-write-contract.test.js`,
+`test/finance-classification-contract.test.js`,
+`test/finance-classification-client.test.js`, and
+`test/finance-classification-route.test.js`,
 `test/finance-cash-policy-write-contract.test.js`,
 `test/finance-daycare-allocation-config-write-contract.test.js`, and
 `test/finance-daycare-budget-override-write-contract.test.js` (the same admin/finance-role/
@@ -785,7 +797,18 @@ Valuation has an admin editor (rent roll, utility reimbursement, vacancy, operat
 management fee, cap rate) that posts `valuation_form=1` to `property-meta-write-v1`; shell.js
 rebuilds legacy `finValSave`'s `valuation` section, including the computed outputs legacy's equity
 figure reads (`property-valuation-form.js`). Base-minimum reserve and capital-allowance settings
-remain legacy-only because no contract exposes them yet.
+are completed by the later property-policy slice below.
+
+The property-policy slice removes those final two settings from the compatibility UI. The narrow
+read-only `connect.finance-property-policy.v1` contract exposes only Ivanhoe's base-minimum reserve
+and capital-allowance basis/amounts from the existing metadata record. Reserve & distribution
+shows the saved base minimum; Valuation shows the saved capital basis and inputs. Verified admins
+can edit either through the existing `property-meta-write-v1` relay, which merges only the submitted
+`reserves` or `capital` section. Connect remains the sole writer, other property metadata is left
+untouched, and a failed contract read is labeled unavailable rather than replaced by a guessed
+policy. Coverage lives in `test/finance-property-policy-contract.test.js`,
+`test/finance-property-policy-endpoint.test.js`, `test/finance-property-policy-client.test.js`,
+and `test/finance-property-parity-ui.test.js`.
 
 Tests: nine contract tests (`test/finance-property-monthly-remove-contract.test.js`,
 `test/finance-property-distribution-remove-contract.test.js`,

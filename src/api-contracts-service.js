@@ -8,6 +8,7 @@
 // api-chms.js: it reaches nothing but the contracts named below.
 import { json, timingSafeEqual } from './auth.js';
 import { financeStorageDb } from './finance-storage.js';
+import { respondWithFinancePropertyPolicyV1 } from './api-property-policy-contracts.js';
 import { respondWithConnectGivingSummaryV1, respondWithFinanceDataStatusV1, respondWithFinanceCashRunwayV1, respondWithFinanceChartOfAccountsV1, respondWithFinanceBudgetV1, respondWithFinanceChurchReportV1, respondWithFinanceChurchReportTrendV1, respondWithFinanceBalanceSheetV1, respondWithFinanceBalanceSheetTrendV1, respondWithFinanceDaycareReportV1, respondWithFinanceDaycareEntriesV1, respondWithFinancePropertyValuationV1, respondWithFinanceCompensationV1, respondWithFinancePropertyOperatingV1, respondWithFinancePropertyReservesV1, respondWithFinancePropertyLedgersV1, respondWithFinancePropertyForecastV1 } from './api-contracts.js';
 import { verifyAccessJwt } from './access-jwt.js';
 import { getRolePermissions, permissionsForRole } from './api-utils.js';
@@ -16,6 +17,8 @@ import { handleGivingBatchContracts } from './api-giving-batch-contracts.js';
 import { handleGivingAnalyticsContracts } from './api-giving-analytics-contracts.js';
 import { respondWithFinancePlanningBasisV1 } from './api-planning-contracts.js';
 import { respondWithFinanceAccessRolesV1 } from './api-access-contracts.js';
+import { respondWithFinanceBudgetBuilderV1 } from './api-budget-builder-contracts.js';
+import { respondWithFinanceClassificationV1 } from './api-classification-contracts.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
@@ -64,6 +67,10 @@ export async function handleContractsServiceApi(req, env, path) {
     return respondWithFinanceDataStatusV1(env.DB);
   }
 
+  if (path === '/api/contracts/finance-classification-v1' && req.method === 'GET') {
+    return respondWithFinanceClassificationV1(new URL(req.url), env.DB);
+  }
+
   if (path === '/api/contracts/finance-cash-runway-v1' && req.method === 'GET') {
     return respondWithFinanceCashRunwayV1(new URL(req.url), env.DB);
   }
@@ -75,6 +82,11 @@ export async function handleContractsServiceApi(req, env, path) {
   // Access & roles (Finance v3): the role matrix and role holders, identity-checked.
   if (path === '/api/contracts/finance-access-roles-v1' && req.method === 'GET') {
     return respondWithFinanceAccessRolesV1(req, env);
+  }
+
+  // Budget builder (Finance v3): each plan line beside its prior actual, base budget and projection.
+  if (path === '/api/contracts/finance-budget-builder-v1' && req.method === 'GET') {
+    return respondWithFinanceBudgetBuilderV1(new URL(req.url), env.DB);
   }
 
   // Planning scenarios and forecast (Finance v3): the budget plan sorted into scenario groups.
@@ -112,6 +124,10 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-property-valuation-v1' && req.method === 'GET') {
     return respondWithFinancePropertyValuationV1(new URL(req.url), env.DB);
+  }
+
+  if (path === '/api/contracts/finance-property-policy-v1' && req.method === 'GET') {
+    return respondWithFinancePropertyPolicyV1(new URL(req.url), env.DB);
   }
 
   // Real, individually-identifiable per-person compensation data (see finance-compensation-

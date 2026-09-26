@@ -1394,12 +1394,22 @@ describe('Finance alpha staging shell', () => {
     expect(html).not.toContain('undefined');
   });
 
+  it('renders the Commercial Property acquisition model and recalculates from the GET form', async () => {
+    const html = await (await worker.fetch(new Request('https://finance.test/?section=property&page=acquisition'), env)).text();
+    expect(html).toContain('6707 Fyler pro forma');
+    expect(html).toContain('Ivanhoe and Fyler together');
+    expect(html).not.toContain('Not yet available');
+    expect(html).not.toContain('<script');
+    const six = await (await worker.fetch(new Request('https://finance.test/?section=property&page=acquisition&units=6&prev_units=4&rent=1050&price=390000'), env)).text();
+    expect(six).toContain('6 units × $950 × 12');
+    expect(six).toContain('value="390000"');
+  });
+
   it('renders honestly-labeled "not yet available" pages for the Commercial Property gaps', async () => {
     for (const [pageId, phrase] of [
       ['receivables', 'no tenant-receivable'],
       ['bank-rec', 'no balance sheet or bank account'],
       ['debt', 'loan-payment and interest-expense columns'],
-      ['acquisition', 'no purchase-price or pro-forma'],
     ]) {
       const html = await (await worker.fetch(new Request(`https://finance.test/?section=property&page=${pageId}`), env)).text();
       expect(html).toContain('Not yet available');

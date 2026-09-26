@@ -3356,7 +3356,7 @@ async function handlePropertyApi(req, url, method, seg, db, isAdmin, propertyKey
 // Both settings live in finance_settings as JSON blobs, the same pattern as the property meta and the
 // salary planner — no migration needed to add a key, and a corrupt/absent row falls back to the
 // documented default rather than throwing a 500 on a read path the whole tab depends on.
-async function readRevenueStreamOverrides(db) {
+export async function readRevenueStreamOverrides(db) {
   const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_revenue_streams'").first();
   try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
 }
@@ -3366,7 +3366,7 @@ function finChurchAsOfIso(entries) {
   for (const r of entries || []) if (r.imported_at && r.imported_at > latest) latest = r.imported_at;
   return latest;
 }
-async function readFlowExpenseOverrides(db) {
+export async function readFlowExpenseOverrides(db) {
   const row = await db.prepare("SELECT value FROM finance_settings WHERE key='finance_flow_expense_map'").first();
   try { return row ? (JSON.parse(row.value).map || {}) : {}; } catch { return {}; }
 }

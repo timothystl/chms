@@ -22,6 +22,9 @@ import { GIFT_BATCH_STYLES, renderBatchPage, renderBatchReportsPage, renderRecon
 import { describeGivingBatchFailure, fetchGivingBatchLedger, fetchGivingBatchWorkspace, postGivingBatchWrite } from './connect-giving-batch-client.js';
 import { fetchGivingAnalytics, fetchGivingAnalyticsPeople, postGivingFollowupWrite } from './connect-giving-analytics-client.js';
 import { fetchAccessRoles } from './connect-access-client.js';
+import { fetchFinanceClassification } from './finance-classification-client.js';
+import { fetchFinancePropertyPolicy } from './finance-property-policy-client.js';
+import { renderClassificationEditors } from './classification-pages.js';
 import { ACCESS_STYLES, renderAccessPage } from './access-pages.js';
 import {
   GIVING_ANALYTICS_STYLES, renderConcentrationPage, renderHouseholdBandsPage, renderNudgesPage, renderPledgesPage, renderStatementsPage, renderTrendsPage,
@@ -37,6 +40,8 @@ import { serveFacilityFile } from './facility-files.js';
 import { PLANNING_WRITERS, canEditPlanning, readPlanningScenarios } from './planning-scenarios-service.js';
 import { PLANNING_V3_STYLES, renderForecastPage, renderScenariosPage } from './planning-v3-pages.js';
 import { describePlanningBasisFailure, fetchPlanningBasis } from './connect-planning-client.js';
+import { fetchBudgetBuilder } from './finance-budget-builder-client.js';
+import { BUDGET_BUILDER_STYLES, renderBudgetBuilderPage } from './planning-builder-pages.js';
 import { fetchLiveFinanceCashRunway } from './finance-cash-runway-client.js';
 import { defaultLiveBudgetFiscalYear } from './finance-budget-client.js';
 import { FACILITIES_STYLES, renderFacilitiesPage } from './facilities-pages.js';
@@ -126,6 +131,7 @@ import { renderChurchPage } from './church-pages.js';
 import { renderBalancePage } from './balance-pages.js';
 import { renderDaycarePage } from './daycare-pages.js';
 import { renderPropertyPage } from './property-pages.js';
+import { ACQUISITION_STYLES, renderAcquisitionPage } from './property-acquisition-pages.js';
 import { renderCompensationPage } from './compensation-pages.js';
 import { renderPlanningPage } from './planning-pages.js';
 import { renderAccountsPage } from './accounts-pages.js';
@@ -897,6 +903,14 @@ async function handleGivingFollowupWrite(request, env, url) {
   return back({ ...keep, status: 'ok', msg: GIVING_FOLLOWUP_MESSAGES[op] });
 }
 
+// The v3 Budget builder asks for growth as a percentage (3 for 3%); the older forms and Connect's
+// routes take a fraction (0.03). A percentage field, when sent, is converted here.
+function budgetGrowthFraction(form) {
+  const percent = String(form.get('growth_percent') || '').trim();
+  if (percent !== '' && Number.isFinite(Number(percent))) return String(Number(percent) / 100);
+  return form.get('growth_pct') || '';
+}
+
 function renderEntityCards(entities) {
   return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)} · ${entity.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>`).join('');
 }
@@ -905,8 +919,8 @@ function renderSectionBody(ctx) {
   const {
     section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends,
     daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
-    propertyLedgers, propertyLedgersLive, propertyValuation,
-    propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, compensationReport,
+    propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy,
+    propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, classification, compensationReport,
     compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage, givingEntryStatus, givingEntryMessage,
     budgetEntryStatus, budgetEntryMessage, payrollBundle,
     compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
@@ -940,8 +954,10 @@ function renderSectionBody(ctx) {
     propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
     propertyRepairRemoveStatus, propertyRepairRemoveMessage,
     propertyMetaEntryStatus, propertyMetaEntryMessage,
+    propertyReservePolicyStatus, propertyReservePolicyMessage, propertyCapitalPolicyStatus, propertyCapitalPolicyMessage,
     propertyBudgetImportStatus, propertyBudgetImportMessage,
     propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
+    classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
     roleResult, councilPreview,
   } = ctx;
   if (section.id === 'health') {
@@ -1191,6 +1207,11 @@ function renderSectionBody(ctx) {
     });
   }
   if (section.id === 'property') {
+    if (page.id === 'acquisition') {
+      const annual = propertyReportLive?.source === 'live' && Array.isArray(propertyReportLive.annualSummary)
+        ? propertyReportLive.annualSummary.at(-1) : null;
+      return renderAcquisitionPage({ params: ctx.searchParams, propertyAnnual: annual });
+    }
     // Same admin-only gate as the legacy in-Connect Property Operating Results' own monthly POST
     // route and Work orders' own repairs POST route -- UI hiding is never authorization, the real
     // gate is finance-property-monthly-write-v1's/finance-property-repair-write-v1's own role
@@ -1203,7 +1224,7 @@ function renderSectionBody(ctx) {
     const canManagePropertyLedgers = roleResult.ok && roleResult.role === 'admin';
     return renderPropertyPage(page.id, {
       propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
-      propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions,
+      propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyForecast, propertyForecastLive, propertyDistributions,
       canManagePropertyMonthly, propertyMonthlyEntryStatus, propertyMonthlyEntryMessage,
       canManagePropertyRepairs, propertyRepairEntryStatus, propertyRepairEntryMessage,
       canManagePropertyLedgers,
@@ -1223,6 +1244,7 @@ function renderSectionBody(ctx) {
       propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
       propertyRepairRemoveStatus, propertyRepairRemoveMessage,
       propertyMetaEntryStatus, propertyMetaEntryMessage,
+      propertyReservePolicyStatus, propertyReservePolicyMessage, propertyCapitalPolicyStatus, propertyCapitalPolicyMessage,
       propertyBudgetImportStatus, propertyBudgetImportMessage,
       propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
     });
@@ -1234,6 +1256,18 @@ function renderSectionBody(ctx) {
     }
     if (page.id === 'multi-year') return renderForecastPage({ basis, planning: ctx.planningScenarios, runway: ctx.planningRunway, params: ctx.searchParams });
     return renderScenariosPage({ basis, planning: ctx.planningScenarios, canEdit: !councilPreview && canEditPlanning(roleResult), status: describeFormStatus(ctx.searchParams, 'planning') });
+  }
+  if (section.id === 'planning' && page.id === 'builder' && ctx.budgetBuilder?.ok) {
+    return renderBudgetBuilderPage({
+      builder: ctx.budgetBuilder.builder,
+      // Council's budget edits are saved to their own copy in Connect, which this shared table does
+      // not show, so in-place editing here is admin-only.
+      canEditBudget: !councilPreview && roleResult.ok && roleResult.role === 'admin',
+      councilViewer: roleResult.ok && roleResult.role === 'council',
+      canManageBudgetPlan: !councilPreview && roleResult.ok && roleResult.role === 'admin',
+      tab: ctx.searchParams.get('tab'),
+      statuses: { budgetEntryStatus, budgetEntryMessage, planOpKind, planOpStatus, planOpMessage, baseProjectionEntryStatus, baseProjectionEntryMessage },
+    });
   }
   if (section.id === 'planning') {
     // Same gate as the legacy in-Connect Budget Planner's override-bulk route (admin or council
@@ -1304,7 +1338,11 @@ function renderSectionBody(ctx) {
       <div class="section-heading trend-heading"><div><div class="eyebrow">Source freshness</div><h2>${status.freshness === 'stale' ? `Review before relying on this ${isLive ? 'data' : 'fixture'}` : `${isLive ? 'Data' : 'Fixture'} is within the review window`}</h2></div><span class="badge">${status.freshness}</span></div>
       <div class="grid"><div class="card"><small>${isLive ? 'Most recent import' : 'Last fixture import'}</small><strong>${escapeHtml(status.lastImportedAt)}</strong></div><div class="card"><small>Age at request</small><strong>${status.ageDays} days</strong><span>Policy window ${status.freshnessWindowDays} days</span></div></div>
       <p><small>${isLive ? "Fetched live from Connect's real, aggregate-only finance-data-status contract endpoint." : `The committed synthetic fixture (the live endpoint is not configured or did not answer${dataStatus.fallbackReason ? `: ${escapeHtml(dataStatus.fallbackReason)}` : ''}).`}</small></p>
-    </section>`;
+    </section>${renderClassificationEditors(classification, {
+      canManage: roleResult.ok && roleResult.role === 'admin',
+      revenueStatus: classificationRevenueStatus, revenueMessage: classificationRevenueMessage,
+      expenseStatus: classificationExpenseStatus, expenseMessage: classificationExpenseMessage,
+    })}`;
   }
   if (section.id === 'payroll') {
     return renderPayrollSection(payrollBundle);
@@ -1390,7 +1428,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/finance-mark.png"><link rel="apple-touch-icon" href="/assets/finance-icon.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}${ACQUISITION_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -1651,12 +1689,12 @@ export default {
         const targetYears = String(form.get('target_years') || '').split(',').map((s) => s.trim()).filter(Boolean);
         result = await postConnectFinanceBudgetGenerate(env, accessJwt, {
           category: form.get('category') || '', classification: form.get('classification') || 'Expenses',
-          base_amount: form.get('base_amount') || '', growth_pct: form.get('growth_pct') || '', target_years: targetYears,
+          base_amount: form.get('base_amount') || '', growth_pct: budgetGrowthFraction(form), target_years: targetYears,
           notes: form.get('notes') || '',
         });
       } else if (opKind === 'generate-all') {
         result = await postConnectFinanceBudgetGenerateAll(env, accessJwt, {
-          base_year: form.get('base_year') || '', target_year: form.get('target_year') || '', growth_pct: form.get('growth_pct') || '',
+          base_year: form.get('base_year') || '', target_year: form.get('target_year') || '', growth_pct: budgetGrowthFraction(form),
         });
       } else if (opKind === 'commit') {
         result = await postConnectFinanceBudgetCommit(env, accessJwt, { fiscal_year: form.get('fiscal_year') || '' });
@@ -2321,6 +2359,33 @@ export default {
         if (result.message) params.set('message', String(result.message).slice(0, 200));
         return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
       }
+      if (form.get('reserve_policy_form') === '1') {
+        const amount = Number(form.get('base_minimum'));
+        if (!Number.isFinite(amount) || amount < 0) return response(null, { status: 303, headers: { Location: '/?section=property&page=reserve-distribution&op=reserve-policy&status=error&reason=invalid_input' } });
+        const result = await postConnectPropertyMetaWrite(env, accessJwt, { reserves: { base_minimum_cents: Math.round(amount * 100) } });
+        if (result.ok) return response(null, { status: 303, headers: { Location: '/?section=property&page=reserve-distribution&op=reserve-policy&status=ok' } });
+        const params = new URLSearchParams({ section: 'property', page: 'reserve-distribution', op: 'reserve-policy', status: 'error', reason: result.reason || 'unknown' });
+        if (result.message) params.set('message', String(result.message).slice(0, 200));
+        return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+      }
+      if (form.get('capital_policy_form') === '1') {
+        const method = String(form.get('method') || '');
+        const allowed = new Set(['ledger', 'flat', 'per_sqft', 'flat_plus_sqft']);
+        const optionalCents = (name) => {
+          const raw = String(form.get(name) ?? '').trim();
+          if (raw === '') return null;
+          const number = Number(raw);
+          return Number.isFinite(number) && number >= 0 ? Math.round(number * 100) : NaN;
+        };
+        const annual = optionalCents('annual_allowance');
+        const perSquareFoot = optionalCents('per_square_foot');
+        if (!allowed.has(method) || Number.isNaN(annual) || Number.isNaN(perSquareFoot)) return response(null, { status: 303, headers: { Location: '/?section=property&page=valuation&op=capital-policy&status=error&reason=invalid_input' } });
+        const result = await postConnectPropertyMetaWrite(env, accessJwt, { capital: { method, annual_allowance_cents: annual, per_sqft_cents: perSquareFoot } });
+        if (result.ok) return response(null, { status: 303, headers: { Location: '/?section=property&page=valuation&op=capital-policy&status=ok' } });
+        const params = new URLSearchParams({ section: 'property', page: 'valuation', op: 'capital-policy', status: 'error', reason: result.reason || 'unknown' });
+        if (result.message) params.set('message', String(result.message).slice(0, 200));
+        return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
+      }
       const body = {};
       for (const section of ['property', 'valuation', 'loan', 'reserves', 'capital']) {
         const raw = form.get(section);
@@ -2413,9 +2478,9 @@ export default {
       labels.forEach((label, i) => { if (label) map[String(label)] = streams[i] || ''; });
       const result = await postConnectRevenueStreamsWrite(env, accessJwt, { map });
       if (result.ok) {
-        return response(null, { status: 303, headers: { Location: '/?status=ok' } });
+        return response(null, { status: 303, headers: { Location: '/?section=data&op=revenue-streams&status=ok' } });
       }
-      const params = new URLSearchParams({ status: 'error', reason: result.reason || 'unknown' });
+      const params = new URLSearchParams({ section: 'data', op: 'revenue-streams', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -2434,9 +2499,9 @@ export default {
       labels.forEach((label, i) => { if (label) map[String(label)] = keys[i] || ''; });
       const result = await postConnectFlowExpenseMapWrite(env, accessJwt, { map });
       if (result.ok) {
-        return response(null, { status: 303, headers: { Location: '/?status=ok' } });
+        return response(null, { status: 303, headers: { Location: '/?section=data&op=flow-expense-map&status=ok' } });
       }
-      const params = new URLSearchParams({ status: 'error', reason: result.reason || 'unknown' });
+      const params = new URLSearchParams({ section: 'data', op: 'flow-expense-map', status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -3335,6 +3400,8 @@ export default {
         // resolveBalanceSheet above.
         const propertyValuation = section.id === 'property'
           ? await safeSyntheticRead(() => resolvePropertyValuation(env, env.FINANCE_DB)) : null;
+        const propertyPolicy = section.id === 'property'
+          ? await fetchFinancePropertyPolicy(env) : null;
         // Property Operating results/Reserves & distribution/Capital & repairs ledgers each try
         // their own real connect.finance-property-*.v1 endpoint first and fall back to the same
         // synthetic fixtures read just above, labeled -- same live-first pattern as Property
@@ -3370,6 +3437,7 @@ export default {
         // own scenario settings, and, for the forecast, today's operating cash.
         const planningPageId = section.id === 'planning' ? resolveFinancePage(section, pageId).id : null;
         const planningV3 = ['scenarios', 'multi-year'].includes(planningPageId);
+        const budgetBuilder = planningPageId === 'builder' ? await fetchBudgetBuilder(env, defaultLiveBudgetFiscalYear()) : null;
         const [planningBasis, planningScenarios, planningRunwayResult] = planningV3 ? await Promise.all([
           fetchPlanningBasis(env, defaultLiveBudgetFiscalYear()),
           safeSyntheticRead(async () => {
@@ -3390,6 +3458,15 @@ export default {
           ? await listQuickbooksBudgets(env, env.FINANCE_DB, {}).catch((e) => ({ ok: false, error: e.message })) : null;
         const dataStatus = ['data', 'health', 'quickbooks'].includes(section.id)
           ? await safeSyntheticRead(() => resolveDataStatus(env, env.FINANCE_DB)) : null;
+        const classification = section.id === 'data'
+          ? await fetchFinanceClassification(env, defaultLiveBudgetFiscalYear()) : null;
+        const classificationOp = section.id === 'data' ? url.searchParams.get('op') : null;
+        const classificationRevenueStatus = classificationOp === 'revenue-streams' ? url.searchParams.get('status') : null;
+        const classificationRevenueMessage = classificationRevenueStatus === 'error'
+          ? describeRevenueStreamsEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
+        const classificationExpenseStatus = classificationOp === 'flow-expense-map' ? url.searchParams.get('status') : null;
+        const classificationExpenseMessage = classificationExpenseStatus === 'error'
+          ? describeFlowExpenseMapEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
         const compensationReport = section.id === 'compensation'
           ? await safeSyntheticRead(() => readSyntheticCompensationReport(env.FINANCE_DB)) : null;
         // The 'plan' page of the compensation section tries the real connect.finance-compensation.v1
@@ -3612,10 +3689,16 @@ export default {
         const propertyRepairRemoveMessage = propertyRepairRemoveStatus === 'error'
           ? describePropertyRepairRemoveError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
-        const propertyMetaEntryStatus = section.id === 'property' ? url.searchParams.get('status') : null;
+        const propertyMetaEntryStatus = section.id === 'property' && !url.searchParams.get('op') ? url.searchParams.get('status') : null;
         const propertyMetaEntryMessage = propertyMetaEntryStatus === 'error'
           ? describePropertyMetaEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
+        const propertyReservePolicyStatus = section.id === 'property' && url.searchParams.get('op') === 'reserve-policy' ? url.searchParams.get('status') : null;
+        const propertyReservePolicyMessage = propertyReservePolicyStatus === 'error'
+          ? describePropertyMetaEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
+        const propertyCapitalPolicyStatus = section.id === 'property' && url.searchParams.get('op') === 'capital-policy' ? url.searchParams.get('status') : null;
+        const propertyCapitalPolicyMessage = propertyCapitalPolicyStatus === 'error'
+          ? describePropertyMetaEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
         const propertyBudgetImportStatus = section.id === 'property' ? url.searchParams.get('status') : null;
         const propertyBudgetImportMessage = propertyBudgetImportStatus === 'error'
           ? describePropertyBudgetImportError(url.searchParams.get('reason'), url.searchParams.get('message'))
@@ -3657,11 +3740,12 @@ export default {
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
-          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, planningBasis, planningScenarios, planningRunway, searchParams: url.searchParams,
+          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, planningBasis, planningScenarios, planningRunway, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
-          propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
-          dataStatus, quickbooksOwn, quickbooksBudgets, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,
+          propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
+          dataStatus, classification, classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
+          quickbooksOwn, quickbooksBudgets, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
     compensationProjection,
           givingEntryStatus, givingEntryMessage, budgetEntryStatus, budgetEntryMessage, payrollBundle,
@@ -3692,6 +3776,7 @@ export default {
           propertyCapitalLedgerRemoveStatus, propertyCapitalLedgerRemoveMessage,
           propertyRepairRemoveStatus, propertyRepairRemoveMessage,
           propertyMetaEntryStatus, propertyMetaEntryMessage,
+          propertyReservePolicyStatus, propertyReservePolicyMessage, propertyCapitalPolicyStatus, propertyCapitalPolicyMessage,
           propertyBudgetImportStatus, propertyBudgetImportMessage,
           propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
         }), {
