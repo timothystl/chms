@@ -25,6 +25,7 @@ import { fetchAccessRoles } from './connect-access-client.js';
 import { fetchFinanceClassification } from './finance-classification-client.js';
 import { fetchFinancePropertyDebt } from './finance-property-debt-client.js';
 import { fetchFinancePropertyPolicy } from './finance-property-policy-client.js';
+import { resolvePageRole } from './role-cache.js';
 import { PROPERTY_BOOKS_WRITERS, canEditPropertyBooks, readPropertyBooks } from './property-books-service.js';
 import { PROPERTY_BOOKS_STYLES, renderBankRecPage, renderReceivablesPage } from './property-books-pages.js';
 import { renderClassificationEditors } from './classification-pages.js';
@@ -1451,9 +1452,11 @@ function renderShell(ctx) {
   const initials = roleResult && roleResult.ok ? identityInitials(roleResult.identity) : '';
   const roleNotice = !roleResult || !roleResult.ok
     ? `<div class="notice"><b>Role check</b><span>Role verification unavailable in this environment${roleResult && roleResult.reason ? ` (reason: ${escapeHtml(roleResult.reason)})` : ''} -- section access is not currently restricted by verified role for this request.</span></div>`
-    : roleResult.role === 'compensation'
-      ? '<div class="notice"><b>Role check</b><span>Verified via Connect as role “compensation” -- restricted to the Compensation Planner section only.</span></div>'
-      : '';
+    : roleResult.source === 'saved'
+      ? `<div class="notice"><b>Connect unavailable</b><span>Connect could not confirm your role just now, so Finance is using the role Connect last confirmed (${escapeHtml(String(roleResult.verifiedAt || '').slice(0, 16).split('T').join(' '))} UTC). Saving changes needs Connect and may fail until it answers again.</span></div>`
+      : roleResult.role === 'compensation'
+        ? '<div class="notice"><b>Role check</b><span>Verified via Connect as role “compensation” -- restricted to the Compensation Planner section only.</span></div>'
+        : '';
   const councilNotice = councilPreview
     ? `<div class="notice"><b>Council view</b><span>Editing controls are hidden for this preview. Your actual verified permissions still apply; this does not impersonate a council account or change data visibility.</span><a href="/?section=${section.id}&amp;page=${page.id}">Exit preview</a></div>`
     : '';
@@ -1531,6 +1534,23 @@ const QB_ROUTE_HANDLERS = {
   'qb-connect-v1': handleQbConnect, 'qb-callback-v1': handleQbCallback, 'qb-disconnect-v1': handleQbDisconnect,
   'qb-sync-v1': handleQbSync, 'qb-sync-years-v1': handleQbSyncYears, 'qb-budget-select-v1': handleQbBudgetSelect,
 };
+
+// A short, non-sensitive reason shown on the role-verification denial page, so a failure can be
+// told apart (Connect unreachable, the contract key refused, the sign-in not recognized, no
+// matching Connect account) without reading Worker logs.
+function describeRoleFailure(result) {
+  if (result.reason === 'http_error') {
+    const byStatus = { 401: 'Connect did not accept the Finance sign-in or contract key (401)', 403: 'Connect found no active account for this sign-in (403)', 503: 'Connect sign-in verification is not configured (503)' };
+    return byStatus[result.status] || `Connect answered ${result.status}`;
+  }
+  const took = Number.isFinite(result.elapsedMs) ? ` after ${(result.elapsedMs / 1000).toFixed(1)}s` : '';
+  if (result.reason === 'network_error') {
+    const detail = [...String(result.detail || '')].filter((ch) => /[\w .:,'()/-]/.test(ch)).join('').slice(0, 120);
+    return `${result.timedOut ? 'Connect did not answer in time' : 'the call to Connect failed'}${took}${detail ? ` — ${detail}` : ''}`;
+  }
+  const byReason = { no_access_identity: 'the request carried no Cloudflare Access sign-in', not_configured: 'Finance is not connected to Connect', invalid_json: 'Connect sent an unreadable answer', invalid_role: 'Connect sent no role' };
+  return byReason[result.reason] || String(result.reason || 'unknown');
+}
 
 export default {
   async fetch(request, env) {
@@ -3365,7 +3385,11 @@ export default {
         const effectivePageId = resolveFinancePage(section, pageId).id;
         const councilPreview = url.searchParams.get('council') === '1';
         const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
-        const roleResult = await fetchVerifiedRole(env, accessJwt);
+        const roleStarted = Date.now();
+        // Page views may fall back to the role Connect last confirmed when Connect cannot answer
+        // (role-cache.js); every save still verifies live.
+        const roleResult = await resolvePageRole(env, accessJwt);
+        const roleElapsedMs = Date.now() - roleStarted;
         // Production reads require the current Connect permission matrix. Only
         // unconfigured staging may show fixtures without a verified identity.
         const roleVerificationBrokenUnsafely = !roleResult.ok && (env.ENVIRONMENT !== 'staging' || roleResult.reason !== 'not_configured');
@@ -3380,7 +3404,7 @@ export default {
           const returnLink = availableSection
             ? `<p><a href="/?section=${escapeHtml(availableSection.id)}">Return to your available section</a></p>` : '';
           const denialMessage = roleVerificationBrokenUnsafely
-            ? 'Role verification failed and access cannot be safely confirmed for this request. Try reloading the page; if this continues, contact the Finance administrator.'
+            ? `Role verification failed and access cannot be safely confirmed for this request. Try reloading the page; if this continues, contact the Finance administrator. (Reason: ${describeRoleFailure({ ...roleResult, elapsedMs: roleElapsedMs })})`
             : 'Your verified Connect role does not have access to this section of Finance.';
           return response(
             `<!doctype html><html><body style="font-family:Arial,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1.5rem;color:#1a1a2a">`

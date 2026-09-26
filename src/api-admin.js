@@ -7,6 +7,7 @@ import { randHex, authCardPage, getRolePermissions, permissionsForRole, csvRow }
 import { sendBirthdayEmails, sendAnniversaryEmails, sendBirthdayTexts, sendAnniversaryTexts } from './api-emails.js';
 import { applyXmasMarketDefaults, handleVolunteerTemplates, handleSignupLinkPerson, handleSignupSendEmail, handleSchedulerVolunteersApi, findDuplicateSignupGroups, mergeDuplicateSignupGroup, findPossibleDuplicateSignupGroups, mergeSignupsByIds } from './api-scheduler.js';
 import { wrapEnvForDbAttribution, logDbAttribution } from './db-attribution.js';
+import { verifyAccessJwt } from './access-jwt.js';
 
 function safeParseArr(json) { try { const v = JSON.parse(json || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } }
 
@@ -250,6 +251,43 @@ export async function handleAdminLogin(req, env) {
     await env.KV.put(rlKey, String(cur + 1), { expirationTtl: 20 * 60 }).catch(() => {});
   }
   return html(loginRetryHtml('Incorrect password. Please try again.'));
+}
+
+// ── SHARED STAFF LOGIN ──────────────────────────────────────────────────────
+// Cloudflare Access establishes identity; Connect still decides authorization
+// from its own live app_users row. The ordinary vol_auth cookie remains the
+// application session, so role changes and deactivation keep taking effect on
+// the next request through auth.js's existing database re-check.
+export async function handleAccessLogin(req, env, { verifyJwt = verifyAccessJwt } = {}) {
+  const teamDomain = env.CONNECT_ACCESS_TEAM_DOMAIN || '';
+  const audience = env.CONNECT_ACCESS_AUD || '';
+  if (!teamDomain || !audience) {
+    return html('<h1>Shared sign-in is not configured</h1><p>Use the regular Connect sign-in.</p>', 503);
+  }
+
+  const token = req.headers.get('Cf-Access-Jwt-Assertion') || '';
+  const email = await verifyJwt(token, { teamDomain, audience });
+  if (!email) return html('<h1>Sign-in could not be verified</h1><p>Please sign out of the access portal and try again.</p>', 401);
+
+  const user = await env.DB.prepare(
+    `SELECT id, username, role FROM app_users WHERE LOWER(email)=? AND active=1 LIMIT 1`
+  ).bind(email).first().catch(() => undefined);
+  if (user === undefined) return html('<h1>Connect is temporarily unavailable</h1><p>Please try again shortly.</p>', 503);
+  if (!user) return html('<h1>No Connect access</h1><p>Your staff identity is valid, but it is not assigned an active Connect account.</p>', 403);
+
+  let cookie;
+  try {
+    cookie = await authCookieHeader(env, user.role, user.username || '', isPhoneUserAgent(req));
+  } catch {
+    return html('<h1>Connect is temporarily unavailable</h1><p>The session service is not configured.</p>', 503);
+  }
+  await env.DB.prepare(`UPDATE app_users SET last_login=datetime('now') WHERE id=?`)
+    .bind(user.id).run().catch(() => {});
+  return new Response('', { status: 302, headers: {
+    Location: appRootPath(req),
+    'Set-Cookie': cookie,
+    'Cache-Control': 'no-store',
+  }});
 }
 
 // ── ADMIN API ─────────────────────────────────────────────────────────
@@ -1007,4 +1045,3 @@ export async function handleResetPassword(req, env, url) {
 
   return page('Reset', `<div class="msg err">Method not allowed.</div>`);
 }
-

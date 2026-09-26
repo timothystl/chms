@@ -11,13 +11,23 @@
 // verification not configured on Connect's side), or malformed JSON -- resolves to
 // { ok: false, reason }. Only a genuinely verified identity resolves to { ok: true, role }.
 
-const REQUEST_TIMEOUT_MS = 4000;
+const REQUEST_TIMEOUT_MS = 9000;
 
 export async function fetchVerifiedRole(env, accessJwt) {
   const binding = env.CONNECT_SERVICE;
   const key = env.FINANCE_CONTRACT_API_KEY;
   if (!binding || !key) return { ok: false, reason: 'not_configured' };
   if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+  // One retry for a failure that is Connect's momentary trouble (a timeout, a dropped connection,
+  // or a 5xx while it restarts after a release). A refusal (401/403) is final and never retried.
+  // A timeout is not retried: a second wait would only double the delay before the answer.
+  const first = await requestVerifiedRole(binding, key, accessJwt);
+  const transient = first.reason === 'network_error' ? !first.timedOut : first.reason === 'http_error' && first.status >= 500;
+  if (first.ok || !transient) return first;
+  return requestVerifiedRole(binding, key, accessJwt);
+}
+
+async function requestVerifiedRole(binding, key, accessJwt) {
 
   const url = 'https://connect.timothystl.org/api/contracts/staff-role-v1';
   let res;
@@ -27,7 +37,7 @@ export async function fetchVerifiedRole(env, accessJwt) {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     }));
   } catch (e) {
-    return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
+    return { ok: false, reason: 'network_error', timedOut: e?.name === 'TimeoutError' || e?.name === 'AbortError', detail: e?.message || String(e) };
   }
   if (!res.ok) return { ok: false, reason: 'http_error', status: res.status };
 
