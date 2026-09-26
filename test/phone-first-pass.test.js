@@ -146,8 +146,8 @@ describe('placement', () => {
     expect(zoom.index).toBeGreaterThan(phoneBlock.index);
   });
 
-  it('uses only the three agreed breakpoints', () => {
+  it('uses the content tiers and the Workspace navigation breakpoint', () => {
     const widths = [...new Set([...STYLE.matchAll(/@media ?\(max-width: ?(\d+)px\)/g)].map((m) => +m[1]))];
-    expect(widths.sort((a, b) => a - b)).toEqual([767, 900, 1100]);
+    expect(widths.sort((a, b) => a - b)).toEqual([767, 900, 1023, 1100]);
   });
 });

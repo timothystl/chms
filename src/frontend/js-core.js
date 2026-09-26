@@ -629,7 +629,7 @@ function openSidebar() {
   var o = document.getElementById('sidebar-overlay'); if (o) o.classList.add('open');
   var h = document.querySelector('.hamburger'); if (h) h.setAttribute('aria-expanded', 'true');
   var first = s && s.querySelector('.s-item.active') || (s && s.querySelector('.s-item'));
-  if (first && window.matchMedia && window.matchMedia('(max-width:1100px)').matches) first.focus();
+  if (first && window.matchMedia && window.matchMedia('(max-width:1023px)').matches) first.focus();
 }
 function closeSidebar() {
   var s = document.getElementById('sidebar');
