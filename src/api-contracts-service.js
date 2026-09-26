@@ -16,6 +16,7 @@ import { handleGivingBatchContracts } from './api-giving-batch-contracts.js';
 import { handleGivingAnalyticsContracts } from './api-giving-analytics-contracts.js';
 import { respondWithFinancePlanningBasisV1 } from './api-planning-contracts.js';
 import { respondWithFinanceAccessRolesV1 } from './api-access-contracts.js';
+import { respondWithFinanceBudgetBuilderV1 } from './api-budget-builder-contracts.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
@@ -75,6 +76,11 @@ export async function handleContractsServiceApi(req, env, path) {
   // Access & roles (Finance v3): the role matrix and role holders, identity-checked.
   if (path === '/api/contracts/finance-access-roles-v1' && req.method === 'GET') {
     return respondWithFinanceAccessRolesV1(req, env);
+  }
+
+  // Budget builder (Finance v3): each plan line beside its prior actual, base budget and projection.
+  if (path === '/api/contracts/finance-budget-builder-v1' && req.method === 'GET') {
+    return respondWithFinanceBudgetBuilderV1(new URL(req.url), env.DB);
   }
 
   // Planning scenarios and forecast (Finance v3): the budget plan sorted into scenario groups.
