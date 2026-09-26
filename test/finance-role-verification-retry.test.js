@@ -47,6 +47,13 @@ describe('Finance role verification', () => {
     expect(a.calls()).toBe(1);
   });
 
+  it('lets page rendering disable retries while save verification keeps the default', async () => {
+    const page = envWith(['throw', ok]);
+    expect(await fetchVerifiedRole(page.env, 'jwt', { timeoutMs: 1500, retry: false }))
+      .toMatchObject({ ok: false, reason: 'network_error' });
+    expect(page.calls()).toBe(1);
+  });
+
   it('names the reason on the denial page', async () => {
     for (const [responses, text] of [
       [[status(403)], 'Connect found no active account for this sign-in (403)'],
