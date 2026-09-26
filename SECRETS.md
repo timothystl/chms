@@ -89,6 +89,14 @@ All secrets are stored as Cloudflare Worker secrets (`wrangler secret put <NAME>
 - **Rotation**: `wrangler secret put FINANCE_CONTRACT_API_KEY` on `timothy-connect`, then the identical value on `timothy-finance-app` (and separately for the staging pair). Brief window during rotation where Finance's live contract reads will fail closed to synthetic/"data unavailable" rather than being rejected insecurely.
 - **Risk if leaked**: Ability to call Finance's read contract endpoints on `timothy-connect` (church report, balance sheet, compensation roster, data status, budget, staff role, Giving summary) and to relay a `giving-quick-entry-v1` write, without a user session. No credential or payment data is directly returned by these contracts, but compensation and Giving data are sensitive — see `apps/finance/README.md`'s access notes.
 
+### `FINANCE_PAYROLL_CONTRACT_KEY`
+- **Purpose**: Shared secret for Finance's payroll relay. `apps/finance/payroll-proxy-client.js` (plus the payroll email and ready-notification clients) sends it as `X-Contract-Key` over the `PAYROLL_SERVICE` binding to Website's `tlc-newsletter-admin` Worker, which checks it in `admin/payroll-contract-auth.js` before relaying to the myMDO payroll RPCs. It is not used by Connect or myMDO. Website's own `PAYROLL_PROXY_SECRET` (Website → myMDO Supabase) is a separate secret and is not affected by this one.
+- **Must be set, with the identical value, on** `timothy-finance-app` and `tlc-newsletter-admin`. Staging Finance relays to the same Website Worker, so `timothy-finance-app-staging` needs the same value too if staging payroll is used. If it is missing on Finance, Run payroll reports `Church staff could not be read: not_configured` and MDO as unavailable.
+- **Access audience**: Website also verifies the forwarded Access JWT. Its `FINANCE_ACCESS_AUD` in Website's `wrangler.toml` must list both the production and staging Finance Access AUDs (comma-separated).
+- **Check**: `https://finance.timothystl.org/api/v1/payroll-relay-diagnostic` (read-only) returns `ok: true` with a `staffCount` when the relay works.
+- **Rotation**: set the new value on both Workers back to back; payroll pages fail closed in between.
+- **Risk if leaked**: combined with a valid Access login for an active Website user holding `payroll_manage`, relayed payroll reads/writes. The key alone is not enough.
+
 ---
 
 ## Optional Secrets
