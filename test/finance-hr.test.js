@@ -9,7 +9,8 @@ import {
 import { canEditHr } from '../apps/finance/hr-routes.js';
 import { resetEnsuredSchemasForTests } from '../apps/finance/finance-owned-schema.js';
 
-const migrationSql = readFileSync(new URL('../apps/finance/migrations/0011_finance_hr.sql', import.meta.url), 'utf8');
+const migrationSql = readFileSync(new URL('../apps/finance/migrations/0011_finance_hr.sql', import.meta.url), 'utf8')
+  + readFileSync(new URL('../apps/finance/migrations/0016_finance_hr_placement.sql', import.meta.url), 'utf8');
 const fixtureSql = readFileSync(new URL('../apps/finance/fixtures/0014_synthetic_hr.sql', import.meta.url), 'utf8');
 
 function makeDb({ migrate = true, seed = false } = {}) {
@@ -55,7 +56,10 @@ describe('HR calculations', () => {
     const { db } = makeDb({ seed: true });
     const view = buildHrView(await readHr(db), TODAY, 2026);
     expect(view.staff).toHaveLength(6);
-    expect(view.volunteers).toHaveLength(3);
+    expect(view.mdoStaff.map((p) => p.full_name)).toEqual(['Synthetic MDO Director']);
+    expect(view.employees).toHaveLength(7);
+    expect(view.volunteers).toHaveLength(5);
+    expect(view.teams.map((t) => [t.name, t.members.length])).toEqual([['VBS', 2], ['Sunday School', 1]]);
     const byName = Object.fromEntries(view.people.map((p) => [p.full_name, p]));
     expect(byName['Rev. Synthetic Pastor'].overall).toBe('current');
     expect(byName['Rev. Synthetic Pastor'].initials).toBe('SP');
@@ -73,7 +77,7 @@ describe('HR calculations', () => {
     const tree = buildOrgTree(view.people);
     expect(tree).toHaveLength(1);
     expect(tree[0].person.full_name).toBe('Rev. Synthetic Pastor');
-    expect(tree[0].reports.map((r) => r.person.position)).toEqual(expect.arrayContaining(['Business Administrator', 'Nursery Volunteer']));
+    expect(tree[0].reports.map((r) => r.person.position)).toEqual(expect.arrayContaining(['Business Administrator', 'Nursery Volunteer', 'MDO Director']));
   });
 
   it('never loops on a reporting cycle', () => {
@@ -91,6 +95,13 @@ describe('HR writes', () => {
       .toEqual({ requires_background: 1, requires_cpr: 0, pension: 1, updated_by: 'office@example.com' });
     await expect(saveHrPerson(db, { id: String(id), full_name: 'Pat', person_group: 'Church staff', reports_to_id: String(id) })).rejects.toThrow('cannot report to themselves');
     await expect(saveHrPerson(db, { full_name: 'X', person_group: 'Daycare staff' })).rejects.toThrow('Choose a valid group.');
+    const mdo = await saveHrPerson(db, { full_name: 'Morgan Example', person_group: 'MDO staff', position: 'MDO Director' });
+    const vol = await saveHrPerson(db, { full_name: 'Val Example', person_group: 'Key volunteer', ministry_team: ' VBS ' });
+    await saveHrPerson(db, { id: String(id), full_name: 'Pat Example', person_group: 'MDO staff' });
+    expect(sqlite.prepare('SELECT person_group FROM finance_hr_people WHERE id = ?').get(mdo.id).person_group).toBe('Church staff');
+    const groups = Object.fromEntries((await readHr(db)).people.map((p) => [p.full_name, [p.person_group, p.ministry_team]]));
+    expect(groups).toEqual({ 'Morgan Example': ['MDO staff', ''], 'Pat Example': ['MDO staff', ''], 'Val Example': ['Key volunteer', 'VBS'] });
+    expect(vol.id).toBeGreaterThan(0);
     await expect(saveHrPerson(db, { full_name: 'X', person_group: 'Church staff', email: 'nope' })).rejects.toThrow('Email must be an email address.');
   });
 
@@ -167,6 +178,16 @@ describe('HR routes and pages', () => {
       expect(html, page).toContain(text);
     }
     expect(await (await get('&page=directory', admin, db)).text()).toContain('kept in <a href="https://mdo.timothystl.org">myMDO</a>');
+    const org = await (await get('&page=org-chart', admin, db)).text();
+    expect(org).toContain('<div class="org-node mdo"><b>Synthetic MDO Director</b>');
+    expect(org).toContain('<summary><b>VBS</b><small>2 volunteers</small></summary>');
+    expect(org).toContain('MDO staff');
+    const trainings = await (await get('&page=trainings', admin, db)).text();
+    expect(trainings).toContain('<a href="https://ministrysafe.com" target="_blank" rel="noopener">MinistrySafe</a>');
+    expect(trainings).not.toContain('Safe Gatherings');
+    const vbs = await (await get('&page=volunteers&team=VBS', admin, db)).text();
+    expect(vbs).toContain('Synthetic VBS Helper');
+    expect(vbs).not.toContain('Synthetic Counter');
     const reviews2025 = await (await get('&page=reviews&review_year=2025', admin, db)).text();
     expect(reviews2025).toContain('2025 annual reviews');
   });

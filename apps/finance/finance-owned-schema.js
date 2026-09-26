@@ -296,6 +296,21 @@ CREATE INDEX IF NOT EXISTS finance_import_history_recent
   ON finance_import_history (imported_at DESC, id DESC);
 `;
 
+export const HR_PLACEMENT_SCHEMA_SQL = `-- HR & Staff placement: which organization a staff member belongs to (the church, or MDO,
+-- whose director sits outside the church staff org), and the ministry team a
+-- person serves on (e.g. VBS, Sunday School) so the org chart can group volunteers. Kept in its
+-- own table so it is created additively beside finance_hr_people. A person with no row here is
+-- church staff (or a key volunteer) with no team.
+
+CREATE TABLE IF NOT EXISTS finance_hr_person_placement (
+  person_id INTEGER PRIMARY KEY REFERENCES finance_hr_people(id),
+  organization TEXT NOT NULL DEFAULT 'church' CHECK (organization IN ('church', 'mdo')),
+  ministry_team TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_by TEXT NOT NULL DEFAULT ''
+);
+`;
+
 export const FINANCE_OWNED_SCHEMAS = Object.freeze({
   facilities: Object.freeze({ migration: '0010_finance_facilities.sql', sql: FACILITIES_SCHEMA_SQL }),
   hr: Object.freeze({ migration: '0011_finance_hr.sql', sql: HR_SCHEMA_SQL }),
@@ -303,6 +318,7 @@ export const FINANCE_OWNED_SCHEMAS = Object.freeze({
   planning: Object.freeze({ migration: '0013_finance_planning.sql', sql: PLANNING_SCHEMA_SQL }),
   propertyBooks: Object.freeze({ migration: '0014_finance_property_books.sql', sql: PROPERTY_BOOKS_SCHEMA_SQL }),
   roleCache: Object.freeze({ migration: '0015_finance_role_cache.sql', sql: ROLE_CACHE_SCHEMA_SQL }),
+  hrPlacement: Object.freeze({ migration: '0016_finance_hr_placement.sql', sql: HR_PLACEMENT_SCHEMA_SQL }),
   importHistory: Object.freeze({ migration: '0016_finance_import_history.sql', sql: IMPORT_HISTORY_SCHEMA_SQL }),
 });
 

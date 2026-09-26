@@ -1,10 +1,10 @@
-// HR & Staff pages (v3 design), admin-only. Church staff and key volunteers; daycare staff are
-// kept in myMDO and only pointed to here. Editing is plain form posts to the hr-* writers.
+// HR & Staff pages (v3 design), admin-only. Church staff, MDO staff, and key volunteers; other
+// daycare staff are kept in myMDO and only pointed to here. Editing is plain form posts to the hr-* writers.
 import { escapeHtml } from './render-helpers.js';
 import { formatDay, formatMonth } from './facilities-service.js';
 import {
   BENEFIT_CHANGE_STATUSES, CREDENTIALS, DUE_SOON_DAYS, ENROLLED_COVERAGE, FLSA_CLASSES, HEALTH_COVERAGE,
-  PERSON_GROUPS, POLICY_AUDIENCES, REVIEW_STATUSES, buildOrgTree,
+  MINISTRYSAFE_URL, PERSON_GROUPS, POLICY_AUDIENCES, REVIEW_STATUSES, buildOrgTree,
 } from './hr-service.js';
 
 const e = escapeHtml;
@@ -57,7 +57,16 @@ function statusBanner(status) {
   return status ? `<p class="status${status.ok ? '' : ' status-error'}">${e(status.message)}</p>` : '';
 }
 
-const daycareNote = `<p class="muted-line">Daycare staff records (screening, CPR, licensing clock hours, reviews) are kept in <a href="${MYMDO_URL}">myMDO</a>, which owns childcare staffing.</p>`;
+const daycareNote = `<p class="muted-line">The MDO director is kept here as MDO staff. Other daycare staff records (screening, CPR, licensing clock hours, reviews) are kept in <a href="${MYMDO_URL}">myMDO</a>, which owns childcare staffing.</p>`;
+const ministrySafeLink = `<a href="${MINISTRYSAFE_URL}" target="_blank" rel="noopener">MinistrySafe</a>`;
+
+// CSS modifier and short label for each group.
+const GROUP_CLASS = { 'Key volunteer': ' vol', 'MDO staff': ' mdo' };
+const GROUP_SHORT = { 'Church staff': 'Church', 'MDO staff': 'MDO', 'Key volunteer': 'Volunteer' };
+
+function roleLine(p) {
+  return [p.position, p.ministry_team].filter(Boolean).join(' · ');
+}
 
 // ── Staff directory and one person's record ───────────────────────────────────────────────────
 
@@ -70,6 +79,7 @@ function personForm(view, person = {}) {
     ${field('Name', `<input name="full_name" required maxlength="120" value="${e(person.full_name || '')}">`)}
     ${field('Group', select('person_group', PERSON_GROUPS.map((g) => [g, g]), person.person_group || 'Church staff'))}
     ${field('Position', `<input name="position" maxlength="160" value="${e(person.position || '')}">`)}
+    ${field('Ministry team', `<input name="ministry_team" maxlength="80" list="hr-teams" value="${e(person.ministry_team || '')}" placeholder="e.g. VBS, Sunday School"><datalist id="hr-teams">${view.teams.map((t) => `<option value="${e(t.name)}">`).join('')}</datalist>`)}
     ${field('Reports to', select('reports_to_id', others, person.reports_to_id, { blank: 'Church Council' }))}
     ${field('Start', `<input type="month" name="start_month" value="${e(person.start_month || '')}">`)}
     ${field('Type', `<input name="employment_type" maxlength="120" value="${e(person.employment_type || '')}" placeholder="e.g. Full-time · called">`)}
@@ -77,7 +87,7 @@ function personForm(view, person = {}) {
     ${field('Roster / credential', `<input name="roster_credential" maxlength="160" value="${e(person.roster_credential || '')}" placeholder="e.g. LCMS roster · Active">`)}
     <div class="field field-wide"><span>Required screening and training</span><div class="check-row">
       ${check('requires_background', 'Background check', isNew ? true : person.requires_background)}
-      ${check('requires_safe_gatherings', 'Safe Gatherings', isNew ? true : person.requires_safe_gatherings)}
+      ${check('requires_safe_gatherings', 'MinistrySafe training', isNew ? true : person.requires_safe_gatherings)}
       ${check('requires_mandated_reporter', 'Mandated reporter', isNew ? true : person.requires_mandated_reporter && !vol)}
       ${check('requires_cpr', 'CPR / First Aid', person.requires_cpr)}
     </div></div>
@@ -107,7 +117,7 @@ function renderPerson(view, person, canEdit) {
   const full = view.people.find((p) => p.id === person.id);
   const boss = person.reports_to_id ? view.byId.get(person.reports_to_id)?.full_name : 'Church Council';
   const facts = [
-    ['Group', person.person_group], ['Position', person.position], ['Reports to', boss], ['Start', formatMonth(person.start_month)],
+    ['Group', person.person_group], ['Position', person.position], ['Ministry team', person.ministry_team], ['Reports to', boss], ['Start', formatMonth(person.start_month)],
     ['Type', person.employment_type], ['Email', person.email], ['Roster / credential', person.roster_credential],
     ['Benefits', full?.benefits || ''],
   ];
@@ -120,7 +130,7 @@ function renderPerson(view, person, canEdit) {
     ${full ? `<div class="panel panel-spaced"><h2>Screening and training</h2>
       <ul class="row-list">${CREDENTIALS.map((c) => `<li><div><b>${e(c.label)}</b><small>Renews every ${c.years} years${full.credentials[c.kind].record ? ` · completed ${formatDay(full.credentials[c.kind].record.completed_on)}` : ''}</small></div><div class="right">${credCell(full.credentials[c.kind])}</div></li>`).join('')}</ul>
       ${canEdit ? credentialForm(person, view.today) : ''}
-      <p class="muted-line">Stored as dates and status only — never reports or results.</p></div>` : ''}
+      <p class="muted-line">Stored as dates and status only — never reports or results. Training and screening records live in ${ministrySafeLink}.</p></div>` : ''}
     ${canEdit ? `<details class="panel panel-spaced edit-panel"><summary>Edit ${e(person.full_name)}</summary>${personForm(view, person)}</details>` : ''}`;
 }
 
@@ -133,13 +143,14 @@ function renderDirectory(view, params, canEdit, data) {
   const ft = view.staff.filter((p) => /full/i.test(p.employment_type)).length;
   const top = kpis([
     ['Church staff', String(view.staff.length), view.staff.length ? `${ft} full-time · ${view.staff.length - ft} other` : 'Add staff below'],
-    ['Key volunteers', String(view.volunteers.length), 'Serving with children, youth or money'],
+    ['MDO staff', String(view.mdoStaff.length), 'Outside the church staff org'],
+    ['Key volunteers', String(view.volunteers.length), view.teams.length ? `${view.teams.length} ministry team${view.teams.length === 1 ? '' : 's'}` : 'Serving with children, youth or money'],
     ['Items needing attention', String(view.attention), `Expired, missing or due in ${DUE_SOON_DAYS} days`, view.attention ? 'warn' : 'good'],
   ]);
   return `${top}
     ${chips('directory', 'group', PERSON_GROUPS, group)}
     <div class="panel list-panel">${list.length
-    ? `<ul class="row-list">${list.map((p) => `<li><a class="row-link" href="${link('directory', { person: String(p.id) })}"><div class="person-row"><span class="initials${p.person_group === 'Key volunteer' ? ' vol' : ''}">${e(p.initials)}</span><div><b>${e(p.full_name)}</b><small>${e(p.position || '—')}</small></div></div><div class="right">${pill(...OVERALL[p.overall])}<small>${p.person_group === 'Key volunteer' ? 'Volunteer' : 'Church'}</small></div></a></li>`).join('')}</ul>`
+    ? `<ul class="row-list">${list.map((p) => `<li><a class="row-link" href="${link('directory', { person: String(p.id) })}"><div class="person-row"><span class="initials${GROUP_CLASS[p.person_group] || ''}">${e(p.initials)}</span><div><b>${e(p.full_name)}</b><small>${e(roleLine(p) || '—')}</small></div></div><div class="right">${pill(...OVERALL[p.overall])}<small>${GROUP_SHORT[p.person_group] || ''}</small></div></a></li>`).join('')}</ul>`
     : emptyNote(view.people.length ? 'No one in this group.' : 'No staff or key volunteers on record yet.')}</div>
     ${daycareNote}
     ${canEdit ? `<details class="panel panel-spaced edit-panel"${view.people.length ? '' : ' open'}><summary>Add a person</summary>${personForm(view)}</details>` : ''}`;
@@ -147,12 +158,41 @@ function renderDirectory(view, params, canEdit, data) {
 
 // ── Org chart and job descriptions ────────────────────────────────────────────────────────────
 
-function orgNode(person) {
-  return `<div class="org-node${person.person_group === 'Key volunteer' ? ' vol' : ''}"><b>${e(person.full_name)}</b><small>${e(person.position || '')}</small></div>`;
+function orgNode(person, extra = '') {
+  return `<div class="org-node${GROUP_CLASS[person.person_group] || ''}${extra}"><b>${e(person.full_name)}</b><small>${e(person.position || '')}</small></div>`;
 }
 
 function flatten(node) {
   return node.reports.flatMap((child) => [child.person, ...flatten(child)]);
+}
+
+// Staff are drawn one by one; key volunteers with a ministry team fold into one line per team
+// (open it to see who serves), so a column stays readable when a leader oversees many volunteers.
+function orgMembers(people) {
+  const teams = new Map();
+  const out = [];
+  for (const p of people) {
+    const team = p.person_group === 'Key volunteer' ? String(p.ministry_team || '').trim() : '';
+    if (!team) { out.push(orgNode(p)); continue; }
+    if (!teams.has(team)) { teams.set(team, []); out.push({ team }); }
+    teams.get(team).push(p);
+  }
+  return out.map((item) => (typeof item === 'string' ? item : (() => {
+    const members = teams.get(item.team);
+    return `<details class="org-team"><summary><b>${e(item.team)}</b><small>${members.length} volunteer${members.length === 1 ? '' : 's'}</small></summary><ul>${members.map((m) => `<li>${e(m.full_name)}${m.position ? ` <small>${e(m.position)}</small>` : ''}</li>`).join('')}</ul></details>`;
+  })())).join('');
+}
+
+function orgColumns(root) {
+  const of = (group) => root.reports.filter((child) => child.person.person_group === group);
+  const cols = of('Church staff').map((child) => `<div class="org-col">${orgNode(child.person)}${orgMembers(flatten(child))}</div>`);
+  // MDO sits outside the church staff org, so it gets its own labeled column.
+  cols.push(...of('MDO staff').map((child) => `<div class="org-col"><div class="org-col-head">MDO</div>${orgNode(child.person)}${orgMembers(flatten(child))}</div>`));
+  const volunteers = of('Key volunteer');
+  if (volunteers.length) {
+    cols.push(`<div class="org-col"><div class="org-col-head">Volunteers</div>${orgMembers(volunteers.flatMap((child) => [child.person, ...flatten(child)]))}</div>`);
+  }
+  return cols.join('');
 }
 
 function positionForm(position = {}) {
@@ -170,9 +210,9 @@ function positionForm(position = {}) {
 function renderOrg(view, params, canEdit) {
   const tree = buildOrgTree(view.people);
   const chart = tree.length
-    ? `<div class="org"><div class="org-top">Church Council</div>${tree.map((root) => `<div class="org-root">${orgNode(root.person).replace('org-node', 'org-node lead')}</div>
-      <div class="org-columns">${root.reports.map((child) => `<div class="org-col">${orgNode(child.person)}${flatten(child).map((p) => orgNode(p)).join('')}</div>`).join('')}</div>`).join('')}
-      <div class="org-legend"><span class="sw"></span>Staff <span class="sw vol"></span>Key volunteer</div></div>`
+    ? `<div class="org"><div class="org-top">Church Council</div>${tree.map((root) => `<div class="org-root">${orgNode(root.person, root.person.person_group === 'Church staff' ? ' lead' : '')}</div>
+      ${root.reports.length ? `<div class="org-columns">${orgColumns(root)}</div>` : ''}`).join('')}
+      <div class="org-legend"><span class="sw"></span>Church staff <span class="sw mdo"></span>MDO staff <span class="sw vol"></span>Key volunteer</div></div>`
     : emptyNote('Add staff with who they report to, and the chart draws itself.');
   const stale = view.positions.filter((p) => p.stale).map((p) => p.title);
   const editing = canEdit ? view.positions.find((p) => String(p.id) === params.get('edit')) : null;
@@ -189,7 +229,7 @@ function renderOrg(view, params, canEdit) {
 const REVIEW_TONE = { Complete: 'good', 'Self-review in': 'info', Scheduled: 'info', 'Not started': 'muted' };
 
 function renderReviews(view, params, canEdit) {
-  const staff = view.staff;
+  const staff = view.employees;
   const count = (status) => staff.filter((p) => p.review.status === status).length;
   const inProgress = count('Self-review in') + count('Scheduled');
   const top = kpis([
@@ -199,7 +239,7 @@ function renderReviews(view, params, canEdit) {
   ]);
   const years = [view.reviewYear - 1, view.reviewYear, view.reviewYear + 1];
   const rows = staff.map((p) => `<tr>
-      <td><b>${e(p.full_name)}</b></td><td>${e(p.position || '—')}</td>
+      <td><b>${e(p.full_name)}</b>${p.person_group === 'MDO staff' ? ' <small class="muted">MDO</small>' : ''}</td><td>${e(p.position || '—')}</td>
       <td><span class="tone-${REVIEW_TONE[p.review.status]}">${e(p.review.status)}${p.review.note ? ` · ${e(p.review.note)}` : ''}</span></td>
       <td>${p.goals.length ? `${p.goals.length} · ${p.goalAvg}% avg` : '—'}</td>
       <td><details class="edit-inline"><summary>Goals${canEdit ? ' &amp; status' : ''}</summary>
@@ -210,7 +250,7 @@ function renderReviews(view, params, canEdit) {
     </tr>`).join('');
   return `${top}
     <div class="panel list-panel"><div class="panel-head review-head"><h2>${view.reviewYear} annual reviews</h2><span class="year-links">${years.map((y) => y === view.reviewYear ? `<b>${y}</b>` : `<a href="${link('reviews', { review_year: String(y) })}">${y}</a>`).join(' · ')}</span></div>
-    ${staff.length ? `<div class="table-scroll"><table class="pm-table"><thead><tr><th>Staff</th><th>Position</th><th>Status</th><th>Goals</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : emptyNote('Add church staff in the directory to track reviews.')}</div>
+    ${staff.length ? `<div class="table-scroll"><table class="pm-table"><thead><tr><th>Staff</th><th>Position</th><th>Status</th><th>Goals</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : emptyNote('Add church or MDO staff in the directory to track reviews.')}</div>
     ${daycareNote}`;
 }
 
@@ -243,14 +283,14 @@ function renderTrainings(view) {
   const [mr, mrN] = count('mandated_reporter');
   const [cpr, cprN] = count('cpr_first_aid');
   const top = kpis([
-    ['Safe Gatherings current', `${sg} of ${sgN}`, ''], ['Mandated reporter current', `${mr} of ${mrN}`, ''], ['CPR / First Aid current', `${cpr} of ${cprN}`, ''],
+    ['MinistrySafe current', `${sg} of ${sgN}`, ''], ['Mandated reporter current', `${mr} of ${mrN}`, ''], ['CPR / First Aid current', `${cpr} of ${cprN}`, ''],
   ]);
-  return `<p class="lede">Safe Gatherings is the congregation’s child-protection training.</p>${top}
-    <div class="panel list-panel">${view.people.length ? `<div class="table-scroll"><table class="pm-table"><thead><tr><th>Person</th><th>Safe Gatherings (3 yrs)</th><th>Mandated reporter (2 yrs)</th><th>CPR / First Aid (2 yrs)</th></tr></thead><tbody>${view.people.map((p) => `<tr><td><a href="${link('directory', { person: String(p.id) })}">${e(p.full_name)}</a></td><td>${credCell(p.credentials.safe_gatherings)}</td><td>${credCell(p.credentials.mandated_reporter)}</td><td>${credCell(p.credentials.cpr_first_aid)}</td></tr>`).join('')}</tbody></table></div>` : emptyNote('No one on record yet.')}</div>
+  return `<p class="lede">${ministrySafeLink} is the congregation’s child-protection (sexual abuse awareness) training. Record each completion here after it posts in MinistrySafe.</p>${top}
+    <div class="panel list-panel">${view.people.length ? `<div class="table-scroll"><table class="pm-table"><thead><tr><th>Person</th><th>MinistrySafe (3 yrs)</th><th>Mandated reporter (2 yrs)</th><th>CPR / First Aid (2 yrs)</th></tr></thead><tbody>${view.people.map((p) => `<tr><td><a href="${link('directory', { person: String(p.id) })}">${e(p.full_name)}</a></td><td>${credCell(p.credentials.safe_gatherings)}</td><td>${credCell(p.credentials.mandated_reporter)}</td><td>${credCell(p.credentials.cpr_first_aid)}</td></tr>`).join('')}</tbody></table></div>` : emptyNote('No one on record yet.')}</div>
     <p class="muted-line">Daycare licensing clock hours are tracked in <a href="${MYMDO_URL}">myMDO</a>.</p>`;
 }
 
-function renderVolunteers(view) {
+function renderVolunteers(view, params) {
   const status = (p) => {
     const states = [p.credentials.background_check.state, p.credentials.safe_gatherings.state];
     if (states.includes('missing')) return ['Not cleared', 'bad'];
@@ -258,14 +298,17 @@ function renderVolunteers(view) {
     if (states.includes('due')) return ['Renew soon', 'warn'];
     return ['Cleared', 'good'];
   };
-  const rows = view.volunteers.map((p) => ({ p, s: status(p) }));
+  const team = view.teams.some((t) => t.name === params.get('team')) ? params.get('team') : null;
+  const rows = view.volunteers.filter((p) => !team || p.ministry_team === team).map((p) => ({ p, s: status(p) }));
   const top = kpis([
     ['Cleared', String(rows.filter((r) => r.s[0] === 'Cleared').length), `of ${rows.length}`, 'good'],
     ['Needs renewal', String(rows.filter((r) => ['Renewal needed', 'Renew soon'].includes(r.s[0])).length), ''],
     ['Not yet screened', String(rows.filter((r) => r.s[0] === 'Not cleared').length), 'Can’t serve until cleared', 'bad'],
   ]);
-  return `<p class="lede">Volunteers who serve with children or youth, or handle money, must be screened before they start.</p>${top}
-    <div class="panel list-panel">${rows.length ? `<div class="table-scroll"><table class="pm-table"><thead><tr><th>Volunteer</th><th>Ministry</th><th>Background check</th><th>Safe Gatherings</th><th>Status</th></tr></thead><tbody>${rows.map(({ p, s }) => `<tr><td><a href="${link('directory', { person: String(p.id) })}">${e(p.full_name)}</a></td><td>${e(p.position || '—')}</td><td>${credCell(p.credentials.background_check)}</td><td>${credCell(p.credentials.safe_gatherings)}</td><td><span class="tone-${s[1]}">${s[0]}</span></td></tr>`).join('')}</tbody></table></div>` : emptyNote('No key volunteers on record. Add them in the staff directory with the group “Key volunteer.”')}</div>`;
+  const teamNames = view.teams.filter((t) => t.members.some((m) => m.person_group === 'Key volunteer')).map((t) => t.name);
+  return `<p class="lede">Volunteers who serve with children or youth, or handle money, must be screened before they start. Screening and training run through ${ministrySafeLink}.</p>${top}
+    ${teamNames.length ? chips('volunteers', 'team', teamNames, team) : ''}
+    <div class="panel list-panel">${rows.length ? `<div class="table-scroll"><table class="pm-table"><thead><tr><th>Volunteer</th><th>Role · team</th><th>Background check</th><th>MinistrySafe</th><th>Status</th></tr></thead><tbody>${rows.map(({ p, s }) => `<tr><td><a href="${link('directory', { person: String(p.id) })}">${e(p.full_name)}</a></td><td>${e(roleLine(p) || '—')}</td><td>${credCell(p.credentials.background_check)}</td><td>${credCell(p.credentials.safe_gatherings)}</td><td><span class="tone-${s[1]}">${s[0]}</span></td></tr>`).join('')}</tbody></table></div>` : emptyNote('No key volunteers on record. Add them in the staff directory with the group “Key volunteer.”')}</div>`;
 }
 
 // ── Policies ──────────────────────────────────────────────────────────────────────────────────
@@ -301,6 +344,7 @@ function renderPolicies(view, canEdit) {
 // ── Benefits enrollment ───────────────────────────────────────────────────────────────────────
 
 function renderBenefits(view, canEdit) {
+  view = { ...view, staff: view.employees };
   const eligible = view.staff.filter((p) => p.health_coverage !== 'not_eligible');
   const enrolled = view.staff.filter((p) => ENROLLED_COVERAGE.has(p.health_coverage));
   const top = kpis([
@@ -316,7 +360,7 @@ function renderBenefits(view, canEdit) {
       <div class="form-actions"><button type="submit">Log change</button></div>
     </form>` : '';
   return `<p class="lede">Plan rates and options come from Compensation → Benefits &amp; taxes. Update a person’s coverage from their directory page.</p>${top}
-    <div class="panel list-panel"><h2 class="list-title">Current enrollment</h2>${view.staff.length ? `<div class="table-scroll"><table class="pm-table"><thead><tr><th>Staff</th><th>Position</th><th>Benefits</th></tr></thead><tbody>${view.staff.map((p) => `<tr><td><a href="${link('directory', { person: String(p.id) })}">${e(p.full_name)}</a></td><td>${e(p.position || '—')}</td><td>${e(p.benefits)}</td></tr>`).join('')}</tbody></table></div>` : emptyNote('No church staff on record yet.')}</div>
+    <div class="panel list-panel"><h2 class="list-title">Current enrollment</h2>${view.staff.length ? `<div class="table-scroll"><table class="pm-table"><thead><tr><th>Staff</th><th>Position</th><th>Benefits</th></tr></thead><tbody>${view.staff.map((p) => `<tr><td><a href="${link('directory', { person: String(p.id) })}">${e(p.full_name)}</a></td><td>${e(p.position || '—')}</td><td>${e(p.benefits)}</td></tr>`).join('')}</tbody></table></div>` : emptyNote('No church or MDO staff on record yet.')}</div>
     <div class="panel panel-spaced"><h2>Recent changes</h2>${view.benefitChanges.length ? `<div class="table-scroll"><table class="pm-table"><thead><tr><th>Date</th><th>Staff</th><th>Change</th><th>Status</th></tr></thead><tbody>${view.benefitChanges.map((c) => `<tr><td>${formatDay(c.change_date)}</td><td>${e(c.name)}</td><td>${e(c.change)}</td><td><span class="tone-${c.status === 'Processed' || c.status === 'Waiver on file' ? 'good' : 'warn'}">${e(c.status)}</span></td></tr>`).join('')}</tbody></table></div>` : emptyNote('No changes logged.')}${changeForm}</div>
     ${daycareNote}`;
 }
@@ -330,7 +374,7 @@ export function renderHrPage(pageId, { view, data, params, canEdit, status }) {
         : pageId === 'trainings' ? renderTrainings(view)
           : pageId === 'policies' ? renderPolicies(view, canEdit)
             : pageId === 'benefits' ? renderBenefits(view, canEdit)
-              : pageId === 'volunteers' ? renderVolunteers(view)
+              : pageId === 'volunteers' ? renderVolunteers(view, params)
                 : renderDirectory(view, params, canEdit, data);
   return `<section class="hr" aria-label="HR &amp; Staff">${statusBanner(status)}${body}</section>`;
 }
@@ -343,6 +387,7 @@ export const HR_STYLES = `
     .person-head h2 { margin:0; }
     .initials { width:34px; height:34px; flex:0 0 auto; border-radius:50%; display:flex; align-items:center; justify-content:center; background:#EEF1F6; color:var(--navy); font-size:12px; font-weight:600; }
     .initials.vol { background:var(--cream); color:var(--gold-ink); }
+    .initials.mdo { background:#E8F3EE; color:#2F6B4F; }
     .check-row { display:flex; flex-wrap:wrap; gap:6px 16px; padding-top:4px; }
     .check { display:flex; align-items:center; gap:6px; color:var(--ink); font-size:13.5px; font-weight:400; }
     .check input { padding:0; }
@@ -352,14 +397,23 @@ export const HR_STYLES = `
     .org-root .org-node.lead b, .org-root .org-node.lead small { color:#fff; }
     .org-columns { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; width:100%; padding-top:14px; border-top:1px solid var(--line); }
     .org-col { display:flex; flex-direction:column; gap:8px; }
-    .org-col > .org-node:first-child { border-color:var(--navy); }
+    .org-col > .org-node:first-child, .org-col > .org-col-head + .org-node:not(.vol):not(.mdo) { border-color:var(--navy); }
     .org-node { padding:8px 12px; border:1px solid var(--line); border-radius:6px; background:#fff; }
     .org-node.vol { background:#FBF6EC; border-color:#EBD9B4; }
+    .org-node.mdo, .org-col > .org-node.mdo:first-child, .org-col > .org-col-head + .org-node.mdo { background:#EEF6F1; border-color:#9CC7AF; border-style:dashed; }
+    .org-col-head { font-size:11.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); padding:2px 2px 0; }
+    .org-team { border:1px solid #EBD9B4; border-radius:6px; background:#FBF6EC; }
+    .org-team summary { cursor:pointer; padding:8px 12px; list-style-position:inside; }
+    .org-team summary b { font-size:13.5px; font-weight:600; color:var(--navy); margin-right:6px; }
+    .org-team summary small, .org-team li small { color:var(--muted); font-size:11.5px; }
+    .org-team ul { margin:0; padding:0 12px 8px 28px; font-size:13px; }
+    .org-team li { margin:2px 0; }
     .org-node b { display:block; font-size:13.5px; font-weight:600; color:var(--navy); }
     .org-node small { color:var(--muted); font-size:11.5px; }
     .org-legend { display:flex; gap:10px; align-items:center; color:var(--muted); font-size:12px; }
     .org-legend .sw { width:10px; height:10px; border:1px solid var(--line); border-radius:2px; background:#fff; }
     .org-legend .sw.vol { background:#FBF6EC; border-color:#EBD9B4; }
+    .org-legend .sw.mdo { background:#EEF6F1; border-color:#9CC7AF; }
     .review-head { align-items:center; padding-top:14px; }
     .year-links { font-size:13px; color:var(--muted); }
     .goal-list { list-style:none; margin:8px 0; padding:0; min-width:260px; }
