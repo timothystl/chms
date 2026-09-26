@@ -130,6 +130,7 @@ import { renderChurchPage } from './church-pages.js';
 import { renderBalancePage } from './balance-pages.js';
 import { renderDaycarePage } from './daycare-pages.js';
 import { renderPropertyPage } from './property-pages.js';
+import { ACQUISITION_STYLES, renderAcquisitionPage } from './property-acquisition-pages.js';
 import { renderCompensationPage } from './compensation-pages.js';
 import { renderPlanningPage } from './planning-pages.js';
 import { renderAccountsPage } from './accounts-pages.js';
@@ -1204,6 +1205,11 @@ function renderSectionBody(ctx) {
     });
   }
   if (section.id === 'property') {
+    if (page.id === 'acquisition') {
+      const annual = propertyReportLive?.source === 'live' && Array.isArray(propertyReportLive.annualSummary)
+        ? propertyReportLive.annualSummary.at(-1) : null;
+      return renderAcquisitionPage({ params: ctx.searchParams, propertyAnnual: annual });
+    }
     // Same admin-only gate as the legacy in-Connect Property Operating Results' own monthly POST
     // route and Work orders' own repairs POST route -- UI hiding is never authorization, the real
     // gate is finance-property-monthly-write-v1's/finance-property-repair-write-v1's own role
@@ -1419,7 +1425,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/finance-mark.png"><link rel="apple-touch-icon" href="/assets/finance-icon.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}${ACQUISITION_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
