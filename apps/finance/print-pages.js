@@ -101,13 +101,13 @@ export function renderPrintDocument({ documentTitle, backHref, contentHtml, rele
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>${escapeHtml(documentTitle)} · Timothy Finance</title>
-  <link rel="icon" href="/assets/tlc-logo.png">
+  <link rel="icon" href="/assets/finance-mark.png">
   <style>${PRINT_STYLES}</style>
 </head>
 <body class="print-body">
   <div class="print-toolbar"><a href="${escapeHtml(backHref)}">← Back to Finance</a><button type="button" onclick="window.print()">Print / Save as PDF</button></div>
   <main class="print-doc">
-    <div class="print-masthead"><img src="/assets/tlc-logo.png" alt=""><div><div class="org">Timothy Lutheran Church · Finance</div><div class="meta">Prepared ${escapeHtml(preparedLabel(now))}${production ? '' : ' · staging data'}</div></div></div>
+    <div class="print-masthead"><img src="/assets/finance-mark.png" alt=""><div><div class="org">Timothy Lutheran Church · Finance</div><div class="meta">Prepared ${escapeHtml(preparedLabel(now))}${production ? '' : ' · staging data'}</div></div></div>
     ${contentHtml}
     <div class="print-foot">Figures labeled live come from Connect's records; anything labeled synthetic or unavailable is not a real balance. Timothy Finance ${escapeHtml(release)}.</div>
   </main>
@@ -119,7 +119,7 @@ export function renderBoardPacketPicker({ items, release, production, message = 
   const boxes = items.map((item) => `<label><input type="checkbox" name="include" value="${item.key}"${BOARD_PACKET_DEFAULT_KEYS.includes(item.key) ? ' checked' : ''}> ${escapeHtml(item.label)}</label>`).join('');
   return `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Board packet · Timothy Finance</title><link rel="icon" href="/assets/tlc-logo.png"><style>${PRINT_STYLES}</style></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Board packet · Timothy Finance</title><link rel="icon" href="/assets/finance-mark.png"><style>${PRINT_STYLES}</style></head>
 <body class="print-body">
   <div class="print-toolbar"><a href="/?section=packet">← Back to Finance</a></div>
   <main class="print-picker">
