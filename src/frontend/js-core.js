@@ -4,7 +4,7 @@
 // version bump
 // automatically invalidates the long-lived browser cache on those files, with nowhere else that
 // needs updating in step.
-export const DEPLOY_VERSION = '0.1.0-alpha.1';
+export const DEPLOY_VERSION = '0.1.0-alpha.2';
 
 export const JS_CORE = String.raw`<script>
 // ── DEPLOY VERSION ───────────────────────────────────────────────────
@@ -629,7 +629,7 @@ function openSidebar() {
   var o = document.getElementById('sidebar-overlay'); if (o) o.classList.add('open');
   var h = document.querySelector('.hamburger'); if (h) h.setAttribute('aria-expanded', 'true');
   var first = s && s.querySelector('.s-item.active') || (s && s.querySelector('.s-item'));
-  if (first && window.matchMedia && window.matchMedia('(max-width:1100px)').matches) first.focus();
+  if (first && window.matchMedia && window.matchMedia('(max-width:1023px)').matches) first.focus();
 }
 function closeSidebar() {
   var s = document.getElementById('sidebar');

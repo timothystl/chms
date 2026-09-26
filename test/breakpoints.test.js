@@ -6,18 +6,23 @@ import { HTML_HEAD } from '../src/frontend/html-head.js';
 // switched at inconsistent widths as a device rotated, and there was no shared definition of
 // "phone" for new responsive work to target. Consolidated to three.
 //
-// This test is the thing that keeps it at three. Without it the count creeps back up one
-// feature at a time, exactly as it did the first time.
+// Preserve those content tiers; Workspace navigation has its own below-1024px
+// boundary. New feature-specific breakpoints still need an explicit contract.
 
 const STYLE = HTML_HEAD.slice(0, HTML_HEAD.indexOf('</style>'));
-const TIERS = [767, 900, 1100];
+const TIERS = [767, 900, 1023, 1100];
 
 const widths = [...STYLE.matchAll(/@media ?\(max-width: ?(\d+)px\)/g)].map((m) => Number(m[1]));
 
-describe('MOB3 — three breakpoints, and only three', () => {
+describe('MOB3 — content tiers and the Workspace navigation breakpoint', () => {
   it('uses no max-width outside the agreed tiers', () => {
     const stray = [...new Set(widths)].filter((w) => !TIERS.includes(w)).sort((a, b) => a - b);
-    expect(stray, 'add responsive CSS at 767/900/1100 — do not invent a fourth tier').toEqual([]);
+    expect(stray, 'use the content tiers or the dedicated 1023px navigation breakpoint').toEqual([]);
+  });
+
+  it('reserves the 1023px boundary for the navigation shell', () => {
+    expect(widths.filter(w => w === 1023)).toHaveLength(1);
+    expect(STYLE).toMatch(/@media\(max-width:1023px\)\{\s*\.sidebar\{/);
   });
 
   it('still actually has responsive rules at each tier', () => {

@@ -19,7 +19,9 @@ describe('OS1 — Open Sky tokens', () => {
       '--primary': '#386781', '--primary-hover': '#2B5065', '--accent': '#C9973A',
       '--page': '#F3F7FA', '--surface': '#FFFFFF', '--text': '#293D49', '--muted': '#536B79',
       '--tint': '#DFEBF2', '--border': '#D7E2E9', '--control-border': '#718694',
-      '--success': '#1A5C3E', '--warning': '#7A5A00', '--error': '#A12B24',
+      '--success': '#1A5C3E', '--success-bg': '#EAF5EF',
+      '--warning': '#7A5A00', '--warning-bg': '#FFF8E1',
+      '--error': '#A12B24', '--error-bg': '#FDEEE8',
     };
     for (const [name, value] of Object.entries(canonical)) {
       expect(rootBlock, name).toMatch(new RegExp(name.replace(/-/g, '\\-') + ':' + value + '[;\\n]', 'i'));
@@ -32,6 +34,17 @@ describe('OS1 — Open Sky tokens', () => {
     }
   });
 
+  it('resolves all root aliases without undefined references or cycles', () => {
+    const declarations = Object.fromEntries([...rootBlock.matchAll(/(--[\w-]+):([^;]+);/g)].map(m => [m[1], m[2]]));
+    function resolve(name, stack = []) {
+      expect(stack, `cycle at ${name}`).not.toContain(name);
+      expect(declarations, `missing ${name}`).toHaveProperty(name);
+      return declarations[name].replace(/var\((--[\w-]+)\)/g, (_, dependency) => resolve(dependency, [...stack, name]));
+    }
+    for (const name of Object.keys(declarations)) resolve(name);
+    expect(resolve('--pale-gold')).toBe('#FFF8E1');
+  });
+
   it('uses Source Sans 3 and no longer loads the PAL1 fonts', () => {
     for (const html of [HTML_HEAD, LOGIN_HTML, MOBILE_ADMIN_HTML]) {
       expect(html).toContain('family=Source+Sans+3');
@@ -41,11 +54,11 @@ describe('OS1 — Open Sky tokens', () => {
 });
 
 describe('OS1 — shell', () => {
-  it('keeps the sidebar open on wide screens and makes it a drawer at the 1100px tier', () => {
+  it('keeps the sidebar open on wide screens and makes it a drawer at the 1024px boundary', () => {
     expect(STYLE).toMatch(/\.sidebar\{position:fixed;left:0;[^}]*width:var\(--sidebar-width\)/);
     expect(STYLE).toMatch(/\.content-area\{[^}]*margin-left:var\(--sidebar-width\)/);
-    const drawer = STYLE.slice(STYLE.indexOf('@media(max-width:1100px){\n  .sidebar{'));
-    expect(drawer).toMatch(/^@media\(max-width:1100px\)\{\n  \.sidebar\{left:calc\(/);
+    const drawer = STYLE.slice(STYLE.indexOf('@media(max-width:1023px){\n  .sidebar{'));
+    expect(drawer).toMatch(/^@media\(max-width:1023px\)\{\n  \.sidebar\{left:calc\(/);
     expect(drawer.slice(0, 400)).toMatch(/\.content-area\{margin-left:0;\}/);
   });
 
