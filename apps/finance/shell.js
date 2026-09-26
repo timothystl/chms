@@ -1451,7 +1451,7 @@ function renderShell(ctx) {
     sectionBody = renderDataUnavailablePage({
       eyebrow: section.label,
       heading: page.label,
-      reason: 'This section could not be rendered because required data was unavailable for this request. Nothing else on this page was affected.',
+      reason: 'This section could not load its figures, usually because Connect did not answer in time. Reload in a moment. Nothing else on this page was affected.',
     });
   }
   const group = section.group || section.label;
@@ -1461,7 +1461,7 @@ function renderShell(ctx) {
   const roleNotice = !roleResult || !roleResult.ok
     ? `<div class="notice"><b>Role check</b><span>Role verification unavailable in this environment${roleResult && roleResult.reason ? ` (reason: ${escapeHtml(roleResult.reason)})` : ''} -- section access is not currently restricted by verified role for this request.</span></div>`
     : roleResult.source === 'saved'
-      ? `<div class="notice"><b>Connect unavailable</b><span>Connect could not confirm your role just now, so Finance is using the role Connect last confirmed (${escapeHtml(String(roleResult.verifiedAt || '').slice(0, 16).split('T').join(' '))} UTC). Saving changes needs Connect and may fail until it answers again.</span></div>`
+      ? `<div class="notice"><b>Connect unavailable</b><span>Connect could not confirm your role just now, so Finance is using the role Connect last confirmed (${escapeHtml(String(roleResult.verifiedAt || '').slice(0, 16).split('T').join(' '))} UTC). Saving changes needs Connect and may fail until it answers again.${roleResult.liveFailure ? ` (Reason: ${escapeHtml(describeRoleFailure(roleResult.liveFailure))})` : ''}</span></div>`
       : roleResult.role === 'compensation'
         ? '<div class="notice"><b>Role check</b><span>Verified via Connect as role “compensation” -- restricted to the Compensation Planner section only.</span></div>'
         : '';
@@ -1546,6 +1546,12 @@ const QB_ROUTE_HANDLERS = {
 // A short, non-sensitive reason shown on the role-verification denial page, so a failure can be
 // told apart (Connect unreachable, the contract key refused, the sign-in not recognized, no
 // matching Connect account) without reading Worker logs.
+// Runs `fn` on a load's result once it arrives, without waiting for anything else. The page's
+// loads all start together and are awaited once, so a load that needs another's answer chains here.
+function after(load, fn) {
+  return Promise.resolve(load).then(fn);
+}
+
 function describeRoleFailure(result) {
   if (result.reason === 'http_error') {
     const byStatus = { 401: 'Connect did not accept the Finance sign-in or contract key (401)', 403: 'Connect found no active account for this sign-in (403)', 503: 'Connect sign-in verification is not configured (503)' };
@@ -3494,8 +3500,8 @@ export default {
         // Financial position card now reads the SAME live-first balanceSheet resolver result
         // Financial Health/Balance Sheet already use (see balanceSheet's own gate below), instead
         // of this section's own separately-summed synthetic aggregate. Health/Church are unchanged.
-        const summary = ['health', 'church'].includes(section.id)
-          ? await safeSyntheticRead(() => readSyntheticSummary(env.FINANCE_DB)) : null;
+        let summary = ['health', 'church'].includes(section.id)
+          ? safeSyntheticRead(() => readSyntheticSummary(env.FINANCE_DB)) : null;
         // Health/Packet still read the plain synthetic rows -- unchanged, out of scope for this
         // contract. The 'church' section (Church Report itself) instead tries the real
         // connect.finance-church-report.v1 endpoint first and falls back to the same synthetic
@@ -3516,8 +3522,8 @@ export default {
         // packet's Operating result card now reads churchReportLive just below (its own fallback
         // re-reads readSyntheticChurchReport() internally when needed), same split as 'church'
         // already has with churchReport/churchReportLive here. Health/Charts are unchanged.
-        const churchReport = ['health', 'charts'].includes(section.id)
-          ? await safeSyntheticRead(() => readSyntheticChurchReport(env.FINANCE_DB)) : null;
+        let churchReport = ['health', 'charts'].includes(section.id)
+          ? safeSyntheticRead(() => readSyntheticChurchReport(env.FINANCE_DB)) : null;
         // Financial Health's Operating result card also tries the real endpoint now, via the same
         // resolveChurchReport used by the 'church' section -- see health-view-model.js's
         // resolveOperating. This is a deliberate second, independent call/read of the same
@@ -3531,8 +3537,8 @@ export default {
         // board-packet-service.js's resolveBoardPacketOperating) -- same deliberate second/
         // independent-read tradeoff already noted above for Health's own Operating result card,
         // not a new one introduced by 'packet'.
-        const churchReportLive = ['health', 'church', 'charts', 'packet'].includes(section.id)
-          ? await safeSyntheticRead(() => resolveChurchReport(env, env.FINANCE_DB)) : null;
+        let churchReportLive = ['health', 'church', 'charts', 'packet'].includes(section.id)
+          ? safeSyntheticRead(() => resolveChurchReport(env, env.FINANCE_DB)) : null;
         // The plain synthetic `churchTrends` read that used to live here is gone -- only Board
         // packet ever used it, and Board packet now uses churchTrendLive below instead (same split
         // as churchReport/churchReportLive just above).
@@ -3544,8 +3550,8 @@ export default {
         // board-packet-service.js's resolveBoardPacketTrend) instead of a separate plain synthetic
         // `churchTrends` read -- same deliberate second/independent-read tradeoff as
         // churchReportLive just above, not a new query-budget type.
-        const churchTrendLive = ['church', 'packet'].includes(section.id)
-          ? await safeSyntheticRead(() => resolveChurchTrend(env, env.FINANCE_DB)) : null;
+        let churchTrendLive = ['church', 'packet'].includes(section.id)
+          ? safeSyntheticRead(() => resolveChurchTrend(env, env.FINANCE_DB)) : null;
         // Balance Sheet tries the real connect.finance-balance-sheet.v1 endpoint first and falls
         // back to the same synthetic fixture, labeled, via resolveBalanceSheet -- same live-first
         // pattern as Church Report's resolveChurchReport just above and Budget's
@@ -3557,51 +3563,51 @@ export default {
         // position card uses this same result too (see board-packet-service.js's
         // resolveBoardPacketPosition) instead of its old separate synthetic `summary.balanceSheet`
         // aggregate -- not a new query-budget type, the same tradeoff as churchReportLive above.
-        const balanceSheet = ['health', 'balance', 'packet'].includes(section.id)
-          ? await safeSyntheticRead(() => resolveBalanceSheet(env, env.FINANCE_DB)) : null;
+        let balanceSheet = ['health', 'balance', 'packet'].includes(section.id)
+          ? safeSyntheticRead(() => resolveBalanceSheet(env, env.FINANCE_DB)) : null;
         // Multi-year position tries the real connect.finance-balance-sheet-trend.v1 endpoint first
         // and falls back to the same synthetic trend fixture, labeled, via resolveBalanceSheetTrend
         // -- same live-first pattern as resolveBalanceSheet just above. readSyntheticBalanceTrends
         // is still used internally by resolveBalanceSheetTrend's own fallback path, not called
         // directly here anymore.
-        const balanceTrends = section.id === 'balance'
-          ? await safeSyntheticRead(() => resolveBalanceSheetTrend(env, env.FINANCE_DB)) : null;
+        let balanceTrends = section.id === 'balance'
+          ? safeSyntheticRead(() => resolveBalanceSheetTrend(env, env.FINANCE_DB)) : null;
         const daycareReport = null;
         // The 'daycare' section (Daycare Report itself) tries the real
         // connect.finance-daycare-report.v1 endpoint first and falls back to the same synthetic
         // fixture, labeled, via resolveDaycareReport -- same live-first pattern as Church Report's
         // resolveChurchReport and Balance Sheet's resolveBalanceSheet above. Financial Health
         // reuses this result for its source-labeled entity comparison.
-        const daycareReportLive = ['daycare', 'health'].includes(section.id)
-          ? await safeSyntheticRead(() => resolveDaycareReport(env, env.FINANCE_DB)) : null;
+        let daycareReportLive = ['daycare', 'health'].includes(section.id)
+          ? safeSyntheticRead(() => resolveDaycareReport(env, env.FINANCE_DB)) : null;
         // Actuals detail lists the individual entries behind the live report (edit/remove parity with
         // legacy finRenderDaycare). A failed read just omits the list; the report still renders.
-        const daycareEntries = section.id === 'daycare' && resolveFinancePage(section, pageId).id === 'actuals'
-          && daycareReportLive && daycareReportLive.source === 'live'
-          ? await fetchLiveFinanceDaycareEntries(env, daycareReportLive.fiscalYear) : null;
+        let daycareEntries = section.id === 'daycare' && resolveFinancePage(section, pageId).id === 'actuals'
+          ? after(daycareReportLive, (report) => (report && report.source === 'live'
+            ? fetchLiveFinanceDaycareEntries(env, report.fiscalYear) : null)) : null;
         const daycareEditId = section.id === 'daycare' ? Number(url.searchParams.get('edit')) || null : null;
-        const propertyReport = section.id === 'property' || section.id === 'health'
-          ? await safeSyntheticRead(() => readSyntheticPropertyReport(env.FINANCE_DB)) : null;
-        const propertyReserves = ['property', 'charts'].includes(section.id)
-          ? await safeSyntheticRead(() => readSyntheticPropertyReserves(env.FINANCE_DB)) : null;
-        const propertyLedgers = section.id === 'property'
-          ? await safeSyntheticRead(() => readSyntheticPropertyLedgers(env.FINANCE_DB)) : null;
+        let propertyReport = section.id === 'property' || section.id === 'health'
+          ? safeSyntheticRead(() => readSyntheticPropertyReport(env.FINANCE_DB)) : null;
+        let propertyReserves = ['property', 'charts'].includes(section.id)
+          ? safeSyntheticRead(() => readSyntheticPropertyReserves(env.FINANCE_DB)) : null;
+        let propertyLedgers = section.id === 'property'
+          ? safeSyntheticRead(() => readSyntheticPropertyLedgers(env.FINANCE_DB)) : null;
         // Property Valuation tries the real connect.finance-property-valuation.v1 endpoint first
         // and falls back to the same synthetic fixture, labeled, via resolvePropertyValuation --
         // same live-first pattern as Church Report's resolveChurchReport and Balance Sheet's
         // resolveBalanceSheet above.
-        const propertyValuation = section.id === 'property'
-          ? await safeSyntheticRead(() => resolvePropertyValuation(env, env.FINANCE_DB)) : null;
-        const propertyPolicy = section.id === 'property'
-          ? await fetchFinancePropertyPolicy(env) : null;
+        let propertyValuation = section.id === 'property'
+          ? safeSyntheticRead(() => resolvePropertyValuation(env, env.FINANCE_DB)) : null;
+        let propertyPolicy = section.id === 'property'
+          ? fetchFinancePropertyPolicy(env) : null;
         const propertyPageId = section.id === 'property' ? resolveFinancePage(section, pageId).id : null;
-        const propertyBooks = ['receivables', 'bank-rec'].includes(propertyPageId)
-          ? await safeSyntheticRead(async () => {
+        let propertyBooks = ['receivables', 'bank-rec'].includes(propertyPageId)
+          ? safeSyntheticRead(async () => {
             await ensureFinanceOwnedSchema(env.FINANCE_DB, 'propertyBooks');
             return readPropertyBooks(env.FINANCE_DB);
           }) : null;
-        const propertyDebt = section.id === 'property' && resolveFinancePage(section, pageId).id === 'debt'
-          ? await fetchFinancePropertyDebt(env) : null;
+        let propertyDebt = section.id === 'property' && resolveFinancePage(section, pageId).id === 'debt'
+          ? fetchFinancePropertyDebt(env) : null;
         // Property Operating results/Reserves & distribution/Capital & repairs ledgers each try
         // their own real connect.finance-property-*.v1 endpoint first and fall back to the same
         // synthetic fixtures read just above, labeled -- same live-first pattern as Property
@@ -3614,35 +3620,35 @@ export default {
         // for 'charts' (its cash-reserve page's property-tax-reserve KPI prefers it, falling back
         // to the already-fetched synthetic `propertyReserves` array above) -- same shape as
         // churchReportLive's 'church'/'charts' split above.
-        const propertyReportLive = ['property', 'health'].includes(section.id)
-          ? await safeSyntheticRead(() => resolvePropertyReport(env, propertyReport)) : null;
-        const propertyReservesLive = ['property', 'charts'].includes(section.id)
-          ? await safeSyntheticRead(() => resolvePropertyReserves(env)) : null;
-        const propertyLedgersLive = section.id === 'property'
-          ? await safeSyntheticRead(() => resolvePropertyLedgers(env)) : null;
-        const propertyForecast = section.id === 'property'
-          ? await safeSyntheticRead(() => readSyntheticPropertyForecast(env.FINANCE_DB)) : null;
+        let propertyReportLive = ['property', 'health'].includes(section.id)
+          ? after(propertyReport, (report) => safeSyntheticRead(() => resolvePropertyReport(env, report))) : null;
+        let propertyReservesLive = ['property', 'charts'].includes(section.id)
+          ? safeSyntheticRead(() => resolvePropertyReserves(env)) : null;
+        let propertyLedgersLive = section.id === 'property'
+          ? safeSyntheticRead(() => resolvePropertyLedgers(env)) : null;
+        let propertyForecast = section.id === 'property'
+          ? safeSyntheticRead(() => readSyntheticPropertyForecast(env.FINANCE_DB)) : null;
         // Run-rate forecast tries the real connect.finance-property-forecast.v1 endpoint first and
         // falls back to the plain synthetic rows just above, labeled -- same live-first pattern as
         // Property Operating/Reserves/Ledgers above. propertyForecast may itself already be
         // SYNTHETIC_UNAVAILABLE here -- resolvePropertyForecast only threads it through as its own
         // fallback's `rows`, it never dereferences it, so this call still can't throw.
-        const propertyForecastLive = section.id === 'property'
-          ? await safeSyntheticRead(() => resolvePropertyForecast(env, propertyForecast)) : null;
-        const propertyDistributions = section.id === 'property'
-          ? await safeSyntheticRead(() => readSyntheticPropertyDistributions(env.FINANCE_DB)) : null;
-        const budgetReport = section.id === 'planning'
-          ? await safeSyntheticRead(() => resolveBudgetReport(env, env.FINANCE_DB)) : null;
+        let propertyForecastLive = section.id === 'property'
+          ? after(propertyForecast, (forecast) => safeSyntheticRead(() => resolvePropertyForecast(env, forecast))) : null;
+        let propertyDistributions = section.id === 'property'
+          ? safeSyntheticRead(() => readSyntheticPropertyDistributions(env.FINANCE_DB)) : null;
+        let budgetReport = section.id === 'planning'
+          ? safeSyntheticRead(() => resolveBudgetReport(env, env.FINANCE_DB)) : null;
         // Scenarios and the forecast read the plan's lines sorted into groups (Connect), Finance's
         // own scenario settings, and, for the forecast, today's operating cash.
         const planningPageId = section.id === 'planning' ? resolveFinancePage(section, pageId).id : null;
         const planningV3 = ['scenarios', 'multi-year'].includes(planningPageId);
-        const budgetBuilder = planningPageId === 'builder' ? await fetchBudgetBuilder(env, defaultLiveBudgetFiscalYear()) : null;
+        let budgetBuilder = planningPageId === 'builder' ? fetchBudgetBuilder(env, defaultLiveBudgetFiscalYear()) : null;
         // The Chart of Accounts board layout (categories, headings, renames, purpose tags) lays out
         // the Budget builder and is what the Chart of Accounts editor edits.
-        const boardLayoutResult = (planningPageId === 'builder' || section.id === 'accounts') ? await fetchBoardLayout(env) : null;
-        const boardLayout = boardLayoutResult && boardLayoutResult.ok ? normalizeBoardLayout(boardLayoutResult.layout) : null;
-        const [planningBasis, planningScenarios, planningRunwayResult] = planningV3 ? await Promise.all([
+        let boardLayoutResult = (planningPageId === 'builder' || section.id === 'accounts') ? fetchBoardLayout(env) : null;
+        let boardLayout = after(boardLayoutResult, (result) => (result && result.ok ? normalizeBoardLayout(result.layout) : null));
+        const planningLoads = planningV3 ? Promise.all([
           fetchPlanningBasis(env, defaultLiveBudgetFiscalYear()),
           safeSyntheticRead(async () => {
             await ensureFinanceOwnedSchema(env.FINANCE_DB, 'planning');
@@ -3650,26 +3656,28 @@ export default {
           }),
           planningPageId === 'multi-year' ? fetchLiveFinanceCashRunway(env, new Date().getUTCFullYear()) : null,
         ]) : [null, null, null];
-        const planningRunway = planningRunwayResult?.ok ? buildLiveCashRunwayView(planningRunwayResult.runway) : null;
-        const accountsReport = ['accounts', 'quickbooks'].includes(section.id)
-          ? await safeSyntheticRead(() => resolveAccountsReport(env, env.FINANCE_DB)) : null;
+        let planningBasis = after(planningLoads, (loads) => loads[0]);
+        let planningScenarios = after(planningLoads, (loads) => loads[1]);
+        let planningRunway = after(planningLoads, (loads) => (loads[2]?.ok ? buildLiveCashRunwayView(loads[2].runway) : null));
+        let accountsReport = ['accounts', 'quickbooks'].includes(section.id)
+          ? safeSyntheticRead(() => resolveAccountsReport(env, env.FINANCE_DB)) : null;
         // Finance's own QuickBooks connection, once enabled (quickbooks-oauth-routes.js). The budget
         // list is a live QuickBooks call, so it is fetched only when an admin asks for it.
-        const quickbooksOwn = section.id === 'quickbooks' && qbEnabled(env) && env.FINANCE_DB
-          ? await safeSyntheticRead(() => readQbConnectionSummary(env.FINANCE_DB)) : null;
-        const quickbooksBudgets = quickbooksOwn && quickbooksOwn.connected && url.searchParams.get('budgets') === '1'
-          && roleResult.ok && roleResult.role === 'admin'
-          ? await listQuickbooksBudgets(env, env.FINANCE_DB, {}).catch((e) => ({ ok: false, error: e.message })) : null;
-        const quickbooksTransactions = section.id === 'quickbooks'
+        let quickbooksOwn = section.id === 'quickbooks' && qbEnabled(env) && env.FINANCE_DB
+          ? safeSyntheticRead(() => readQbConnectionSummary(env.FINANCE_DB)) : null;
+        let quickbooksBudgets = url.searchParams.get('budgets') === '1' && roleResult.ok && roleResult.role === 'admin'
+          ? after(quickbooksOwn, (own) => (own && own.connected
+            ? listQuickbooksBudgets(env, env.FINANCE_DB, {}).catch((e) => ({ ok: false, error: e.message })) : null)) : null;
+        let quickbooksTransactions = section.id === 'quickbooks'
           && ['transactions', 'expense-drilldown', 'vendor-spend', 'exceptions'].includes(resolveFinancePage(section, pageId).id)
           && qbEnabled(env) && env.FINANCE_DB
-          ? await loadQuickbooksTransactions(env, url.searchParams).catch((error) => ({ ok: false, error: error.message })) : null;
-        const importHistory = section.id === 'quickbooks' && resolveFinancePage(section, pageId).id === 'import-history'
-          ? await readImportHistory(env.FINANCE_DB).catch((error) => ({ ok: false, error: error.message })) : null;
-        const dataStatus = ['data', 'health', 'quickbooks'].includes(section.id)
-          ? await safeSyntheticRead(() => resolveDataStatus(env, env.FINANCE_DB)) : null;
-        const classification = section.id === 'data'
-          ? await fetchFinanceClassification(env, defaultLiveBudgetFiscalYear()) : null;
+          ? loadQuickbooksTransactions(env, url.searchParams).catch((error) => ({ ok: false, error: error.message })) : null;
+        let importHistory = section.id === 'quickbooks' && resolveFinancePage(section, pageId).id === 'import-history'
+          ? readImportHistory(env.FINANCE_DB).catch((error) => ({ ok: false, error: error.message })) : null;
+        let dataStatus = ['data', 'health', 'quickbooks'].includes(section.id)
+          ? safeSyntheticRead(() => resolveDataStatus(env, env.FINANCE_DB)) : null;
+        let classification = section.id === 'data'
+          ? fetchFinanceClassification(env, defaultLiveBudgetFiscalYear()) : null;
         const classificationOp = section.id === 'data' ? url.searchParams.get('op') : null;
         const classificationRevenueStatus = classificationOp === 'revenue-streams' ? url.searchParams.get('status') : null;
         const classificationRevenueMessage = classificationRevenueStatus === 'error'
@@ -3677,8 +3685,8 @@ export default {
         const classificationExpenseStatus = classificationOp === 'flow-expense-map' ? url.searchParams.get('status') : null;
         const classificationExpenseMessage = classificationExpenseStatus === 'error'
           ? describeFlowExpenseMapEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
-        const compensationReport = section.id === 'compensation'
-          ? await safeSyntheticRead(() => readSyntheticCompensationReport(env.FINANCE_DB)) : null;
+        let compensationReport = section.id === 'compensation'
+          ? safeSyntheticRead(() => readSyntheticCompensationReport(env.FINANCE_DB)) : null;
         // The 'plan' page of the compensation section tries the real connect.finance-compensation.v1
         // endpoint and falls back to the same synthetic fixture, labeled, via resolveCompensationReport
         // -- same live-first pattern as every resolver above, with one deliberate difference: the live
@@ -3688,12 +3696,12 @@ export default {
         // compensationReport may already be SYNTHETIC_UNAVAILABLE here -- same as propertyReport
         // above, resolveCompensationReport only threads it through, it never dereferences it.
         const compensationRoleVerified = roleResult.ok && COMPENSATION_LIVE_ALLOWED_ROLES.includes(roleResult.role);
-        const compensationReportLive = section.id === 'compensation'
-          ? await safeSyntheticRead(() => resolveCompensationReport(env, compensationReport, compensationRoleVerified)) : null;
-        const compensationBenchmarks = section.id === 'compensation'
-          ? await safeSyntheticRead(() => readSyntheticCompensationBenchmarks(env.FINANCE_DB)) : null;
-        const compensationBenefits = section.id === 'compensation'
-          ? await safeSyntheticRead(() => readSyntheticCompensationBenefits(env.FINANCE_DB)) : null;
+        let compensationReportLive = section.id === 'compensation'
+          ? after(compensationReport, (report) => safeSyntheticRead(() => resolveCompensationReport(env, report, compensationRoleVerified))) : null;
+        let compensationBenchmarks = section.id === 'compensation'
+          ? safeSyntheticRead(() => readSyntheticCompensationBenchmarks(env.FINANCE_DB)) : null;
+        let compensationBenefits = section.id === 'compensation'
+          ? safeSyntheticRead(() => readSyntheticCompensationBenefits(env.FINANCE_DB)) : null;
         // The roster editor (compensation-editor-pages.js) is admin/compensation only -- council's
         // real editing surface stays the separate, narrower raise-plan-field overlay
         // (COUNCIL_EDITABLE_FIELDS, api-finance.js), not this whole-roster editor. Only fetched on
@@ -3705,14 +3713,14 @@ export default {
         // Plan and Council also show the raise projection (compensation-projection.js), so every
         // role allowed into this section reads the saved plan there; Connect's contract applies the
         // same role check and hides hideFromCouncil workers from council logins.
-        const compensationPlanRaw = (section.id === 'compensation' && ['plan', 'council', 'benefits', 'benchmarks', 'rates'].includes(effectivePageId) && compensationRoleVerified)
-          ? await fetchConnectSalaryPlannerState(env, request.headers.get('Cf-Access-Jwt-Assertion') || '') : null;
-        const compensationProjection = compensationPlanRaw && compensationPlanRaw.ok && compensationPlanRaw.data
-          ? await buildCompensationProjection(env, compensationPlanRaw.data, {
+        let compensationPlanRaw = (section.id === 'compensation' && ['plan', 'council', 'benefits', 'benchmarks', 'rates'].includes(effectivePageId) && compensationRoleVerified)
+          ? fetchConnectSalaryPlannerState(env, request.headers.get('Cf-Access-Jwt-Assertion') || '') : null;
+        let compensationProjection = after(compensationPlanRaw, (plan) => (plan && plan.ok && plan.data
+          ? buildCompensationProjection(env, plan.data, {
             targetYear: compensationTargetYear(url.searchParams.get('plan_year')),
             councilView: effectivePageId === 'council' || roleResult.role === 'council',
           })
-          : null;
+          : null));
         const compensationEditIndex = (section.id === 'compensation' && effectivePageId === 'plan') ? (() => {
           const raw = url.searchParams.get('edit');
           if (raw === null) return null;
@@ -3723,16 +3731,18 @@ export default {
         const compensationEntryMessage = compensationEntryStatus === 'error'
           ? describeCompensationEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
-        const cashRunway = ['health', 'charts'].includes(section.id)
-          ? await safeSyntheticRead(() => resolveCashRunway(env, env.FINANCE_DB)) : null;
+        let cashRunway = ['health', 'charts'].includes(section.id)
+          ? safeSyntheticRead(() => resolveCashRunway(env, env.FINANCE_DB)) : null;
         const canManageCashPolicy = section.id === 'charts' && effectivePageId === 'cash-reserve'
           && roleResult.ok && roleResult.role === 'admin';
         const cashPolicyStatus = canManageCashPolicy && url.searchParams.get('op') === 'cash-policy'
           ? url.searchParams.get('status') : null;
         const cashPolicyMessage = cashPolicyStatus === 'error'
           ? describeCashPolicyEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
-        const { giving, source: givingSource } = ['health', 'giving', 'charts', 'packet'].includes(section.id)
-          ? await resolveGivingSummary(env) : { giving: SYNTHETIC_GIVING, source: 'synthetic-fallback' };
+        const givingSummary = ['health', 'giving', 'charts', 'packet'].includes(section.id)
+          ? resolveGivingSummary(env) : { giving: SYNTHETIC_GIVING, source: 'synthetic-fallback' };
+        let giving = after(givingSummary, (result) => result.giving);
+        let givingSource = after(givingSummary, (result) => result.source);
         const givingEntryStatus = section.id === 'giving' ? url.searchParams.get('status') : null;
         const givingEntryMessage = givingEntryStatus === 'error'
           ? describeGivingEntryError(url.searchParams.get('reason'), url.searchParams.get('message'))
@@ -3920,36 +3930,41 @@ export default {
         const propertyMonthlyImportCsvMessage = propertyMonthlyImportCsvStatus === 'error'
           ? describePropertyMonthlyImportCsvError(url.searchParams.get('reason'), url.searchParams.get('message'))
           : null;
-        const hr = section.id === 'hr'
-          ? await safeSyntheticRead(async () => {
+        let hr = section.id === 'hr'
+          ? safeSyntheticRead(async () => {
             await ensureFinanceOwnedSchema(env.FINANCE_DB, 'hr');
             return readHr(env.FINANCE_DB);
           }) : null;
         // Gift Entry batch pages read Connect live with the caller's own Access identity.
         const givingPageId = section.id === 'giving' ? resolveFinancePage(section, pageId).id : null;
-        const givingBatch = givingPageId === 'batch'
-          ? await fetchGivingBatchWorkspace(env, accessJwt, { batchId: url.searchParams.get('batch_id'), q: url.searchParams.get('q') })
-          : ['reconciliation', 'reports'].includes(givingPageId) ? await fetchGivingBatchLedger(env, accessJwt) : null;
+        let givingBatch = givingPageId === 'batch'
+          ? fetchGivingBatchWorkspace(env, accessJwt, { batchId: url.searchParams.get('batch_id'), q: url.searchParams.get('q') })
+          : ['reconciliation', 'reports'].includes(givingPageId) ? fetchGivingBatchLedger(env, accessJwt) : null;
         // Giving pages read Connect live too; the named pages (statements, nudges) use their own
         // contract, never requested for council preview or a totals-only (council) Giving role.
         const analyticsPageId = section.id === 'giving-analytics' ? resolveFinancePage(section, pageId).id
           : section.id === 'charts' && resolveFinancePage(section, pageId).id === 'concentration' ? 'concentration' : null;
-        const accessRoles = section.id === 'accounts' && resolveFinancePage(section, pageId).id === 'access'
-          ? await fetchAccessRoles(env, accessJwt) : null;
-        const [givingAnalytics, givingAnalyticsPeople] = analyticsPageId ? await Promise.all([
+        let accessRoles = section.id === 'accounts' && resolveFinancePage(section, pageId).id === 'access'
+          ? fetchAccessRoles(env, accessJwt) : null;
+        const givingAnalyticsLoads = analyticsPageId ? Promise.all([
           analyticsPageId === 'statements' ? null : fetchGivingAnalytics(env, accessJwt, { fund: url.searchParams.get('fund') || 'general' }),
           ['statements', 'nudges'].includes(analyticsPageId) && !councilPreview
             && !(roleResult.ok && roleResult.role !== 'admin' && roleResult.permissions?.giving === 'anon')
             ? fetchGivingAnalyticsPeople(env, accessJwt) : null,
         ]) : [null, null];
-        const facilities = section.id === 'facilities'
-          ? await safeSyntheticRead(async () => {
+        let givingAnalytics = after(givingAnalyticsLoads, (loads) => loads[0]);
+        let givingAnalyticsPeople = after(givingAnalyticsLoads, (loads) => loads[1]);
+        let facilities = section.id === 'facilities'
+          ? safeSyntheticRead(async () => {
             await ensureFacilitiesSchema(env.FINANCE_DB);
             return readFacilities(env.FINANCE_DB);
           }) : null;
-        const payrollBundle = section.id === 'payroll'
-          ? await buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
+        let payrollBundle = section.id === 'payroll'
+          ? buildPayrollSectionBundle(env, request.headers.get('Cf-Access-Jwt-Assertion') || '', url.searchParams)
           : null;
+        // Every load above started without waiting on the others; one slow Connect answer now
+        // costs its own timeout once, not once per section read in turn.
+        [summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle] = await Promise.all([summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle]);
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
