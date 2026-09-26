@@ -109,19 +109,21 @@ describe('Giving analytics pages (Finance v3)', () => {
       }
       return inner(req);
     };
-    const all = await (await get(env, '&page=year-over-year')).text();
-    expect(all).toContain('<a href="/?section=giving-analytics&amp;page=year-over-year" class="is-on" aria-current="true">All funds</a>');
-    expect(all).toContain('<option value="8">Building Fund</option>');
-    expect(all).toContain('Every gift entered in Connect counts');
-    expect(calls.filter((c) => c.path.endsWith('/giving-analytics-v1')).at(-1).query).toBe('');
-
-    const gf = await (await get(env, '&page=year-over-year&fund=general')).text();
+    // The General Fund is the default.
+    const gf = await (await get(env, '&page=year-over-year')).text();
     expect(calls.at(-1).query).toBe('?fund=general');
-    expect(gf).toContain('class="is-on" aria-current="true">General Fund</a>');
+    expect(gf).toContain('<a href="/?section=giving-analytics&amp;page=year-over-year" class="is-on" aria-current="true">General Fund</a>');
+    expect(gf).toContain('<option value="8">Building Fund</option>');
     expect(gf).toContain('General Fund giving by month, 2025 and 2026');
     expect(gf).toContain('General Fund gifts only (3 funds');
-    // The sidebar keeps the choice while moving between Giving pages.
-    expect(gf).toContain('href="/?section=giving-analytics&amp;page=trends&amp;fund=general"');
+    expect(gf).toContain('href="/?section=giving-analytics&amp;page=trends"');
+
+    const all = await (await get(env, '&page=year-over-year&fund=all')).text();
+    expect(calls.at(-1).query).toBe('?fund=all');
+    expect(all).toContain('<a href="/?section=giving-analytics&amp;page=year-over-year&amp;fund=all" class="is-on" aria-current="true">All funds</a>');
+    expect(all).toContain('Every gift entered in Connect counts');
+    // The sidebar keeps a non-default choice while moving between Giving pages.
+    expect(all).toContain('href="/?section=giving-analytics&amp;page=trends&amp;fund=all"');
 
     for (const page of ['trends', 'year-over-year', 'household-bands', 'pledges', 'what-if']) {
       const html = await (await get(env, `&page=${page}&fund=8`)).text();
@@ -132,12 +134,12 @@ describe('Giving analytics pages (Finance v3)', () => {
     const whatIf = await (await get(env, '&page=what-if&fund=8&council=1')).text();
     expect(whatIf).toContain('<input type="hidden" name="fund" value="8"><input type="hidden" name="council" value="1">');
     expect(whatIf).toContain('Projected 2027 household giving for Building Fund');
-    const trends = await (await get(env, '&page=trends&fund=general')).text();
+    const trends = await (await get(env, '&page=trends')).text();
     expect(trends).toContain('<a href="/?section=giving-analytics&amp;page=trends&amp;fund=8">Building Fund</a>');
-    const concentration = await (await worker.fetch(new Request('https://finance.test/?section=charts&page=concentration&fund=general', { headers: { 'Cf-Access-Jwt-Assertion': 'jwt' } }), env)).text();
+    const concentration = await (await worker.fetch(new Request('https://finance.test/?section=charts&page=concentration', { headers: { 'Cf-Access-Jwt-Assertion': 'jwt' } }), env)).text();
     expect(calls.at(-1).query).toBe('?fund=general');
     expect(concentration).toContain('Showing General Fund only.');
-    expect(concentration).toContain('href="/?section=charts&amp;page=concentration&amp;fund=general" class="is-on"');
+    expect(concentration).toContain('href="/?section=charts&amp;page=concentration" class="is-on"');
   });
 
   it('lists household bands and pledge progress', async () => {

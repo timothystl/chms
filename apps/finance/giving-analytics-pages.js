@@ -42,15 +42,17 @@ function shortDate(iso) {
 
 function href(page, params = {}, section = 'giving-analytics') {
   const search = new URLSearchParams({ section, page, ...params });
-  if (search.get('fund') === 'all') search.delete('fund');
+  if (search.get('fund') === 'general') search.delete('fund');
   return `/?${search.toString().replace(/&/g, '&amp;')}`;
 }
 
 // ── Fund scope ────────────────────────────────────────────────────────────────────────────────
 // Connect answers every totals page for one slice of giving: all funds, the General Fund family,
-// or one fund. The choice rides on ?fund= so it survives moving between pages.
+// or one fund. The General Fund is the default (the council's usual question, as on Connect's
+// board report); the choice rides on ?fund= so it survives moving between pages.
 
 function fundOf(data) {
+  // An older Connect that ignores ?fund= answers for all funds and sends no scope; say so.
   return data?.fund || { key: 'all', label: 'All funds', fund_count: 0 };
 }
 
@@ -72,7 +74,7 @@ function scopeShort(data) {
   return f.key === 'general' ? 'General Fund gifts only. ' : `Gifts to ${f.label} only. `;
 }
 
-// All funds and General Fund are one click; a specific fund is picked from the funds given to in
+// General Fund and All funds are one click; a specific fund is picked from the funds given to in
 // the years compared. A plain GET form, because Finance's CSP allows no script.
 export function fundPicker(data, { section = 'giving-analytics', page, hidden = {} } = {}) {
   const current = fundKey(data);
@@ -82,7 +84,7 @@ export function fundPicker(data, { section = 'giving-analytics', page, hidden = 
   const isSpecific = current !== 'all' && current !== 'general';
   return `<div class="ga-fund" role="group" aria-label="Which giving to show">
       <span class="ga-fund-label">Showing</span>
-      <div class="ga-fund-tabs">${tab('all', 'All funds')}${tab('general', 'General Fund')}</div>
+      <div class="ga-fund-tabs">${tab('general', 'General Fund')}${tab('all', 'All funds')}</div>
       ${specific.length ? `<form method="GET" action="/" class="ga-fund-form${isSpecific ? ' is-on' : ''}">
         <input type="hidden" name="section" value="${e(section)}"><input type="hidden" name="page" value="${e(page)}">
         ${Object.entries(hidden).map(([k, v]) => `<input type="hidden" name="${e(k)}" value="${e(v)}">`).join('')}
@@ -344,7 +346,7 @@ export function renderWhatIfPage({ result, params, keep = {} }) {
     <p class="lede">Change the assumptions to see what ${nextYear} household giving${e(scope)} could look like. Nothing here changes the budget; the starting values come from Connect’s giving records. Organizations and anonymous plate cash are left out.</p>
     <div class="ga-two">
       <form method="GET" action="/" class="panel ga-assumptions">
-        <input type="hidden" name="section" value="giving-analytics"><input type="hidden" name="page" value="what-if">${fund === 'all' ? '' : `<input type="hidden" name="fund" value="${e(fund)}">`}${keep.council ? '<input type="hidden" name="council" value="1">' : ''}
+        <input type="hidden" name="section" value="giving-analytics"><input type="hidden" name="page" value="what-if">${fund === 'general' ? '' : `<input type="hidden" name="fund" value="${e(fund)}">`}${keep.council ? '<input type="hidden" name="council" value="1">' : ''}
         <h2>Assumptions for ${nextYear}</h2>
         ${field('households', 'Giving households', `${base.households} gave in the last 12 months`)}
         ${field('average', 'Average annual gift', `${money(base.average * 100)} per household in the last 12 months`, '$')}

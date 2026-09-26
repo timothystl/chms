@@ -22,12 +22,13 @@ export function identityInitials(identity) {
   return letters.toUpperCase();
 }
 
-// The Giving pages share one fund choice (?fund=), so moving between them keeps it.
+// The Giving pages share one fund choice (?fund=; the General Fund when absent), so moving
+// between them keeps it.
 const FUND_SCOPED_SECTIONS = new Set(['giving-analytics']);
 
 function pageHref(section, page, { councilPreview, fund } = {}) {
   let base = section.pages.length <= 1 ? `/?section=${section.id}` : `/?section=${section.id}&amp;page=${page.id}`;
-  if (fund && fund !== 'all' && FUND_SCOPED_SECTIONS.has(section.id)) base += `&amp;fund=${encodeURIComponent(fund)}`;
+  if (fund && fund !== 'general' && FUND_SCOPED_SECTIONS.has(section.id)) base += `&amp;fund=${encodeURIComponent(fund)}`;
   return councilPreview ? `${base}&amp;council=1` : base;
 }
 

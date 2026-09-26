@@ -1483,7 +1483,7 @@ function renderShell(ctx) {
   </header>
   <div class="app-shell">
     <aside class="app-sidebar">
-      <nav aria-label="Finance workspace">${renderSectionNav(section, page, { roleResult, councilPreview, fund: /^(?:general|\d{1,9})$/.test(ctx?.searchParams?.get('fund') || '') ? ctx.searchParams.get('fund') : '' })}</nav>
+      <nav aria-label="Finance workspace">${renderSectionNav(section, page, { roleResult, councilPreview, fund: /^(?:all|\d{1,9})$/.test(ctx?.searchParams?.get('fund') || '') ? ctx.searchParams.get('fund') : '' })}</nav>
       <div class="sidebar-foot">${production ? 'Production · Timothy Lutheran<br>Access verified through Connect' : 'Isolated staging environment<br>Test data may be present'}</div>
     </aside>
     <main>
@@ -3867,7 +3867,7 @@ export default {
         const accessRoles = section.id === 'accounts' && resolveFinancePage(section, pageId).id === 'access'
           ? await fetchAccessRoles(env, accessJwt) : null;
         const [givingAnalytics, givingAnalyticsPeople] = analyticsPageId ? await Promise.all([
-          analyticsPageId === 'statements' ? null : fetchGivingAnalytics(env, accessJwt, { fund: url.searchParams.get('fund') }),
+          analyticsPageId === 'statements' ? null : fetchGivingAnalytics(env, accessJwt, { fund: url.searchParams.get('fund') || 'general' }),
           ['statements', 'nudges'].includes(analyticsPageId) && !councilPreview
             && !(roleResult.ok && roleResult.role !== 'admin' && roleResult.permissions?.giving === 'anon')
             ? fetchGivingAnalyticsPeople(env, accessJwt) : null,
