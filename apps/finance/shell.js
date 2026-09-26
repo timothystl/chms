@@ -25,6 +25,7 @@ import { fetchAccessRoles } from './connect-access-client.js';
 import { fetchFinanceClassification } from './finance-classification-client.js';
 import { fetchFinancePropertyDebt } from './finance-property-debt-client.js';
 import { fetchFinancePropertyPolicy } from './finance-property-policy-client.js';
+import { resolvePageRole } from './role-cache.js';
 import { PROPERTY_BOOKS_WRITERS, canEditPropertyBooks, readPropertyBooks } from './property-books-service.js';
 import { PROPERTY_BOOKS_STYLES, renderBankRecPage, renderReceivablesPage } from './property-books-pages.js';
 import { renderClassificationEditors } from './classification-pages.js';
@@ -1451,9 +1452,11 @@ function renderShell(ctx) {
   const initials = roleResult && roleResult.ok ? identityInitials(roleResult.identity) : '';
   const roleNotice = !roleResult || !roleResult.ok
     ? `<div class="notice"><b>Role check</b><span>Role verification unavailable in this environment${roleResult && roleResult.reason ? ` (reason: ${escapeHtml(roleResult.reason)})` : ''} -- section access is not currently restricted by verified role for this request.</span></div>`
-    : roleResult.role === 'compensation'
-      ? '<div class="notice"><b>Role check</b><span>Verified via Connect as role “compensation” -- restricted to the Compensation Planner section only.</span></div>'
-      : '';
+    : roleResult.source === 'saved'
+      ? `<div class="notice"><b>Connect unavailable</b><span>Connect could not confirm your role just now, so Finance is using the role Connect last confirmed (${escapeHtml(String(roleResult.verifiedAt || '').slice(0, 16).split('T').join(' '))} UTC). Saving changes needs Connect and may fail until it answers again.</span></div>`
+      : roleResult.role === 'compensation'
+        ? '<div class="notice"><b>Role check</b><span>Verified via Connect as role “compensation” -- restricted to the Compensation Planner section only.</span></div>'
+        : '';
   const councilNotice = councilPreview
     ? `<div class="notice"><b>Council view</b><span>Editing controls are hidden for this preview. Your actual verified permissions still apply; this does not impersonate a council account or change data visibility.</span><a href="/?section=${section.id}&amp;page=${page.id}">Exit preview</a></div>`
     : '';
@@ -3383,7 +3386,9 @@ export default {
         const councilPreview = url.searchParams.get('council') === '1';
         const accessJwt = request.headers.get('Cf-Access-Jwt-Assertion') || '';
         const roleStarted = Date.now();
-        const roleResult = await fetchVerifiedRole(env, accessJwt);
+        // Page views may fall back to the role Connect last confirmed when Connect cannot answer
+        // (role-cache.js); every save still verifies live.
+        const roleResult = await resolvePageRole(env, accessJwt);
         const roleElapsedMs = Date.now() - roleStarted;
         // Production reads require the current Connect permission matrix. Only
         // unconfigured staging may show fixtures without a verified identity.
