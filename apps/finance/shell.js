@@ -1518,6 +1518,18 @@ const QB_ROUTE_HANDLERS = {
   'qb-sync-v1': handleQbSync, 'qb-sync-years-v1': handleQbSyncYears, 'qb-budget-select-v1': handleQbBudgetSelect,
 };
 
+// A short, non-sensitive reason shown on the role-verification denial page, so a failure can be
+// told apart (Connect unreachable, the contract key refused, the sign-in not recognized, no
+// matching Connect account) without reading Worker logs.
+function describeRoleFailure(result) {
+  if (result.reason === 'http_error') {
+    const byStatus = { 401: 'Connect did not accept the Finance sign-in or contract key (401)', 403: 'Connect found no active account for this sign-in (403)', 503: 'Connect sign-in verification is not configured (503)' };
+    return byStatus[result.status] || `Connect answered ${result.status}`;
+  }
+  const byReason = { network_error: 'Connect did not answer in time', no_access_identity: 'the request carried no Cloudflare Access sign-in', not_configured: 'Finance is not connected to Connect', invalid_json: 'Connect sent an unreadable answer', invalid_role: 'Connect sent no role' };
+  return byReason[result.reason] || String(result.reason || 'unknown');
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -3330,7 +3342,7 @@ export default {
           const returnLink = availableSection
             ? `<p><a href="/?section=${escapeHtml(availableSection.id)}">Return to your available section</a></p>` : '';
           const denialMessage = roleVerificationBrokenUnsafely
-            ? 'Role verification failed and access cannot be safely confirmed for this request. Try reloading the page; if this continues, contact the Finance administrator.'
+            ? `Role verification failed and access cannot be safely confirmed for this request. Try reloading the page; if this continues, contact the Finance administrator. (Reason: ${describeRoleFailure(roleResult)})`
             : 'Your verified Connect role does not have access to this section of Finance.';
           return response(
             `<!doctype html><html><body style="font-family:Arial,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1.5rem;color:#1a1a2a">`

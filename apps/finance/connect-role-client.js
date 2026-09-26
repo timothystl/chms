@@ -18,6 +18,14 @@ export async function fetchVerifiedRole(env, accessJwt) {
   const key = env.FINANCE_CONTRACT_API_KEY;
   if (!binding || !key) return { ok: false, reason: 'not_configured' };
   if (!accessJwt) return { ok: false, reason: 'no_access_identity' };
+  // One retry for a failure that is Connect's momentary trouble (a timeout, a dropped connection,
+  // or a 5xx while it restarts after a release). A refusal (401/403) is final and never retried.
+  const first = await requestVerifiedRole(binding, key, accessJwt);
+  if (first.ok || !(first.reason === 'network_error' || (first.reason === 'http_error' && first.status >= 500))) return first;
+  return requestVerifiedRole(binding, key, accessJwt);
+}
+
+async function requestVerifiedRole(binding, key, accessJwt) {
 
   const url = 'https://connect.timothystl.org/api/contracts/staff-role-v1';
   let res;
