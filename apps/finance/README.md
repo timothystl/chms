@@ -37,6 +37,19 @@ native `compensation-council-draft-service.js` model remains unused and disabled
 projection is now ported and shown below the plan and on the Council report, as described under
 `compensation-projection.js` below.
 
+Balance Sheet parity (September 26): the Balance Sheet section now shows everything Connect's
+legacy Balance Sheet & Financial Position tab shows, computed by the same exported functions. Position
+takes a `fiscal_year` selector and adds the Assets = Liabilities + Net assets check, the designated-funds
+note, the donor-restricted buckets with unclassified account names, asset composition, and a
+this-year-vs-last-year account comparison (a second single-year contract read). Account detail is the
+indented, rolled-up account tree with zero-balance lines hidden by default (`zero=show` shows them).
+Multi-year position takes a `from_year`/`to_year` window and adds the stacked assets/liabilities/net
+assets chart, cash and bank accounts over time, net worth and asset growth, the balance sheet vs.
+income statement tie-out, net assets by year, and a `format=csv` export. These read an additive
+extension of `connect.finance-balance-sheet-trend.v1` (per-year asset groups, cash, donor-restricted
+split, net income, and `pnlTieOut`); the consumer still accepts the older base-only shape. Charts are
+CSS only (no script), and the Position print sheet includes the filtered account detail.
+
 Remaining product gaps are distinct from storage cutover: some overview cards still use
 explicitly labeled fixture/unavailable fallbacks; the Commercial Property overview now reuses its
 reconciled live annual summary instead of re-summing nullable monthly rows, and Financial Health/

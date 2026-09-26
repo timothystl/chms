@@ -2,29 +2,153 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:timothy:connect:finance-balance-sheet-trend:v1",
   "title": "Connect Finance Balance Sheet Trend v1",
-  "description": "Every fiscal year on file (finance_church_balances), one bounded row per year -- the multi-year sibling of connect.finance-balance-sheet.v1. Unlike the single-year contract, this carries no per-account detail and no Donor-Restricted/Unrestricted equityReclass breakdown; it is the bounded trend shape backing the 'balance' section's 'multi-year' page (Fiscal year / As of / Assets / Liabilities / Net assets). No fiscal-year parameter: like Chart of Accounts' own whole-tree/no-params shape, this always names every distinct fiscal year present, ascending.",
+  "description": "Fiscal years from finance_church_balances, one bounded row per year -- the multi-year sibling of connect.finance-balance-sheet.v1. By default every distinct fiscal year present, ascending; an optional from_year/to_year query window (both or neither, at most 20 years) names exactly those years, gaps included. Producers since 2026-09-26 also carry an additive parity extension -- per-year current/fixed/other assets, hasBalanceSheet, a Donor-Restricted split, cash and bank accounts, and net income, plus root cashAccountCode and pnlTieOut -- computed by the same functions as Connect's legacy finance/church/balances/multi-year route. The extension is all-or-nothing: either the root has both extension keys and every year has every extension field, or none appear.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["contract", "dataClassification", "sourceProduct", "consumerProduct", "currency", "generatedAt", "years", "reconciliation"],
+  "required": [
+    "contract",
+    "dataClassification",
+    "sourceProduct",
+    "consumerProduct",
+    "currency",
+    "generatedAt",
+    "years",
+    "reconciliation"
+  ],
   "properties": {
-    "contract": { "const": "connect.finance-balance-sheet-trend.v1" },
-    "dataClassification": { "const": "aggregate" },
-    "sourceProduct": { "const": "connect" },
-    "consumerProduct": { "const": "finance" },
-    "currency": { "const": "USD" },
-    "generatedAt": { "type": "string", "format": "date-time" },
+    "contract": {
+      "const": "connect.finance-balance-sheet-trend.v1"
+    },
+    "dataClassification": {
+      "const": "aggregate"
+    },
+    "sourceProduct": {
+      "const": "connect"
+    },
+    "consumerProduct": {
+      "const": "finance"
+    },
+    "currency": {
+      "const": "USD"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
     "years": {
       "type": "array",
       "description": "Ascending by fiscalYear. May legitimately be empty when finance_church_balances has no rows at all.",
-      "items": { "$ref": "#/$defs/year" }
+      "items": {
+        "$ref": "#/$defs/year"
+      }
     },
     "reconciliation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["yearCount", "totalsMatch"],
+      "required": [
+        "yearCount",
+        "totalsMatch"
+      ],
       "properties": {
-        "yearCount": { "type": "integer", "minimum": 0, "description": "Must equal years.length." },
-        "totalsMatch": { "type": "boolean", "description": "True only when every year's balancedCents is exactly 0 -- computed honestly from the real per-year figures, not hardcoded, unlike the single-year contract's own always-true reconciliation.totalsMatch." }
+        "yearCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Must equal years.length."
+        },
+        "totalsMatch": {
+          "type": "boolean",
+          "description": "True only when every year's balancedCents is exactly 0 -- computed honestly from the real per-year figures, not hardcoded, unlike the single-year contract's own always-true reconciliation.totalsMatch."
+        }
+      }
+    },
+    "cashAccountCode": {
+      "type": "string",
+      "description": "The saved operating-cash account code (readCashPolicy); empty when none is pinned and checking accounts are matched by name."
+    },
+    "pnlTieOut": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rows",
+        "checked",
+        "matched",
+        "unexplained"
+      ],
+      "description": "computeBalanceVsPnlReconciliation over the listed years, with the year before the window read as opening net assets. One row per listed year that has a balance sheet.",
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "year",
+              "priorYear",
+              "equityCents",
+              "priorEquityCents",
+              "changeCents",
+              "netIncomeCents",
+              "differenceCents",
+              "status"
+            ],
+            "properties": {
+              "year": {
+                "type": "integer"
+              },
+              "priorYear": {
+                "type": "integer"
+              },
+              "equityCents": {
+                "type": "integer"
+              },
+              "priorEquityCents": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "changeCents": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "netIncomeCents": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "differenceCents": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "off",
+                  "no_prior_balance",
+                  "no_pnl"
+                ],
+                "description": "ok within the $1 tolerance, off beyond it; no_prior_balance when the year before has no balance sheet; no_pnl when the year has no income statement."
+              }
+            }
+          }
+        },
+        "checked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "matched": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unexplained": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     }
   },
@@ -32,18 +156,146 @@
     "year": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["fiscalYear", "asOfDate", "assetsCents", "liabilitiesCents", "equityCents", "netAssetsCents", "balancedCents"],
+      "required": [
+        "fiscalYear",
+        "asOfDate",
+        "assetsCents",
+        "liabilitiesCents",
+        "equityCents",
+        "netAssetsCents",
+        "balancedCents"
+      ],
       "properties": {
-        "fiscalYear": { "type": "integer", "minimum": 2000, "maximum": 2100 },
+        "fiscalYear": {
+          "type": "integer",
+          "minimum": 2000,
+          "maximum": 2100
+        },
         "asOfDate": {
           "type": "string",
           "description": "The raw \"As of ...\" label from the import that produced this fiscal year's snapshot. Empty string for a fiscal year with nothing imported. Confirmed 2026-09-14: NOT a consistently formatted date across fiscal years (FY2019-2025 store the literal placeholder string 'FY<year>'; only FY2026 stores a real formatted date) -- never parsed or date-sorted, only ordered by the real integer fiscalYear."
         },
-        "assetsCents": { "type": "integer", "description": "Sum of ownBalanceCents for every 'Assets' account in this fiscal year, group rows included, after the same applyDesignatedFundsAsEquity()/computeBalanceSummary() pipeline the single-year contract uses." },
-        "liabilitiesCents": { "type": "integer", "description": "Sum of ownBalanceCents for every 'Liabilities' account in this fiscal year, post-reclassification -- does not include the '25000 Funds' branch, which reads 'Equity' here." },
-        "equityCents": { "type": "integer", "description": "Sum of ownBalanceCents for every 'Equity' account in this fiscal year, post-reclassification -- includes the '25000 Funds' branch. Always equal to netAssetsCents." },
-        "netAssetsCents": { "type": "integer", "description": "Defined as equityCents (total equity after the Designated-Funds-as-Equity reclassification), matching what the single-year contract's own 'position' page already labels 'Net assets' and production's own legacy multi-year 'Net Worth Growth by Year' table -- never a separately recomputed assetsCents minus liabilitiesCents figure." },
-        "balancedCents": { "type": "integer", "description": "assetsCents - (liabilitiesCents + equityCents) for this fiscal year. Zero in a correctly balanced import; reported as-is, never hidden, when it is not." }
+        "assetsCents": {
+          "type": "integer",
+          "description": "Sum of ownBalanceCents for every 'Assets' account in this fiscal year, group rows included, after the same applyDesignatedFundsAsEquity()/computeBalanceSummary() pipeline the single-year contract uses."
+        },
+        "liabilitiesCents": {
+          "type": "integer",
+          "description": "Sum of ownBalanceCents for every 'Liabilities' account in this fiscal year, post-reclassification -- does not include the '25000 Funds' branch, which reads 'Equity' here."
+        },
+        "equityCents": {
+          "type": "integer",
+          "description": "Sum of ownBalanceCents for every 'Equity' account in this fiscal year, post-reclassification -- includes the '25000 Funds' branch. Always equal to netAssetsCents."
+        },
+        "netAssetsCents": {
+          "type": "integer",
+          "description": "Defined as equityCents (total equity after the Designated-Funds-as-Equity reclassification), matching what the single-year contract's own 'position' page already labels 'Net assets' and production's own legacy multi-year 'Net Worth Growth by Year' table -- never a separately recomputed assetsCents minus liabilitiesCents figure."
+        },
+        "balancedCents": {
+          "type": "integer",
+          "description": "assetsCents - (liabilitiesCents + equityCents) for this fiscal year. Zero in a correctly balanced import; reported as-is, never hidden, when it is not."
+        },
+        "currentAssetsCents": {
+          "type": "integer",
+          "description": "computeBalanceSummary's current assets (asset group name contains 'current'). Extension field."
+        },
+        "fixedAssetsCents": {
+          "type": "integer",
+          "description": "computeBalanceSummary's fixed assets (asset group name contains 'fixed'). Extension field."
+        },
+        "otherAssetsCents": {
+          "type": "integer",
+          "description": "assetsCents - currentAssetsCents - fixedAssetsCents. Extension field."
+        },
+        "hasBalanceSheet": {
+          "type": "boolean",
+          "description": "False for a gap year inside an explicit window (all figures zero). Extension field."
+        },
+        "equityReclass": {
+          "description": "computeEquityReclassification for the year, or null without a balance sheet. Extension field.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "donorRestrictedCents",
+                "unrestrictedCents",
+                "totalEquityCents",
+                "unclassifiedCount"
+              ],
+              "properties": {
+                "donorRestrictedCents": {
+                  "type": "integer"
+                },
+                "unrestrictedCents": {
+                  "type": "integer"
+                },
+                "totalEquityCents": {
+                  "type": "integer",
+                  "description": "Always equal to the year's equityCents."
+                },
+                "unclassifiedCount": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          ]
+        },
+        "cash": {
+          "description": "computeYearCashSummary for the year, or null without a balance sheet. Extension field.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "operatingCents",
+                "operatingAccounts",
+                "allCashCents",
+                "allCashAccounts"
+              ],
+              "properties": {
+                "operatingCents": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "operatingAccounts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "allCashCents": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "allCashAccounts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "netIncomeCents": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Net income from finance_church_entries (period_month=0, resolveChurchYearPrecedence + computeYearSummary), or null with no income statement. Extension field."
+        }
       }
     }
   }

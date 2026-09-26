@@ -91,7 +91,7 @@ import {
   postConnectPropertyReserveMonthlyRemove, postConnectPropertyReserveDisbursementWrite,
   postConnectPropertyReserveDisbursementRemove,
 } from './finance-property-reserves-client.js';
-import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
+import { resolveBalanceSheet, resolveBalanceSheetTrend, resolveBalanceSheetPriorYear, parseBalanceSelection } from './balance-sheet-service.js';
 import {
   postConnectChurchBalancesXlsxImport, postConnectChurchBalancesXlsxPreview,
   postConnectChurchBalancesXlsxCommit, postConnectChurchBalancesMultiYearXlsxImport,
@@ -145,7 +145,7 @@ import { escapeHtml, formatCents, formatSignedCents, renderDataUnavailablePage, 
 import { isSyntheticUnavailable, safeSyntheticRead } from './synthetic-read-guard.js';
 import { withLocalContractReads } from './local-contract-reads.js';
 import { renderChurchPage } from './church-pages.js';
-import { renderBalancePage } from './balance-pages.js';
+import { renderBalancePage, buildBalanceTrendCsv, BALANCE_STYLES } from './balance-pages.js';
 import { renderDaycarePage } from './daycare-pages.js';
 import { renderPropertyPage } from './property-pages.js';
 import { ACQUISITION_STYLES, renderAcquisitionPage } from './property-acquisition-pages.js';
@@ -938,6 +938,7 @@ function renderEntityCards(entities) {
 function renderSectionBody(ctx) {
   const {
     section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends,
+    balancePriorYear, balanceSelection,
     daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
     propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyDebt,
     propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, classification, compensationReport,
@@ -1196,7 +1197,9 @@ function renderSectionBody(ctx) {
     // Admin-only, like every import (see canImportChurchMultiYear above).
     const canImportBalanceMultiYear = roleResult.ok && roleResult.role === 'admin';
     return renderBalancePage(page.id, {
-      balanceSheet, balanceTrends, canManageBalanceImport, balanceXlsxImportStatus, balanceXlsxImportMessage,
+      balanceSheet, balanceTrends, balancePriorYear, selection: balanceSelection,
+      printMode: ctx.searchParams?.get('print') === '1',
+      canManageBalanceImport, balanceXlsxImportStatus, balanceXlsxImportMessage,
       canImportBalanceMultiYear, balanceMultiYearXlsxImportStatus, balanceMultiYearXlsxImportMessage,
     });
   }
@@ -1476,7 +1479,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/finance-mark.png"><link rel="apple-touch-icon" href="/assets/finance-icon.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}${ACQUISITION_STYLES}${PROPERTY_BOOKS_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}${ACQUISITION_STYLES}${PROPERTY_BOOKS_STYLES}${BALANCE_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -3488,6 +3491,22 @@ export default {
             { status: 403, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
           );
         }
+        // Balance Sheet's controls: snapshot year, trend window, and the account-detail zero toggle
+        // (GET parameters, since Finance pages run no script). Financial Health and the Board packet
+        // keep reading the current year.
+        const balanceSelection = section.id === 'balance' ? parseBalanceSelection(url.searchParams) : null;
+        // Multi-year position's "Export CSV" (Connect's finExportBalanceCsv): the same live-first
+        // trend the page shows, downloaded as text/csv, behind the same section check as the page.
+        if (section.id === 'balance' && url.searchParams.get('format') === 'csv') {
+          const trend = await safeSyntheticRead(() => resolveBalanceSheetTrend(env, env.FINANCE_DB, balanceSelection));
+          if (isSyntheticUnavailable(trend)) {
+            return response('Balance Sheet trend unavailable', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+          }
+          return response(buildBalanceTrendCsv(trend), { headers: {
+            'Content-Type': 'text/csv; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="balance-sheet-multi-year.csv"',
+          } });
+        }
         // Every conditional read below is wrapped in safeSyntheticRead() (see
         // synthetic-read-guard.js): production's real Finance D1 starts with zero
         // `source='synthetic_fixture'` rows, and several of these readers correctly throw when
@@ -3568,14 +3587,18 @@ export default {
         // resolveBoardPacketPosition) instead of its old separate synthetic `summary.balanceSheet`
         // aggregate -- not a new query-budget type, the same tradeoff as churchReportLive above.
         let balanceSheet = ['health', 'balance', 'packet'].includes(section.id)
-          ? safeSyntheticRead(() => resolveBalanceSheet(env, env.FINANCE_DB)) : null;
+          ? safeSyntheticRead(() => resolveBalanceSheet(env, env.FINANCE_DB, balanceSelection ? { fiscalYear: balanceSelection.fiscalYear } : {})) : null;
+        // Position's this-year-vs-last-year table reads the prior year too, like Connect's tab.
+        // Live-only and never throws; started now so it runs alongside every other read.
+        const balancePriorYearLoad = section.id === 'balance' && effectivePageId === 'position'
+          ? resolveBalanceSheetPriorYear(env, balanceSelection.fiscalYear) : null;
         // Multi-year position tries the real connect.finance-balance-sheet-trend.v1 endpoint first
         // and falls back to the same synthetic trend fixture, labeled, via resolveBalanceSheetTrend
         // -- same live-first pattern as resolveBalanceSheet just above. readSyntheticBalanceTrends
         // is still used internally by resolveBalanceSheetTrend's own fallback path, not called
         // directly here anymore.
         let balanceTrends = section.id === 'balance'
-          ? safeSyntheticRead(() => resolveBalanceSheetTrend(env, env.FINANCE_DB)) : null;
+          ? safeSyntheticRead(() => resolveBalanceSheetTrend(env, env.FINANCE_DB, balanceSelection)) : null;
         const daycareReport = null;
         // The 'daycare' section (Daycare Report itself) tries the real
         // connect.finance-daycare-report.v1 endpoint first and falls back to the same synthetic
@@ -3970,12 +3993,13 @@ export default {
         // Every load above started without waiting on the others; one slow Connect answer now
         // costs its own timeout once, not once per section read in turn.
         [summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle] = await Promise.all([summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle]);
+        const balancePriorYear = await balancePriorYearLoad;
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
           healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, boardLayout, planningBasis, planningScenarios, planningRunway, propertyBooks, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
-          balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
+          balanceSheet, balanceTrends, balancePriorYear, balanceSelection, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyDebt, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, classification, classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
           quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,

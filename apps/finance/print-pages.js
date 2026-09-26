@@ -7,6 +7,7 @@
 // page's own permission check and live/synthetic labels. The only script is the toolbar's
 // `window.print()` button, which is a convenience, not a builder.
 import { escapeHtml } from './render-helpers.js';
+import { BALANCE_STYLES } from './balance-pages.js';
 
 export const PRINT_STYLES = `
   body.print-body { background: #eef0ec; margin: 0; color: #172019; font: 11pt/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -65,7 +66,7 @@ export const PRINT_STYLES = `
 export const BOARD_PACKET_ITEMS = Object.freeze([
   { key: 'health', label: 'Financial Health', section: 'health', pages: ['overview'] },
   { key: 'church', label: 'Church Report (overview, detail, multi-year trend, budget vs actual)', section: 'church', pages: ['overview', 'income-expense', 'trend', 'budget-actual'] },
-  { key: 'balance', label: 'Balance Sheet (position and multi-year)', section: 'balance', pages: ['position', 'multi-year'] },
+  { key: 'balance', label: 'Balance Sheet (position with account detail, and multi-year)', section: 'balance', pages: ['position', 'multi-year'] },
   { key: 'daycare', label: 'Daycare Report (overview and budget comparison)', section: 'daycare', pages: ['overview', 'budget-comparison'] },
   { key: 'property', label: 'Commercial Property (overview, operating results, reserves, capital)', section: 'property', pages: ['overview', 'operating-results', 'reserve-distribution', 'capital'] },
   { key: 'budget', label: 'Budget', section: 'planning', pages: ['builder'] },
@@ -102,7 +103,7 @@ export function renderPrintDocument({ documentTitle, backHref, contentHtml, rele
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>${escapeHtml(documentTitle)} · Timothy Finance</title>
   <link rel="icon" href="/assets/finance-mark.png">
-  <style>${PRINT_STYLES}</style>
+  <style>${PRINT_STYLES}${BALANCE_STYLES}</style>
 </head>
 <body class="print-body">
   <div class="print-toolbar"><a href="${escapeHtml(backHref)}">← Back to Finance</a><button type="button" onclick="window.print()">Print / Save as PDF</button></div>

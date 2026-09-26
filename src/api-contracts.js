@@ -29,6 +29,7 @@ import {
   computeMdoUtilityInsuranceAllocation, computePropertyAnnualSummary,
   readCashPolicy, computeOperatingExpenseSplit, computeCashRunway,
   operatingCashFromBalanceSheet, operatingCashFromAccounts,
+  computeYearCashSummary, computeBalanceVsPnlReconciliation,
 } from './api-finance.js';
 import { resolveGeneralFundIds } from './api-utils.js';
 
@@ -911,11 +912,31 @@ export async function respondWithFinanceBalanceSheetV1(url, db) {
 // pick is needed today, unlike the synthetic fixture's own defensive MAX(as_of_date)), but this
 // contract deliberately never parses or date-sorts asOfDate -- `years` is ordered by the real
 // integer fiscalYear column instead.
-export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date() } = {}) {
-  const { results } = (await db.prepare(
-    `SELECT fiscal_year, as_of_date, classification, category_path, account_name, depth, has_children, own_balance_cents
-       FROM finance_church_balances ORDER BY fiscal_year, category_path`
-  ).all()) || {};
+//
+// Parity extension (2026-09-26): the trend now also carries everything Connect's legacy
+// `finance/church/balances/multi-year` route returns for its Balance Sheet & Financial Position
+// tab -- per-year current/fixed/other assets (computeBalanceSummary), the Donor-Restricted split
+// (computeEquityReclassification), cash & bank accounts (computeYearCashSummary with the saved
+// operating-cash account code from readCashPolicy), net income (resolveChurchYearPrecedence +
+// computeYearSummary over period_month=0 rows), and the balance sheet vs. income statement tie-out
+// (computeBalanceVsPnlReconciliation, with one year before the window read as opening equity).
+// Every figure comes from those same exported functions, in the same order as that route, so the
+// two apps can never quote different numbers. An optional from_year/to_year window mirrors the
+// legacy route's explicit ?years= range: it names exactly the years requested, gaps included (a
+// gap year has hasBalanceSheet false and null equityReclass/cash, like legacy's null entries).
+// Without a window the years are every fiscal year on file, as before.
+export const BALANCE_TREND_MAX_SPAN_YEARS = 20;
+export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date(), fromYear = null, toYear = null } = {}) {
+  const windowed = Number.isInteger(fromYear) && Number.isInteger(toYear);
+  const { results } = (windowed
+    ? await db.prepare(
+      `SELECT fiscal_year, as_of_date, classification, category_path, account_name, depth, has_children, own_balance_cents
+         FROM finance_church_balances WHERE fiscal_year BETWEEN ? AND ? ORDER BY fiscal_year, category_path`
+    ).bind(fromYear - 1, toYear).all()
+    : await db.prepare(
+      `SELECT fiscal_year, as_of_date, classification, category_path, account_name, depth, has_children, own_balance_cents
+         FROM finance_church_balances ORDER BY fiscal_year, category_path`
+    ).all()) || {};
   const rawRows = results || [];
 
   const rowsByYear = new Map();
@@ -924,13 +945,46 @@ export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date() } =
     rowsByYear.get(row.fiscal_year).push(row);
   }
 
-  const years = [...rowsByYear.keys()].sort((a, b) => a - b).map((fiscalYear) => {
-    const yearRawRows = rowsByYear.get(fiscalYear);
+  const yearList = windowed
+    ? Array.from({ length: toYear - fromYear + 1 }, (_, i) => fromYear + i)
+    : [...rowsByYear.keys()].sort((a, b) => a - b);
+
+  // Same one-year-earlier opening balance the legacy route reads, so the earliest year in the
+  // window can still be tied out instead of always reporting "no prior balance sheet".
+  const openingYear = yearList.length ? Math.min(...yearList) - 1 : null;
+  const summaryYears = openingYear == null || yearList.includes(openingYear) ? yearList : [...yearList, openingYear];
+  const summaryByYear = {};
+  const displayRowsByYear = {};
+  for (const year of summaryYears) {
     // Same transform-then-summarize order as buildFinanceBalanceSheetV1 above -- see that
     // function's own module comment for why this intentionally reproduces production's actual
     // route behavior rather than a separately "corrected" one.
-    const displayRows = applyDesignatedFundsAsEquity(yearRawRows);
-    const summary = computeBalanceSummary(displayRows);
+    displayRowsByYear[year] = applyDesignatedFundsAsEquity(rowsByYear.get(year) || []);
+    summaryByYear[year] = computeBalanceSummary(displayRowsByYear[year]);
+  }
+
+  const cashPolicy = yearList.length ? await readCashPolicy(db) : { cash_account_code: '' };
+  const netIncomeByYear = {};
+  if (yearList.length) {
+    const pnlRows = (await db.prepare(
+      `SELECT * FROM finance_church_entries WHERE fiscal_year IN (${yearList.map(() => '?').join(',')}) AND period_month=0`
+    ).bind(...yearList).all())?.results || [];
+    const resolvedPnl = resolveChurchYearPrecedence(pnlRows);
+    for (const year of yearList) {
+      const yearPnl = resolvedPnl.filter((r) => r.fiscal_year === year);
+      netIncomeByYear[year] = yearPnl.length ? computeYearSummary(yearPnl).netIncome.actualCents : null;
+    }
+  }
+  const tieOut = computeBalanceVsPnlReconciliation(yearList, summaryByYear, netIncomeByYear);
+
+  const years = yearList.map((fiscalYear) => {
+    const yearRawRows = rowsByYear.get(fiscalYear) || [];
+    const summary = summaryByYear[fiscalYear];
+    const hasBalanceSheet = yearRawRows.length > 0;
+    const equityReclass = hasBalanceSheet ? computeEquityReclassification(displayRowsByYear[fiscalYear]) : null;
+    // Assets-only (bank/cash accounts) and read from the raw rows, exactly like the legacy route --
+    // the Liabilities<->Equity reclassification never touches an Assets row either way.
+    const cash = hasBalanceSheet ? computeYearCashSummary(yearRawRows, cashPolicy.cash_account_code) : null;
     return {
       fiscalYear,
       asOfDate: yearRawRows[0]?.as_of_date || '',
@@ -939,6 +993,23 @@ export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date() } =
       equityCents: summary.equityCents,
       netAssetsCents: summary.equityCents,
       balancedCents: summary.balancedCents,
+      currentAssetsCents: summary.currentAssetsCents,
+      fixedAssetsCents: summary.fixedAssetsCents,
+      otherAssetsCents: summary.otherAssetsCents,
+      hasBalanceSheet,
+      equityReclass: equityReclass ? {
+        donorRestrictedCents: equityReclass.donorRestrictedCents,
+        unrestrictedCents: equityReclass.unrestrictedCents,
+        totalEquityCents: equityReclass.totalEquityCents,
+        unclassifiedCount: equityReclass.unclassified.length,
+      } : null,
+      cash: cash ? {
+        operatingCents: cash.operatingCents,
+        operatingAccounts: cash.operatingAccounts,
+        allCashCents: cash.allCashCents,
+        allCashAccounts: cash.allCashAccounts,
+      } : null,
+      netIncomeCents: netIncomeByYear[fiscalYear] ?? null,
     };
   });
 
@@ -950,6 +1021,22 @@ export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date() } =
     currency: 'USD',
     generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
     years,
+    cashAccountCode: cashPolicy.cash_account_code || '',
+    pnlTieOut: {
+      rows: tieOut.rows.map((r) => ({
+        year: r.year,
+        priorYear: r.prior_year,
+        equityCents: r.equity_cents,
+        priorEquityCents: r.prior_equity_cents,
+        changeCents: r.change_cents,
+        netIncomeCents: r.net_income_cents,
+        differenceCents: r.difference_cents,
+        status: r.status,
+      })),
+      checked: tieOut.checked,
+      matched: tieOut.matched,
+      unexplained: tieOut.unexplained,
+    },
     reconciliation: {
       yearCount: years.length,
       totalsMatch: years.every((y) => y.balancedCents === 0),
@@ -957,8 +1044,26 @@ export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date() } =
   };
 }
 
-export async function respondWithFinanceBalanceSheetTrendV1(db) {
-  const trend = await buildFinanceBalanceSheetTrendV1(db, { now: new Date() });
+// Optional from_year/to_year window (both or neither), bounded like the legacy range picker.
+export function parseBalanceSheetTrendWindow(url) {
+  const from = url?.searchParams?.get('from_year') ?? null;
+  const to = url?.searchParams?.get('to_year') ?? null;
+  if (from === null && to === null) return { ok: true, fromYear: null, toYear: null };
+  if (!isValidFiscalYearStr(from) || !isValidFiscalYearStr(to)) {
+    return { ok: false, error: 'from_year and to_year must both be 4-digit years' };
+  }
+  const fromYear = Number(from), toYear = Number(to);
+  if (fromYear > toYear) return { ok: false, error: 'from_year must not be after to_year' };
+  if (toYear - fromYear + 1 > BALANCE_TREND_MAX_SPAN_YEARS) {
+    return { ok: false, error: `request ${BALANCE_TREND_MAX_SPAN_YEARS} years or fewer at a time` };
+  }
+  return { ok: true, fromYear, toYear };
+}
+
+export async function respondWithFinanceBalanceSheetTrendV1(db, url = null) {
+  const window = parseBalanceSheetTrendWindow(url);
+  if (!window.ok) return json({ error: window.error }, 400);
+  const trend = await buildFinanceBalanceSheetTrendV1(db, { now: new Date(), fromYear: window.fromYear, toYear: window.toYear });
 
   // Fail closed, same discipline as the contracts above: this should never fire against real
   // data, and if it does, Finance must not see a malformed contract.
@@ -1854,7 +1959,7 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
     return respondWithFinanceBalanceSheetV1(url, db);
   }
   if (seg === 'contracts/finance-balance-sheet-trend-v1' && method === 'GET') {
-    return respondWithFinanceBalanceSheetTrendV1(db);
+    return respondWithFinanceBalanceSheetTrendV1(db, url);
   }
   if (seg === 'contracts/finance-daycare-report-v1' && method === 'GET') {
     return respondWithFinanceDaycareReportV1(url, db);
