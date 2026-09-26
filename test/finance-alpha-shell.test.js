@@ -1820,3 +1820,29 @@ describe('Finance alpha staging shell', () => {
     });
   });
 });
+
+describe('Finance page loads', () => {
+  it('asks Connect for every section read at once instead of one after another', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const CONNECT_SERVICE = {
+      async fetch(request) {
+        const { pathname } = new URL(request.url);
+        if (pathname === '/api/contracts/staff-role-v1') {
+          return new Response(JSON.stringify({ role: 'admin', identity: 'admin@example.org' }), { status: 200 });
+        }
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        inFlight -= 1;
+        return new Response('{}', { status: 503 });
+      },
+    };
+    const res = await worker.fetch(
+      new Request('https://finance.test/?section=health', { headers: { 'Cf-Access-Jwt-Assertion': 'jwt' } }),
+      { ...env, CONNECT_SERVICE, FINANCE_CONTRACT_API_KEY: 'test-key' },
+    );
+    expect(res.status).toBe(200);
+    expect(maxInFlight).toBeGreaterThan(2);
+  });
+});
