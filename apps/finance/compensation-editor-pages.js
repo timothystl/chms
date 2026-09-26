@@ -6,28 +6,28 @@
 // js-finance.js) -- council's real editing surface is only the five raise-plan fields
 // (COUNCIL_EDITABLE_FIELDS, api-finance.js), a different, narrower form, not this one.
 //
-// Scope of this first cut: name/position/account code/role/track/years/stipends/current-pay
-// override/FICA self-employment/dependents/health enrollment/hideFromCouncil, with computed LCMS
-// salary scale, employer FICA, and Concordia pension figures shown per worker (compensation-
-// calc.js, byte-verified against the legacy formulas). Per-worker health plan cost is NOT shown
-// here yet -- the legacy tool ties it to a per-worker coverage tier this editor doesn't collect
-// fields for yet; Benefits & taxes stays the synthetic, role-level page for that piece until a
-// follow-up adds real per-worker tier tracking.
+// Fields: name/position/account code/role/track/years/stipends/current-pay override/FTE/coverage
+// tier/hand-set opt-out and employee-only premium/FICA self-employment/dependents/health
+// enrollment/cash-only/externally funded/hideFromCouncil, with computed LCMS salary scale (using
+// the plan's own entered base salaries), employer FICA, and Concordia pension figures shown per
+// worker (compensation-calc.js, byte-verified against the legacy formulas). Raise methods,
+// reference figures, the health quote and Concordia ranges have their own forms in
+// compensation-settings-pages.js.
 import { escapeHtml, formatCents, renderSectionHeading } from './render-helpers.js';
 import {
   finComputeLcmsSalary, finDefaultSelfEmployedFica, finComputeEmployerFicaCents,
-  finConcordiaPensionRateFor, finComputePensionCents, LCMS_COMMISSIONED_TRACKS, LCMS_OTHER_WORKER_TRACKS,
+  finConcordiaPensionRateFor, finComputePensionCents, LCMS_COMMISSIONED_TRACKS, LCMS_OTHER_WORKER_TRACKS, FIN_HEALTH_TIERS,
 } from './compensation-calc.js';
 
 export function defaultCompensationTargetYear(now = new Date()) {
   return now.getUTCFullYear() + 1;
 }
 
-function computeWorkerFigures(w, targetYear) {
+function computeWorkerFigures(w, targetYear, referenceByYear) {
   const role = w.role === 'pastor' || w.role === 'commissioned' ? w.role : 'other';
   const salary = finComputeLcmsSalary({
     year: targetYear, role, trackKey: w.trackKey, yearsExperience: w.yearsExperience,
-    colaPct: 0, referenceByYear: {}, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus,
+    colaPct: 0, referenceByYear: referenceByYear || {}, responsibilityStipend: w.responsibilityStipend, attendanceBonus: w.attendanceBonus,
   });
   const computedCents = salary ? salary.salaryCents : null;
   const payCents = w.actualSalaryCents != null ? w.actualSalaryCents : computedCents;
@@ -38,9 +38,9 @@ function computeWorkerFigures(w, targetYear) {
   return { computedCents, payCents, ficaCents, pensionCents };
 }
 
-function renderRosterRow(w, index) {
+function renderRosterRow(w, index, referenceByYear) {
   const targetYear = defaultCompensationTargetYear();
-  const { computedCents, payCents, ficaCents, pensionCents } = computeWorkerFigures(w, targetYear);
+  const { computedCents, payCents, ficaCents, pensionCents } = computeWorkerFigures(w, targetYear, referenceByYear);
   return `<tr>
     <td>${escapeHtml(w.name || '(unnamed)')}</td>
     <td>${escapeHtml(w.position || '')}</td>
@@ -62,6 +62,11 @@ function renderTrackOptions(selected) {
     `<option value="${escapeHtml(key)}"${key === selected ? ' selected' : ''}>${escapeHtml(tracks[key].label)}</option>`).join('')}</optgroup>`;
   return `<option value=""${!selected ? ' selected' : ''}>— (pastor track, or unset)</option>`
     + group('Commissioned', LCMS_COMMISSIONED_TRACKS) + group('Other Church Worker', LCMS_OTHER_WORKER_TRACKS);
+}
+
+function renderTierOptions(selected) {
+  const choices = [['', 'Automatic (from enrollment and dependents)'], ...FIN_HEALTH_TIERS.map((t) => [t.key, t.label]), ['optout', 'Opts out (cash)']];
+  return choices.map(([key, label]) => `<option value="${key}"${(selected || '') === key ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
 }
 
 function renderWorkerForm(worker, index) {
@@ -87,10 +92,17 @@ function renderWorkerForm(worker, index) {
         <div class="field"><label for="cw-stipend">Responsibility stipend (fraction, e.g. 0.25)</label><input id="cw-stipend" type="number" name="responsibilityStipend" min="0" max="1" step="0.01" value="${w.responsibilityStipend != null ? escapeHtml(String(w.responsibilityStipend)) : '0'}"></div>
         <div class="field"><label for="cw-bonus">Attendance bonus (fraction, sole/senior pastor only)</label><input id="cw-bonus" type="number" name="attendanceBonus" min="0" max="1" step="0.01" value="${w.attendanceBonus != null ? escapeHtml(String(w.attendanceBonus)) : '0'}"></div>
         <div class="field"><label for="cw-pay">Current pay override ($, annual)</label><input id="cw-pay" type="number" name="actualSalary" min="0" step="1" value="${w.actualSalaryCents != null ? escapeHtml(String(Math.round(w.actualSalaryCents / 100))) : ''}" placeholder="blank = use the LCMS-computed figure"></div>
+        <div class="field"><label for="cw-fte">Full-time equivalent (%)</label><input id="cw-fte" type="number" name="ftePct" min="1" max="100" step="1" value="${w.ftePct != null ? escapeHtml(String(w.ftePct)) : '100'}"></div>
+        <div class="field"><label for="cw-tier">Health coverage tier</label><select id="cw-tier" name="healthTier">${renderTierOptions(w.healthTier)}</select></div>
+        <div class="field"><label for="cw-optout">Opt-out cash for this worker ($/yr)</label><input id="cw-optout" type="number" name="healthOptOutOverride" min="0" step="1" value="${w.healthOptOutOverrideCents != null ? escapeHtml(String(w.healthOptOutOverrideCents / 100)) : ''}" placeholder="blank = the year's opt-out figure"></div>
+        <div class="field"><label for="cw-eeprem">Employee-only premium ($/yr)</label><input id="cw-eeprem" type="number" name="employeeOnlyPremium" min="0" step="1" value="${w.employeeOnlyPremiumCents != null ? escapeHtml(String(w.employeeOnlyPremiumCents / 100)) : ''}" placeholder="blank = the quote's tier rate"></div>
       </div>
+      <input type="hidden" name="benefit_fields" value="1">
       <div class="field"><label><input type="checkbox" name="selfEmployedFica"${w.selfEmployedFica ? ' checked' : ''}> Self-employed for FICA/SECA (defaults by role if left unset on add)</label></div>
       <div class="field"><label><input type="checkbox" name="hasDependents"${w.hasDependents ? ' checked' : ''}> Has dependents</label></div>
       <div class="field"><label><input type="checkbox" name="healthEnrolled"${w.healthEnrolled ? ' checked' : ''}> Enrolled in the church health plan</label></div>
+      <div class="field"><label><input type="checkbox" name="cashOnly"${w.cashOnly ? ' checked' : ''}> Cash only (below the hours floor: no pension, disability or health)</label></div>
+      <div class="field"><label><input type="checkbox" name="externallyFunded"${w.externallyFunded ? ' checked' : ''}> Externally funded (left out of every church figure)</label></div>
       <div class="field"><label><input type="checkbox" name="hideFromCouncil"${w.hideFromCouncil ? ' checked' : ''}> Hide from council view</label></div>
       <button type="submit">${isEdit ? 'Save changes' : 'Add worker'}</button>
       ${isEdit ? ' <a href="/?section=compensation&page=plan">Cancel</a>' : ''}
@@ -108,8 +120,9 @@ export function renderCompensationPlanEditor(planData, editIndex, entryStatus, e
     ${entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : ''}
     ${renderSectionHeading({ eyebrow: 'Compensation Plan', heading: `Editable roster (FY${targetYear} LCMS scale)`, badge: 'Relayed live to Connect' })}
     <table><thead><tr><th>Name</th><th>Position</th><th>LCMS/entered salary</th><th>Used for FICA/pension</th><th>Employer FICA</th><th>Pension</th><th></th></tr></thead>
-    <tbody>${roster.length ? roster.map((w, i) => renderRosterRow(w, i)).join('') : '<tr><td colspan="7">No workers on this plan yet.</td></tr>'}</tbody></table>
+    <tbody>${roster.length ? roster.map((w, i) => renderRosterRow(w, i, planData.referenceByYear)).join('') : '<tr><td colspan="7">No workers on this plan yet.</td></tr>'}</tbody></table>
     <p><small>This writes directly into Connect's own <code>finance_salary_planner</code> plan -- the same one the legacy in-Connect Salary Planner edits. Every save fetches the current full plan first and resubmits it complete, so nothing else in the plan is lost. Only Connect's own admin/compensation roles may save; Connect independently re-verifies your identity and role for every request.</small></p>
     ${renderWorkerForm(editWorker, editIndex != null ? editIndex : null)}
+    <p><small>Raise methods are below. Reference figures, the health plan quote and each worker’s Concordia ranges are on <a href="/?section=compensation&amp;page=rates">Rates &amp; ranges</a>.</small></p>
   </section>`;
 }

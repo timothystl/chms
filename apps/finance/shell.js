@@ -42,6 +42,8 @@ import { PLANNING_WRITERS, canEditPlanning, readPlanningScenarios } from './plan
 import { PLANNING_V3_STYLES, renderForecastPage, renderScenariosPage } from './planning-v3-pages.js';
 import { describePlanningBasisFailure, fetchPlanningBasis } from './connect-planning-client.js';
 import { fetchBudgetBuilder } from './finance-budget-builder-client.js';
+import { fetchBoardLayout } from './finance-board-layout-client.js';
+import { buildBoardLayoutWrites, normalizeBoardLayout } from './board-layout.js';
 import { BUDGET_BUILDER_STYLES, renderBudgetBuilderPage } from './planning-builder-pages.js';
 import { fetchLiveFinanceCashRunway } from './finance-cash-runway-client.js';
 import { defaultLiveBudgetFiscalYear } from './finance-budget-client.js';
@@ -103,6 +105,10 @@ import {
 import { isBudgetPlanWritesEnabled, validateBudgetPlanRows, saveBudgetPlanRows } from './budget-plan-write-service.js';
 import { fetchConnectSalaryPlannerState, postConnectFinanceCompensationWrite } from './finance-compensation-client.js';
 import { buildCouncilOverlayFromForm, saveCouncilOverlay } from './compensation-council-overlay.js';
+import {
+  applyRaiseMethodsForm, applyReferenceForm, applyHealthQuoteForm, applyConcordiaRangesForm,
+  applyWorkerBenefitFields, planFormReturnLocation, PlanFormError,
+} from './compensation-plan-form.js';
 import {
   QB_PAGE, qbEnabled, readConnectionSummary as readQbConnectionSummary, listQuickbooksBudgets, handleConnect as handleQbConnect, handleCallback as handleQbCallback, handleDisconnect as handleQbDisconnect,
   handleSync as handleQbSync, handleSyncYears as handleQbSyncYears, handleBudgetSelect as handleQbBudgetSelect,
@@ -759,6 +765,9 @@ function describeCompensationEntryError(reason, message) {
     case 'network_error': return 'Could not reach Connect. Nothing was saved — please try again.';
     case 'invalid_json': return 'Connect returned an unexpected response. Nothing was confirmed as saved.';
     case 'invalid_index': return 'That worker no longer matches the current plan — reload and try again.';
+    case 'invalid_method': return 'That raise method is not one the planner knows. Nothing was saved.';
+    case 'invalid_year': return 'Choose a four-digit year for these figures. Nothing was saved.';
+    case 'invalid_plan_option': return 'That health plan option is not in the quote. Nothing was saved.';
     case 'http_error': return message ? String(message) : 'Connect refused the edit.';
     default: return 'The Compensation Plan edit was not saved.';
   }
@@ -791,7 +800,7 @@ function workerFromForm(form, existing) {
   w.hasDependents = form.get('hasDependents') === 'on';
   w.healthEnrolled = form.get('healthEnrolled') === 'on';
   w.hideFromCouncil = form.get('hideFromCouncil') === 'on';
-  return w;
+  return applyWorkerBenefitFields(w, form);
 }
 
 // Reindexes a per-worker override map (compPerWorkerMethod/compOverrides -- object keyed by roster
@@ -1269,6 +1278,8 @@ function renderSectionBody(ctx) {
       councilViewer: roleResult.ok && roleResult.role === 'council',
       canManageBudgetPlan: !councilPreview && roleResult.ok && roleResult.role === 'admin',
       tab: ctx.searchParams.get('tab'),
+      layout: ctx.boardLayout || null,
+      view: ctx.searchParams.get('view') === 'qb' ? 'qb' : 'board',
       statuses: { budgetEntryStatus, budgetEntryMessage, planOpKind, planOpStatus, planOpMessage, baseProjectionEntryStatus, baseProjectionEntryMessage },
     });
   }
@@ -1304,6 +1315,7 @@ function renderSectionBody(ctx) {
     return renderAccountsPage(page.id, {
       accountsReport, canManageBoardCategories, boardCategoryEntryStatus, boardCategoryEntryMessage,
       canManagePurposeTags, purposeTagsEntryStatus, purposeTagsEntryMessage,
+      boardLayout: ctx.boardLayout || null,
     });
   }
   if (section.id === 'compensation') {
@@ -1318,6 +1330,8 @@ function renderSectionBody(ctx) {
       entryStatus: compensationEntryStatus, entryMessage: compensationEntryMessage,
       canEditCouncilOverlay: roleResult.ok && roleResult.role === 'council' && roleResult.permissions?.compensation === 'edit',
       compensationProjection,
+      planYear: /^\d{4}$/.test(ctx.searchParams?.get('plan_year') || '') ? ctx.searchParams.get('plan_year') : null,
+      refYear: /^\d{4}$/.test(ctx.searchParams?.get('ref_year') || '') ? Number(ctx.searchParams.get('ref_year')) : null,
     });
   }
   if (section.id === 'quickbooks') {
@@ -2009,6 +2023,24 @@ export default {
         form = await request.formData();
       } catch {
         return response(null, { status: 303, headers: { Location: '/?section=accounts&status=error&reason=invalid_json' } });
+      }
+      const back = (params) => response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ section: 'accounts', page: 'chart', ...params }).toString()}#layout` } });
+      const kind = String(form.get('form_kind') || '');
+      // The Budget layout editor (accounts-pages.js): heading renames, or the changed rows of the
+      // account table -- see buildBoardLayoutWrites for how a row's changes become the merge bodies.
+      if (kind === 'headings' || kind === 'accounts') {
+        const { boardBody, tagsBody } = buildBoardLayoutWrites(form, kind);
+        if (boardBody) {
+          const result = await postConnectBoardCategoriesWrite(env, accessJwt, boardBody);
+          if (!result.ok) return back({ status: 'error', reason: result.reason || 'unknown', ...(result.message ? { message: String(result.message).slice(0, 200) } : {}) });
+        }
+        if (tagsBody) {
+          const result = await postConnectPurposeTagsWrite(env, accessJwt, tagsBody);
+          if (!result.ok) {
+            return back({ status: 'error', reason: result.reason || 'unknown', message: `${boardBody ? 'Categories and names were saved, but the purpose tags were not' : 'Purpose tags were not saved'}${result.message ? `: ${String(result.message).slice(0, 160)}` : '.'}` });
+          }
+        }
+        return back({ status: 'ok' });
       }
       const path = form.get('category_path') || '';
       const boardCategory = form.get('board_category') || '';
@@ -2772,6 +2804,24 @@ export default {
       const data = current.data && typeof current.data === 'object' ? { ...current.data } : {};
       const roster = Array.isArray(data.roster) ? [...data.roster] : [];
       const action = String(form.get('action') || 'add');
+
+      // Plan settings (compensation-plan-form.js): raise methods, a year's reference figures, the
+      // health quote, or one worker's Concordia ranges -- applied to the same freshly fetched plan.
+      const settingsWriters = { methods: applyRaiseMethodsForm, reference: applyReferenceForm, quote: applyHealthQuoteForm, ranges: applyConcordiaRangesForm };
+      if (settingsWriters[action]) {
+        let next;
+        try {
+          next = settingsWriters[action](data, form);
+        } catch (error) {
+          if (!(error instanceof PlanFormError)) throw error;
+          return response(null, { status: 303, headers: { Location: planFormReturnLocation(form, { status: 'error', reason: error.reason }) } });
+        }
+        const saved = await postConnectFinanceCompensationWrite(env, accessJwt, next);
+        if (saved.ok) return response(null, { status: 303, headers: { Location: planFormReturnLocation(form, { status: 'ok' }) } });
+        const extra = { status: 'error', reason: saved.reason || 'unknown' };
+        if (saved.message) extra.message = String(saved.message).slice(0, 200);
+        return response(null, { status: 303, headers: { Location: planFormReturnLocation(form, extra) } });
+      }
       const indexRaw = form.get('index');
       const index = indexRaw !== null && indexRaw !== '' ? Number(indexRaw) : null;
 
@@ -3469,6 +3519,10 @@ export default {
         const planningPageId = section.id === 'planning' ? resolveFinancePage(section, pageId).id : null;
         const planningV3 = ['scenarios', 'multi-year'].includes(planningPageId);
         const budgetBuilder = planningPageId === 'builder' ? await fetchBudgetBuilder(env, defaultLiveBudgetFiscalYear()) : null;
+        // The Chart of Accounts board layout (categories, headings, renames, purpose tags) lays out
+        // the Budget builder and is what the Chart of Accounts editor edits.
+        const boardLayoutResult = (planningPageId === 'builder' || section.id === 'accounts') ? await fetchBoardLayout(env) : null;
+        const boardLayout = boardLayoutResult && boardLayoutResult.ok ? normalizeBoardLayout(boardLayoutResult.layout) : null;
         const [planningBasis, planningScenarios, planningRunwayResult] = planningV3 ? await Promise.all([
           fetchPlanningBasis(env, defaultLiveBudgetFiscalYear()),
           safeSyntheticRead(async () => {
@@ -3526,7 +3580,7 @@ export default {
         // Plan and Council also show the raise projection (compensation-projection.js), so every
         // role allowed into this section reads the saved plan there; Connect's contract applies the
         // same role check and hides hideFromCouncil workers from council logins.
-        const compensationPlanRaw = (section.id === 'compensation' && ['plan', 'council', 'benefits', 'benchmarks'].includes(effectivePageId) && compensationRoleVerified)
+        const compensationPlanRaw = (section.id === 'compensation' && ['plan', 'council', 'benefits', 'benchmarks', 'rates'].includes(effectivePageId) && compensationRoleVerified)
           ? await fetchConnectSalaryPlannerState(env, request.headers.get('Cf-Access-Jwt-Assertion') || '') : null;
         const compensationProjection = compensationPlanRaw && compensationPlanRaw.ok && compensationPlanRaw.data
           ? await buildCompensationProjection(env, compensationPlanRaw.data, {
@@ -3774,7 +3828,7 @@ export default {
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
-          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, planningBasis, planningScenarios, planningRunway, searchParams: url.searchParams,
+          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, boardLayout, planningBasis, planningScenarios, planningRunway, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyDebt, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,

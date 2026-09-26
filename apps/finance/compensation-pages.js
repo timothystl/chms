@@ -5,6 +5,7 @@ import { escapeHtml, formatCents, renderKpiCards, renderSectionHeading, renderTa
 import { COUNCIL_COMP_METHODS, COUNCIL_COMP_METHOD_LABELS } from './compensation-council-overlay.js';
 import { renderCompensationPlanEditor } from './compensation-editor-pages.js';
 import { renderBenchmarksPage, renderBenefitsTaxesPage, renderCouncilReport, renderProjectionSummary } from './compensation-council-report.js';
+import { renderConcordiaRangesEditor, renderRaiseMethodsEditor, renderRatesPage } from './compensation-settings-pages.js';
 
 // Which plan year the projection is for; a plain GET form, so the choice is a link like any other.
 function renderPlanYearForm(pageId, projection) {
@@ -91,7 +92,7 @@ export function renderCouncilOverlayEditor(plan, entryStatus, entryMessage) {
 export function renderCompensationPage(pageId, {
   compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, viewerRole,
   compensationPlanRaw, canEditCompensation, editIndex, entryStatus, entryMessage, canEditCouncilOverlay = false,
-  compensationProjection = null,
+  compensationProjection = null, planYear = null, refYear = null,
 }) {
   // The real roster editor (compensation-editor-pages.js) takes over the Plan page entirely for
   // the admin/compensation roles it's built for, whenever shell.js's own fetch-edit-resubmit
@@ -103,7 +104,19 @@ export function renderCompensationPage(pageId, {
   // reads the synthetic role-level report at all.
   if (pageId === 'plan' && canEditCompensation && compensationPlanRaw && compensationPlanRaw.ok) {
     return renderCompensationPlanEditor(compensationPlanRaw.data, editIndex, entryStatus, entryMessage)
+      + renderRaiseMethodsEditor(compensationPlanRaw.data, compensationProjection, { planYear })
       + renderPlanProjection(compensationProjection, { councilDraft: false, viewerRole });
+  }
+  // Legacy's "This year's rates" and market comparison data: editable by admin/compensation,
+  // shown read-only to the other roles allowed to read the saved plan.
+  if (pageId === 'rates') {
+    if (compensationProjection && compensationProjection.ok && compensationPlanRaw && compensationPlanRaw.ok) {
+      return renderRatesPage(compensationProjection, compensationPlanRaw.data, {
+        canEdit: Boolean(canEditCompensation), refYear, planYear, entryStatus, entryMessage,
+      });
+    }
+    if (compensationProjection && !compensationProjection.ok) return renderProjectionUnavailable(compensationProjection);
+    return `<p class="status status-error">Rates &amp; ranges are part of the saved compensation plan, which could not be read${compensationPlanRaw && !compensationPlanRaw.ok ? `: ${escapeHtml(compensationPlanRaw.message || compensationPlanRaw.reason || 'unknown error')}` : ''}.</p>`;
   }
   const editUnavailableNote = (pageId === 'plan' && canEditCompensation && compensationPlanRaw && !compensationPlanRaw.ok)
     ? `<p class="status status-pending">Editing is unavailable right now: ${escapeHtml(compensationPlanRaw.message || compensationPlanRaw.reason || 'unknown error')}.</p>`
@@ -119,7 +132,12 @@ export function renderCompensationPage(pageId, {
   // and health quote, and each worker's Concordia Compensation Decision Support ranges. The
   // synthetic role-level fixtures below remain only for viewers the saved plan is not shown to.
   if (pageId === 'benchmarks' && compensationProjection && compensationProjection.ok) {
-    return renderPlanYearForm('benchmarks', compensationProjection) + renderBenchmarksPage(compensationProjection);
+    const rangesEditor = canEditCompensation && compensationPlanRaw && compensationPlanRaw.ok
+      ? renderConcordiaRangesEditor(compensationPlanRaw.data, compensationProjection.model, { planYear, canEdit: true, returnPage: 'benchmarks' })
+      : '';
+    const status = entryStatus === 'ok' ? '<p class="status">Saved in Connect.</p>'
+      : entryStatus === 'error' ? `<p class="status status-error">Not saved: ${escapeHtml(entryMessage || 'unknown error')}</p>` : '';
+    return status + renderPlanYearForm('benchmarks', compensationProjection) + renderBenchmarksPage(compensationProjection) + rangesEditor;
   }
   if (pageId === 'benefits' && compensationProjection && compensationProjection.ok) {
     return renderPlanYearForm('benefits', compensationProjection) + renderBenefitsTaxesPage(compensationProjection);

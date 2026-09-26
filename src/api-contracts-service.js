@@ -20,6 +20,7 @@ import { respondWithFinancePlanningBasisV1 } from './api-planning-contracts.js';
 import { respondWithFinanceAccessRolesV1 } from './api-access-contracts.js';
 import { respondWithFinanceBudgetBuilderV1 } from './api-budget-builder-contracts.js';
 import { respondWithFinanceClassificationV1 } from './api-classification-contracts.js';
+import { respondWithFinanceBoardLayoutV1 } from './api-board-layout-contracts.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
@@ -78,6 +79,12 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-chart-of-accounts-v1' && req.method === 'GET') {
     return respondWithFinanceChartOfAccountsV1(env.DB);
+  }
+
+  // Board layout (Finance v3): the saved board categories, heading/account renames and purpose
+  // tags that lay out the Budget builder and Chart of Accounts editor.
+  if (path === '/api/contracts/finance-board-layout-v1' && req.method === 'GET') {
+    return respondWithFinanceBoardLayoutV1(env.DB);
   }
 
   // Access & roles (Finance v3): the role matrix and role holders, identity-checked.

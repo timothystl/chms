@@ -377,7 +377,7 @@ export function renderBenchmarksPage({ model, computed, totals }) {
       { label: 'Cost to reach full scale', value: money(gap.totalCents), hint: gap.totalCents ? `${money(gap.salaryGapCents)} salary + ${money(gap.benefitsGapCents)} benefits` : 'Everyone is at or above scale' },
     ])}
     <div class="table-wrap"><table><thead><tr><th style="min-width:11rem">Worker</th><th class="num">FY${model.targetYear} salary</th><th class="num">District worksheet</th><th class="num">% of scale</th><th class="num">Concordia LCMS range</th><th class="num">LCMS midpoint</th><th>Reading</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <p><small>The district worksheet figure is the LCMS Missouri District Compensation Guidelines base salary for FY${model.targetYear} times each worker's role, education and experience multiplier. ${withReports} of ${model.countedEntries().length} workers have a Concordia Plans Compensation Decision Support report on file; when a report is re-run, update its figures in Connect's Compensation planner.</small></p>
+    <p><small>The district worksheet figure is the LCMS Missouri District Compensation Guidelines base salary for FY${model.targetYear} times each worker's role, education and experience multiplier. ${withReports} of ${model.countedEntries().length} workers have a Concordia Plans Compensation Decision Support report on file; when a report is re-run, update its figures under Market comparison data (on this page or Rates &amp; ranges).</small></p>
   </section>
   ${detail}`;
 }

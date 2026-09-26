@@ -143,6 +143,7 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
       { id: 'plan', label: 'Plan', status: 'live' },
       { id: 'benefits', label: 'Benefits & taxes', status: 'live' },
       { id: 'benchmarks', label: 'Benchmarks', status: 'live' },
+      { id: 'rates', label: 'Rates & ranges', status: 'live' },
       { id: 'council', label: 'Council report', status: 'live' },
     ],
   },
