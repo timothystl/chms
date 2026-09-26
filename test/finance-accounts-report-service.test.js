@@ -97,7 +97,7 @@ describe('resolveAccountsReport (live connect.finance-chart-of-accounts.v1 with 
     expect(result.rows).toEqual(rows);
   });
 
-  it('maps a live contract payload onto the exact row shape the synthetic reader produces', async () => {
+  it('maps an earlier year-less live payload onto the synthetic row shape, with its figures unknown', async () => {
     const env = {
       CONNECT_SERVICE: {
         async fetch() {
@@ -118,8 +118,10 @@ describe('resolveAccountsReport (live connect.finance-chart-of-accounts.v1 with 
     const result = await resolveAccountsReport(env, fixtureDb());
     expect(result.source).toBe('live');
     expect(result.fallbackReason).toBeUndefined();
+    expect(result.fiscalYear).toBeNull();
     expect(result.rows).toEqual([{
       classification: 'Income', category_path: 'Income:Offerings:General Fund', account_name: 'General Fund',
+      display_name: 'General Fund', actual_cents: null, budget_cents: null,
       board_category_key: 'donor', board_category_label: 'Donor', purpose_tag_id: null, purpose_tag_label: null,
     }]);
     // The mapped row shape must still satisfy buildAccountHierarchy/buildAccountsReportView unchanged.

@@ -8,6 +8,9 @@ const ROUTES = [
   { id: 'brand-asset', paths: ['/assets/finance-mark.png', '/assets/finance-icon.png', '/assets/fonts/hero-regular.woff2', '/assets/fonts/hero-bold.woff2', '/assets/fonts/outfit.woff2', '/assets/fonts/figtree.woff2'], dataSource: 'none' },
   { id: 'summary-v1', paths: ['/api/v1/summary'], dataSource: 'synthetic-d1', queryBudget: 'summary', contract: 'finance.summary.v1' },
   { id: 'giving-preview-v1', paths: ['/api/v1/connect-giving-preview'], dataSource: 'synthetic-static', contract: 'connect.giving-summary.v1' },
+  // Board packet JSON export from Data & Imports: reads connect.finance-board-packet.v1 and returns
+  // it as a download. Read-only; gated to viewers who may open Data & Imports.
+  { id: 'board-packet-export-v1', paths: ['/api/v1/board-packet-export'], dataSource: 'live-relay-read', contract: 'connect.finance-board-packet.v1' },
   { id: 'giving-transport-evidence-v1', paths: ['/api/v1/connect-giving-transport-evidence'], dataSource: 'synthetic-static', contract: 'finance.connect-giving-transport-evidence.v1' },
   // The one deliberate exception to "Finance is read-only": relays a gift entry to Connect's own
   // giving-quick-entry-v1 contract endpoint (never writes to Finance's own database). `writer: true`

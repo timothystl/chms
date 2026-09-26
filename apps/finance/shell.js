@@ -29,6 +29,9 @@ import { resolvePageRole } from './role-cache.js';
 import { PROPERTY_BOOKS_WRITERS, canEditPropertyBooks, readPropertyBooks } from './property-books-service.js';
 import { PROPERTY_BOOKS_STYLES, renderBankRecPage, renderReceivablesPage } from './property-books-pages.js';
 import { renderClassificationEditors } from './classification-pages.js';
+import { renderDataPage } from './data-pages.js';
+import { readQuickbooksSnapshot } from './quickbooks-snapshot-service.js';
+import { fetchDaycareChurchBudgetPreview, fetchFinanceBoardPacket, fetchFinanceImportStatus } from './finance-data-imports-client.js';
 import { ACCESS_STYLES, renderAccessPage } from './access-pages.js';
 import {
   GIVING_ANALYTICS_STYLES, renderConcentrationPage, renderHouseholdBandsPage, renderNudgesPage, renderPledgesPage, renderStatementsPage, renderTrendsPage,
@@ -66,9 +69,9 @@ import {
   postConnectChurchBudgetXlsxPreview, postConnectChurchBudgetXlsxCommit,
   postConnectChurchMultiPeriodXlsxPreview, postConnectChurchMultiPeriodXlsxCommit,
   postConnectChurchMonthlyXlsxImport, postConnectChurchActivityXlsxImport, postConnectChurchBudgetMultiYearXlsxImport,
-  fetchLiveFinanceChurchReport,
+  fetchLiveFinanceChurchReport, defaultLiveChurchReportFiscalYear,
 } from './finance-church-report-client.js';
-import { projectCompensation } from './compensation-projection.js';
+import { projectCompensation, centralDateParts } from './compensation-projection.js';
 import { defaultCompensationTargetYear } from './compensation-editor-pages.js';
 import {
   postConnectFinanceDaycareEntry, postConnectDaycareAllocationConfigWrite, postConnectDaycareBudgetOverrideWrite,
@@ -91,7 +94,7 @@ import {
   postConnectPropertyReserveMonthlyRemove, postConnectPropertyReserveDisbursementWrite,
   postConnectPropertyReserveDisbursementRemove,
 } from './finance-property-reserves-client.js';
-import { resolveBalanceSheet, resolveBalanceSheetTrend } from './balance-sheet-service.js';
+import { resolveBalanceSheet, resolveBalanceSheetTrend, resolveBalanceSheetPriorYear, parseBalanceSelection } from './balance-sheet-service.js';
 import {
   postConnectChurchBalancesXlsxImport, postConnectChurchBalancesXlsxPreview,
   postConnectChurchBalancesXlsxCommit, postConnectChurchBalancesMultiYearXlsxImport,
@@ -134,7 +137,9 @@ import {
 } from './property-ledger-write-service.js';
 import { buildLiveCashRunwayView, buildResolvedCashRunwayView, resolveCashRunway } from './cash-runway-service.js';
 import { buildFinancialMixView, buildLiveFinancialMixView } from './financial-mix-service.js';
-import { buildEntityOverview } from './entity-overview-service.js';
+import { buildEntityOverview, buildHealthEntityOverview } from './entity-overview-service.js';
+import { fetchLiveFinanceHealth } from './finance-health-client.js';
+import { HEALTH_PARITY_STYLES, renderCashRunwayCard, renderCashRunwayNotYetAvailable, renderHealthParity } from './health-parity-pages.js';
 import { buildOperatingBridge } from './operating-bridge-service.js';
 import { readSyntheticPropertyForecast, resolvePropertyForecast } from './property-forecast-service.js';
 import { readSyntheticCompensationBenchmarks } from './compensation-benchmark-service.js';
@@ -145,7 +150,7 @@ import { escapeHtml, formatCents, formatSignedCents, renderDataUnavailablePage, 
 import { isSyntheticUnavailable, safeSyntheticRead } from './synthetic-read-guard.js';
 import { withLocalContractReads } from './local-contract-reads.js';
 import { renderChurchPage } from './church-pages.js';
-import { renderBalancePage } from './balance-pages.js';
+import { renderBalancePage, buildBalanceTrendCsv, BALANCE_STYLES } from './balance-pages.js';
 import { renderDaycarePage } from './daycare-pages.js';
 import { renderPropertyPage } from './property-pages.js';
 import { ACQUISITION_STYLES, renderAcquisitionPage } from './property-acquisition-pages.js';
@@ -748,6 +753,12 @@ function describeDaycareRoomsSyncError(reason, message) {
 
 // The plan year the raise projection is for: ?plan_year=YYYY when given, else next year; the base
 // year it is compared against is the year before, as in legacy's Salary Planner.
+// Chart of Accounts' ?fiscal_year=, else the church's current calendar year (legacy's default).
+function chartOfAccountsFiscalYear(raw) {
+  const year = Number(raw);
+  return /^\d{4}$/.test(String(raw || '')) && year >= 2000 && year <= 2100 ? year : centralDateParts().year;
+}
+
 function compensationTargetYear(raw) {
   const year = Number(raw);
   return /^\d{4}$/.test(String(raw || '')) && year >= 2000 && year <= 2100 ? year : defaultCompensationTargetYear();
@@ -932,12 +943,13 @@ function budgetGrowthFraction(form) {
 }
 
 function renderEntityCards(entities) {
-  return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)} · ${entity.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>`).join('');
+  return entities.map((entity) => (entity.available === false ? renderUnavailableCard(`${entity.label} · ${entity.periodLabel}`, entity.unavailableNote) : `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)} · ${entity.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>`)).join('');
 }
 
 function renderSectionBody(ctx) {
   const {
     section, pageId, summary, giving, givingSource, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends,
+    balancePriorYear, balanceSelection,
     daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves, propertyReservesLive,
     propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyDebt,
     propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport, dataStatus, classification, compensationReport,
@@ -979,6 +991,7 @@ function renderSectionBody(ctx) {
     propertyBudgetImportStatus, propertyBudgetImportMessage,
     propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
     classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
+    importStatus, quickbooksSnapshot, daycarePreviewYear, daycarePreview, dataDaycareImportStatus, dataDaycareImportMessage,
     roleResult, councilPreview,
   } = ctx;
   if (section.id === 'health') {
@@ -1038,9 +1051,16 @@ function renderSectionBody(ctx) {
         } }
       : (propertyReportLive && !isSyntheticUnavailable(propertyReportLive) && !isSyntheticUnavailable(propertyReportLive.rows)
         ? { ...buildPropertyReportView(propertyReportLive.rows), source: 'synthetic-fallback' } : null);
-    const entities = (church && daycareEntity && propertyEntity)
-      ? buildEntityOverview({ church, daycare: daycareEntity, property: propertyEntity })
-      : null;
+    // connect.finance-health.v1 (see health-parity-pages.js): when it came back, the entity
+    // figures use Connect's legacy Financial Health periods and formulas -- this fiscal year's
+    // church ledger and this calendar year's daycare -- instead of each report's own period.
+    const financeHealthResult = ctx.financeHealth;
+    const liveHealth = financeHealthResult?.ok ? financeHealthResult.health : null;
+    const entities = liveHealth
+      ? buildHealthEntityOverview(liveHealth, propertyEntity)
+      : (church && daycareEntity && propertyEntity)
+        ? buildEntityOverview({ church, daycare: daycareEntity, property: propertyEntity })
+        : null;
     // Church operating bridge prefers the live church view instead: buildOperatingBridge reads only
     // fiscalYear/totals.{incomeActualCents,expenseActualCents,actualNetCents}, which is exactly what
     // buildLiveChurchReportView's output already provides (see church-report-service.js) -- no
@@ -1058,6 +1078,11 @@ function renderSectionBody(ctx) {
     if (!health.giving.reconciled) attentionItems.push('Giving totals do not reconcile yet — review before relying on them.');
     if (health.operating && health.operating.varianceCents < 0) attentionItems.push(`Operating result is ${formatSignedCents(health.operating.varianceCents)} behind budget.`);
     const unavailableNote = (what) => `<p class="status status-pending">${escapeHtml(what)} could not be read for this request. Nothing shown here is a real $0 or blank figure — see Data &amp; Imports.</p>`;
+    // A live runway Connect could not compute yet (no cash figure or no church expense actuals) is
+    // said in those words; a runway that could not be read at all says that instead.
+    const runwayNotYetAvailable = cashRunway && !isSyntheticUnavailable(cashRunway)
+      && cashRunway.source === 'live' && cashRunway.runway && !cashRunway.runway.available;
+    const runwayCard = runwayNotYetAvailable ? renderCashRunwayNotYetAvailable() : renderCashRunwayCard(runway);
     const healthView = resolveHealthView(ctx.healthView);
     if (healthView === 'summary') {
       return renderHealthSummary({ health, runway, mix, entities, incomeVsBudget: resolveIncomeVsBudget(churchReportLive), attentionItems });
@@ -1075,10 +1100,12 @@ function renderSectionBody(ctx) {
         ${health.position ? `<div class="card"><small>Financial position</small><strong>${formatCents(health.position.netAssetsCents)}</strong><span>Assets ${formatCents(health.position.assetsCents)} · liabilities ${formatCents(health.position.liabilitiesCents)} · ${health.position.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>` : renderUnavailableCard('Financial position')}
         <div class="card"><small>General Fund giving</small><strong>${formatCents(health.giving.netCents)}</strong><span>${health.giving.sourceRecordCount} aggregate records · ${health.giving.reconciled ? 'totals match' : 'review required'} · ${givingSource === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>
       </div>
+      ${liveHealth
+        ? renderHealthParity(liveHealth, { runwayCard, isAdmin: roleResult.ok && roleResult.role === 'admin', appeal: ctx.healthAppeal, flow: ctx.healthFlow, councilPreview })
+        : `<div class="section-heading trend-heading"><div><div class="eyebrow">Where the money comes from</div><h2>Revenue mix, streams, designated funds, money flow, engines, giving pace, fundraising and decisions</h2></div><span class="badge">Unavailable</span></div>
+      ${unavailableNote('The Financial Health figures from Connect')}
       <div class="section-heading trend-heading"><div><div class="eyebrow">Liquidity</div><h2>Operating cash runway</h2></div><span class="badge">${runway ? `As of ${escapeHtml(runway.asOfDate)}` : 'Unavailable'}</span></div>
-      ${runway
-        ? `<div class="grid"><div class="card"><small>Operating cash</small><strong>${formatCents(runway.operatingCashCents)}</strong><span>${escapeHtml(runway.accountName)} · ${runway.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div><div class="card"><small>Average monthly expense</small><strong>${formatCents(runway.monthlyExpenseCents)}</strong><span>FY${runway.fiscalYear} annualized expense ${formatCents(runway.annualExpenseCents)} · ${runway.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div><div class="card"><small>Expense coverage</small><strong>${runway.runwayMonths.toFixed(1)} months</strong><span>Cash divided by average monthly expense · read-only</span></div></div>`
-        : unavailableNote('Operating cash runway')}
+      <div class="hp">${runwayCard}</div>`}
       <div class="section-heading trend-heading"><div><div class="eyebrow">Operating mix</div><h2>Where money comes from and goes</h2></div><span class="badge">${mix ? `FY${mix.fiscalYear} · reconciled · ${isChurchLive ? 'Live from Connect' : 'Synthetic staging'}` : 'Unavailable'}</span></div>
       ${mix
         ? `<div class="grid"><div><h3>Revenue mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.income.items)}</tbody></table></div></div><div><h3>Expense mix</h3><div class="table-wrap"><table><thead><tr><th>Account</th><th>Amount</th><th>Share</th></tr></thead><tbody>${renderFinancialMixRows(mix.expenses.items)}</tbody></table></div></div></div>`
@@ -1093,7 +1120,7 @@ function renderSectionBody(ctx) {
         ? `<div class="grid"><div class="card"><small>1 · Income</small><strong>${formatCents(bridge.incomeCents)}</strong></div><div class="card"><small>2 · Expenses</small><strong>−${formatCents(bridge.expenseCents)}</strong></div><div class="card"><small>3 · ${bridge.resultLabel}</small><strong>${formatSignedCents(bridge.resultCents)}</strong><span>Income minus expenses</span></div></div>
       <p>This is an arithmetic operating bridge, not donor-to-expense tracing or a claim that particular revenue funded particular costs.</p>`
         : unavailableNote('The Church operating bridge')}
-      <div class="decision-grid">${FINANCE_HEALTH_DECISIONS.map((decision) => `<div class="decision"><small>${decision.stream}</small><b>${decision.authority}</b><span>${decision.action}</span></div>`).join('')}</div>
+      ${liveHealth ? '' : `<div class="decision-grid">${FINANCE_HEALTH_DECISIONS.map((decision) => `<div class="decision"><small>${decision.stream}</small><b>${decision.authority}</b><span>${decision.action}</span></div>`).join('')}</div>`}
     </section>`;
   }
   const page = resolveFinancePage(section, pageId);
@@ -1196,7 +1223,9 @@ function renderSectionBody(ctx) {
     // Admin-only, like every import (see canImportChurchMultiYear above).
     const canImportBalanceMultiYear = roleResult.ok && roleResult.role === 'admin';
     return renderBalancePage(page.id, {
-      balanceSheet, balanceTrends, canManageBalanceImport, balanceXlsxImportStatus, balanceXlsxImportMessage,
+      balanceSheet, balanceTrends, balancePriorYear, selection: balanceSelection,
+      printMode: ctx.searchParams?.get('print') === '1',
+      canManageBalanceImport, balanceXlsxImportStatus, balanceXlsxImportMessage,
       canImportBalanceMultiYear, balanceMultiYearXlsxImportStatus, balanceMultiYearXlsxImportMessage,
     });
   }
@@ -1224,6 +1253,7 @@ function renderSectionBody(ctx) {
       canManageDaycareBudgetOverride, daycareBudgetOverrideEntryStatus, daycareBudgetOverrideEntryMessage,
       daycareBulkEntryStatus, daycareBulkEntryMessage,
       daycareChurchBudgetImportEntryStatus, daycareChurchBudgetImportEntryMessage,
+      daycarePreviewYear, daycarePreview,
       canSyncDaycare: canRecordDaycareEntry, daycareSyncStatus, daycareSyncMessage,
       canSyncDaycareRooms, daycareRoomsSyncStatus, daycareRoomsSyncMessage,
     });
@@ -1344,6 +1374,9 @@ function renderSectionBody(ctx) {
       accountsReport, canManageBoardCategories, boardCategoryEntryStatus, boardCategoryEntryMessage,
       canManagePurposeTags, purposeTagsEntryStatus, purposeTagsEntryMessage,
       boardLayout: ctx.boardLayout || null,
+      // Payroll cost in Resources by Purpose: only for roles that may read the Compensation plan.
+      compensationProjection,
+      canReadCompensation: roleResult.ok && COMPENSATION_LIVE_ALLOWED_ROLES.includes(roleResult.role),
     });
   }
   if (section.id === 'compensation') {
@@ -1373,22 +1406,19 @@ function renderSectionBody(ctx) {
     return renderPacketPage({ churchReportLive, balanceSheetLive: balanceSheet, churchTrendLive, giving, givingSource });
   }
   if (section.id === 'data') {
-    const isLive = dataStatus.source === 'live';
-    const status = buildDataStatusView(dataStatus.row, new Date(), {
-      productionConnected: dataStatus.productionConnected,
-      writerConnected: dataStatus.writerConnected,
+    // Imports, removals and classification edits are admin-only on Connect's side (except the
+    // daycare hand-entry forms linked from here); this flag only decides what is offered.
+    const canManage = roleResult.ok && roleResult.role === 'admin';
+    return renderDataPage({
+      dataStatus, importStatus, quickbooksOwn: ctx.quickbooksOwn, quickbooksEnabled: !!ctx.quickbooksEnabled, quickbooksSnapshot,
+      daycarePreviewYear, daycarePreview, daycareImportStatus: dataDaycareImportStatus, daycareImportMessage: dataDaycareImportMessage,
+      canManage, packetYear: new Date().getUTCFullYear(),
+      classificationHtml: renderClassificationEditors(classification, {
+        canManage,
+        revenueStatus: classificationRevenueStatus, revenueMessage: classificationRevenueMessage,
+        expenseStatus: classificationExpenseStatus, expenseMessage: classificationExpenseMessage,
+      }),
     });
-    return `<section class="report" aria-label="${isLive ? 'Data and Imports Status' : 'Synthetic Data and Imports Status'}">
-      <div class="section-heading"><div><div class="eyebrow">Data &amp; Imports</div><h2>Source and isolation status</h2></div><span class="badge">${isLive ? 'Live from Connect' : 'Synthetic staging'}</span></div>
-      <div class="grid"><div class="card"><small>${isLive ? 'Import activity' : 'Fixture source'}</small><strong>${escapeHtml(status.source)}</strong><span>${escapeHtml(status.note)}</span></div><div class="card"><small>Production connection</small><strong>${status.productionConnected ? 'Connected' : 'Disconnected'}</strong></div><div class="card"><small>QuickBooks writer</small><strong>${status.writerConnected ? 'Connected' : 'Disconnected'}</strong><span>${isLive ? "Connect's real finance_qb_connection state" : 'No competing staging writer'}</span></div></div>
-      <div class="section-heading trend-heading"><div><div class="eyebrow">Source freshness</div><h2>${status.freshness === 'stale' ? `Review before relying on this ${isLive ? 'data' : 'fixture'}` : `${isLive ? 'Data' : 'Fixture'} is within the review window`}</h2></div><span class="badge">${status.freshness}</span></div>
-      <div class="grid"><div class="card"><small>${isLive ? 'Most recent import' : 'Last fixture import'}</small><strong>${escapeHtml(status.lastImportedAt)}</strong></div><div class="card"><small>Age at request</small><strong>${status.ageDays} days</strong><span>Policy window ${status.freshnessWindowDays} days</span></div></div>
-      <p><small>${isLive ? "Fetched live from Connect's real, aggregate-only finance-data-status contract endpoint." : `The committed synthetic fixture (the live endpoint is not configured or did not answer${dataStatus.fallbackReason ? `: ${escapeHtml(dataStatus.fallbackReason)}` : ''}).`}</small></p>
-    </section>${renderClassificationEditors(classification, {
-      canManage: roleResult.ok && roleResult.role === 'admin',
-      revenueStatus: classificationRevenueStatus, revenueMessage: classificationRevenueMessage,
-      expenseStatus: classificationExpenseStatus, expenseMessage: classificationExpenseMessage,
-    })}`;
   }
   if (section.id === 'payroll') {
     return renderPayrollSection(payrollBundle);
@@ -1476,7 +1506,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/finance-mark.png"><link rel="apple-touch-icon" href="/assets/finance-icon.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}${ACQUISITION_STYLES}${PROPERTY_BOOKS_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${HEALTH_PARITY_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}${ACQUISITION_STYLES}${PROPERTY_BOOKS_STYLES}${BALANCE_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -2797,10 +2827,14 @@ export default {
       }
       const body = { year: form.get('year') || '' };
       const result = await postConnectDaycareChurchBudgetImportWrite(env, accessJwt, body);
+      // The Data page's preview-then-import returns there; the Daycare page's returns to Actuals.
+      const back = form.get('return_to') === 'data'
+        ? { section: 'data', op: 'daycare-church-budget' }
+        : { section: 'daycare', page: 'actuals' };
       if (result.ok) {
-        return response(null, { status: 303, headers: { Location: '/?section=daycare&page=actuals&status=ok' } });
+        return response(null, { status: 303, headers: { Location: `/?${new URLSearchParams({ ...back, status: 'ok' }).toString()}#daycare-church-budget` } });
       }
-      const params = new URLSearchParams({ section: 'daycare', page: 'actuals', status: 'error', reason: result.reason || 'unknown' });
+      const params = new URLSearchParams({ ...back, status: 'error', reason: result.reason || 'unknown' });
       if (result.message) params.set('message', String(result.message).slice(0, 200));
       return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
     }
@@ -3364,6 +3398,26 @@ export default {
       return handleFacilitiesWrite(request, env, route.id, url);
     }
 
+    // Board packet JSON export (Connect's legacy finExportBoardPacket): the same packet, read through
+    // connect.finance-board-packet.v1, downloaded as a file. Anyone who may open Data & Imports may
+    // download it, matching the legacy finance/board-packet route's finance-access gate.
+    if (route.id === 'board-packet-export-v1') {
+      const json = (payload, status) => response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
+      const roleResult = await fetchVerifiedRole(env, request.headers.get('Cf-Access-Jwt-Assertion') || '');
+      const dataSection = FINANCE_PARITY_SECTIONS.find((s) => s.id === 'data');
+      if (!roleResult.ok || !roleCanAccessSection(roleResult.role, dataSection, roleResult.permissions)) return json({ error: 'Access denied' }, 403);
+      const rawYear = url.searchParams.get('year');
+      const year = rawYear ? Number(rawYear) : new Date().getUTCFullYear();
+      if (!Number.isInteger(year) || year < 2000 || year > 2100) return json({ error: 'year must be a 4-digit year' }, 400);
+      const result = await fetchFinanceBoardPacket(env, year);
+      if (!result.ok) return json({ error: 'The board packet could not be read from Connect right now.', reason: result.reason }, 502);
+      if (request.method === 'HEAD') return response(null, { headers: { 'Content-Type': 'application/json; charset=utf-8' } });
+      return response(JSON.stringify(result.packet, null, 2), { headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="board-packet-${year}.json"`,
+      } });
+    }
+
     // One attached Facilities photo or document, for a verified viewer of the Facilities section.
     // Built without response()'s page headers: a PDF must open in the browser's own viewer.
     if (route.id === 'facilities-file-v1') {
@@ -3488,6 +3542,22 @@ export default {
             { status: 403, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
           );
         }
+        // Balance Sheet's controls: snapshot year, trend window, and the account-detail zero toggle
+        // (GET parameters, since Finance pages run no script). Financial Health and the Board packet
+        // keep reading the current year.
+        const balanceSelection = section.id === 'balance' ? parseBalanceSelection(url.searchParams) : null;
+        // Multi-year position's "Export CSV" (Connect's finExportBalanceCsv): the same live-first
+        // trend the page shows, downloaded as text/csv, behind the same section check as the page.
+        if (section.id === 'balance' && url.searchParams.get('format') === 'csv') {
+          const trend = await safeSyntheticRead(() => resolveBalanceSheetTrend(env, env.FINANCE_DB, balanceSelection));
+          if (isSyntheticUnavailable(trend)) {
+            return response('Balance Sheet trend unavailable', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+          }
+          return response(buildBalanceTrendCsv(trend), { headers: {
+            'Content-Type': 'text/csv; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="balance-sheet-multi-year.csv"',
+          } });
+        }
         // Every conditional read below is wrapped in safeSyntheticRead() (see
         // synthetic-read-guard.js): production's real Finance D1 starts with zero
         // `source='synthetic_fixture'` rows, and several of these readers correctly throw when
@@ -3568,14 +3638,18 @@ export default {
         // resolveBoardPacketPosition) instead of its old separate synthetic `summary.balanceSheet`
         // aggregate -- not a new query-budget type, the same tradeoff as churchReportLive above.
         let balanceSheet = ['health', 'balance', 'packet'].includes(section.id)
-          ? safeSyntheticRead(() => resolveBalanceSheet(env, env.FINANCE_DB)) : null;
+          ? safeSyntheticRead(() => resolveBalanceSheet(env, env.FINANCE_DB, balanceSelection ? { fiscalYear: balanceSelection.fiscalYear } : {})) : null;
+        // Position's this-year-vs-last-year table reads the prior year too, like Connect's tab.
+        // Live-only and never throws; started now so it runs alongside every other read.
+        const balancePriorYearLoad = section.id === 'balance' && effectivePageId === 'position'
+          ? resolveBalanceSheetPriorYear(env, balanceSelection.fiscalYear) : null;
         // Multi-year position tries the real connect.finance-balance-sheet-trend.v1 endpoint first
         // and falls back to the same synthetic trend fixture, labeled, via resolveBalanceSheetTrend
         // -- same live-first pattern as resolveBalanceSheet just above. readSyntheticBalanceTrends
         // is still used internally by resolveBalanceSheetTrend's own fallback path, not called
         // directly here anymore.
         let balanceTrends = section.id === 'balance'
-          ? safeSyntheticRead(() => resolveBalanceSheetTrend(env, env.FINANCE_DB)) : null;
+          ? safeSyntheticRead(() => resolveBalanceSheetTrend(env, env.FINANCE_DB, balanceSelection)) : null;
         const daycareReport = null;
         // The 'daycare' section (Daycare Report itself) tries the real
         // connect.finance-daycare-report.v1 endpoint first and falls back to the same synthetic
@@ -3663,11 +3737,14 @@ export default {
         let planningBasis = after(planningLoads, (loads) => loads[0]);
         let planningScenarios = after(planningLoads, (loads) => loads[1]);
         let planningRunway = after(planningLoads, (loads) => (loads[2]?.ok ? buildLiveCashRunwayView(loads[2].runway) : null));
+        // Chart of Accounts shows one fiscal year, like legacy's tab: ?fiscal_year= or, by default,
+        // the church's current calendar year (no fallback to an older year; the page offers one).
+        const accountsFiscalYear = section.id === 'accounts' ? chartOfAccountsFiscalYear(url.searchParams.get('fiscal_year')) : null;
         let accountsReport = ['accounts', 'quickbooks'].includes(section.id)
-          ? safeSyntheticRead(() => resolveAccountsReport(env, env.FINANCE_DB)) : null;
+          ? safeSyntheticRead(() => resolveAccountsReport(env, env.FINANCE_DB, { fiscalYear: accountsFiscalYear })) : null;
         // Finance's own QuickBooks connection, once enabled (quickbooks-oauth-routes.js). The budget
         // list is a live QuickBooks call, so it is fetched only when an admin asks for it.
-        let quickbooksOwn = section.id === 'quickbooks' && qbEnabled(env) && env.FINANCE_DB
+        let quickbooksOwn = ['quickbooks', 'data'].includes(section.id) && qbEnabled(env) && env.FINANCE_DB
           ? safeSyntheticRead(() => readQbConnectionSummary(env.FINANCE_DB)) : null;
         let quickbooksBudgets = url.searchParams.get('budgets') === '1' && roleResult.ok && roleResult.role === 'admin'
           ? after(quickbooksOwn, (own) => (own && own.connected
@@ -3682,6 +3759,22 @@ export default {
           ? safeSyntheticRead(() => resolveDataStatus(env, env.FINANCE_DB)) : null;
         let classification = section.id === 'data'
           ? fetchFinanceClassification(env, defaultLiveBudgetFiscalYear()) : null;
+        // Data & Imports: per-importer staleness (connect.finance-import-status.v1), Finance's own
+        // QuickBooks connection and report cache (read-only -- never a QuickBooks call), and the
+        // MDO-from-Church-Budget preview, which the Daycare Report's Actuals page also offers.
+        let importStatus = section.id === 'data' ? fetchFinanceImportStatus(env) : null;
+        let quickbooksSnapshot = section.id === 'data' && qbEnabled(env) && env.FINANCE_DB
+          ? readQuickbooksSnapshot(env.FINANCE_DB).catch(() => ({ ok: false })) : null;
+        const daycarePreviewPage = section.id === 'data'
+          || (section.id === 'daycare' && resolveFinancePage(section, pageId).id === 'actuals');
+        const daycarePreviewYearRaw = daycarePreviewPage ? Number(url.searchParams.get('dc_cb_year')) : NaN;
+        const daycarePreviewYear = Number.isInteger(daycarePreviewYearRaw) && daycarePreviewYearRaw >= 2000 && daycarePreviewYearRaw <= 2100
+          ? daycarePreviewYearRaw : null;
+        let daycarePreview = daycarePreviewYear ? fetchDaycareChurchBudgetPreview(env, daycarePreviewYear) : null;
+        const dataDaycareImportStatus = section.id === 'data' && url.searchParams.get('op') === 'daycare-church-budget'
+          ? url.searchParams.get('status') : null;
+        const dataDaycareImportMessage = dataDaycareImportStatus === 'error'
+          ? describeDaycareChurchBudgetImportEntryError(url.searchParams.get('reason'), url.searchParams.get('message')) : null;
         const classificationOp = section.id === 'data' ? url.searchParams.get('op') : null;
         const classificationRevenueStatus = classificationOp === 'revenue-streams' ? url.searchParams.get('status') : null;
         const classificationRevenueMessage = classificationRevenueStatus === 'error'
@@ -3717,11 +3810,15 @@ export default {
         // Plan and Council also show the raise projection (compensation-projection.js), so every
         // role allowed into this section reads the saved plan there; Connect's contract applies the
         // same role check and hides hideFromCouncil workers from council logins.
-        let compensationPlanRaw = (section.id === 'compensation' && ['plan', 'council', 'benefits', 'benchmarks', 'rates'].includes(effectivePageId) && compensationRoleVerified)
+        // Chart of Accounts' Resources by Purpose also reads the plan (legacy counts each tagged
+        // worker's church cost there), under the same role check as the Compensation pages.
+        const accountsChartPayroll = section.id === 'accounts' && effectivePageId === 'chart' && compensationRoleVerified;
+        let compensationPlanRaw = ((section.id === 'compensation' && ['plan', 'council', 'benefits', 'benchmarks', 'rates'].includes(effectivePageId) && compensationRoleVerified) || accountsChartPayroll)
           ? fetchConnectSalaryPlannerState(env, request.headers.get('Cf-Access-Jwt-Assertion') || '') : null;
         let compensationProjection = after(compensationPlanRaw, (plan) => (plan && plan.ok && plan.data
           ? buildCompensationProjection(env, plan.data, {
-            targetYear: compensationTargetYear(url.searchParams.get('plan_year')),
+            // Legacy's purpose totals use the Salary Planner's target year, the year after the chart's.
+            targetYear: accountsChartPayroll ? accountsFiscalYear + 1 : compensationTargetYear(url.searchParams.get('plan_year')),
             councilView: effectivePageId === 'council' || roleResult.role === 'council',
           })
           : null));
@@ -3737,6 +3834,11 @@ export default {
           : null;
         let cashRunway = ['health', 'charts'].includes(section.id)
           ? safeSyntheticRead(() => resolveCashRunway(env, env.FINANCE_DB)) : null;
+        // Everything Connect's legacy Financial Health tab shows (connect.finance-health.v1). Always
+        // answered by Connect, since it needs Giving's rollups; a failure leaves the rest of the
+        // page standing and says so where these sections would have been.
+        let financeHealth = section.id === 'health'
+          ? fetchLiveFinanceHealth(env, defaultLiveChurchReportFiscalYear()) : null;
         const canManageCashPolicy = section.id === 'charts' && effectivePageId === 'cash-reserve'
           && roleResult.ok && roleResult.role === 'admin';
         const cashPolicyStatus = canManageCashPolicy && url.searchParams.get('op') === 'cash-policy'
@@ -3969,15 +4071,17 @@ export default {
           : null;
         // Every load above started without waiting on the others; one slow Connect answer now
         // costs its own timeout once, not once per section read in turn.
-        [summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle] = await Promise.all([summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle]);
+        [summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, importStatus, quickbooksSnapshot, daycarePreview, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle, financeHealth] = await Promise.all([summary, churchReport, churchReportLive, churchTrendLive, balanceSheet, balanceTrends, daycareReportLive, daycareEntries, propertyReport, propertyReserves, propertyLedgers, propertyValuation, propertyPolicy, propertyBooks, propertyDebt, propertyReportLive, propertyReservesLive, propertyLedgersLive, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, budgetBuilder, boardLayoutResult, boardLayout, planningBasis, planningScenarios, planningRunway, accountsReport, quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, dataStatus, classification, importStatus, quickbooksSnapshot, daycarePreview, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, compensationPlanRaw, compensationProjection, cashRunway, giving, givingSource, hr, givingBatch, accessRoles, givingAnalytics, givingAnalyticsPeople, facilities, payrollBundle, financeHealth]);
+        const balancePriorYear = await balancePriorYearLoad;
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
-          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, boardLayout, planningBasis, planningScenarios, planningRunway, propertyBooks, searchParams: url.searchParams,
+          healthView: url.searchParams.get('view'), healthAppeal: url.searchParams.get('appeal'), healthFlow: url.searchParams.get('flow'), financeHealth, facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, boardLayout, planningBasis, planningScenarios, planningRunway, propertyBooks, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
-          balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
+          balanceSheet, balanceTrends, balancePriorYear, balanceSelection, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyDebt, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
           dataStatus, classification, classificationRevenueStatus, classificationRevenueMessage, classificationExpenseStatus, classificationExpenseMessage,
+          importStatus, quickbooksSnapshot, daycarePreviewYear, daycarePreview, dataDaycareImportStatus, dataDaycareImportMessage, quickbooksEnabled: qbEnabled(env),
           quickbooksOwn, quickbooksBudgets, quickbooksTransactions, importHistory, compensationReport, compensationReportLive, compensationBenchmarks, compensationBenefits, cashRunway, canManageCashPolicy, cashPolicyStatus, cashPolicyMessage,
           compensationPlanRaw, canEditCompensation, compensationEditIndex, compensationEntryStatus, compensationEntryMessage,
     compensationProjection,

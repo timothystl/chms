@@ -7,7 +7,7 @@
 import { json } from './auth.js';
 import { validateConnectGivingSummaryV1 } from '../contracts/validators/connect-giving-consumer.js';
 import { validateFinanceDataStatusV1 } from '../contracts/validators/finance-data-status-consumer.js';
-import { validateFinanceChartOfAccountsV1 } from '../contracts/validators/finance-chart-of-accounts-consumer.js';
+import { validateFinanceChartOfAccountsV1, CHART_REVENUE_CLASSIFICATIONS } from '../contracts/validators/finance-chart-of-accounts-consumer.js';
 import { validateFinanceBudgetV1 } from '../contracts/validators/finance-budget-consumer.js';
 import { validateFinanceChurchReportV1 } from '../contracts/validators/finance-church-report-consumer.js';
 import { validateFinanceChurchReportTrendV1 } from '../contracts/validators/finance-church-report-trend-consumer.js';
@@ -29,6 +29,7 @@ import {
   computeMdoUtilityInsuranceAllocation, computePropertyAnnualSummary,
   readCashPolicy, computeOperatingExpenseSplit, computeCashRunway,
   operatingCashFromBalanceSheet, operatingCashFromAccounts,
+  computeYearCashSummary, computeBalanceVsPnlReconciliation,
 } from './api-finance.js';
 import { resolveGeneralFundIds } from './api-utils.js';
 
@@ -297,25 +298,36 @@ export async function respondWithFinanceCashRunwayV1(url, db) {
 }
 
 // Third real slice of Finance separation: the Chart of Accounts section's account tree,
-// board-category assignment, and purpose tags have stood in on synthetic fixture data since the
-// staging rewrite began (see apps/finance/README.md's alpha.28/alpha.35 notes). This assembles the
-// real thing from three existing production sources — the church ledger's own account inventory
-// (finance_church_entries) plus the two finance_settings blobs the Chart of Accounts page itself
-// already reads and writes (readPlanningBoardCategories, readPurposeTags, both hoisted to module
-// scope in api-finance.js for this reuse). No dollar figure crosses this contract at all — only
-// account names, QuickBooks-derived category paths, and Finance's own categorization of them —
-// which is why dataClassification is 'structural' rather than 'aggregate' (contrast the Giving and
-// Data-status contracts above, which do aggregate money).
+// board-category assignment, and purpose tags. Assembled from the church ledger's own account
+// inventory (finance_church_entries) plus the two finance_settings blobs the legacy Chart of
+// Accounts page itself reads and writes (readPlanningBoardCategories, readPurposeTags, both
+// hoisted to module scope in api-finance.js for this reuse).
 //
-// An account with no board-category assignment yet (Chart of Accounts has historically been
-// filled in gradually, one account at a time — see api-finance.js's own comment on that page) is
-// reported as boardCategoryKey 'unassigned' / boardCategoryLabel 'Unassigned' rather than omitted
-// or guessed at; reconciliation.unassignedCount makes that count visible to any caller rather than
-// silently folding it into a category it was never actually given.
+// Year-scoped, like legacy's Chart of Accounts tab: that tab lists the leaves of ONE fiscal
+// year's ledger tree (finLoadPlanning -> church/this-year?year=, the calendar year by default),
+// picked with the same resolveChurchYearPrecedence() rule buildChurchThisYear applies, so an
+// account present only in a losing source for that year is not listed. `fiscal_year` names the
+// year; without it the church's current calendar year (Central time) is used, matching legacy's
+// default. Legacy does not fall back to an older year when the current one has no rows, so
+// neither does this contract -- availableFiscalYears lists the years that do have rows, so the
+// caller can offer them instead.
+//
+// Each account carries its own actual/budget for that year (own_actual_cents/own_budget_cents,
+// the same per-account figures the Church Report contract carries), which is why this contract
+// is 'aggregate' rather than 'structural'. It still carries no gift, donor, or person. Every P&L
+// classification is included -- Other Income, Other Expenses and Cost of Goods Sold as well as
+// Income/Expenses -- because legacy's tab lists every leaf of the tree; Income and Other Income
+// are the revenue side (legacy FIN_REVENUE_CLASSES), everything else the expense side.
+//
+// An account with no saved board category is reported as boardCategoryKey 'unassigned' /
+// boardCategoryLabel 'Unassigned' rather than guessed at here; the consumer applies legacy's
+// name-based default (apps/finance/board-layout.js). displayName is the saved Chart of Accounts
+// rename (accountLabels) or, with none saved, the QuickBooks account name.
 const REVENUE_STREAM_DEFAULT_LABELS = { donor: 'Donor', earned: 'Earned', passive: 'Passive', restricted: 'Restricted' };
+const CHART_CLASSIFICATIONS = new Set(['Income', 'Other Income', 'Cost of Goods Sold', 'Expenses', 'Other Expenses']);
 
 function resolveAccountCategory(classification, categoryPath, boardCategories) {
-  const isIncome = classification === 'Income';
+  const isIncome = CHART_REVENUE_CLASSIFICATIONS.has(classification);
   const assignments = isIncome ? boardCategories.revenue : boardCategories.expense;
   const customLabels = isIncome ? boardCategories.revenueLabels : boardCategories.expenseLabels;
   const validKeys = isIncome ? REVENUE_STREAMS : BOARD_EXPENSE_CATEGORIES.map((c) => c.key);
@@ -329,46 +341,48 @@ function resolveAccountCategory(classification, categoryPath, boardCategories) {
   return { key: 'unassigned', label: 'Unassigned' };
 }
 
-// Pure apart from the two bounded reads: one SELECT over finance_church_entries (each leaf's most
-// recently synced/imported classification, path, name, depth -- ROW_NUMBER() over category_path
-// picks the latest row so a renamed or re-imported account never shows a stale account_name) plus
-// the two existing finance_settings reads Chart of Accounts already performs. Scoped to Income and
-// Expenses only, matching both the existing Chart of Accounts page and apps/finance's synthetic
-// fixture -- balance-sheet accounts (Assets/Liabilities/Equity) carry no board-category concept in
-// production today and are out of scope for this contract.
-export async function buildFinanceChartOfAccountsV1(db, { now = new Date() } = {}) {
+// The church's own calendar year, for the default fiscal year (legacy used the viewer's clock).
+export function currentChurchFiscalYear(now = new Date()) {
+  return Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric' }).format(now));
+}
+
+export async function buildFinanceChartOfAccountsV1(db, { fiscalYear, now = new Date() } = {}) {
+  const year = Number.isInteger(fiscalYear) ? fiscalYear : currentChurchFiscalYear(now);
+  // ORDER BY id keeps the ledger's own import order, the order legacy's unordered read returned.
   const { results } = (await db.prepare(
-    `SELECT classification, category_path, account_name, depth, has_children FROM (
-       SELECT classification, category_path, account_name, depth, has_children,
-              ROW_NUMBER() OVER (
-                PARTITION BY category_path
-                ORDER BY synced_at DESC, fiscal_year DESC, period_month DESC, id DESC
-              ) AS rn
-         FROM finance_church_entries
-        WHERE classification IN ('Income','Expenses')
-     )
-     WHERE rn = 1
-     ORDER BY classification, category_path`
-  ).all()) || {};
-  const rows = results || [];
+    `SELECT fiscal_year, classification, category_path, account_name, depth, has_children, own_actual_cents, own_budget_cents, source
+       FROM finance_church_entries WHERE fiscal_year = ? AND period_month = 0 ORDER BY id`
+  ).bind(year).all()) || {};
+  const rows = resolveChurchYearPrecedence(results || []).filter((row) => CHART_CLASSIFICATIONS.has(row.classification));
+  const yearRows = (await db.prepare(
+    'SELECT DISTINCT fiscal_year FROM finance_church_entries WHERE period_month = 0 ORDER BY fiscal_year DESC'
+  ).all())?.results || [];
+  const availableFiscalYears = yearRows.map((r) => Number(r.fiscal_year)).filter((y) => Number.isInteger(y));
 
   const boardCategories = await readPlanningBoardCategories(db);
   const purposeTags = await readPurposeTags(db);
   const tagLabelById = new Map(purposeTags.tags.map((t) => [t.id, t.label]));
 
-  let incomeCount = 0, expenseCount = 0, unassignedCount = 0;
+  const counts = { Income: 0, Expenses: 0, 'Other Income': 0, 'Other Expenses': 0, 'Cost of Goods Sold': 0 };
+  let unassignedCount = 0, revenueActualCents = 0, expenseActualCents = 0;
   const accounts = rows.map((row) => {
     const category = resolveAccountCategory(row.classification, row.category_path, boardCategories);
-    if (row.classification === 'Income') incomeCount++; else expenseCount++;
+    counts[row.classification]++;
     if (category.key === 'unassigned') unassignedCount++;
+    const actualCents = row.own_actual_cents || 0;
+    if (CHART_REVENUE_CLASSIFICATIONS.has(row.classification)) revenueActualCents += actualCents; else expenseActualCents += actualCents;
     const rawTagId = purposeTags.categories[row.category_path];
     const hasTag = typeof rawTagId === 'string' && tagLabelById.has(rawTagId);
+    const rename = boardCategories.accountLabels[row.category_path];
     return {
       classification: row.classification,
       categoryPath: row.category_path,
       accountName: row.account_name,
+      displayName: typeof rename === 'string' && rename.trim() !== '' ? rename : row.account_name,
       depth: row.depth,
       hasChildren: Boolean(row.has_children),
+      actualCents,
+      budgetCents: row.own_budget_cents === null || row.own_budget_cents === undefined ? null : row.own_budget_cents,
       boardCategoryKey: category.key,
       boardCategoryLabel: category.label,
       purposeTagId: hasTag ? rawTagId : null,
@@ -378,22 +392,36 @@ export async function buildFinanceChartOfAccountsV1(db, { now = new Date() } = {
 
   return {
     contract: 'connect.finance-chart-of-accounts.v1',
-    dataClassification: 'structural',
+    dataClassification: 'aggregate',
     sourceProduct: 'connect',
     consumerProduct: 'finance',
     generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    fiscalYear: year,
+    availableFiscalYears,
     accounts,
     reconciliation: {
       accountCount: accounts.length,
-      incomeCount,
-      expenseCount,
+      incomeCount: counts.Income,
+      expenseCount: counts.Expenses,
+      otherIncomeCount: counts['Other Income'],
+      otherExpenseCount: counts['Other Expenses'],
+      costOfGoodsSoldCount: counts['Cost of Goods Sold'],
       unassignedCount,
+      revenueActualCents,
+      expenseActualCents,
     },
   };
 }
 
-export async function respondWithFinanceChartOfAccountsV1(db) {
-  const chartOfAccounts = await buildFinanceChartOfAccountsV1(db, { now: new Date() });
+export async function respondWithFinanceChartOfAccountsV1(url, db) {
+  const fiscalYearStr = url?.searchParams?.get('fiscal_year') ?? null;
+  if (fiscalYearStr !== null && !isValidFiscalYearStr(fiscalYearStr)) {
+    return json({ error: 'fiscal_year must be a 4-digit year' }, 400);
+  }
+  const now = new Date();
+  const chartOfAccounts = await buildFinanceChartOfAccountsV1(db, {
+    fiscalYear: fiscalYearStr === null ? currentChurchFiscalYear(now) : Number(fiscalYearStr), now,
+  });
 
   // Fail closed, same discipline as the two contracts above: this should never fire against real
   // data, and if it does, Finance must not see a malformed contract.
@@ -405,11 +433,11 @@ export async function respondWithFinanceChartOfAccountsV1(db) {
   return json(chartOfAccounts);
 }
 
-// Fourth real slice of Finance separation: Budget. Unlike Chart of Accounts (structural-only,
-// no dollar figure), production's Church Budget Planning is a real per-category, per-fiscal-year
-// dollar plan (`finance_budget_plan` -- see src/api-finance.js's "Church Budget Planning" comment
-// block for the full generate/override/commit workflow), so this contract carries real money and
-// is 'aggregate', matching Giving and Data-status rather than Chart of Accounts.
+// Fourth real slice of Finance separation: Budget. Unlike Chart of Accounts' original
+// structural-only shape, production's Church Budget Planning is a real per-category,
+// per-fiscal-year dollar plan (`finance_budget_plan` -- see src/api-finance.js's "Church Budget
+// Planning" comment block for the full generate/override/commit workflow), so this contract carries
+// real money and is 'aggregate', matching Giving and Data-status.
 //
 // finance_budget_plan's schema is confirmed byte-for-byte identical between production
 // (src/db.js) and apps/finance's own migration (apps/finance/migrations/0001_finance_foundation.sql)
@@ -478,24 +506,24 @@ export async function buildFinanceBudgetV1(db, { fiscalYear, now = new Date() })
 }
 
 // Fifth real slice of Finance separation: Church Report. This is the SAME finance_church_entries
-// table Chart of Accounts already reads, scoped to one fiscal year and carrying the real
-// actual/budget dollar figures Chart of Accounts deliberately excludes -- so this contract is
-// 'aggregate' (real money crosses it), like Giving and Budget, rather than 'structural' like Chart
-// of Accounts.
+// table Chart of Accounts reads, scoped to one fiscal year and carrying the real actual/budget
+// dollar figures -- so this contract is 'aggregate' (real money crosses it), like Giving and
+// Budget. (Chart of Accounts was structural-only when this was written; it now carries each
+// account's own year figures too, picked with the same precedence rule below.)
 //
 // Deliberately reuses resolveChurchYearPrecedence() and computeYearSummary() -- the exact
 // functions production's own Church Report / Financial Health / Budget-planning pages already
 // call (see src/api-finance.js's buildChurchThisYear) -- rather than re-deriving the winning
 // source with a query of its own. That distinction is real, not stylistic: Chart of Accounts'
-// producer picks each ACCOUNT's own latest row across all sources (ROW_NUMBER() PARTITION BY
-// category_path), but Church Report must pick one source WHOLESALE per fiscal year the way
+// original producer picked each ACCOUNT's own latest row across all sources (ROW_NUMBER() PARTITION
+// BY category_path), but Church Report must pick one source WHOLESALE per fiscal year the way
 // production's precedence rule does. A direct 2026-09-14 check of production found FY2026 has
 // both an 'import' source (98 rows, the most recent single-year upload) and an 'import_activity'
 // source (126 rows, the multi-year upload) on file for the same year; CHURCH_SOURCE_PRIORITY picks
 // 'import' wholesale for FY2026, so the 28 accounts present only in 'import_activity' correctly do
-// not appear in this year's report at all. Reusing Chart of Accounts' per-account "latest row
-// wins" query here would have silently included them and produced a different, wrong total than
-// the page staff already look at today.
+// not appear in this year's report at all. Reusing that per-account "latest row wins" query here
+// would have silently included them and produced a different, wrong total than the page staff
+// already look at today.
 //
 // own_budget_cents is genuinely nullable per account in real data -- confirmed 2026-09-14: even
 // within a single winning year/source, some accounts carry a real actual with no budget entered at
@@ -508,7 +536,7 @@ export async function buildFinanceBudgetV1(db, { fiscalYear, now = new Date() })
 //
 // classification also carries every section finance_church_entries can actually hold: production
 // has real 'Other Income' and 'Other Expenses' rows today (confirmed 2026-09-14), not only
-// 'Income'/'Expenses' the way Chart of Accounts deliberately scopes to. 'Cost of Goods Sold' is
+// 'Income'/'Expenses' the way Chart of Accounts originally scoped to. 'Cost of Goods Sold' is
 // included defensively -- a valid QuickBooks section this church has simply never posted to (zero
 // rows today), not one the schema forbids.
 //
@@ -520,8 +548,8 @@ export async function buildFinanceBudgetV1(db, { fiscalYear, now = new Date() })
 // of Goods Sold - Expenses, plus Other Income - Other Expenses) -- the same figure production's own
 // "Net income" card shows, never recomputed independently here.
 //
-// Modeled on Giving/Budget's real-money shape rather than Chart of Accounts' whole-tree/no-params
-// shape: Church Report is naturally scoped to one fiscal year the way a budget plan is (there is no
+// Modeled on Giving/Budget's real-money shape rather than Chart of Accounts' original
+// whole-tree/no-params shape: Church Report is naturally scoped to one fiscal year the way a budget plan is (there is no
 // single "the" report the way there is a single account tree), so the caller names the year, and a
 // year with no rows yet answers with a valid, empty-accounts contract rather than a 404.
 export async function buildFinanceChurchReportV1(db, { fiscalYear, now = new Date() }) {
@@ -630,7 +658,7 @@ export async function respondWithFinanceChurchReportV1(url, db) {
 // must pick a source WHOLESALE per year, not per account). This contract applies that exact same
 // resolveChurchYearPrecedence()/computeYearSummary() pair independently to EVERY fiscal year found
 // in finance_church_entries, rather than re-deriving a "latest row wins" trend of its own the way
-// Chart of Accounts' per-account query does -- the same reasoning, just repeated once per year
+// Chart of Accounts' original per-account query did -- the same reasoning, just repeated once per year
 // instead of once. It takes no query parameters (unlike the single-year contract): the trend is
 // inherently the whole multi-year history, not one period a caller names.
 //
@@ -747,7 +775,7 @@ export async function respondWithFinanceChurchReportTrendV1(db) {
 // account balances, one balance per account per fiscal year, read from the separate
 // finance_church_balances table (migrations/0019_finance_church_balances.sql), never
 // finance_church_entries. Real money crosses this contract, so it is 'aggregate' like Giving,
-// Budget, and Church Report, not 'structural' like Chart of Accounts.
+// Budget, and Church Report.
 //
 // Unlike Church Report, there is no cross-source precedence to resolve: a direct 2026-09-14
 // check of production found exactly one source value, 'import', across all 1,056 rows and all
@@ -786,8 +814,8 @@ export async function respondWithFinanceChurchReportTrendV1(db) {
 // cross-check) must never filter has_children rows out when re-deriving classification totals, or
 // it would compute a different number than production's own page.
 //
-// Modeled on Church Report's single-fiscal-year shape (not a date range like Giving, not the
-// whole-tree/no-params shape of Chart of Accounts): a Balance Sheet is naturally one point-in-time
+// Modeled on Church Report's single-fiscal-year shape (not a date range like Giving, not a
+// whole-tree/no-params shape): a Balance Sheet is naturally one point-in-time
 // snapshot per fiscal year, so the caller names the year, and a year with nothing imported yet
 // answers with a valid, empty-accounts contract rather than a 404 -- same reasoning as every prior
 // contract's own empty-state design.
@@ -879,8 +907,8 @@ export async function respondWithFinanceBalanceSheetV1(url, db) {
 // Balance Sheet multi-year trend -- the multi-year sibling of buildFinanceBalanceSheetV1 above,
 // backing the 'balance' section's 'multi-year' page (apps/finance/balance-pages.js), which today
 // only reads the untouched synthetic fixture (readSyntheticBalanceTrends in
-// apps/finance/balance-sheet-service.js). No fiscal_year parameter: like Chart of Accounts' own
-// whole-tree/no-params shape, this always returns every distinct fiscal year on file, ascending --
+// apps/finance/balance-sheet-service.js). No fiscal_year parameter: like Chart of Accounts'
+// original whole-tree/no-params shape, this always returns every distinct fiscal year on file, ascending --
 // production only has eight (2019-2026, 1,056 rows total, confirmed both on 2026-09-14 for the
 // single-year contract above and again while building this trend contract), so this is a single
 // one-query read, not a windowed or paginated one.
@@ -911,11 +939,31 @@ export async function respondWithFinanceBalanceSheetV1(url, db) {
 // pick is needed today, unlike the synthetic fixture's own defensive MAX(as_of_date)), but this
 // contract deliberately never parses or date-sorts asOfDate -- `years` is ordered by the real
 // integer fiscalYear column instead.
-export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date() } = {}) {
-  const { results } = (await db.prepare(
-    `SELECT fiscal_year, as_of_date, classification, category_path, account_name, depth, has_children, own_balance_cents
-       FROM finance_church_balances ORDER BY fiscal_year, category_path`
-  ).all()) || {};
+//
+// Parity extension (2026-09-26): the trend now also carries everything Connect's legacy
+// `finance/church/balances/multi-year` route returns for its Balance Sheet & Financial Position
+// tab -- per-year current/fixed/other assets (computeBalanceSummary), the Donor-Restricted split
+// (computeEquityReclassification), cash & bank accounts (computeYearCashSummary with the saved
+// operating-cash account code from readCashPolicy), net income (resolveChurchYearPrecedence +
+// computeYearSummary over period_month=0 rows), and the balance sheet vs. income statement tie-out
+// (computeBalanceVsPnlReconciliation, with one year before the window read as opening equity).
+// Every figure comes from those same exported functions, in the same order as that route, so the
+// two apps can never quote different numbers. An optional from_year/to_year window mirrors the
+// legacy route's explicit ?years= range: it names exactly the years requested, gaps included (a
+// gap year has hasBalanceSheet false and null equityReclass/cash, like legacy's null entries).
+// Without a window the years are every fiscal year on file, as before.
+export const BALANCE_TREND_MAX_SPAN_YEARS = 20;
+export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date(), fromYear = null, toYear = null } = {}) {
+  const windowed = Number.isInteger(fromYear) && Number.isInteger(toYear);
+  const { results } = (windowed
+    ? await db.prepare(
+      `SELECT fiscal_year, as_of_date, classification, category_path, account_name, depth, has_children, own_balance_cents
+         FROM finance_church_balances WHERE fiscal_year BETWEEN ? AND ? ORDER BY fiscal_year, category_path`
+    ).bind(fromYear - 1, toYear).all()
+    : await db.prepare(
+      `SELECT fiscal_year, as_of_date, classification, category_path, account_name, depth, has_children, own_balance_cents
+         FROM finance_church_balances ORDER BY fiscal_year, category_path`
+    ).all()) || {};
   const rawRows = results || [];
 
   const rowsByYear = new Map();
@@ -924,13 +972,46 @@ export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date() } =
     rowsByYear.get(row.fiscal_year).push(row);
   }
 
-  const years = [...rowsByYear.keys()].sort((a, b) => a - b).map((fiscalYear) => {
-    const yearRawRows = rowsByYear.get(fiscalYear);
+  const yearList = windowed
+    ? Array.from({ length: toYear - fromYear + 1 }, (_, i) => fromYear + i)
+    : [...rowsByYear.keys()].sort((a, b) => a - b);
+
+  // Same one-year-earlier opening balance the legacy route reads, so the earliest year in the
+  // window can still be tied out instead of always reporting "no prior balance sheet".
+  const openingYear = yearList.length ? Math.min(...yearList) - 1 : null;
+  const summaryYears = openingYear == null || yearList.includes(openingYear) ? yearList : [...yearList, openingYear];
+  const summaryByYear = {};
+  const displayRowsByYear = {};
+  for (const year of summaryYears) {
     // Same transform-then-summarize order as buildFinanceBalanceSheetV1 above -- see that
     // function's own module comment for why this intentionally reproduces production's actual
     // route behavior rather than a separately "corrected" one.
-    const displayRows = applyDesignatedFundsAsEquity(yearRawRows);
-    const summary = computeBalanceSummary(displayRows);
+    displayRowsByYear[year] = applyDesignatedFundsAsEquity(rowsByYear.get(year) || []);
+    summaryByYear[year] = computeBalanceSummary(displayRowsByYear[year]);
+  }
+
+  const cashPolicy = yearList.length ? await readCashPolicy(db) : { cash_account_code: '' };
+  const netIncomeByYear = {};
+  if (yearList.length) {
+    const pnlRows = (await db.prepare(
+      `SELECT * FROM finance_church_entries WHERE fiscal_year IN (${yearList.map(() => '?').join(',')}) AND period_month=0`
+    ).bind(...yearList).all())?.results || [];
+    const resolvedPnl = resolveChurchYearPrecedence(pnlRows);
+    for (const year of yearList) {
+      const yearPnl = resolvedPnl.filter((r) => r.fiscal_year === year);
+      netIncomeByYear[year] = yearPnl.length ? computeYearSummary(yearPnl).netIncome.actualCents : null;
+    }
+  }
+  const tieOut = computeBalanceVsPnlReconciliation(yearList, summaryByYear, netIncomeByYear);
+
+  const years = yearList.map((fiscalYear) => {
+    const yearRawRows = rowsByYear.get(fiscalYear) || [];
+    const summary = summaryByYear[fiscalYear];
+    const hasBalanceSheet = yearRawRows.length > 0;
+    const equityReclass = hasBalanceSheet ? computeEquityReclassification(displayRowsByYear[fiscalYear]) : null;
+    // Assets-only (bank/cash accounts) and read from the raw rows, exactly like the legacy route --
+    // the Liabilities<->Equity reclassification never touches an Assets row either way.
+    const cash = hasBalanceSheet ? computeYearCashSummary(yearRawRows, cashPolicy.cash_account_code) : null;
     return {
       fiscalYear,
       asOfDate: yearRawRows[0]?.as_of_date || '',
@@ -939,6 +1020,23 @@ export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date() } =
       equityCents: summary.equityCents,
       netAssetsCents: summary.equityCents,
       balancedCents: summary.balancedCents,
+      currentAssetsCents: summary.currentAssetsCents,
+      fixedAssetsCents: summary.fixedAssetsCents,
+      otherAssetsCents: summary.otherAssetsCents,
+      hasBalanceSheet,
+      equityReclass: equityReclass ? {
+        donorRestrictedCents: equityReclass.donorRestrictedCents,
+        unrestrictedCents: equityReclass.unrestrictedCents,
+        totalEquityCents: equityReclass.totalEquityCents,
+        unclassifiedCount: equityReclass.unclassified.length,
+      } : null,
+      cash: cash ? {
+        operatingCents: cash.operatingCents,
+        operatingAccounts: cash.operatingAccounts,
+        allCashCents: cash.allCashCents,
+        allCashAccounts: cash.allCashAccounts,
+      } : null,
+      netIncomeCents: netIncomeByYear[fiscalYear] ?? null,
     };
   });
 
@@ -950,6 +1048,22 @@ export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date() } =
     currency: 'USD',
     generatedAt: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
     years,
+    cashAccountCode: cashPolicy.cash_account_code || '',
+    pnlTieOut: {
+      rows: tieOut.rows.map((r) => ({
+        year: r.year,
+        priorYear: r.prior_year,
+        equityCents: r.equity_cents,
+        priorEquityCents: r.prior_equity_cents,
+        changeCents: r.change_cents,
+        netIncomeCents: r.net_income_cents,
+        differenceCents: r.difference_cents,
+        status: r.status,
+      })),
+      checked: tieOut.checked,
+      matched: tieOut.matched,
+      unexplained: tieOut.unexplained,
+    },
     reconciliation: {
       yearCount: years.length,
       totalsMatch: years.every((y) => y.balancedCents === 0),
@@ -957,8 +1071,26 @@ export async function buildFinanceBalanceSheetTrendV1(db, { now = new Date() } =
   };
 }
 
-export async function respondWithFinanceBalanceSheetTrendV1(db) {
-  const trend = await buildFinanceBalanceSheetTrendV1(db, { now: new Date() });
+// Optional from_year/to_year window (both or neither), bounded like the legacy range picker.
+export function parseBalanceSheetTrendWindow(url) {
+  const from = url?.searchParams?.get('from_year') ?? null;
+  const to = url?.searchParams?.get('to_year') ?? null;
+  if (from === null && to === null) return { ok: true, fromYear: null, toYear: null };
+  if (!isValidFiscalYearStr(from) || !isValidFiscalYearStr(to)) {
+    return { ok: false, error: 'from_year and to_year must both be 4-digit years' };
+  }
+  const fromYear = Number(from), toYear = Number(to);
+  if (fromYear > toYear) return { ok: false, error: 'from_year must not be after to_year' };
+  if (toYear - fromYear + 1 > BALANCE_TREND_MAX_SPAN_YEARS) {
+    return { ok: false, error: `request ${BALANCE_TREND_MAX_SPAN_YEARS} years or fewer at a time` };
+  }
+  return { ok: true, fromYear, toYear };
+}
+
+export async function respondWithFinanceBalanceSheetTrendV1(db, url = null) {
+  const window = parseBalanceSheetTrendWindow(url);
+  if (!window.ok) return json({ error: window.error }, 400);
+  const trend = await buildFinanceBalanceSheetTrendV1(db, { now: new Date(), fromYear: window.fromYear, toYear: window.toYear });
 
   // Fail closed, same discipline as the contracts above: this should never fire against real
   // data, and if it does, Finance must not see a malformed contract.
@@ -1839,7 +1971,7 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
     return respondWithFinanceCashRunwayV1(url, db);
   }
   if (seg === 'contracts/finance-chart-of-accounts-v1' && method === 'GET') {
-    return respondWithFinanceChartOfAccountsV1(db);
+    return respondWithFinanceChartOfAccountsV1(url, db);
   }
   if (seg === 'contracts/finance-budget-v1' && method === 'GET') {
     return respondWithFinanceBudgetV1(url, db);
@@ -1854,7 +1986,7 @@ export async function handleContractsApi(req, env, url, method, seg, db) {
     return respondWithFinanceBalanceSheetV1(url, db);
   }
   if (seg === 'contracts/finance-balance-sheet-trend-v1' && method === 'GET') {
-    return respondWithFinanceBalanceSheetTrendV1(db);
+    return respondWithFinanceBalanceSheetTrendV1(db, url);
   }
   if (seg === 'contracts/finance-daycare-report-v1' && method === 'GET') {
     return respondWithFinanceDaycareReportV1(url, db);

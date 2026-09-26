@@ -10,8 +10,9 @@ export const HEALTH_VIEWS = Object.freeze([
   Object.freeze({ id: 'detail', tag: '1c', label: 'Full detail' }),
 ]);
 
+// Full detail is the default: it is the page Connect's legacy Financial Health tab shows.
 export function resolveHealthView(value) {
-  return HEALTH_VIEWS.find((view) => view.id === value)?.id || 'summary';
+  return HEALTH_VIEWS.find((view) => view.id === value)?.id || 'detail';
 }
 
 export function renderHealthViewToggle(activeView, { councilPreview } = {}) {
@@ -104,7 +105,9 @@ export function renderHealthSummary({ health, runway, mix, entities, incomeVsBud
     ? `<div class="panel-grid">${renderComposition('Where church income comes from', mix.income)}${renderComposition('Where church money goes', mix.expenses)}</div>`
     : '<p class="status status-pending">The revenue and expense mix could not be read for this request. Nothing shown here is a real $0 — see Data &amp; Imports.</p>';
   const strip = entities
-    ? `<div class="entity-strip">${entities.entities.map((entity) => `<a class="entity-mini" href="${ENTITY_LINKS[entity.id]}"><div><b>${escapeHtml(entity.label)}</b><small>${escapeHtml(entity.periodLabel)} · ${sourceWord(entity.source)}</small></div><div class="entity-mini-value"><strong class="${entity.resultCents >= 0 ? 'tone-good' : 'tone-bad'}">${formatResultCents(entity.resultCents)}</strong><small>${resultWord(entity)}</small></div></a>`).join('')}</div>`
+    ? `<div class="entity-strip">${entities.entities.map((entity) => (entity.available === false
+      ? `<a class="entity-mini" href="${ENTITY_LINKS[entity.id]}"><div><b>${escapeHtml(entity.label)}</b><small>${escapeHtml(entity.unavailableNote)}</small></div><div class="entity-mini-value"><strong class="muted-value">—</strong></div></a>`
+      : `<a class="entity-mini" href="${ENTITY_LINKS[entity.id]}"><div><b>${escapeHtml(entity.label)}</b><small>${escapeHtml(entity.periodLabel)} · ${sourceWord(entity.source)}</small></div><div class="entity-mini-value"><strong class="${entity.resultCents >= 0 ? 'tone-good' : 'tone-bad'}">${formatResultCents(entity.resultCents)}</strong><small>${resultWord(entity)}</small></div></a>`)).join('')}</div>`
     : '';
   return `<section aria-label="Financial health summary">
     ${renderAttention(attentionItems)}
@@ -116,7 +119,10 @@ export function renderHealthSummary({ health, runway, mix, entities, incomeVsBud
 
 export function renderHealthByEntity({ health, runway, entities }) {
   const cards = entities
-    ? `<div class="entity-grid">${entities.entities.map((entity) => `<div class="entity-card">
+    ? `<div class="entity-grid">${entities.entities.map((entity) => (entity.available === false ? `<div class="entity-card">
+        <div class="entity-band"><h2>${escapeHtml(entity.label)}</h2><span>${escapeHtml(entity.periodLabel)}</span></div>
+        <div class="entity-body"><p class="status status-pending">${escapeHtml(entity.unavailableNote)}</p><a href="${ENTITY_LINKS[entity.id]}">Open ${escapeHtml(entity.label)} overview</a></div>
+      </div>` : `<div class="entity-card">
         <div class="entity-band"><h2>${escapeHtml(entity.label)}</h2><span>${escapeHtml(entity.periodLabel)} · ${sourceWord(entity.source)}</span></div>
         <div class="entity-body">
           <small>${resultWord(entity)}</small>
@@ -129,7 +135,7 @@ export function renderHealthByEntity({ health, runway, entities }) {
           </ul>
           <a href="${ENTITY_LINKS[entity.id]}">Open ${escapeHtml(entity.label)} overview</a>
         </div>
-      </div>`).join('')}</div>`
+      </div>`)).join('')}</div>`
     : '<p class="status status-pending">The entity overview could not be read for this request. Nothing shown here is a real $0 — see Data &amp; Imports.</p>';
   const cell = (label, value, note) => `<div><small>${label}</small><strong>${value}</strong><span>${note}</span></div>`;
   const position = `<div class="position-strip">
@@ -139,7 +145,9 @@ export function renderHealthByEntity({ health, runway, entities }) {
     ${health.position ? cell('Net assets', formatCents(health.position.netAssetsCents), 'Assets minus liabilities') : cell('Net assets', 'Unavailable', 'Not a zero')}
   </div>`;
   return `<section aria-label="Financial health by entity">
-    <p class="lede">Each ministry reports on its own period, so they sit side by side instead of being added together.</p>
+    <p class="lede">${entities?.fromHealthContract
+    ? 'Church and Daycare are this year’s figures, computed the way Connect’s Financial Health page computes them; Commercial Property shows its latest reported year. They sit side by side instead of being added together.'
+    : 'Each ministry reports on its own period, so they sit side by side instead of being added together.'}</p>
     ${cards}
     ${position}
   </section>`;

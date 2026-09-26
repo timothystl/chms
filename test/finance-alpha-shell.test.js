@@ -266,7 +266,7 @@ describe('Finance alpha staging shell', () => {
     // Only the active group is expanded.
     expect(html).not.toContain('Income &amp; expense detail');
     expect(html).toContain('<div class="eyebrow">Financial Health</div><h1 class="page-title">Financial Health</h1>');
-    expect(html).toContain('aria-label="Financial health summary"');
+    expect(html).toContain('aria-label="Financial health detail"');
 
     const church = await (await worker.fetch(new Request('https://finance.test/?section=church&page=trend'), env)).text();
     expect(church).toContain('<div class="nav-group is-open"><a class="nav-item is-active" href="/?section=church&amp;page=overview">Church<span class="nav-count">4</span></a>');
@@ -283,8 +283,11 @@ describe('Finance alpha staging shell', () => {
     expect(hr).toContain('<h1 class="page-title">Performance reviews</h1>');
   });
 
-  it('offers the v3 Financial Health layouts: Summary by default, By entity, and Full detail', async () => {
-    const summary = await (await worker.fetch(new Request('https://finance.test/'), env)).text();
+  it('offers the v3 Financial Health layouts: Full detail by default (as Connect shows it), Summary, and By entity', async () => {
+    const landing = await (await worker.fetch(new Request('https://finance.test/'), env)).text();
+    expect(landing).toContain('<span class="is-on" aria-current="true"><i>1c</i>Full detail</span>');
+    expect(landing).toContain('<a href="/?section=health&amp;view=summary"><i>1a</i>Summary</a>');
+    const summary = await (await worker.fetch(new Request('https://finance.test/?section=health&view=summary'), env)).text();
     expect(summary).toContain('<span class="is-on" aria-current="true"><i>1a</i>Summary</span>');
     expect(summary).toContain('<a href="/?section=health&amp;view=entity"><i>1b</i>By entity</a>');
     expect(summary).toContain('Church surplus, year to date');
@@ -313,7 +316,7 @@ describe('Finance alpha staging shell', () => {
     expect(detail).toContain('<a href="/?section=health&amp;view=summary&amp;council=1"><i>1a</i>Summary</a>');
 
     const unknown = await (await worker.fetch(new Request('https://finance.test/?view=bogus'), env)).text();
-    expect(unknown).toContain('aria-label="Financial health summary"');
+    expect(unknown).toContain('aria-label="Financial health detail"');
   });
 
   it('serves the self-hosted logo and fonts with a same-origin-only CSP', async () => {

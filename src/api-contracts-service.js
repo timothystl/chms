@@ -21,6 +21,8 @@ import { respondWithFinanceAccessRolesV1 } from './api-access-contracts.js';
 import { respondWithFinanceBudgetBuilderV1 } from './api-budget-builder-contracts.js';
 import { respondWithFinanceClassificationV1 } from './api-classification-contracts.js';
 import { respondWithFinanceBoardLayoutV1 } from './api-board-layout-contracts.js';
+import { respondWithFinanceImportStatusV1, respondWithFinanceDaycareChurchBudgetPreviewV1, respondWithFinanceBoardPacketV1 } from './api-data-imports-contracts.js';
+import { respondWithFinanceHealthV1 } from './api-finance-health-contract.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
@@ -69,6 +71,20 @@ export async function handleContractsServiceApi(req, env, path) {
     return respondWithFinanceDataStatusV1(env.DB);
   }
 
+  // Data & Imports (Finance's Data page): per-importer staleness, the MDO-from-Church-Budget
+  // preview, and the board packet JSON export -- see api-data-imports-contracts.js.
+  if (path === '/api/contracts/finance-import-status-v1' && req.method === 'GET') {
+    return respondWithFinanceImportStatusV1(env.DB);
+  }
+
+  if (path === '/api/contracts/finance-daycare-church-budget-preview-v1' && req.method === 'GET') {
+    return respondWithFinanceDaycareChurchBudgetPreviewV1(new URL(req.url), env.DB);
+  }
+
+  if (path === '/api/contracts/finance-board-packet-v1' && req.method === 'GET') {
+    return respondWithFinanceBoardPacketV1(new URL(req.url), env.DB);
+  }
+
   if (path === '/api/contracts/finance-classification-v1' && req.method === 'GET') {
     return respondWithFinanceClassificationV1(new URL(req.url), env.DB);
   }
@@ -77,8 +93,15 @@ export async function handleContractsServiceApi(req, env, path) {
     return respondWithFinanceCashRunwayV1(new URL(req.url), env.DB);
   }
 
+  // Financial Health (Finance v3): everything Connect's legacy Financial Health tab shows. Reads
+  // Giving tables (fund totals, household rollups), so Connect serves it -- never Finance's own
+  // database. env.DB routes each query to its owning database; none of them joins across the two.
+  if (path === '/api/contracts/finance-health-v1' && req.method === 'GET') {
+    return respondWithFinanceHealthV1(new URL(req.url), env.DB);
+  }
+
   if (path === '/api/contracts/finance-chart-of-accounts-v1' && req.method === 'GET') {
-    return respondWithFinanceChartOfAccountsV1(env.DB);
+    return respondWithFinanceChartOfAccountsV1(new URL(req.url), env.DB);
   }
 
   // Board layout (Finance v3): the saved board categories, heading/account renames and purpose
@@ -119,7 +142,7 @@ export async function handleContractsServiceApi(req, env, path) {
   }
 
   if (path === '/api/contracts/finance-balance-sheet-trend-v1' && req.method === 'GET') {
-    return respondWithFinanceBalanceSheetTrendV1(env.DB);
+    return respondWithFinanceBalanceSheetTrendV1(env.DB, new URL(req.url));
   }
 
   if (path === '/api/contracts/finance-daycare-report-v1' && req.method === 'GET') {

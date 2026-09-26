@@ -67,7 +67,7 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
   },
   {
     id: 'balance', label: 'Balance Sheet', group: 'Balance Sheet', permission: 'finance',
-    capabilities: ['assets', 'liabilities', 'equity', 'position trends'],
+    capabilities: ['assets', 'liabilities', 'equity', 'position trends', 'year selection', 'donor restrictions', 'cash trend', 'income statement tie-out', 'CSV export'],
     pages: [
       { id: 'position', label: 'Position', status: 'live' },
       { id: 'account-detail', label: 'Account detail', status: 'live' },
@@ -167,24 +167,24 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
     pages: [{ id: 'builder', label: 'Board packet', status: 'live' }],
   },
   // The account tree and board-category/purpose-tag presentation are real now, via the
-  // connect.finance-chart-of-accounts.v1 contract (account names + QuickBooks-derived category
-  // paths + Finance's own categorization of them, never a dollar figure) -- see
-  // finance-chart-of-accounts-client.js and accounts-report-service.js's resolveAccountsReport,
-  // same live-with-synthetic-fallback pattern Giving Entry and Data & Imports established.
+  // connect.finance-chart-of-accounts.v1 contract (one fiscal year's accounts with their own
+  // actual/budget, QuickBooks-derived category paths, and Finance's own categorization and renames
+  // of them) -- see finance-chart-of-accounts-client.js and accounts-report-service.js's
+  // resolveAccountsReport, same live-with-synthetic-fallback pattern Giving Entry and Data &
+  // Imports established. Legacy's Resources by Purpose report is on the same page.
   {
     id: 'accounts', label: 'Chart of Accounts', group: 'Accounts & Data', permission: 'finance',
-    capabilities: ['account tree', 'board-category presentation'],
+    capabilities: ['account tree', 'board-category presentation', 'fiscal-year actuals', 'resources by purpose'],
     pages: [
       { id: 'chart', label: 'Chart of accounts', status: 'live' },
       { id: 'access', label: 'Access & roles', status: 'live' },
     ],
   },
-  // 'connection status' and 'staleness' are real now, via the connect.finance-data-status.v1
-  // contract (import-log recency + QuickBooks connection presence, no tokens) -- see
-  // finance-data-status-client.js and data-status-service.js's resolveDataStatus, same
-  // live-with-synthetic-fallback pattern Giving Entry established. File imports,
-  // classification/policy, and administrative tools remain synthetic-only for now.
-  { id: 'data', label: 'Data & Imports', group: 'Accounts & Data', permission: 'finance', capabilities: ['connection status', 'file imports', 'staleness', 'classification and policy', 'administrative tools'], pages: [{ id: 'overview', label: 'Data & Imports', status: 'live' }] },
+  // Data & Imports offers everything Connect's legacy tab does (data-pages.js): connections, each
+  // importer's staleness (connect.finance-import-status.v1) linked to the page that runs it, the
+  // MDO-from-Church-Budget preview, adjustments and removals linked to their pages, classification
+  // and policy, the board packet JSON export, and the cached raw QuickBooks output.
+  { id: 'data', label: 'Data & Imports', group: 'Accounts & Data', permission: 'finance', capabilities: ['connection status', 'file imports', 'staleness', 'classification and policy', 'administrative tools', 'board packet export', 'raw QuickBooks output'], pages: [{ id: 'overview', label: 'Data & Imports', status: 'live' }] },
   // Full payroll parity with Website's admin/payroll.html, relayed live to Website's existing
   // payroll proxy and payroll/email and (now) push/payroll-ready routes the same way Giving
   // Entry relays to Connect (never stored in Finance) -- see payroll-section.js,
