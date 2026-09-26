@@ -17,7 +17,7 @@ import {
   handleSchedRsvpPortal, handleSchedRsvp, handleSchedBreezeProxy,
   handleChristmasMarketSummary, handleChristmasMarketToggle,
 } from './src/api-scheduler.js';
-import { handleAdminLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
+import { handleAdminLogin, handleAccessLogin, handleAdminApi, handleForgotPassword, handleResetPassword, handleApiMinistryRoles } from './src/api-admin.js';
 import { wrapEnvForDbAttribution, logDbAttribution } from './src/db-attribution.js';
 import { handleIntakeApi } from './src/api-intake.js';
 import {
@@ -496,7 +496,13 @@ async function _fetchRouted(req, env, url, path, method) {
     if ((path === '/' || path === '/index.html') && method === 'GET') {
       if (isChmsHost) {
         const auth = await getAuthInfo(req, env);
-        if (!auth) return html(LOGIN_HTML);
+        if (!auth) {
+          // When this hostname is protected by Access, exchange the independently
+          // verified staff identity for Connect's existing live-revocable session.
+          // With no Access header, the legacy/break-glass login remains available.
+          if (req.headers.get('Cf-Access-Jwt-Assertion')) return handleAccessLogin(req, env);
+          return html(LOGIN_HTML);
+        }
         const extra = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
         if (url.searchParams.get('desktop') === '1') extra['Set-Cookie'] = DESKTOP_PREF_COOKIE;
         else if (url.searchParams.get('mobile') === '1') extra['Set-Cookie'] = CLEAR_DESKTOP_PREF_COOKIE;
@@ -521,6 +527,7 @@ async function _fetchRouted(req, env, url, path, method) {
     }
     if ((path.match(/^\/serve\/calendar\/\d+$/) || path.match(/^\/volunteer\/calendar\/\d+$/)) && method === 'GET') return handleCalendar(env, path);
     if (path === '/admin/login' && method === 'POST') return handleAdminLogin(req, env);
+    if (path === '/admin/access-login' && method === 'GET') return handleAccessLogin(req, env);
     if (path === '/admin/forgot-password' && method === 'POST') return handleForgotPassword(req, env);
     if (path === '/admin/reset' && (method === 'GET' || method === 'POST')) return handleResetPassword(req, env, url);
     // Connect member invite setup (Phase 2) — public, token-gated, same pattern as
