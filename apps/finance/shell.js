@@ -39,6 +39,8 @@ import { serveFacilityFile } from './facility-files.js';
 import { PLANNING_WRITERS, canEditPlanning, readPlanningScenarios } from './planning-scenarios-service.js';
 import { PLANNING_V3_STYLES, renderForecastPage, renderScenariosPage } from './planning-v3-pages.js';
 import { describePlanningBasisFailure, fetchPlanningBasis } from './connect-planning-client.js';
+import { fetchBudgetBuilder } from './finance-budget-builder-client.js';
+import { BUDGET_BUILDER_STYLES, renderBudgetBuilderPage } from './planning-builder-pages.js';
 import { fetchLiveFinanceCashRunway } from './finance-cash-runway-client.js';
 import { defaultLiveBudgetFiscalYear } from './finance-budget-client.js';
 import { FACILITIES_STYLES, renderFacilitiesPage } from './facilities-pages.js';
@@ -899,6 +901,14 @@ async function handleGivingFollowupWrite(request, env, url) {
   return back({ ...keep, status: 'ok', msg: GIVING_FOLLOWUP_MESSAGES[op] });
 }
 
+// The v3 Budget builder asks for growth as a percentage (3 for 3%); the older forms and Connect's
+// routes take a fraction (0.03). A percentage field, when sent, is converted here.
+function budgetGrowthFraction(form) {
+  const percent = String(form.get('growth_percent') || '').trim();
+  if (percent !== '' && Number.isFinite(Number(percent))) return String(Number(percent) / 100);
+  return form.get('growth_pct') || '';
+}
+
 function renderEntityCards(entities) {
   return entities.map((entity) => `<div class="card"><small>${escapeHtml(entity.label)} · ${escapeHtml(entity.periodLabel)}</small><strong>${formatSignedCents(entity.resultCents)}</strong><span>Income ${formatCents(entity.incomeCents)} · expenses ${formatCents(entity.expenseCents)} · ${entity.source === 'live' ? 'live from Connect' : 'synthetic fixture'}</span></div>`).join('');
 }
@@ -1238,6 +1248,18 @@ function renderSectionBody(ctx) {
     if (page.id === 'multi-year') return renderForecastPage({ basis, planning: ctx.planningScenarios, runway: ctx.planningRunway, params: ctx.searchParams });
     return renderScenariosPage({ basis, planning: ctx.planningScenarios, canEdit: !councilPreview && canEditPlanning(roleResult), status: describeFormStatus(ctx.searchParams, 'planning') });
   }
+  if (section.id === 'planning' && page.id === 'builder' && ctx.budgetBuilder?.ok) {
+    return renderBudgetBuilderPage({
+      builder: ctx.budgetBuilder.builder,
+      // Council's budget edits are saved to their own copy in Connect, which this shared table does
+      // not show, so in-place editing here is admin-only.
+      canEditBudget: !councilPreview && roleResult.ok && roleResult.role === 'admin',
+      councilViewer: roleResult.ok && roleResult.role === 'council',
+      canManageBudgetPlan: !councilPreview && roleResult.ok && roleResult.role === 'admin',
+      tab: ctx.searchParams.get('tab'),
+      statuses: { budgetEntryStatus, budgetEntryMessage, planOpKind, planOpStatus, planOpMessage, baseProjectionEntryStatus, baseProjectionEntryMessage },
+    });
+  }
   if (section.id === 'planning') {
     // Same gate as the legacy in-Connect Budget Planner's override-bulk route (admin or council
     // only) -- UI hiding is never authorization, the real gate is finance-budget-write-v1's own
@@ -1397,7 +1419,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/finance-mark.png"><link rel="apple-touch-icon" href="/assets/finance-icon.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -1658,12 +1680,12 @@ export default {
         const targetYears = String(form.get('target_years') || '').split(',').map((s) => s.trim()).filter(Boolean);
         result = await postConnectFinanceBudgetGenerate(env, accessJwt, {
           category: form.get('category') || '', classification: form.get('classification') || 'Expenses',
-          base_amount: form.get('base_amount') || '', growth_pct: form.get('growth_pct') || '', target_years: targetYears,
+          base_amount: form.get('base_amount') || '', growth_pct: budgetGrowthFraction(form), target_years: targetYears,
           notes: form.get('notes') || '',
         });
       } else if (opKind === 'generate-all') {
         result = await postConnectFinanceBudgetGenerateAll(env, accessJwt, {
-          base_year: form.get('base_year') || '', target_year: form.get('target_year') || '', growth_pct: form.get('growth_pct') || '',
+          base_year: form.get('base_year') || '', target_year: form.get('target_year') || '', growth_pct: budgetGrowthFraction(form),
         });
       } else if (opKind === 'commit') {
         result = await postConnectFinanceBudgetCommit(env, accessJwt, { fiscal_year: form.get('fiscal_year') || '' });
@@ -3377,6 +3399,7 @@ export default {
         // own scenario settings, and, for the forecast, today's operating cash.
         const planningPageId = section.id === 'planning' ? resolveFinancePage(section, pageId).id : null;
         const planningV3 = ['scenarios', 'multi-year'].includes(planningPageId);
+        const budgetBuilder = planningPageId === 'builder' ? await fetchBudgetBuilder(env, defaultLiveBudgetFiscalYear()) : null;
         const [planningBasis, planningScenarios, planningRunwayResult] = planningV3 ? await Promise.all([
           fetchPlanningBasis(env, defaultLiveBudgetFiscalYear()),
           safeSyntheticRead(async () => {
@@ -3673,7 +3696,7 @@ export default {
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
-          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, planningBasis, planningScenarios, planningRunway, searchParams: url.searchParams,
+          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, planningBasis, planningScenarios, planningRunway, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,
