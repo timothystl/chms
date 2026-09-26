@@ -67,7 +67,7 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
   },
   {
     id: 'balance', label: 'Balance Sheet', group: 'Balance Sheet', permission: 'finance',
-    capabilities: ['assets', 'liabilities', 'equity', 'position trends'],
+    capabilities: ['assets', 'liabilities', 'equity', 'position trends', 'year selection', 'donor restrictions', 'cash trend', 'income statement tie-out', 'CSV export'],
     pages: [
       { id: 'position', label: 'Position', status: 'live' },
       { id: 'account-detail', label: 'Account detail', status: 'live' },

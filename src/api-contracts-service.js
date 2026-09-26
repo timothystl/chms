@@ -142,7 +142,7 @@ export async function handleContractsServiceApi(req, env, path) {
   }
 
   if (path === '/api/contracts/finance-balance-sheet-trend-v1' && req.method === 'GET') {
-    return respondWithFinanceBalanceSheetTrendV1(env.DB);
+    return respondWithFinanceBalanceSheetTrendV1(env.DB, new URL(req.url));
   }
 
   if (path === '/api/contracts/finance-daycare-report-v1' && req.method === 'GET') {

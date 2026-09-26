@@ -3,17 +3,20 @@
 // server contract endpoint, never throws, resolves to { ok: false, reason } on any failure so the
 // caller (balance-sheet-service.js's resolveBalanceSheetTrend) can fall back to the local
 // synthetic fixture. No fiscal_year query param -- unlike the single-year contract, this one has
-// no per-year selection; it always names every fiscal year on file.
+// no per-year selection. By default it names every fiscal year on file; an optional
+// { fromYear, toYear } window (the multi-year page's From/To range) asks for exactly those years.
 import { acceptFinanceBalanceSheetTrendV1 } from '../../contracts/validators/finance-balance-sheet-trend-consumer.js';
 
 const REQUEST_TIMEOUT_MS = 4000;
 
-export async function fetchLiveFinanceBalanceSheetTrend(env) {
+export async function fetchLiveFinanceBalanceSheetTrend(env, { fromYear = null, toYear = null } = {}) {
   const binding = env.CONNECT_SERVICE;
   const key = env.FINANCE_CONTRACT_API_KEY;
   if (!binding || !key) return { ok: false, reason: 'not_configured' };
 
-  const url = 'https://connect.timothystl.org/api/contracts/finance-balance-sheet-trend-v1';
+  const windowed = Number.isInteger(fromYear) && Number.isInteger(toYear);
+  const url = 'https://connect.timothystl.org/api/contracts/finance-balance-sheet-trend-v1'
+    + (windowed ? `?from_year=${encodeURIComponent(fromYear)}&to_year=${encodeURIComponent(toYear)}` : '');
   let res;
   try {
     res = await binding.fetch(new Request(url, {

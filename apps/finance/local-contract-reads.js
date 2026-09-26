@@ -41,7 +41,7 @@ const LOCAL_READS = {
   'finance-church-report-v1': respondWithFinanceChurchReportV1,
   'finance-church-report-trend-v1': (url, db) => respondWithFinanceChurchReportTrendV1(db),
   'finance-balance-sheet-v1': respondWithFinanceBalanceSheetV1,
-  'finance-balance-sheet-trend-v1': (url, db) => respondWithFinanceBalanceSheetTrendV1(db),
+  'finance-balance-sheet-trend-v1': (url, db) => respondWithFinanceBalanceSheetTrendV1(db, url),
   'finance-daycare-report-v1': respondWithFinanceDaycareReportV1,
   'finance-daycare-entries-v1': respondWithFinanceDaycareEntriesV1,
   'finance-property-valuation-v1': respondWithFinancePropertyValuationV1,

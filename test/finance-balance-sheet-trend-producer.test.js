@@ -23,6 +23,19 @@ CREATE TABLE IF NOT EXISTS finance_church_balances (
   created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
   UNIQUE(fiscal_year, category_path, source)
 );
+-- The trend also reads net income (finance_church_entries, migrations/0018) and the saved
+-- operating-cash account code (finance_settings, migrations/0050), like the legacy route.
+CREATE TABLE IF NOT EXISTS finance_church_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, fiscal_year INTEGER NOT NULL, period_month INTEGER NOT NULL DEFAULT 0,
+  classification TEXT NOT NULL, category_path TEXT NOT NULL, account_name TEXT NOT NULL,
+  depth INTEGER NOT NULL DEFAULT 0, has_children INTEGER NOT NULL DEFAULT 0,
+  own_actual_cents INTEGER NOT NULL DEFAULT 0, own_budget_cents INTEGER, account_qbo_id TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'qbo_sync', notes TEXT NOT NULL DEFAULT '', synced_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(fiscal_year, period_month, category_path, source)
+);
+CREATE TABLE IF NOT EXISTS finance_settings (
+  key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 function makeTestDb() {

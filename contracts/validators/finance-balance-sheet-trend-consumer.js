@@ -46,6 +46,27 @@ const YEAR_KEYS = [
 ];
 const RECONCILIATION_KEYS = ['yearCount', 'totalsMatch'];
 
+// Parity extension (2026-09-26) -- the fields Connect's legacy Balance Sheet & Financial Position
+// tab reads from its own multi-year route: per-year current/fixed/other assets, the
+// Donor-Restricted split, cash & bank accounts, net income, and the balance sheet vs. income
+// statement tie-out. Added as one all-or-nothing group so this consumer still accepts a producer
+// deployed before the extension (base keys only) while a partial or mixed payload still fails
+// closed: either the root carries both extension keys and EVERY year carries every extension
+// field, or none of them appear anywhere.
+const ROOT_EXTENSION_KEYS = ['cashAccountCode', 'pnlTieOut'];
+const YEAR_EXTENSION_KEYS = [
+  'currentAssetsCents', 'fixedAssetsCents', 'otherAssetsCents', 'hasBalanceSheet', 'equityReclass', 'cash', 'netIncomeCents',
+];
+const YEAR_EQUITY_RECLASS_KEYS = ['donorRestrictedCents', 'unrestrictedCents', 'totalEquityCents', 'unclassifiedCount'];
+const YEAR_CASH_KEYS = ['operatingCents', 'operatingAccounts', 'allCashCents', 'allCashAccounts'];
+const TIE_OUT_KEYS = ['rows', 'checked', 'matched', 'unexplained'];
+const TIE_OUT_ROW_KEYS = [
+  'year', 'priorYear', 'equityCents', 'priorEquityCents', 'changeCents', 'netIncomeCents', 'differenceCents', 'status',
+];
+const TIE_OUT_STATUSES = new Set(['ok', 'off', 'no_prior_balance', 'no_pnl']);
+// Mirrors src/api-finance.js's BALANCE_PNL_TOLERANCE_CENTS ($1) -- the producer's own tolerance.
+const TIE_OUT_TOLERANCE_CENTS = 100;
+
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -62,12 +83,145 @@ function isDateTime(value) {
     && !Number.isNaN(Date.parse(value));
 }
 
-function validateYear(row, errors, index) {
+function isIntOrNull(value) {
+  return value === null || Number.isInteger(value);
+}
+
+function isNameList(value) {
+  return Array.isArray(value) && value.every((name) => typeof name === 'string' && name.trim() !== '');
+}
+
+function validateYearExtension(row, errors, label) {
+  for (const key of ['currentAssetsCents', 'fixedAssetsCents', 'otherAssetsCents']) {
+    if (!Number.isInteger(row[key])) errors.push(`${label}.${key} must be integer cents`);
+  }
+  if ([row.assetsCents, row.currentAssetsCents, row.fixedAssetsCents, row.otherAssetsCents].every(Number.isInteger)
+    && row.currentAssetsCents + row.fixedAssetsCents + row.otherAssetsCents !== row.assetsCents) {
+    errors.push(`${label}.currentAssetsCents + fixedAssetsCents + otherAssetsCents must equal assetsCents`);
+  }
+  if (typeof row.hasBalanceSheet !== 'boolean') errors.push(`${label}.hasBalanceSheet must be a boolean`);
+  if (!isIntOrNull(row.netIncomeCents)) errors.push(`${label}.netIncomeCents must be integer cents or null`);
+
+  if (row.equityReclass !== null) {
+    if (!hasExactKeys(row.equityReclass, YEAR_EQUITY_RECLASS_KEYS)) {
+      errors.push(`${label}.equityReclass must be null or contain exactly the per-year equity reclassification fields`);
+    } else {
+      const er = row.equityReclass;
+      for (const key of ['donorRestrictedCents', 'unrestrictedCents', 'totalEquityCents']) {
+        if (!Number.isInteger(er[key])) errors.push(`${label}.equityReclass.${key} must be integer cents`);
+      }
+      if (!Number.isInteger(er.unclassifiedCount) || er.unclassifiedCount < 0) errors.push(`${label}.equityReclass.unclassifiedCount must be a nonnegative integer`);
+      if ([er.donorRestrictedCents, er.unrestrictedCents, er.totalEquityCents].every(Number.isInteger)
+        && er.donorRestrictedCents + er.unrestrictedCents !== er.totalEquityCents) {
+        errors.push(`${label}.equityReclass.donorRestrictedCents + unrestrictedCents must equal totalEquityCents`);
+      }
+      if (Number.isInteger(er.totalEquityCents) && Number.isInteger(row.equityCents) && er.totalEquityCents !== row.equityCents) {
+        // Same identity the single-year contract enforces: both come from the same reclassified rows.
+        errors.push(`${label}.equityReclass.totalEquityCents must equal ${label}.equityCents`);
+      }
+    }
+  }
+
+  if (row.cash !== null) {
+    if (!hasExactKeys(row.cash, YEAR_CASH_KEYS)) {
+      errors.push(`${label}.cash must be null or contain exactly the per-year cash fields`);
+    } else {
+      for (const [cents, names] of [['operatingCents', 'operatingAccounts'], ['allCashCents', 'allCashAccounts']]) {
+        if (!isIntOrNull(row.cash[cents])) errors.push(`${label}.cash.${cents} must be integer cents or null`);
+        if (!isNameList(row.cash[names])) errors.push(`${label}.cash.${names} must be an array of account names`);
+        else if (row.cash[cents] === null && row.cash[names].length) errors.push(`${label}.cash.${names} must be empty when ${cents} is null`);
+        else if (row.cash[cents] !== null && !row.cash[names].length) errors.push(`${label}.cash.${names} must name the accounts behind ${cents}`);
+      }
+    }
+  }
+
+  if (row.hasBalanceSheet === false && (row.equityReclass !== null || row.cash !== null)) {
+    errors.push(`${label} has no balance sheet, so equityReclass and cash must be null`);
+  }
+  if (row.hasBalanceSheet === true && (row.equityReclass === null || row.cash === null)) {
+    errors.push(`${label} has a balance sheet, so equityReclass and cash must be present`);
+  }
+}
+
+function validateTieOut(value, errors, years) {
+  if (!hasExactKeys(value, TIE_OUT_KEYS)) {
+    errors.push('pnlTieOut must contain exactly rows, checked, matched, and unexplained');
+    return;
+  }
+  for (const key of ['checked', 'matched', 'unexplained']) {
+    if (!Number.isInteger(value[key]) || value[key] < 0) errors.push(`pnlTieOut.${key} must be a nonnegative integer`);
+  }
+  if (!Array.isArray(value.rows)) {
+    errors.push('pnlTieOut.rows must be an array');
+    return;
+  }
+  const byYear = years ? new Map(years.map((y) => [y.fiscalYear, y])) : null;
+  let rowsValid = true;
+  let prior = -Infinity;
+  value.rows.forEach((row, index) => {
+    const label = `pnlTieOut.rows[${index}]`;
+    if (!hasExactKeys(row, TIE_OUT_ROW_KEYS)) {
+      errors.push(`${label} must contain exactly the tie-out row fields`);
+      rowsValid = false;
+      return;
+    }
+    const before = errors.length;
+    if (!Number.isInteger(row.year) || row.year <= prior) errors.push(`${label}.year must be an integer, ascending and unique`);
+    prior = Number.isInteger(row.year) ? row.year : prior;
+    if (row.priorYear !== row.year - 1) errors.push(`${label}.priorYear must be year - 1`);
+    if (!Number.isInteger(row.equityCents)) errors.push(`${label}.equityCents must be integer cents`);
+    for (const key of ['priorEquityCents', 'changeCents', 'netIncomeCents', 'differenceCents']) {
+      if (!isIntOrNull(row[key])) errors.push(`${label}.${key} must be integer cents or null`);
+    }
+    if (!TIE_OUT_STATUSES.has(row.status)) errors.push(`${label}.status must be ok, off, no_prior_balance, or no_pnl`);
+    if (errors.length === before) {
+      const priorKnown = row.priorEquityCents !== null;
+      if (!priorKnown && (row.status !== 'no_prior_balance' || row.changeCents !== null || row.differenceCents !== null)) {
+        errors.push(`${label} without an opening balance must read no_prior_balance with no change or difference`);
+      }
+      if (priorKnown && row.changeCents !== row.equityCents - row.priorEquityCents) {
+        errors.push(`${label}.changeCents must equal equityCents - priorEquityCents`);
+      }
+      if (priorKnown && row.netIncomeCents === null && (row.status !== 'no_pnl' || row.differenceCents !== null)) {
+        errors.push(`${label} without net income must read no_pnl with no difference`);
+      }
+      if (priorKnown && row.netIncomeCents !== null) {
+        if (row.differenceCents !== row.changeCents - row.netIncomeCents) {
+          errors.push(`${label}.differenceCents must equal changeCents - netIncomeCents`);
+        } else if (row.status !== (Math.abs(row.differenceCents) <= TIE_OUT_TOLERANCE_CENTS ? 'ok' : 'off')) {
+          errors.push(`${label}.status must be ok within the $1 tolerance and off beyond it`);
+        }
+      }
+      if (byYear) {
+        const year = byYear.get(row.year);
+        if (!year || year.hasBalanceSheet !== true) errors.push(`${label}.year must be a year in the trend that has a balance sheet`);
+        else {
+          if (year.equityCents !== row.equityCents) errors.push(`${label}.equityCents must equal that year's equityCents`);
+          if (year.netIncomeCents !== row.netIncomeCents) errors.push(`${label}.netIncomeCents must equal that year's netIncomeCents`);
+        }
+      }
+    }
+    if (errors.length !== before) rowsValid = false;
+  });
+  if (byYear && rowsValid) {
+    const expectedRows = years.filter((y) => y.hasBalanceSheet === true).length;
+    if (value.rows.length !== expectedRows) errors.push('pnlTieOut.rows must list every year that has a balance sheet');
+  }
+  if (rowsValid && [value.checked, value.matched, value.unexplained].every(Number.isInteger)) {
+    const count = (statuses) => value.rows.filter((r) => statuses.includes(r.status)).length;
+    if (value.checked !== count(['ok', 'off'])) errors.push('pnlTieOut.checked must count the ok and off rows');
+    if (value.matched !== count(['ok'])) errors.push('pnlTieOut.matched must count the ok rows');
+    if (value.unexplained !== count(['off'])) errors.push('pnlTieOut.unexplained must count the off rows');
+  }
+}
+
+function validateYear(row, errors, index, extended) {
   const label = `years[${index}]`;
-  if (!hasExactKeys(row, YEAR_KEYS)) {
+  if (!hasExactKeys(row, extended ? [...YEAR_KEYS, ...YEAR_EXTENSION_KEYS] : YEAR_KEYS)) {
     errors.push(`${label} must contain exactly the balance sheet trend year fields`);
     return;
   }
+  if (extended) validateYearExtension(row, errors, label);
   if (!Number.isInteger(row.fiscalYear) || row.fiscalYear < 2000 || row.fiscalYear > 2100) {
     errors.push(`${label}.fiscalYear must be a 4-digit integer year`);
   }
@@ -89,9 +243,11 @@ function validateYear(row, errors, index) {
 
 export function validateFinanceBalanceSheetTrendV1(value) {
   const errors = [];
-  if (!hasExactKeys(value, ROOT_KEYS)) {
+  const extended = isRecord(value) && ROOT_EXTENSION_KEYS.some((key) => key in value);
+  if (!hasExactKeys(value, extended ? [...ROOT_KEYS, ...ROOT_EXTENSION_KEYS] : ROOT_KEYS)) {
     return { ok: false, errors: ['root must contain exactly the connect.finance-balance-sheet-trend.v1 fields'] };
   }
+  if (extended && typeof value.cashAccountCode !== 'string') errors.push('cashAccountCode must be a string (empty when no operating account is pinned)');
   if (value.contract !== CONTRACT) errors.push(`contract must be ${CONTRACT}`);
   if (value.dataClassification !== 'aggregate') errors.push('dataClassification must be aggregate');
   if (value.sourceProduct !== 'connect') errors.push('sourceProduct must be connect');
@@ -108,7 +264,7 @@ export function validateFinanceBalanceSheetTrendV1(value) {
     let prevFiscalYear = -Infinity;
     value.years.forEach((row, index) => {
       const before = errors.length;
-      validateYear(row, errors, index);
+      validateYear(row, errors, index, extended);
       if (errors.length !== before) yearsValid = false;
       if (isRecord(row) && Number.isInteger(row.fiscalYear)) {
         if (seen.has(row.fiscalYear)) { errors.push(`years[${index}] is a duplicate fiscalYear`); yearsValid = false; }
@@ -120,6 +276,8 @@ export function validateFinanceBalanceSheetTrendV1(value) {
       }
     });
   }
+
+  if (extended) validateTieOut(value.pnlTieOut, errors, yearsValid ? value.years : null);
 
   if (!hasExactKeys(value.reconciliation, RECONCILIATION_KEYS)) {
     errors.push('reconciliation must contain exactly the balance sheet trend reconciliation fields');
@@ -154,7 +312,20 @@ export function acceptFinanceBalanceSheetTrendV1(value) {
     consumerProduct: value.consumerProduct,
     currency: value.currency,
     generatedAt: value.generatedAt,
-    years: value.years.map((row) => ({ ...row })),
+    years: value.years.map((row) => {
+      const copy = { ...row };
+      if ('equityReclass' in row) copy.equityReclass = row.equityReclass && { ...row.equityReclass };
+      if ('cash' in row) {
+        copy.cash = row.cash && {
+          ...row.cash, operatingAccounts: [...row.cash.operatingAccounts], allCashAccounts: [...row.cash.allCashAccounts],
+        };
+      }
+      return copy;
+    }),
+    ...('pnlTieOut' in value ? {
+      cashAccountCode: value.cashAccountCode,
+      pnlTieOut: { ...value.pnlTieOut, rows: value.pnlTieOut.rows.map((row) => ({ ...row })) },
+    } : {}),
     reconciliation: { ...value.reconciliation },
   };
 }
