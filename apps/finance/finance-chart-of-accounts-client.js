@@ -211,8 +211,8 @@ export async function postConnectFlowExpenseMapWrite(env, accessJwt, body) {
 
 // ── Real transport for connect.finance-cash-policy-write-relay.v1 (a write) ────────────────
 // Same shape as postConnectRevenueStreamsWrite above, for the cash-runway policy settings
-// (policy_floor_months/cash_on_hand_cents/cash_account_code/general_fund_budget_code). No
-// existing live page surfaces this read data today either -- see the same note above.
+// (policy_floor_months/cash_on_hand_cents/cash_account_code/general_fund_budget_code). Cash &
+// reserve supplies the complete values from the live runway contract's additive policySettings.
 export async function postConnectCashPolicyWrite(env, accessJwt, body) {
   const binding = env.CONNECT_SERVICE;
   const key = env.FINANCE_CONTRACT_API_KEY;
