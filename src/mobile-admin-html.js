@@ -145,9 +145,9 @@ a{text-decoration:none;}
 .att-hist-title{font-size:13.5px;font-weight:600;color:var(--charcoal);}
 .att-hist-sub{font-size:12px;color:var(--warm-gray);}
 .att-hist-count{font-size:15px;font-weight:700;color:var(--navy);}
-.att-hist-row input{width:56px;height:36px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;color:var(--navy);padding:0 8px;font-family:inherit;text-align:center;}
+.att-hist-row input{width:56px;height:44px;border:1px solid var(--control-border);border-radius:8px;font-size:16px;font-weight:700;color:var(--navy);padding:0 8px;font-family:inherit;text-align:center;}
 .att-hist-actions{display:flex;gap:6px;}
-.att-icon-btn{background:none;border:none;color:var(--teal);font-weight:700;font-size:12px;cursor:pointer;padding:4px 6px;}
+.att-icon-btn{min-width:44px;min-height:44px;background:none;border:none;color:var(--teal);font-weight:700;font-size:12px;cursor:pointer;padding:4px 6px;}
 .att-icon-btn.danger{color:var(--danger);}
 .att-add-btn{width:100%;padding:12px;border-radius:12px;border:1.5px dashed var(--border);background:none;color:var(--teal);font-weight:700;font-size:13.5px;cursor:pointer;}
 .att-form{display:flex;flex-direction:column;gap:10px;padding:14px 16px;}
@@ -193,7 +193,7 @@ a{text-decoration:none;}
 .sched-role-edit label{font-size:11px;font-weight:700;color:var(--warm-gray);}
 .sched-role-edit select{width:100%;height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;padding:0 10px;font-family:inherit;box-sizing:border-box;}
 .sched-edit-actions{display:flex;gap:8px;flex-wrap:wrap;}
-.sched-edit-btn{height:36px;padding:0 14px;border-radius:8px;font-weight:700;font-size:12.5px;cursor:pointer;border:none;background:var(--blue-mist);color:var(--navy);}
+.sched-edit-btn{min-height:44px;padding:0 14px;border-radius:8px;font-weight:700;font-size:12.5px;cursor:pointer;border:none;background:var(--blue-mist);color:var(--navy);}
 .sched-edit-btn.save{background:var(--primary);color:#fff;}
 .sched-edit-btn.cancel{background:var(--white);color:var(--charcoal);border:1.5px solid var(--border);}
 .sched-role-name{font-size:13.5px;font-weight:600;color:var(--charcoal);}

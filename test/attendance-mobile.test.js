@@ -103,7 +103,7 @@ describe('ATT-MOB1 — what the fix deliberately did NOT do', () => {
   it('keeps both fields side by side at every width', () => {
     // Stacking would have fixed the scroll too, but it pushes Combined and Save Sunday down the
     // page — the card exists to enter both numbers and read the total in one glance.
-    for (const bp of [767, 900, 1100]) {
+    for (const bp of [767, 900, 1023, 1100]) {
       for (const b of mediaBlocks(STYLE, bp)) {
         expect(b.text, bp + 'px stacks the entry fields').not.toMatch(/\.att-input-grid\{[^}]*grid-template-columns:\s*1fr\s*[;}]/);
       }
@@ -127,9 +127,9 @@ describe('ATT-MOB1 — what the fix deliberately did NOT do', () => {
     expect(STYLE.replace(phone.text, '')).toMatch(/\.att-panel\{[^}]*padding:20px 24px 28px/);
   });
 
-  it('adds no fourth breakpoint and leaves the MOB1 rule last', () => {
+  it('adds no unrelated breakpoint and leaves the MOB1 rule last', () => {
     const widths = [...STYLE.matchAll(/@media ?\(max-width: ?(\d+)px\)/g)].map((m) => Number(m[1]));
-    expect([...new Set(widths)].filter((w) => ![767, 900, 1100].includes(w))).toEqual([]);
+    expect([...new Set(widths)].filter((w) => ![767, 900, 1023, 1100].includes(w))).toEqual([]);
     const zoom = STYLE.indexOf('font-size:16px!important');
     expect([...STYLE.slice(zoom).matchAll(/@media ?\(max-width: ?\d+px\)/g)].length).toBe(0);
   });

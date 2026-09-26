@@ -36,7 +36,7 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
    thousands of references across the app; they are ALIASED onto the Open Sky values here
    rather than renamed, so every existing screen moves to the new palette at once. New code
    should use the Open Sky names. ── */
-/* ══ RESPONSIVE BREAKPOINTS — three tiers, and only three ═══════════════════════════════════
+/* ══ RESPONSIVE BREAKPOINTS — three content tiers plus Workspace navigation ═══════════════════════════════════
    phone   @media(max-width:767px)    tablet  @media(max-width:900px)    wide  @media(max-width:1100px)
 
    Before MOB3 this stylesheet used ELEVEN different max-widths (480/520/600/700/720/767/800/
@@ -52,12 +52,12 @@ export const HTML_HEAD = String.raw`<!DOCTYPE html>
    exactly how v1.121.3's pagination fix shipped doing nothing. Keeping every block where it sat
    preserves the cascade exactly while still giving three consistent switch points.
 
-   Adding responsive CSS? Use one of the three above. Do not invent a fourth. */
+   Navigation uses the Workspace 1024px boundary independently of these content tiers. */
 :root{
   /* ── Open Sky canonical colors ── */
   --primary:#386781;--primary-hover:#2B5065;--accent:#C9973A;
   --page:#F3F7FA;--surface:#FFFFFF;--text:#293D49;--muted:#536B79;--tint:#DFEBF2;
-  --success:#1A5C3E;--success-bg:#EAF5EF;--warning:#7A5A00;--warning-bg:var(--warning-bg);
+  --success:#1A5C3E;--success-bg:#EAF5EF;--warning:#7A5A00;--warning-bg:#FFF8E1;
   --error:#A12B24;--error-bg:#FDEEE8;--info:#386781;--info-bg:#EDF2F7;
   --border:#D7E2E9;--control-border:#718694;--link:#386781;--focus:#386781;--brand-ink:#293D49;
   --backdrop:rgb(0 0 0 / 30%);
@@ -119,10 +119,9 @@ a:hover{color:var(--primary-hover);}
 button,input,select,textarea{font-family:inherit;}
 /* Timothy Workspace focus ring: 3px solid primary, never removed. */
 :focus-visible{outline:3px solid var(--focus);outline-offset:3px;}
-input:focus-visible,select:focus-visible,textarea:focus-visible{outline-offset:1px;}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important;}}
 /* ── HEADER (legacy <header> element no longer rendered; rules removed PR 4/4) ── */
-.btn-sm{min-height:36px;padding:6px 14px;border-radius:var(--radius-control);font-family:var(--font-body);font-size:14px;font-weight:600;cursor:pointer;border:1px solid var(--control-border);background:var(--surface);color:var(--primary);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:background-color .15s ease;}
+.btn-sm{min-height:44px;padding:6px 14px;border-radius:var(--radius-control);font-family:var(--font-body);font-size:14px;font-weight:600;cursor:pointer;border:1px solid var(--control-border);background:var(--surface);color:var(--primary);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:background-color .15s ease;}
 .btn-sm:hover{background:var(--tint);}
 /* ── OFFLINE BANNER ── */
 #offline-banner{display:none;background:var(--warning-bg);border-bottom:1px solid var(--warning);padding:8px 24px;font-size:14px;color:var(--warning);text-align:center;}
@@ -152,8 +151,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline-offset:1
 .sidebar.open{left:0;}
 a.s-item{text-decoration:none;color:inherit;}
 /* Open Sky shell: a white 224px sidebar that stays in place on a desktop-width screen (the
-   Timothy Workspace layout), and becomes an off-canvas Menu drawer at the 1100px tier and
-   below. The church mark + product name sit at its top, as in the design reference. */
+   Timothy Workspace layout), and becomes an off-canvas Menu drawer below 1024px. The church mark + product name sit at its top, as in the design reference. */
 .s-logo{display:flex;flex-direction:column;align-items:center;gap:6px;margin:0 0 20px;flex-shrink:0;cursor:pointer;padding:0 8px;}
 .s-logo img{width:56px;height:56px;display:block;}
 .s-word{font-family:var(--font-head);font-weight:700;font-size:20px;color:var(--brand-ink);line-height:1.1;}
@@ -184,7 +182,7 @@ a.s-item{text-decoration:none;color:inherit;}
 .hamburger{display:none;align-items:center;justify-content:center;gap:6px;min-width:44px;min-height:44px;background:var(--surface);border:1px solid var(--control-border);border-radius:var(--radius-control);cursor:pointer;padding:0 12px;font:600 14px/1 var(--font-ui);color:var(--text);}
 .hamburger:hover{background:var(--tint);}
 /* The lockup lives in the sidebar. The topbar copy only shows while the sidebar is a
-   drawer (1100px and below), so the app always shows its brand exactly once. */
+   drawer (below 1024px), so the app always shows its brand exactly once. */
 .topbar-brand{display:none;align-items:center;gap:8px;cursor:pointer;flex-shrink:0;}
 .topbar-mark{width:32px;height:32px;display:block;flex-shrink:0;}
 .topbar-word{font-family:var(--font-head);font-weight:700;font-size:18px;color:var(--brand-ink);line-height:1;white-space:nowrap;}
@@ -197,11 +195,11 @@ a.s-item{text-decoration:none;color:inherit;}
 .hamburger svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:var(--backdrop);z-index:90;}
 .sidebar-overlay.open{display:block;}
-/* Below the wide tier the sidebar becomes the Menu drawer (Timothy Workspace: "below 1024px
-   the sidebar becomes a Menu disclosure" — 1100 is this app's nearest existing tier). */
-@media(max-width:1100px){
-  .sidebar{left:calc(-1 * var(--sidebar-width) - 1px);}
-  .sidebar.open{left:0;}
+/* The Workspace navigation switches below 1024px. Content-specific
+   breakpoints below remain independent of the navigation shell. */
+@media(max-width:1023px){
+  .sidebar{left:calc(-1 * var(--sidebar-width) - 1px);visibility:hidden;}
+  .sidebar.open{left:0;visibility:visible;}
   .content-area{margin-left:0;}
   .hamburger,.topbar-brand{display:flex;}
   .topbar{padding:0 24px;}
@@ -692,7 +690,7 @@ a.s-item{text-decoration:none;color:inherit;}
 .tag-picker{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0;}
 /* ── AUTOCOMPLETE ── */
 .ac-wrap{position:relative;}
-.ac-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--white);border:1.5px solid var(--steel-anchor);border-radius:8px;z-index:500;max-height:200px;overflow-y:auto;display:none;box-shadow:0 4px 16px rgba(0,0,0,.12);}
+.ac-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--white);border:1.5px solid var(--steel-anchor);border-radius:8px;z-index:500;max-height:200px;overflow-y:auto;display:none;box-shadow:none;}
 .ac-dropdown.open{display:block;}
 .ac-item{padding:8px 12px;cursor:pointer;font-size:.88rem;}
 .ac-item:hover,.ac-item.selected{background:var(--blue-mist);}
@@ -1999,7 +1997,7 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
    sidebar exactly, not a horizontal tab row. Sits inside the same shell card
    as the list+detail pane to its right (see vol-subnav markup in html-tabs.js). ── */
 .vol-subnav{width:190px;flex-shrink:0;background:var(--page);border-right:1px solid var(--border);padding:16px 10px;display:flex;flex-direction:column;gap:2px;align-self:stretch;}
-.vol-subtab-btn{text-align:left;background:none;border:none;color:var(--text);font-family:var(--font-body);font-size:15px;font-weight:400;min-height:40px;padding:8px 10px;border-radius:var(--radius-control);cursor:pointer;}
+.vol-subtab-btn{text-align:left;background:none;border:none;color:var(--text);font-family:var(--font-body);font-size:15px;font-weight:400;min-height:44px;padding:8px 10px;border-radius:var(--radius-control);cursor:pointer;}
 .vol-subtab-btn.active{color:var(--primary);background:var(--tint);font-weight:600;box-shadow:inset 3px 0 0 var(--primary);}
 .vol-subtab-btn:hover:not(.active){background:var(--surface);}
 .vol-subnav-divider{height:1px;background:var(--border);margin:6px 4px;}
@@ -2284,7 +2282,7 @@ body.perm-giving-anon .require-giving-named{display:none!important;}
 </head>
 <body>
 <div id="offline-banner">You are offline — showing cached contacts</div>
-<div id="error-boundary" role="alert" aria-live="assertive" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--error);color:var(--white);padding:11px 20px;border-radius:9px;font-size:.85rem;max-width:520px;width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.3);"></div>
+<div id="error-boundary" role="alert" aria-live="assertive" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--error);color:var(--white);padding:11px 20px;border-radius:9px;font-size:.85rem;max-width:520px;width:90vw;text-align:center;border:1px solid var(--error);"></div>
 <div class="app-shell">
 <nav class="sidebar" id="sidebar" aria-label="Main">
   <div class="s-logo" onclick="showTab('home')" title="Home"><img src="/icons/connect-mark.png" alt="" width="56" height="56"><span class="s-word">Connect</span><span class="s-word-rule"></span><span class="s-org">Timothy Lutheran Church</span></div>
