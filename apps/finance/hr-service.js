@@ -1,12 +1,18 @@
-// HR & Staff (migration 0011): church staff and key volunteers, their screening and training
-// dates, annual reviews and goals, job descriptions, policy signatures, and benefits enrollment.
-// Admin-only. Daycare staff are not stored here; myMDO owns childcare staffing. Background checks
-// are dates and status only.
+// HR & Staff (migrations 0011 and 0016): church staff, MDO staff (the director, who sits outside
+// the church staff org), and key volunteers, with their screening and training dates, annual
+// reviews and goals, job descriptions, policy signatures, and benefits enrollment. Admin-only.
+// Other daycare staff are not stored here; myMDO owns childcare staffing. Background checks are
+// dates and status only.
 import { runBudgetedReadBatch } from './query-budget.js';
 import { FormValidationError, day, int, month, oneOf, optionalId, text } from './form-fields.js';
 import { addMonthsToDay, daysBetween, formatMonth } from './facilities-service.js';
 
-export const PERSON_GROUPS = Object.freeze(['Church staff', 'Key volunteer']);
+// The groups a person is shown in. finance_hr_people.person_group only allows 'Church staff' and
+// 'Key volunteer', so MDO staff are stored as staff with organization 'mdo' in
+// finance_hr_person_placement (migration 0016) and read back as 'MDO staff'.
+export const PERSON_GROUPS = Object.freeze(['Church staff', 'MDO staff', 'Key volunteer']);
+export const STAFF_GROUPS = Object.freeze(['Church staff', 'MDO staff']);
+export const MINISTRYSAFE_URL = 'https://ministrysafe.com';
 export const REVIEW_STATUSES = Object.freeze(['Not started', 'Self-review in', 'Scheduled', 'Complete']);
 export const FLSA_CLASSES = Object.freeze(['Exempt · called', 'Exempt', 'Non-exempt']);
 export const BENEFIT_CHANGE_STATUSES = Object.freeze(['Requested', 'Waiting for open enrollment', 'Processed', 'Waiver on file']);
@@ -21,11 +27,12 @@ export const HEALTH_COVERAGE = Object.freeze({
 });
 export const ENROLLED_COVERAGE = new Set(['family', 'self_spouse', 'self_child', 'self']);
 
-// Renewal periods from the design: background checks and Safe Gatherings every 3 years,
-// mandated reporter and CPR / First Aid every 2.
+// Renewal periods from the design: background checks and MinistrySafe training every 3 years,
+// mandated reporter and CPR / First Aid every 2. The safe_gatherings kind and column names are
+// kept from the first design; the congregation uses MinistrySafe for this training.
 export const CREDENTIALS = Object.freeze([
   Object.freeze({ kind: 'background_check', label: 'Background check', years: 3, requires: 'requires_background' }),
-  Object.freeze({ kind: 'safe_gatherings', label: 'Safe Gatherings', years: 3, requires: 'requires_safe_gatherings' }),
+  Object.freeze({ kind: 'safe_gatherings', label: 'MinistrySafe training', years: 3, requires: 'requires_safe_gatherings' }),
   Object.freeze({ kind: 'mandated_reporter', label: 'Mandated reporter', years: 2, requires: 'requires_mandated_reporter' }),
   Object.freeze({ kind: 'cpr_first_aid', label: 'CPR / First Aid', years: 2, requires: 'requires_cpr' }),
 ]);
@@ -34,7 +41,8 @@ export const DUE_SOON_DAYS = 60;
 export const JOB_DESCRIPTION_REVIEW_YEARS = 5;
 
 export const HR_READ_SQL = Object.freeze([
-  'SELECT id, full_name, person_group, position, reports_to_id, start_month, employment_type, email, roster_credential, requires_background, requires_safe_gatherings, requires_mandated_reporter, requires_cpr, health_coverage, pension, disability, retirement_403b, active, notes FROM finance_hr_people ORDER BY person_group, full_name, id',
+  `SELECT p.id, p.full_name, CASE WHEN p.person_group = 'Church staff' AND pl.organization = 'mdo' THEN 'MDO staff' ELSE p.person_group END AS person_group, p.position, p.reports_to_id, p.start_month, p.employment_type, p.email, p.roster_credential, p.requires_background, p.requires_safe_gatherings, p.requires_mandated_reporter, p.requires_cpr, p.health_coverage, p.pension, p.disability, p.retirement_403b, p.active, p.notes, COALESCE(pl.ministry_team, '') AS ministry_team
+    FROM finance_hr_people p LEFT JOIN finance_hr_person_placement pl ON pl.person_id = p.id ORDER BY 3, p.full_name, p.id`,
   'SELECT person_id, kind, completed_on, expires_on FROM finance_hr_credentials',
   'SELECT person_id, review_year, status, note FROM finance_hr_reviews',
   'SELECT id, person_id, review_year, goal, progress_pct FROM finance_hr_goals ORDER BY id',
@@ -115,6 +123,8 @@ export function buildHrView(data, today, reviewYear) {
   });
   const byId = new Map(data.people.map((p) => [p.id, p]));
   const staff = people.filter((p) => p.person_group === 'Church staff');
+  const mdoStaff = people.filter((p) => p.person_group === 'MDO staff');
+  const employees = people.filter((p) => STAFF_GROUPS.includes(p.person_group));
   const volunteers = people.filter((p) => p.person_group === 'Key volunteer');
   const attention = people.reduce((n, p) => n + Object.values(p.credentials).filter((s) => WORST.includes(s.state)).length, 0);
   const policies = data.policies.filter((p) => p.active).map((policy) => {
@@ -129,9 +139,21 @@ export function buildHrView(data, today, reviewYear) {
     stale: !p.description_updated_month || thisYear - Number(p.description_updated_month.slice(0, 4)) >= JOB_DESCRIPTION_REVIEW_YEARS,
   }));
   return {
-    today, reviewYear, people, staff, volunteers, byId, attention, policies, positions,
+    today, reviewYear, people, staff, mdoStaff, employees, volunteers, teams: ministryTeams(people), byId, attention, policies, positions,
     benefitChanges: data.benefitChanges.map((c) => ({ ...c, name: byId.get(c.person_id)?.full_name || 'Former staff' })),
   };
+}
+
+// Ministry teams (VBS, Sunday School, ...) with the active people on each, largest first.
+export function ministryTeams(people) {
+  const teams = new Map();
+  for (const p of people) {
+    const team = String(p.ministry_team || '').trim();
+    if (!team) continue;
+    if (!teams.has(team)) teams.set(team, []);
+    teams.get(team).push(p);
+  }
+  return [...teams].map(([name, members]) => ({ name, members })).sort((a, b) => b.members.length - a.members.length || a.name.localeCompare(b.name));
 }
 
 // Org chart: a forest rooted at people with no one above them (the council sits over the root).
@@ -172,9 +194,10 @@ export async function saveHrPerson(db, form, actor) {
     if (id && reportsTo === id) throw new FormValidationError('A person cannot report to themselves.');
     await requirePerson(db, reportsTo);
   }
+  const group = oneOf(form.person_group, PERSON_GROUPS, 'group');
   const values = [
     text(form.full_name, 120, 'Name', { required: true }),
-    oneOf(form.person_group, PERSON_GROUPS, 'group'),
+    group === 'Key volunteer' ? 'Key volunteer' : 'Church staff',
     text(form.position, 160, 'Position'),
     reportsTo,
     String(form.start_month ?? '').trim() ? month(form.start_month, 'Start') : null,
@@ -190,15 +213,23 @@ export async function saveHrPerson(db, form, actor) {
     String(actor || ''),
   ];
   if (values[6] && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values[6])) throw new FormValidationError('Email must be an email address.');
+  const placement = (personId) => db.prepare(`INSERT INTO finance_hr_person_placement (person_id, organization, ministry_team, updated_by) VALUES (?, ?, ?, ?)
+    ON CONFLICT (person_id) DO UPDATE SET organization = excluded.organization, ministry_team = excluded.ministry_team, updated_by = excluded.updated_by, updated_at = datetime('now')`)
+    .bind(personId, group === 'MDO staff' ? 'mdo' : 'church', text(form.ministry_team, 80, 'Ministry team'), String(actor || ''));
   if (id) {
     await requirePerson(db, id);
-    await db.prepare(`UPDATE finance_hr_people SET full_name = ?, person_group = ?, position = ?, reports_to_id = ?, start_month = ?, employment_type = ?, email = ?, roster_credential = ?, requires_background = ?, requires_safe_gatherings = ?, requires_mandated_reporter = ?, requires_cpr = ?, health_coverage = ?, pension = ?, disability = ?, retirement_403b = ?, active = ?, notes = ?, updated_by = ?, updated_at = datetime('now') WHERE id = ?`)
-      .bind(...values, id).run();
+    await db.batch([
+      db.prepare(`UPDATE finance_hr_people SET full_name = ?, person_group = ?, position = ?, reports_to_id = ?, start_month = ?, employment_type = ?, email = ?, roster_credential = ?, requires_background = ?, requires_safe_gatherings = ?, requires_mandated_reporter = ?, requires_cpr = ?, health_coverage = ?, pension = ?, disability = ?, retirement_403b = ?, active = ?, notes = ?, updated_by = ?, updated_at = datetime('now') WHERE id = ?`)
+        .bind(...values, id),
+      placement(id),
+    ]);
     return { id };
   }
   const result = await db.prepare('INSERT INTO finance_hr_people (full_name, person_group, position, reports_to_id, start_month, employment_type, email, roster_credential, requires_background, requires_safe_gatherings, requires_mandated_reporter, requires_cpr, health_coverage, pension, disability, retirement_403b, active, notes, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .bind(...values).run();
-  return { id: result.meta?.last_row_id ?? null };
+  const newId = result.meta?.last_row_id ?? null;
+  if (newId) await placement(newId).run();
+  return { id: newId };
 }
 
 export async function saveHrCredential(db, form, actor) {

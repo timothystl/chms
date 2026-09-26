@@ -3922,6 +3922,7 @@ export default {
         const hr = section.id === 'hr'
           ? await safeSyntheticRead(async () => {
             await ensureFinanceOwnedSchema(env.FINANCE_DB, 'hr');
+            await ensureFinanceOwnedSchema(env.FINANCE_DB, 'hrPlacement');
             return readHr(env.FINANCE_DB);
           }) : null;
         // Gift Entry batch pages read Connect live with the caller's own Access identity.

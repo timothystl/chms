@@ -10,6 +10,7 @@ export function canEditHr(roleResult) {
 
 export async function handleHrWrite(request, env, routeId, url) {
   await ensureFinanceOwnedSchema(env.FINANCE_DB, 'hr');
+  await ensureFinanceOwnedSchema(env.FINANCE_DB, 'hrPlacement');
   return handleFinanceFormWrite({ request, env, url, section: 'hr', writer: HR_WRITERS[routeId], canEdit: canEditHr });
 }
 

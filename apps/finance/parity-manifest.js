@@ -193,8 +193,9 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
   // rendered from the same one live workspace read; old ?view= links map onto them.
   { id: 'payroll', label: 'Payroll', group: 'Payroll', permission: 'admin', capabilities: ['staff roster', 'hours and PTO entry', 'period approval', 'MDO hours integration', 'reports', 'CSV export', 'email the report', 'relayed live to Website, never stored in Finance'], pages: [{ id: 'run', label: 'Run payroll', status: 'live' }, { id: 'staff', label: 'Staff entry', status: 'live' }, { id: 'mdo', label: 'Import from MDO', status: 'live' }, { id: 'report', label: 'Email / print', status: 'live' }, { id: 'history', label: 'History', status: 'live' }] },
   // HR & Staff is new in the v3 design and holds staff personnel records, so it is admin-only
-  // (the design's own label: admin and lead pastor only). Church staff and key volunteers live
-  // in Finance's own tables (migration 0011, hr-service.js); daycare staff stay in myMDO.
+  // (the design's own label: admin and lead pastor only). Church staff, MDO staff (the
+  // director), and key volunteers with their ministry teams live in Finance's own tables
+  // (migrations 0011 and 0016, hr-service.js); other daycare staff stay in myMDO.
   {
     id: 'hr', label: 'HR & Staff', group: 'HR & Staff', permission: 'admin',
     capabilities: ['staff directory', 'org chart', 'performance reviews', 'background checks and certifications', 'required trainings', 'policies', 'benefits enrollment', 'volunteer screening'],

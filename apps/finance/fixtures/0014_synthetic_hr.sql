@@ -1,4 +1,4 @@
--- Synthetic staging fixture for HR & Staff (migration 0011). Staging-only; never applied to
+-- Synthetic staging fixture for HR & Staff (migrations 0011 and 0016). Staging-only; never applied to
 -- production. Every name and email is synthetic.
 INSERT INTO finance_hr_people (full_name, person_group, position, reports_to_id, start_month, employment_type, email, roster_credential, requires_background, requires_safe_gatherings, requires_mandated_reporter, requires_cpr, health_coverage, pension, disability, retirement_403b) VALUES
   ('Rev. Synthetic Pastor', 'Church staff', 'Senior Pastor', NULL, '2015-08', 'Full-time · called', 'pastor@example.org', 'LCMS roster · Active', 1, 1, 1, 0, 'family', 1, 1, 0),
@@ -9,7 +9,14 @@ INSERT INTO finance_hr_people (full_name, person_group, position, reports_to_id,
   ('Synthetic Assistant', 'Church staff', 'Office Assistant', 4, '2023-01', 'Part-time · hourly', 'assistant@example.org', '', 1, 1, 1, 0, 'not_eligible', 0, 0, 0),
   ('Synthetic Superintendent', 'Key volunteer', 'Sunday School Superintendent', 2, '2012-09', 'Volunteer · children', '', '', 1, 1, 0, 0, 'not_eligible', 0, 0, 0),
   ('Synthetic Nursery Volunteer', 'Key volunteer', 'Nursery Volunteer', 1, '2026-08', 'Volunteer · children', '', '', 1, 1, 0, 0, 'not_eligible', 0, 0, 0),
-  ('Synthetic Counter', 'Key volunteer', 'Counting Team Lead', 4, '2010-01', 'Volunteer · finance', '', '', 1, 0, 0, 0, 'not_eligible', 0, 0, 0);
+  ('Synthetic Counter', 'Key volunteer', 'Counting Team Lead', 4, '2010-01', 'Volunteer · finance', '', '', 1, 0, 0, 0, 'not_eligible', 0, 0, 0),
+  ('Synthetic MDO Director', 'Church staff', 'MDO Director', 1, '2020-08', 'Part-time · 30 hrs', 'mdo@example.org', '', 1, 1, 1, 1, 'not_eligible', 0, 0, 0),
+  ('Synthetic VBS Lead', 'Key volunteer', 'VBS Coordinator', 2, '2022-06', 'Volunteer · children', '', '', 1, 1, 0, 0, 'not_eligible', 0, 0, 0),
+  ('Synthetic VBS Helper', 'Key volunteer', 'Crew Leader', 2, '2025-06', 'Volunteer · children', '', '', 1, 1, 0, 0, 'not_eligible', 0, 0, 0);
+
+-- MDO staff are staff whose organization is 'mdo'; ministry teams group volunteers on the chart.
+INSERT INTO finance_hr_person_placement (person_id, organization, ministry_team) VALUES
+  (7, 'church', 'Sunday School'), (10, 'mdo', ''), (11, 'church', 'VBS'), (12, 'church', 'VBS');
 
 INSERT INTO finance_hr_credentials (person_id, kind, completed_on, expires_on) VALUES
   (1, 'background_check', '2024-02-01', '2027-02-01'), (1, 'safe_gatherings', '2024-02-10', '2027-02-10'), (1, 'mandated_reporter', '2025-09-01', '2027-09-01'),
@@ -19,7 +26,9 @@ INSERT INTO finance_hr_credentials (person_id, kind, completed_on, expires_on) V
   (5, 'background_check', '2021-04-01', '2024-04-01'), (5, 'safe_gatherings', '2024-05-01', '2027-05-01'), (5, 'mandated_reporter', '2025-05-01', '2027-05-01'), (5, 'cpr_first_aid', '2024-05-01', '2026-05-01'),
   (6, 'background_check', '2023-01-15', '2026-01-15'), (6, 'mandated_reporter', '2025-02-01', '2027-02-01'),
   (7, 'background_check', '2023-08-01', '2026-08-01'), (7, 'safe_gatherings', '2023-08-01', '2026-08-01'),
-  (9, 'background_check', '2024-03-01', '2027-03-01');
+  (9, 'background_check', '2024-03-01', '2027-03-01'),
+  (10, 'background_check', '2024-07-01', '2027-07-01'), (10, 'safe_gatherings', '2024-07-01', '2027-07-01'),
+  (11, 'background_check', '2025-04-01', '2028-04-01'), (11, 'safe_gatherings', '2025-04-01', '2028-04-01');
 
 INSERT INTO finance_hr_reviews (person_id, review_year, status, note) VALUES
   (1, 2026, 'Scheduled', 'Oct 28 · council personnel'), (2, 2026, 'Not started', ''), (3, 2026, 'Complete', ''), (4, 2026, 'Self-review in', '');
@@ -38,7 +47,7 @@ INSERT INTO finance_hr_positions (title, reports_to, flsa, hours, description_up
 
 INSERT INTO finance_hr_policies (title, version_label, applies_to) VALUES
   ('Employee handbook', 'Version 3 · Jan 2026', 'staff'),
-  ('Child protection policy (Safe Gatherings)', 'Revised Aug 2025', 'staff_and_volunteers'),
+  ('Child protection policy (MinistrySafe)', 'Revised Aug 2025', 'staff_and_volunteers'),
   ('Harassment prevention', 'Revised Jan 2024', 'staff');
 
 INSERT INTO finance_hr_policy_signatures (policy_id, person_id, version_label, signed_on) VALUES
