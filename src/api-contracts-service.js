@@ -22,6 +22,7 @@ import { respondWithFinanceBudgetBuilderV1 } from './api-budget-builder-contract
 import { respondWithFinanceClassificationV1 } from './api-classification-contracts.js';
 import { respondWithFinanceBoardLayoutV1 } from './api-board-layout-contracts.js';
 import { respondWithFinanceImportStatusV1, respondWithFinanceDaycareChurchBudgetPreviewV1, respondWithFinanceBoardPacketV1 } from './api-data-imports-contracts.js';
+import { respondWithFinanceHealthV1 } from './api-finance-health-contract.js';
 import {
   applyBudgetPlanOverrideRows, applySalaryPlannerWrite, resolveSalaryPlannerState,
   generateBudgetPlanRows, generateAllBudgetPlan, commitBudgetPlan, deleteBudgetPlanRow,
@@ -90,6 +91,13 @@ export async function handleContractsServiceApi(req, env, path) {
 
   if (path === '/api/contracts/finance-cash-runway-v1' && req.method === 'GET') {
     return respondWithFinanceCashRunwayV1(new URL(req.url), env.DB);
+  }
+
+  // Financial Health (Finance v3): everything Connect's legacy Financial Health tab shows. Reads
+  // Giving tables (fund totals, household rollups), so Connect serves it -- never Finance's own
+  // database. env.DB routes each query to its owning database; none of them joins across the two.
+  if (path === '/api/contracts/finance-health-v1' && req.method === 'GET') {
+    return respondWithFinanceHealthV1(new URL(req.url), env.DB);
   }
 
   if (path === '/api/contracts/finance-chart-of-accounts-v1' && req.method === 'GET') {
