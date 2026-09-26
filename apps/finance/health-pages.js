@@ -10,8 +10,9 @@ export const HEALTH_VIEWS = Object.freeze([
   Object.freeze({ id: 'detail', tag: '1c', label: 'Full detail' }),
 ]);
 
+// Full detail is the default: it is the page Connect's legacy Financial Health tab shows.
 export function resolveHealthView(value) {
-  return HEALTH_VIEWS.find((view) => view.id === value)?.id || 'summary';
+  return HEALTH_VIEWS.find((view) => view.id === value)?.id || 'detail';
 }
 
 export function renderHealthViewToggle(activeView, { councilPreview } = {}) {
