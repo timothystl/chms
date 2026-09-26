@@ -54,6 +54,7 @@ export function defaultLiveChurchReportFiscalYear(now = new Date()) {
 // it does not decide who is authorized. Same never-throws, always-{ok,reason}-labeled shape as
 // postConnectFinanceBudgetWrite in finance-budget-client.js.
 const WRITE_REQUEST_TIMEOUT_MS = 4000;
+export const IMPORT_REQUEST_TIMEOUT_MS = 30000;
 
 export async function postConnectFinanceChurchActualOverride(env, accessJwt, body) {
   const binding = env.CONNECT_SERVICE;
@@ -118,7 +119,7 @@ export async function postConnectChurchBudgetXlsxImport(env, accessJwt, body) {
         Accept: 'application/json',
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(IMPORT_REQUEST_TIMEOUT_MS),
     }));
   } catch (e) {
     return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
@@ -151,7 +152,7 @@ async function postConnectChurchBudgetXlsxStep(env, accessJwt, path, body) {
         Accept: 'application/json',
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(IMPORT_REQUEST_TIMEOUT_MS),
     }));
   } catch (e) {
     return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
@@ -214,7 +215,7 @@ export async function postConnectChurchMonthlyXlsxImport(env, accessJwt, body) {
         Accept: 'application/json',
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(IMPORT_REQUEST_TIMEOUT_MS),
     }));
   } catch (e) {
     return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
@@ -254,7 +255,7 @@ export async function postConnectChurchActivityXlsxImport(env, accessJwt, body) 
         Accept: 'application/json',
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(IMPORT_REQUEST_TIMEOUT_MS),
     }));
   } catch (e) {
     return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
@@ -294,7 +295,7 @@ export async function postConnectChurchBudgetMultiYearXlsxImport(env, accessJwt,
         Accept: 'application/json',
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(IMPORT_REQUEST_TIMEOUT_MS),
     }));
   } catch (e) {
     return { ok: false, reason: 'network_error', detail: e?.message || String(e) };

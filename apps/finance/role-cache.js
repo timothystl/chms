@@ -3,7 +3,7 @@
 // returns a 5xx, a page view may use the saved role for up to seven days. The person is identified
 // by verifying the Cloudflare Access sign-in Finance itself receives. A refusal from Connect (401 or
 // 403) is never overridden, and saves always require a live answer (they call fetchVerifiedRole).
-import { fetchVerifiedRole } from './connect-role-client.js';
+import { fetchVerifiedRole, PAGE_ROLE_TIMEOUT_MS } from './connect-role-client.js';
 import { verifyAccessJwt } from './access-jwt.js';
 import { ensureFinanceOwnedSchema } from './finance-owned-schema.js';
 
@@ -45,7 +45,9 @@ async function savedRole(db, identity, now) {
 
 // For page views only. Returns fetchVerifiedRole's result, or a saved role marked source: 'saved'.
 export async function resolvePageRole(env, accessJwt, { now = Date.now(), fetchImpl } = {}) {
-  const live = await fetchVerifiedRole(env, accessJwt);
+  // Page rendering has a bounded dependency on Connect. Saves still use the stricter default
+  // live verification path, while page views can fall back to the last verified role promptly.
+  const live = await fetchVerifiedRole(env, accessJwt, { timeoutMs: PAGE_ROLE_TIMEOUT_MS, retry: false });
   if (live.ok) {
     await saveRole(env.FINANCE_DB, live);
     return live;

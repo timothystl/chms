@@ -54,7 +54,7 @@ export function defaultLiveBalanceSheetFiscalYear(now = new Date()) {
 // shell.js has already read the browser's multipart upload and base64-encoded the bytes before
 // calling this; the fiscal year and as-of date come from the workbook itself, exactly as legacy
 // determines them, so there is no separate form field for either.
-const WRITE_REQUEST_TIMEOUT_MS_BALANCES = 4000;
+export const IMPORT_REQUEST_TIMEOUT_MS_BALANCES = 30000;
 
 export async function postConnectChurchBalancesXlsxImport(env, accessJwt, body) {
   const binding = env.CONNECT_SERVICE;
@@ -74,7 +74,7 @@ export async function postConnectChurchBalancesXlsxImport(env, accessJwt, body) 
         Accept: 'application/json',
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS_BALANCES),
+      signal: AbortSignal.timeout(IMPORT_REQUEST_TIMEOUT_MS_BALANCES),
     }));
   } catch (e) {
     return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
@@ -107,7 +107,7 @@ async function postConnectChurchBalancesXlsxStep(env, accessJwt, path, body) {
         Accept: 'application/json',
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS_BALANCES),
+      signal: AbortSignal.timeout(IMPORT_REQUEST_TIMEOUT_MS_BALANCES),
     }));
   } catch (e) {
     return { ok: false, reason: 'network_error', detail: e?.message || String(e) };
@@ -159,7 +159,7 @@ export async function postConnectChurchBalancesMultiYearXlsxImport(env, accessJw
         Accept: 'application/json',
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(WRITE_REQUEST_TIMEOUT_MS_BALANCES),
+      signal: AbortSignal.timeout(IMPORT_REQUEST_TIMEOUT_MS_BALANCES),
     }));
   } catch (e) {
     return { ok: false, reason: 'network_error', detail: e?.message || String(e) };

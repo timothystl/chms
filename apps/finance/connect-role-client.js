@@ -12,8 +12,9 @@
 // { ok: false, reason }. Only a genuinely verified identity resolves to { ok: true, role }.
 
 const REQUEST_TIMEOUT_MS = 9000;
+export const PAGE_ROLE_TIMEOUT_MS = 1500;
 
-export async function fetchVerifiedRole(env, accessJwt) {
+export async function fetchVerifiedRole(env, accessJwt, { timeoutMs = REQUEST_TIMEOUT_MS, retry = true } = {}) {
   const binding = env.CONNECT_SERVICE;
   const key = env.FINANCE_CONTRACT_API_KEY;
   if (!binding || !key) return { ok: false, reason: 'not_configured' };
@@ -21,20 +22,20 @@ export async function fetchVerifiedRole(env, accessJwt) {
   // One retry for a failure that is Connect's momentary trouble (a timeout, a dropped connection,
   // or a 5xx while it restarts after a release). A refusal (401/403) is final and never retried.
   // A timeout is not retried: a second wait would only double the delay before the answer.
-  const first = await requestVerifiedRole(binding, key, accessJwt);
+  const first = await requestVerifiedRole(binding, key, accessJwt, timeoutMs);
   const transient = first.reason === 'network_error' ? !first.timedOut : first.reason === 'http_error' && first.status >= 500;
-  if (first.ok || !transient) return first;
-  return requestVerifiedRole(binding, key, accessJwt);
+  if (first.ok || !transient || !retry) return first;
+  return requestVerifiedRole(binding, key, accessJwt, timeoutMs);
 }
 
-async function requestVerifiedRole(binding, key, accessJwt) {
+async function requestVerifiedRole(binding, key, accessJwt, timeoutMs) {
 
   const url = 'https://connect.timothystl.org/api/contracts/staff-role-v1';
   let res;
   try {
     res = await binding.fetch(new Request(url, {
       headers: { 'X-Contract-Key': key, 'Cf-Access-Jwt-Assertion': accessJwt, Accept: 'application/json' },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     }));
   } catch (e) {
     return { ok: false, reason: 'network_error', timedOut: e?.name === 'TimeoutError' || e?.name === 'AbortError', detail: e?.message || String(e) };
