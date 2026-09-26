@@ -71,7 +71,7 @@ import {
   postConnectChurchMonthlyXlsxImport, postConnectChurchActivityXlsxImport, postConnectChurchBudgetMultiYearXlsxImport,
   fetchLiveFinanceChurchReport,
 } from './finance-church-report-client.js';
-import { projectCompensation } from './compensation-projection.js';
+import { projectCompensation, centralDateParts } from './compensation-projection.js';
 import { defaultCompensationTargetYear } from './compensation-editor-pages.js';
 import {
   postConnectFinanceDaycareEntry, postConnectDaycareAllocationConfigWrite, postConnectDaycareBudgetOverrideWrite,
@@ -751,6 +751,12 @@ function describeDaycareRoomsSyncError(reason, message) {
 
 // The plan year the raise projection is for: ?plan_year=YYYY when given, else next year; the base
 // year it is compared against is the year before, as in legacy's Salary Planner.
+// Chart of Accounts' ?fiscal_year=, else the church's current calendar year (legacy's default).
+function chartOfAccountsFiscalYear(raw) {
+  const year = Number(raw);
+  return /^\d{4}$/.test(String(raw || '')) && year >= 2000 && year <= 2100 ? year : centralDateParts().year;
+}
+
 function compensationTargetYear(raw) {
   const year = Number(raw);
   return /^\d{4}$/.test(String(raw || '')) && year >= 2000 && year <= 2100 ? year : defaultCompensationTargetYear();
@@ -1349,6 +1355,9 @@ function renderSectionBody(ctx) {
       accountsReport, canManageBoardCategories, boardCategoryEntryStatus, boardCategoryEntryMessage,
       canManagePurposeTags, purposeTagsEntryStatus, purposeTagsEntryMessage,
       boardLayout: ctx.boardLayout || null,
+      // Payroll cost in Resources by Purpose: only for roles that may read the Compensation plan.
+      compensationProjection,
+      canReadCompensation: roleResult.ok && COMPENSATION_LIVE_ALLOWED_ROLES.includes(roleResult.role),
     });
   }
   if (section.id === 'compensation') {
@@ -3689,8 +3698,11 @@ export default {
         let planningBasis = after(planningLoads, (loads) => loads[0]);
         let planningScenarios = after(planningLoads, (loads) => loads[1]);
         let planningRunway = after(planningLoads, (loads) => (loads[2]?.ok ? buildLiveCashRunwayView(loads[2].runway) : null));
+        // Chart of Accounts shows one fiscal year, like legacy's tab: ?fiscal_year= or, by default,
+        // the church's current calendar year (no fallback to an older year; the page offers one).
+        const accountsFiscalYear = section.id === 'accounts' ? chartOfAccountsFiscalYear(url.searchParams.get('fiscal_year')) : null;
         let accountsReport = ['accounts', 'quickbooks'].includes(section.id)
-          ? safeSyntheticRead(() => resolveAccountsReport(env, env.FINANCE_DB)) : null;
+          ? safeSyntheticRead(() => resolveAccountsReport(env, env.FINANCE_DB, { fiscalYear: accountsFiscalYear })) : null;
         // Finance's own QuickBooks connection, once enabled (quickbooks-oauth-routes.js). The budget
         // list is a live QuickBooks call, so it is fetched only when an admin asks for it.
         let quickbooksOwn = ['quickbooks', 'data'].includes(section.id) && qbEnabled(env) && env.FINANCE_DB
@@ -3759,11 +3771,15 @@ export default {
         // Plan and Council also show the raise projection (compensation-projection.js), so every
         // role allowed into this section reads the saved plan there; Connect's contract applies the
         // same role check and hides hideFromCouncil workers from council logins.
-        let compensationPlanRaw = (section.id === 'compensation' && ['plan', 'council', 'benefits', 'benchmarks', 'rates'].includes(effectivePageId) && compensationRoleVerified)
+        // Chart of Accounts' Resources by Purpose also reads the plan (legacy counts each tagged
+        // worker's church cost there), under the same role check as the Compensation pages.
+        const accountsChartPayroll = section.id === 'accounts' && effectivePageId === 'chart' && compensationRoleVerified;
+        let compensationPlanRaw = ((section.id === 'compensation' && ['plan', 'council', 'benefits', 'benchmarks', 'rates'].includes(effectivePageId) && compensationRoleVerified) || accountsChartPayroll)
           ? fetchConnectSalaryPlannerState(env, request.headers.get('Cf-Access-Jwt-Assertion') || '') : null;
         let compensationProjection = after(compensationPlanRaw, (plan) => (plan && plan.ok && plan.data
           ? buildCompensationProjection(env, plan.data, {
-            targetYear: compensationTargetYear(url.searchParams.get('plan_year')),
+            // Legacy's purpose totals use the Salary Planner's target year, the year after the chart's.
+            targetYear: accountsChartPayroll ? accountsFiscalYear + 1 : compensationTargetYear(url.searchParams.get('plan_year')),
             councilView: effectivePageId === 'council' || roleResult.role === 'council',
           })
           : null));

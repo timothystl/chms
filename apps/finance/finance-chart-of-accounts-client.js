@@ -6,12 +6,16 @@ import { acceptFinanceChartOfAccountsV1 } from '../../contracts/validators/finan
 
 const REQUEST_TIMEOUT_MS = 4000;
 
-export async function fetchLiveFinanceChartOfAccounts(env) {
+// `fiscalYear` (a four-digit year, or null for the contract's own default, the current calendar
+// year) is passed through as ?fiscal_year=, the same parameter the other year-scoped contracts use.
+export async function fetchLiveFinanceChartOfAccounts(env, fiscalYear = null) {
   const binding = env.CONNECT_SERVICE;
   const key = env.FINANCE_CONTRACT_API_KEY;
   if (!binding || !key) return { ok: false, reason: 'not_configured' };
 
-  const url = 'https://connect.timothystl.org/api/contracts/finance-chart-of-accounts-v1';
+  const url = Number.isInteger(fiscalYear)
+    ? `https://connect.timothystl.org/api/contracts/finance-chart-of-accounts-v1?fiscal_year=${fiscalYear}`
+    : 'https://connect.timothystl.org/api/contracts/finance-chart-of-accounts-v1';
   let res;
   try {
     res = await binding.fetch(new Request(url, {

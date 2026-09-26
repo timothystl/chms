@@ -93,7 +93,7 @@ export async function handleContractsServiceApi(req, env, path) {
   }
 
   if (path === '/api/contracts/finance-chart-of-accounts-v1' && req.method === 'GET') {
-    return respondWithFinanceChartOfAccountsV1(env.DB);
+    return respondWithFinanceChartOfAccountsV1(new URL(req.url), env.DB);
   }
 
   // Board layout (Finance v3): the saved board categories, heading/account renames and purpose
