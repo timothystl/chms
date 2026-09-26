@@ -25,6 +25,8 @@ import { fetchAccessRoles } from './connect-access-client.js';
 import { fetchFinanceClassification } from './finance-classification-client.js';
 import { fetchFinancePropertyDebt } from './finance-property-debt-client.js';
 import { fetchFinancePropertyPolicy } from './finance-property-policy-client.js';
+import { PROPERTY_BOOKS_WRITERS, canEditPropertyBooks, readPropertyBooks } from './property-books-service.js';
+import { PROPERTY_BOOKS_STYLES, renderBankRecPage, renderReceivablesPage } from './property-books-pages.js';
 import { renderClassificationEditors } from './classification-pages.js';
 import { ACCESS_STYLES, renderAccessPage } from './access-pages.js';
 import {
@@ -1214,6 +1216,23 @@ function renderSectionBody(ctx) {
         ? propertyReportLive.annualSummary.at(-1) : null;
       return renderAcquisitionPage({ params: ctx.searchParams, propertyAnnual: annual });
     }
+    // Receivables, bank reconciliation and debt payoff (property-books-service.js). Edits are
+    // admin-only and re-checked on every save.
+    const canEditBooks = !councilPreview && canEditPropertyBooks(roleResult);
+    const booksStatus = describeFormStatus(ctx.searchParams, 'property');
+    if (page.id === 'receivables') {
+      return renderReceivablesPage({ books: isSyntheticUnavailable(ctx.propertyBooks) ? null : ctx.propertyBooks, params: ctx.searchParams, canEdit: canEditBooks, status: booksStatus });
+    }
+    if (page.id === 'bank-rec') {
+      const reserveRows = propertyReservesLive?.source === 'live' ? propertyReservesLive.rows : [];
+      const reserveMonth = reserveRows.reduce((max, r) => (r.report_month > max ? r.report_month : max), '');
+      const reserveAfterCents = reserveMonth ? reserveRows.filter((r) => r.report_month === reserveMonth).reduce((sum, r) => sum + (r.reserve_after_cents || 0), 0) : null;
+      return renderBankRecPage({
+        books: isSyntheticUnavailable(ctx.propertyBooks) ? null : ctx.propertyBooks, params: ctx.searchParams, canEdit: canEditBooks, status: booksStatus,
+        reserveAfterCents, reserveMonth: reserveMonth || null,
+        baseMinimumCents: propertyPolicy?.ok ? propertyPolicy.policy.reservePolicy.baseMinimumCents : null,
+      });
+    }
     // Same admin-only gate as the legacy in-Connect Property Operating Results' own monthly POST
     // route and Work orders' own repairs POST route -- UI hiding is never authorization, the real
     // gate is finance-property-monthly-write-v1's/finance-property-repair-write-v1's own role
@@ -1247,7 +1266,7 @@ function renderSectionBody(ctx) {
       propertyRepairRemoveStatus, propertyRepairRemoveMessage,
       propertyMetaEntryStatus, propertyMetaEntryMessage,
       propertyReservePolicyStatus, propertyReservePolicyMessage, propertyCapitalPolicyStatus, propertyCapitalPolicyMessage,
-      propertyDebtStatus, propertyDebtMessage,
+      propertyDebtStatus, propertyDebtMessage, searchParams: ctx.searchParams,
       propertyBudgetImportStatus, propertyBudgetImportMessage,
       propertyMonthlyImportCsvStatus, propertyMonthlyImportCsvMessage,
     });
@@ -1431,7 +1450,7 @@ function renderShell(ctx) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Timothy Finance${production ? '' : ' — Staging'}</title>
   <link rel="icon" href="/assets/finance-mark.png"><link rel="apple-touch-icon" href="/assets/finance-icon.png">
-  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}${ACQUISITION_STYLES}</style>
+  <style>${SHELL_STYLES}${HEALTH_STYLES}${FACILITIES_STYLES}${HR_STYLES}${PAYROLL_STYLES}${GIFT_BATCH_STYLES}${GIVING_ANALYTICS_STYLES}${PLANNING_V3_STYLES}${ACCESS_STYLES}${BUDGET_BUILDER_STYLES}${ACQUISITION_STYLES}${PROPERTY_BOOKS_STYLES}</style>
 </head>
 <body${councilPreview ? ' class="council-preview"' : ''}>
   <header class="app-header">
@@ -3186,6 +3205,11 @@ export default {
       return handleHrWrite(request, env, route.id, url);
     }
 
+    if (PROPERTY_BOOKS_WRITERS[route.id]) {
+      await ensureFinanceOwnedSchema(env.FINANCE_DB, 'propertyBooks');
+      return handleFinanceFormWrite({ request, env, url, section: 'property', writer: PROPERTY_BOOKS_WRITERS[route.id], canEdit: canEditPropertyBooks });
+    }
+
     if (PLANNING_WRITERS[route.id]) {
       await ensureFinanceOwnedSchema(env.FINANCE_DB, 'planning');
       return handleFinanceFormWrite({ request, env, url, section: 'planning', writer: PLANNING_WRITERS[route.id], canEdit: canEditPlanning });
@@ -3431,6 +3455,12 @@ export default {
           ? await safeSyntheticRead(() => resolvePropertyValuation(env, env.FINANCE_DB)) : null;
         const propertyPolicy = section.id === 'property'
           ? await fetchFinancePropertyPolicy(env) : null;
+        const propertyPageId = section.id === 'property' ? resolveFinancePage(section, pageId).id : null;
+        const propertyBooks = ['receivables', 'bank-rec'].includes(propertyPageId)
+          ? await safeSyntheticRead(async () => {
+            await ensureFinanceOwnedSchema(env.FINANCE_DB, 'propertyBooks');
+            return readPropertyBooks(env.FINANCE_DB);
+          }) : null;
         const propertyDebt = section.id === 'property' && resolveFinancePage(section, pageId).id === 'debt'
           ? await fetchFinancePropertyDebt(env) : null;
         // Property Operating results/Reserves & distribution/Capital & repairs ledgers each try
@@ -3774,7 +3804,7 @@ export default {
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
-          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, planningBasis, planningScenarios, planningRunway, searchParams: url.searchParams,
+          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, planningBasis, planningScenarios, planningRunway, propertyBooks, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyDebt, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,

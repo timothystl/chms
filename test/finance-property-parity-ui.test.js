@@ -278,6 +278,27 @@ describe('Commercial Property debt payoff', () => {
     expect(html).toContain('Review the saved annual debt service');
   });
 
+  it('adds payoff by year and an extra-principal what-if to the projection', async () => {
+    const html = await page(roleEnv('admin'), 'section=property&page=debt&extra=500');
+    expect(html).toContain('Payoff by year');
+    expect(html).toContain('Balance at year end');
+    expect(html).toContain('months sooner');
+    expect(html).toContain('stays with the property');
+    expect(html).not.toContain('The loan record lists a');
+    expect(html).not.toContain('NaN');
+  });
+
+  it('flags a reported payment that differs from the loan record', async () => {
+    const saved = LIVE_DEBT.activity;
+    LIVE_DEBT.activity = [{ ...saved[0], paymentCents: 378303 }];
+    try {
+      const html = await page(roleEnv('admin'), 'section=property&page=debt');
+      expect(html).toContain('The loan record lists a $4,283 monthly payment, but the 2026-08 report shows $3,783.');
+    } finally {
+      LIVE_DEBT.activity = saved;
+    }
+  });
+
   it('keeps the debt page read-only for a finance viewer', async () => {
     const html = await page(roleEnv('finance'), 'section=property&page=debt');
     expect(html).toContain('$276,350');
