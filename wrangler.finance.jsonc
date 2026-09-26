@@ -72,7 +72,10 @@
     // QuickBooks is owned by Finance once this is "1" (see docs/QUICKBOOKS_FINANCE_CUTOVER.md).
     // FINANCE_QB_CLIENT_ID / FINANCE_QB_CLIENT_SECRET are Worker secrets, never listed here.
     "FINANCE_QB_ENABLED": "1",
-    "FINANCE_QB_ENVIRONMENT": "production"
+    "FINANCE_QB_ENVIRONMENT": "production",
+    // Report reads come straight from FINANCE_DB (the same database Connect's contracts read)
+    // instead of a round trip through Connect; see apps/finance/local-contract-reads.js.
+    "FINANCE_LOCAL_CONTRACT_READS": "1"
   },
 
   "observability": {

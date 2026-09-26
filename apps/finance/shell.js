@@ -143,6 +143,7 @@ import { readSyntheticPropertyDistributions } from './property-distributions-ser
 import { BRAND_ASSETS, brandAssetBytes } from './brand-assets.js';
 import { escapeHtml, formatCents, formatSignedCents, renderDataUnavailablePage, renderUnavailableCard, renderUnavailablePage } from './render-helpers.js';
 import { isSyntheticUnavailable, safeSyntheticRead } from './synthetic-read-guard.js';
+import { withLocalContractReads } from './local-contract-reads.js';
 import { renderChurchPage } from './church-pages.js';
 import { renderBalancePage } from './balance-pages.js';
 import { renderDaycarePage } from './daycare-pages.js';
@@ -1612,7 +1613,10 @@ async function handleConnectPlanner(request, env, url, route) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, rawEnv) {
+    // Report reads are answered from Finance's own database when enabled (local-contract-reads.js);
+    // roles, Giving and every write still go to Connect.
+    const env = withLocalContractReads(rawEnv);
     const url = new URL(request.url);
     const metadata = releaseMetadata(env);
 
