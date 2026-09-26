@@ -100,7 +100,7 @@ export const FINANCE_PARITY_SECTIONS = Object.freeze([
       { id: 'forecast', label: 'Run-rate forecast', status: 'live' },
       { id: 'distributions', label: 'Distributions', status: 'live' },
       { id: 'debt', label: 'Debt payoff & future', status: 'unavailable', reason: 'The monthly property table has loan-payment and interest-expense columns, but the synthetic fixture leaves them empty and nothing populates them yet -- there is no loan schedule to project.' },
-      { id: 'acquisition', label: 'Acquisition model', status: 'unavailable', reason: 'There is no purchase-price or pro-forma data structure for a hypothetical acquisition -- this is a new modeling feature, not a missing report.' },
+      { id: 'acquisition', label: 'Acquisition model', status: 'live' },
     ],
   },
   // Facilities is new in the v3 design: an asset register with service history, capital projects,
