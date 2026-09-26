@@ -88,6 +88,8 @@ const PRIVILEGED = [
   ['GET',  '/volunteer/general-pending'],
   ['GET',  '/volunteer/event-pending'],
   ['POST', '/email/send'],
+  ['GET',  '/email/log'],
+  ['POST', '/email/log/status'],
   ['POST', '/rsvp/store'],
   ['POST', '/rsvp/sync'],
   ['GET',  '/rsvp/status'],

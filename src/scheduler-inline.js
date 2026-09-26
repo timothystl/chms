@@ -63,8 +63,8 @@ function _build() {
 
   // Rename IDs that duplicate ChMS's own IDs
   html = html.replace(/id="current-month-label"/g, 'id="sched-current-month-label"');
-  html = html.replace(/id="(tab-(?:people|schedule|stats|settings))"/g,     'id="sched-$1"');
-  html = html.replace(/id="(tab-btn-(?:people|schedule|stats|settings))"/g, 'id="sched-$1"');
+  html = html.replace(/id="(tab-(?:people|schedule|stats|emaillog|settings))"/g,     'id="sched-$1"');
+  html = html.replace(/id="(tab-btn-(?:people|schedule|stats|emaillog|settings))"/g, 'id="sched-$1"');
 
   // Extract just the app-content subtree
   const bodyMatch = html.match(/<div id="sched-app-content">[\s\S]*?<\/div><!-- \/#app-content -->/);

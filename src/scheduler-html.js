@@ -814,6 +814,7 @@ body.embedded #app-content { display:block!important; }
   <button class="tab-btn active" id="tab-btn-schedule">Schedule</button>
   <button class="tab-btn" id="tab-btn-people">People &amp; Availability <span id="signups-badge" style="display:none;background:var(--amber);color:var(--steel-anchor);border-radius:999px;padding:1px 7px;font-size:0.75rem;font-weight:700;margin-left:4px;"></span></button>
   <button class="tab-btn" id="tab-btn-stats">&#128202; Stats</button>
+  <button class="tab-btn" id="tab-btn-emaillog">&#9993; Email Log</button>
   <button class="header-gear" id="btn-open-settings" title="Settings">&#9881; Settings</button>
   <button class="header-gear" id="btn-header-signout" title="Sign Out" style="margin-left:0;">&#x2192; Sign Out</button>
 </div>
@@ -1151,6 +1152,23 @@ body.embedded #app-content { display:block!important; }
   </div>
 </div>
 
+<!-- ══ EMAIL LOG TAB ════════════════════════════════════════════════════════ -->
+<div id="tab-emaillog" class="tab-content">
+  <div class="card">
+    <h2>&#9993; Email Log</h2>
+    <p style="color:var(--warm-gray);font-size:.85rem;margin:0 0 12px;">Every email the Scheduler sends is recorded here: who it went to, when, and whether Resend accepted it. <strong>Check delivery</strong> asks Resend what happened next. <em>Delivered</em> means the volunteer&rsquo;s mail server accepted it, so if they still can&rsquo;t find it, it&rsquo;s in their spam or junk folder. <em>Bounced</em> means the address is wrong or their mailbox refused it.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+      <input type="search" id="emlog-q" placeholder="Search by name or email" style="flex:1;min-width:200px;max-width:320px;">
+      <button class="btn btn-outline btn-sm" id="btn-emlog-search">Search</button>
+      <button class="btn btn-outline btn-sm" id="btn-emlog-check-all">Check delivery for all shown</button>
+      <span id="emlog-status" style="font-size:.82rem;color:var(--warm-gray);"></span>
+    </div>
+    <div id="emlog-content" style="overflow-x:auto;">
+      <p style="color:var(--warm-gray);font-size:0.85rem;">Loading&hellip;</p>
+    </div>
+  </div>
+</div>
+
 <!-- ══ SPECIAL SERVICE PANEL ══════════════════════════════════════════════ -->
 <div id="special-panel" class="side-panel">
   <div class="panel-hdr">
@@ -1398,7 +1416,7 @@ var COMMUNITY_EVENTS = [
             'Christmas Market \\u2013 Kids\\u2019 Activities', 'Christmas Market \\u2013 Welcome Table'] }
 ];
 function roleLabel(r) { return SHARED_LABELS[r] || r; }
-var ALL_TABS = ['people','schedule','stats'];
+var ALL_TABS = ['people','schedule','stats','emaillog'];
 
 // ── Shared avatar / initials system (Focus Week schedule + People tab) ──
 var AVATAR_TINTS = [
@@ -1859,6 +1877,7 @@ function showTab(name) {
   });
   if (name === 'people') renderPeopleList();
   if (name === 'stats')  renderStatsTab();
+  if (name === 'emaillog') emlogLoad();
   if (name === 'schedule' && !currentSchedule.length) {
     if (loadMonthSchedule(currentMonthKey)) {
       renderTable(getPeople(), null);
@@ -5541,6 +5560,8 @@ function sendReminderEmails() {
           }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
           body: JSON.stringify({
             to:       personEmailTo(person),
+            log_kind: 'assignments',
+            log_name: person.name || '',
             subject:  'Your Upcoming Worship Service Assignments \\u2014 Timothy Lutheran',
             text:     textBody,
             html:     buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase,
@@ -5849,6 +5870,8 @@ function sendOfficeScheduleCopy(scope, dateISO) {
     }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
     body: JSON.stringify({
       to:       addr,
+      log_kind: 'office-copy',
+      log_name: 'Office copy',
       subject:  subject,
       text:     text,
       html:     html,
@@ -5987,6 +6010,8 @@ function _sendWeekReminders() {
           }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
           body: JSON.stringify({
             to:          personEmailTo(person),
+            log_kind:    'reminder',
+            log_name:    person.name || '',
             subject:     'Worship Service Reminder \\u2014 ' + assignments[0].date + ' \\u2014 Timothy Lutheran',
             text:        textBody,
             html:        buildHtmlEmail(person, assignments, s.replyTo || '', token, _rsvpBase,
@@ -6453,6 +6478,8 @@ function sendVolunteerNotifications() {
         }, s.workerSecret ? { 'X-Worker-Secret': s.workerSecret } : {}),
         body: JSON.stringify({
           to:       personEmailTo(p),
+          log_kind: 'open-slot',
+          log_name: p.name || '',
           subject:  subject,
           text:     textBody,
           html:     buildVolunteerRequestHtml(p, slot, s.replyTo || ''),
@@ -7357,6 +7384,158 @@ function autoFillSchedule() {
 // ══════════════════════════════════════════════════════════════════
 // STATS / DASHBOARD
 // ══════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// EMAIL LOG
+// ══════════════════════════════════════════════════════════════════
+// Reads the server-side send log (GET /email/log) that /email/send writes one row to per
+// email, and asks Resend for each email's latest delivery event (POST /email/log/status),
+// one at a time so the checks stay under Resend's per-second rate limit.
+var _emlogRows = [];
+var EMLOG_FINAL = { delivered: 1, bounced: 1, complained: 1, opened: 1, clicked: 1 };
+var EMLOG_KIND_LABELS = { 'assignments': 'Assignments', 'reminder': 'Weekly reminder',
+  'open-slot': 'Open-slot request', 'office-copy': 'Office copy' };
+
+function emlogWhen(sentAt) {
+  var d = new Date(String(sentAt || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d.getTime())) return esc(sentAt || '');
+  return esc(d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit' }));
+}
+
+function emlogStatusHtml(r) {
+  if (!r.accepted) {
+    return '<span style="color:#b3261e;font-weight:600;">Not sent</span>'
+      + (r.error ? '<div style="font-size:.75rem;color:var(--warm-gray);">' + esc(r.error) + '</div>' : '');
+  }
+  var st = r.delivery_status || '';
+  var map = {
+    delivered:        ['Delivered', '#1e7d3a'],
+    opened:           ['Delivered (opened)', '#1e7d3a'],
+    clicked:          ['Delivered (link clicked)', '#1e7d3a'],
+    sent:             ['Sent, not yet delivered', 'var(--warm-gray)'],
+    delivery_delayed: ['Delayed', '#a15c00'],
+    bounced:          ['Bounced', '#b3261e'],
+    complained:       ['Marked as spam', '#b3261e'],
+    failed:           ['Failed', '#b3261e'],
+    suppressed:       ['Suppressed by Resend', '#b3261e'],
+    canceled:         ['Canceled', '#b3261e']
+  };
+  var m = map[st];
+  var label = m ? '<span style="color:' + m[1] + ';font-weight:600;">' + m[0] + '</span>'
+    : (st ? esc(st) : '<span style="color:var(--warm-gray);">Accepted by Resend</span>');
+  var checked = r.status_checked_at ? '<div style="font-size:.72rem;color:var(--warm-gray);">checked ' + emlogWhen(r.status_checked_at) + '</div>' : '';
+  var btn = EMLOG_FINAL[st] ? '' : ' <button class="btn btn-outline btn-sm" style="padding:1px 8px;font-size:.72rem;" onclick="emlogCheckOne(' + r.id + ')">Check delivery</button>';
+  return label + btn + checked;
+}
+
+function emlogRender() {
+  var el = document.getElementById('emlog-content');
+  if (!_emlogRows.length) {
+    el.innerHTML = '<p style="color:var(--warm-gray);font-size:0.85rem;">No emails found. Emails show up here from the first send after this log was added.</p>';
+    return;
+  }
+  var html = '<table class="stats-table"><thead><tr><th>Sent</th><th>Volunteer</th><th>To</th><th>Email</th><th>Status</th></tr></thead><tbody>';
+  _emlogRows.forEach(function(r) {
+    html += '<tr id="emlog-row-' + r.id + '">'
+      + '<td style="white-space:nowrap;">' + emlogWhen(r.sent_at) + '</td>'
+      + '<td>' + esc(r.volunteer_name || '') + '</td>'
+      + '<td style="word-break:break-all;">' + esc(r.recipients || '') + '</td>'
+      + '<td>' + esc(EMLOG_KIND_LABELS[r.kind] || r.kind || '') + '<div style="font-size:.75rem;color:var(--warm-gray);">' + esc(r.subject || '') + '</div></td>'
+      + '<td id="emlog-st-' + r.id + '">' + emlogStatusHtml(r) + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function emlogLoad() {
+  var s = getBreezeSettings();
+  var q = (document.getElementById('emlog-q').value || '').trim();
+  var el = document.getElementById('emlog-content');
+  el.innerHTML = '<p style="color:var(--warm-gray);font-size:0.85rem;">Loading&hellip;</p>';
+  return fetch(s.workerUrl + '/email/log?limit=200' + (q ? '&q=' + encodeURIComponent(q) : ''), {
+    headers: _workerHeaders(), credentials: 'same-origin'
+  })
+    .then(function(r) { return r.json().then(function(b) { return { ok: r.ok, status: r.status, body: b }; }); })
+    .then(function(res) {
+      if (!res.ok) throw new Error((res.body && res.body.error) || ('HTTP ' + res.status));
+      _emlogRows = (res.body && res.body.rows) || [];
+      emlogRender();
+    })
+    .catch(function(e) {
+      el.innerHTML = '<p style="color:#b3261e;font-size:0.85rem;">Could not load the email log: ' + esc(e.message || String(e)) + '</p>';
+    });
+}
+
+// Resolves to 'ok', 'restricted', 'rate_limited' or 'error'.
+function emlogCheckOne(id) {
+  var s = getBreezeSettings();
+  var cell = document.getElementById('emlog-st-' + id);
+  if (cell) cell.innerHTML = '<span style="color:var(--warm-gray);">Checking&hellip;</span>';
+  return fetch(s.workerUrl + '/email/log/status', {
+    method: 'POST', headers: _workerHeaders(), credentials: 'same-origin',
+    body: JSON.stringify({ id: id })
+  })
+    .then(function(r) { return r.json().then(function(b) { return { ok: r.ok, status: r.status, body: b || {} }; }); })
+    .then(function(res) {
+      var row = _emlogRows.filter(function(x) { return x.id === id; })[0];
+      if (res.body.error === 'restricted_key') {
+        emlogSetStatus('The church’s Resend key can only send email, not look it up. Check delivery in the Resend dashboard (Emails), or ask for a Full-access key to be set on the Worker.');
+        if (cell && row) cell.innerHTML = emlogStatusHtml(row);
+        return 'restricted';
+      }
+      if (res.status === 429) {
+        if (cell && row) cell.innerHTML = emlogStatusHtml(row);
+        return 'rate_limited';
+      }
+      if (!res.ok) {
+        if (cell) cell.innerHTML = '<span style="color:#b3261e;">' + esc(res.body.error || ('HTTP ' + res.status)) + '</span>';
+        return 'error';
+      }
+      if (row) {
+        row.delivery_status = res.body.delivery_status || '';
+        row.status_checked_at = res.body.status_checked_at || '';
+        if (cell) cell.innerHTML = emlogStatusHtml(row);
+      }
+      return 'ok';
+    })
+    .catch(function(e) {
+      if (cell) cell.innerHTML = '<span style="color:#b3261e;">' + esc(String(e)) + '</span>';
+      return 'error';
+    });
+}
+
+function emlogSetStatus(msg) {
+  var el = document.getElementById('emlog-status');
+  if (el) el.textContent = msg || '';
+}
+
+function emlogWait(ms) { return new Promise(function(res) { setTimeout(res, ms); }); }
+
+function emlogCheckAll() {
+  var todo = _emlogRows.filter(function(r) { return r.accepted && r.resend_id && !EMLOG_FINAL[r.delivery_status || '']; })
+    .slice(0, 50).map(function(r) { return r.id; });
+  if (!todo.length) { emlogSetStatus('Nothing to check — every email shown already has a final status.'); return; }
+  var done = 0, i = 0;
+  function next() {
+    if (i >= todo.length) { emlogSetStatus('Checked ' + done + ' of ' + todo.length + '.'); return; }
+    var id = todo[i];
+    emlogSetStatus('Checking ' + (i + 1) + ' of ' + todo.length + '…');
+    return emlogCheckOne(id).then(function(result) {
+      if (result === 'restricted') return;
+      if (result === 'rate_limited') return emlogWait(1500).then(next);
+      if (result === 'ok') done++;
+      i++;
+      return emlogWait(600).then(next);
+    });
+  }
+  next();
+}
+
+document.getElementById('btn-emlog-search').addEventListener('click', function() { emlogLoad(); });
+document.getElementById('btn-emlog-check-all').addEventListener('click', emlogCheckAll);
+document.getElementById('emlog-q').addEventListener('keydown', function(e) { if (e.key === 'Enter') emlogLoad(); });
+
 function renderStatsTab() {
   var people = getPeople();
   if (!people.length) {

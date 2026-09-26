@@ -1,5 +1,5 @@
 // ── Scheduler & Volunteer API handlers ────────────────────────────────────────
-import { json, SCHED_CORS, getAuthRole, timingSafeEqual } from './auth.js';
+import { json, SCHED_CORS, getAuthRole, getAuthInfo, timingSafeEqual } from './auth.js';
 import { XMAS_MARKET_ROLES } from './db.js';
 
 // Centralized office reply-to so it can be overridden via env.
@@ -808,13 +808,106 @@ export async function handleSchedEmailSend(req, env) {
   const payload = { from: emailFrom || body.from || '', to: body.to, subject: body.subject,
                     text: body.text, html: body.html, reply_to: body.reply_to || undefined };
   if (body.attachments) payload.attachments = body.attachments;
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json();
+  let res, data;
+  try {
+    res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    data = await res.json().catch(() => ({}));
+  } catch (e) {
+    await logSchedEmail(env, req, body, { accepted: false, error: 'Network error reaching Resend: ' + String(e && e.message || e) });
+    return schedJson({ error: 'Could not reach Resend' }, 502);
+  }
+  await logSchedEmail(env, req, body, res.ok
+    ? { accepted: true, resendId: (data && data.id) || '' }
+    : { accepted: false, error: (data && (data.message || data.error || data.name)) || ('HTTP ' + res.status) });
   return schedJson(data, res.status);
+}
+
+// ── Scheduler send log ───────────────────────────────────────────────────────
+// One row per /email/send call (see migrations/0058_scheduler_email_log.sql). Records who the
+// email went to and what Resend said — never the message body. Best-effort: a logging failure
+// must never turn a sent email into an error response, so this never throws.
+function _logRecipients(to) {
+  const list = Array.isArray(to) ? to : [to];
+  return list.map((e) => String(e || '').trim()).filter(Boolean).join(', ').slice(0, 500);
+}
+
+async function logSchedEmail(env, req, body, { accepted, resendId = '', error = '' }) {
+  if (!env.DB) return;
+  try {
+    const info = await getAuthInfo(req, env).catch(() => null);
+    await env.DB.prepare(
+      `INSERT INTO scheduler_email_log (recipients, volunteer_name, kind, subject, accepted, resend_id, error, sent_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      _logRecipients(body && body.to),
+      String((body && body.log_name) || '').slice(0, 200),
+      String((body && body.log_kind) || '').slice(0, 40),
+      String((body && body.subject) || '').slice(0, 300),
+      accepted ? 1 : 0,
+      String(resendId || '').slice(0, 100),
+      String(error || '').slice(0, 500),
+      (info && info.username) || '',
+    ).run();
+    // Keep roughly 13 months — enough to answer "did last year's Christmas email go out?"
+    await env.DB.prepare(
+      `DELETE FROM scheduler_email_log WHERE sent_at < datetime('now', '-400 days')`
+    ).run();
+  } catch (e) { /* non-fatal — the email itself already went (or failed) at Resend */ }
+}
+
+// GET /email/log?q=&limit= → most recent log rows, newest first. `q` matches a recipient
+// address or volunteer name (case-insensitive substring).
+export async function handleSchedEmailLog(env, url) {
+  const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+  const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 1), 500);
+  const where = q ? `WHERE LOWER(recipients) LIKE ?1 OR LOWER(volunteer_name) LIKE ?1` : '';
+  let stmt = env.DB.prepare(
+    `SELECT id, sent_at, recipients, volunteer_name, kind, subject, accepted, resend_id, error,
+            delivery_status, status_checked_at, sent_by
+       FROM scheduler_email_log ${where}
+      ORDER BY sent_at DESC, id DESC LIMIT ${limit}`
+  );
+  if (q) stmt = stmt.bind('%' + q.replace(/[%_]/g, '') + '%');
+  const rows = (await stmt.all()).results || [];
+  return schedJson({ rows });
+}
+
+// POST /email/log/status { id } → asks Resend for the latest delivery event on one logged
+// email (GET /emails/:id → last_event: sent, delivered, bounced, complained, delivery_delayed,
+// ...) and stores it on the row. One id per call so the browser can pace calls under Resend's
+// per-second rate limit. A send-only ("Sending access") API key cannot read emails back; that
+// comes back as { error: 'restricted_key' } so the UI can say so instead of showing a failure.
+export async function handleSchedEmailLogStatus(req, env) {
+  const resendKey = env.RESEND_API_KEY || '';
+  if (!resendKey) return schedJson({ error: 'RESEND_API_KEY not set on the Worker' }, 500);
+  let b; try { b = await req.json(); } catch { return schedJson({ error: 'Invalid JSON' }, 400); }
+  const id = parseInt(b && b.id, 10);
+  if (!id) return schedJson({ error: 'id is required' }, 400);
+  const row = await env.DB.prepare('SELECT id, resend_id FROM scheduler_email_log WHERE id=?').bind(id).first();
+  if (!row) return schedJson({ error: 'Not found' }, 404);
+  if (!row.resend_id) return schedJson({ error: 'This email was never accepted by Resend, so there is nothing to check' }, 400);
+  let res, data;
+  try {
+    res = await fetch('https://api.resend.com/emails/' + encodeURIComponent(row.resend_id), {
+      headers: { 'Authorization': 'Bearer ' + resendKey },
+    });
+    data = await res.json().catch(() => ({}));
+  } catch (e) {
+    return schedJson({ error: 'Could not reach Resend' }, 502);
+  }
+  if (res.status === 401 || res.status === 403) return schedJson({ error: 'restricted_key' }, 200);
+  if (res.status === 429) return schedJson({ error: 'rate_limited' }, 429);
+  if (!res.ok) return schedJson({ error: (data && (data.message || data.name)) || ('HTTP ' + res.status) }, 502);
+  const status = String((data && data.last_event) || '').slice(0, 40);
+  await env.DB.prepare(
+    `UPDATE scheduler_email_log SET delivery_status=?, status_checked_at=datetime('now') WHERE id=?`
+  ).bind(status, id).run();
+  const updated = await env.DB.prepare('SELECT delivery_status, status_checked_at FROM scheduler_email_log WHERE id=?').bind(id).first();
+  return schedJson({ id, delivery_status: status, status_checked_at: (updated && updated.status_checked_at) || '' });
 }
 
 // ── /esv/passage ─────────────────────────────────────────────────────────────
