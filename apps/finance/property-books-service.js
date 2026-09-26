@@ -1,7 +1,7 @@
 // Commercial Property books (v3 design): tenant receivables and security deposits entered from the
 // property manager's monthly reports, the monthly reconciliation of the property's own bank
-// account (Finance's tables, migration 0014), and the loan payoff worked out from Connect's loan
-// record (connect.finance-property-loan.v1). Editing is admin-only, like every other property write.
+// account (Finance's tables, migration 0014), and the payoff schedule math the Debt payoff page
+// uses. Editing is admin-only, like every other property write.
 import { FormValidationError, month, text } from './form-fields.js';
 import { runBudgetedReadBatch } from './query-budget.js';
 
@@ -201,39 +201,12 @@ export function canEditPropertyBooks(roleResult) {
   return Boolean(roleResult?.ok && roleResult.role === 'admin');
 }
 
-// ── Loan ──────────────────────────────────────────────────────────────────────────────────────
+// ── Loan payoff schedule ──────────────────────────────────────────────────────────────────────────────────────
 
 const nextMonth = (ym) => {
   const [y, m] = ym.split('-').map(Number);
   return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
 };
-
-// Rolls the lender-confirmed balance forward with each later month's principal (payment less
-// interest), the same rule as Connect's finComputeMortgageRemainingCents: only months after the
-// confirmed month, and only months that report both the payment and its interest.
-export function rollForwardLoan(loanContract) {
-  const { loan, payments } = loanContract;
-  if (loan.balanceCents === null) return null;
-  const asOfMonth = loan.balanceAsOfDate ? loan.balanceAsOfDate.slice(0, 7) : null;
-  const later = asOfMonth ? payments.filter((p) => p.period > asOfMonth) : [];
-  const applied = [];
-  const missingInterest = [];
-  let balance = loan.balanceCents;
-  for (const p of later) {
-    if (p.interestCents === null) { missingInterest.push(p.period); continue; }
-    const principal = p.paymentCents - p.interestCents;
-    balance -= principal;
-    applied.push({ period: p.period, paymentCents: p.paymentCents, interestCents: p.interestCents, principalCents: principal, balanceCents: balance });
-  }
-  const lastReported = payments.at(-1) || null;
-  return {
-    balanceCents: balance,
-    throughMonth: applied.at(-1)?.period || asOfMonth,
-    applied, missingInterest,
-    lastReportedPaymentCents: lastReported?.paymentCents ?? null,
-    lastReportedPeriod: lastReported?.period ?? null,
-  };
-}
 
 // Month-by-month payoff from a balance. `extraCents` is added principal each month.
 export function amortize({ balanceCents, annualRate, paymentCents, startMonth, extraCents = 0, maxMonths = 600 }) {
@@ -264,63 +237,4 @@ export function byYear(months) {
     years.set(y, row);
   }
   return [...years.values()];
-}
-
-export function loanProjection(loanContract, { extraCents = 0, today = new Date() } = {}) {
-  const rolled = rollForwardLoan(loanContract);
-  const rate = loanContract.loan.interestRate;
-  if (!rolled || rate === null) return { rolled, ok: false };
-  const paymentCents = rolled.lastReportedPaymentCents ?? loanContract.loan.monthlyPaymentCents;
-  if (!paymentCents) return { rolled, ok: false };
-  const thisMonth = today.toISOString().slice(0, 7);
-  const start = rolled.throughMonth ? nextMonth(rolled.throughMonth) : thisMonth;
-  const base = amortize({ balanceCents: rolled.balanceCents, annualRate: rate, paymentCents, startMonth: start });
-  const withExtra = extraCents > 0 ? amortize({ balanceCents: rolled.balanceCents, annualRate: rate, paymentCents, startMonth: start, extraCents }) : null;
-  const interest = (a) => a.months.reduce((s, mo) => s + mo.interestCents, 0);
-  return {
-    ok: true, rolled, rate, paymentCents, startMonth: start, base, withExtra,
-    payoffMonth: base.payable ? base.months.at(-1)?.period : null,
-    interestRemainingCents: interest(base),
-    extra: withExtra ? {
-      payoffMonth: withExtra.payable ? withExtra.months.at(-1)?.period : null,
-      monthsSaved: base.months.length - withExtra.months.length,
-      interestSavedCents: interest(base) - interest(withExtra),
-    } : null,
-  };
-}
-
-// The loan record update a statement makes, merged into Connect's property meta `loan` section.
-// The statement joins the balance history (replacing any earlier entry for the same date).
-export function loanStatementMeta(form, existingHistory = []) {
-  const date = String(form.get('statement_date') || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) return { error: 'Enter the statement date.' };
-  const dollars = (name) => {
-    const raw = String(form.get(name) ?? '').replace(/[$,\s]/g, '');
-    if (raw === '') return null;
-    return /^\d+(\.\d{1,2})?$/.test(raw) ? Math.round(Number(raw) * 100) : NaN;
-  };
-  const balance = dollars('balance');
-  const payment = dollars('monthly_payment');
-  const rateRaw = String(form.get('rate_percent') ?? '').replace(/[%\s]/g, '');
-  const rate = rateRaw === '' ? null : Number(rateRaw);
-  if (balance === null || Number.isNaN(balance)) return { error: 'Enter the principal balance from the statement.' };
-  if (Number.isNaN(payment)) return { error: 'The monthly payment must be a dollar amount.' };
-  if (rate !== null && !(Number.isFinite(rate) && rate > 0 && rate < 30)) return { error: 'The interest rate must be a percentage, like 6.375.' };
-  const entry = { balance_cents: balance, as_of_date: date, ...(rate !== null ? { interest_rate_pct: rate / 100 } : {}) };
-  const history = existingHistory
-    .filter((h) => h.asOfDate !== date)
-    .map((h) => ({ balance_cents: h.balanceCents, as_of_date: h.asOfDate, ...(h.interestRate !== null ? { interest_rate_pct: h.interestRate } : {}) }));
-  history.push(entry);
-  history.sort((a, b) => a.as_of_date.localeCompare(b.as_of_date));
-  const latest = history.at(-1);
-  const loan = { balance_history: history };
-  // Only the newest statement moves the confirmed balance; an older one just joins the history.
-  if (latest.as_of_date === date) {
-    loan.balance_cents = balance;
-    loan.balance_as_of_date = date;
-    loan.confirmed_by = `Loan statement dated ${date}, entered in Finance`;
-    if (rate !== null) loan.interest_rate_pct = rate / 100;
-    if (payment !== null) loan.monthly_payment_cents = payment;
-  }
-  return { loan };
 }

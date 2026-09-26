@@ -24,9 +24,8 @@ import { fetchGivingAnalytics, fetchGivingAnalyticsPeople, postGivingFollowupWri
 import { fetchAccessRoles } from './connect-access-client.js';
 import { fetchFinanceClassification } from './finance-classification-client.js';
 import { fetchFinancePropertyPolicy } from './finance-property-policy-client.js';
-import { fetchFinancePropertyLoan } from './finance-property-loan-client.js';
-import { PROPERTY_BOOKS_WRITERS, canEditPropertyBooks, loanStatementMeta, readPropertyBooks } from './property-books-service.js';
-import { PROPERTY_BOOKS_STYLES, renderBankRecPage, renderDebtPage, renderReceivablesPage } from './property-books-pages.js';
+import { PROPERTY_BOOKS_WRITERS, canEditPropertyBooks, readPropertyBooks } from './property-books-service.js';
+import { PROPERTY_BOOKS_STYLES, renderBankRecPage, renderReceivablesPage } from './property-books-pages.js';
 import { renderClassificationEditors } from './classification-pages.js';
 import { ACCESS_STYLES, renderAccessPage } from './access-pages.js';
 import {
@@ -1232,9 +1231,6 @@ function renderSectionBody(ctx) {
         baseMinimumCents: propertyPolicy?.ok ? propertyPolicy.policy.reservePolicy.baseMinimumCents : null,
       });
     }
-    if (page.id === 'debt') {
-      return renderDebtPage({ loanResult: ctx.propertyLoan, params: ctx.searchParams, canEdit: canEditBooks, status: booksStatus });
-    }
     // Same admin-only gate as the legacy in-Connect Property Operating Results' own monthly POST
     // route and Work orders' own repairs POST route -- UI hiding is never authorization, the real
     // gate is finance-property-monthly-write-v1's/finance-property-repair-write-v1's own role
@@ -2382,23 +2378,6 @@ export default {
         if (result.message) params.set('message', String(result.message).slice(0, 200));
         return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
       }
-      // Debt payoff's "Record a loan statement": the statement joins the loan record's balance
-      // history, and the newest one becomes the confirmed balance.
-      if (form.get('loan_statement_form') === '1') {
-        const failTo = (reason, message) => {
-          const params = new URLSearchParams({ section: 'property', page: 'debt', status: 'error', reason });
-          if (message) params.set('message', String(message).slice(0, 200));
-          return response(null, { status: 303, headers: { Location: `/?${params.toString()}` } });
-        };
-        const current = await fetchFinancePropertyLoan(env);
-        if (!current.ok) return failTo('write_failed');
-        const built = loanStatementMeta(form, current.loan.balanceHistory);
-        if (built.error) return failTo('invalid', built.error);
-        const result = await postConnectPropertyMetaWrite(env, accessJwt, { loan: built.loan });
-        if (result.ok) return response(null, { status: 303, headers: { Location: '/?section=property&page=debt&status=ok' } });
-        if (result.status === 403) return failTo('access_denied');
-        return result.status === 400 && result.message ? failTo('invalid', result.message) : failTo('write_failed');
-      }
       if (form.get('reserve_policy_form') === '1') {
         const amount = Number(form.get('base_minimum'));
         if (!Number.isFinite(amount) || amount < 0) return response(null, { status: 303, headers: { Location: '/?section=property&page=reserve-distribution&op=reserve-policy&status=error&reason=invalid_input' } });
@@ -3453,7 +3432,6 @@ export default {
             await ensureFinanceOwnedSchema(env.FINANCE_DB, 'propertyBooks');
             return readPropertyBooks(env.FINANCE_DB);
           }) : null;
-        const propertyLoan = propertyPageId === 'debt' ? await fetchFinancePropertyLoan(env) : null;
         // Property Operating results/Reserves & distribution/Capital & repairs ledgers each try
         // their own real connect.finance-property-*.v1 endpoint first and fall back to the same
         // synthetic fixtures read just above, labeled -- same live-first pattern as Property
@@ -3792,7 +3770,7 @@ export default {
         const printMode = url.searchParams.get('print') === '1';
         return response((printMode ? renderPrintPage : renderShell)({
           printFragment: printMode && url.searchParams.get('fragment') === '1',
-          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, planningBasis, planningScenarios, planningRunway, propertyBooks, propertyLoan, searchParams: url.searchParams,
+          healthView: url.searchParams.get('view'), facilities, hr, givingBatch, givingAnalytics, givingAnalyticsPeople, accessRoles, budgetBuilder, planningBasis, planningScenarios, planningRunway, propertyBooks, searchParams: url.searchParams,
           metadata, summary, giving, givingSource, section, pageId, councilPreview, roleResult, churchReport, churchReportLive, churchTrendLive,
           balanceSheet, balanceTrends, daycareReport, daycareReportLive, daycareEntries, daycareEditId, propertyReport, propertyReportLive, propertyReserves,
           propertyReservesLive, propertyLedgers, propertyLedgersLive, propertyValuation, propertyPolicy, propertyForecast, propertyForecastLive, propertyDistributions, budgetReport, accountsReport,

@@ -1,9 +1,6 @@
-// Commercial Property → Receivables & deposits, Position & bank rec, and Debt payoff & future
-// (v3 design). Data and rules live in property-books-service.js.
+// Commercial Property → Receivables & deposits and Position & bank rec (v3 design). Data and rules live in property-books-service.js.
 import { escapeHtml as e, formatCents } from './render-helpers.js';
-import {
-  AGING, byYear, loanProjection, receivableMonths, reconcile, rowBalance, summarizeReceivables,
-} from './property-books-service.js';
+import { AGING, receivableMonths, reconcile, rowBalance, summarizeReceivables } from './property-books-service.js';
 
 const money = (c) => (c < 0 ? `−${formatCents(-c)}` : formatCents(c));
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -11,10 +8,6 @@ export function monthLabel(ym) {
   const [y, m] = String(ym || '').split('-').map(Number);
   return y && m ? `${MONTHS[m - 1]} ${y}` : String(ym || '');
 }
-const dayLabel = (d) => {
-  const [y, m, day] = String(d || '').split('-').map(Number);
-  return y && m && day ? `${MONTHS[m - 1].slice(0, 3)} ${day}, ${y}` : String(d || '');
-};
 const href = (page, params = {}) => `/?${new URLSearchParams({ section: 'property', page, ...params }).toString().replace(/&/g, '&amp;')}`;
 const dollars = (c) => (c ? (c / 100).toFixed(2) : '');
 
@@ -137,70 +130,6 @@ export function renderBankRecPage({ books, reserveAfterCents = null, reserveMont
       </form></details>` : '';
 
   return `${statusBanner(status)}<p class="lede">The property’s own bank account, reconciled each month against the cash on the manager’s report, and what that cash has to cover.</p>${position}${history}${form}`;
-}
-
-// ── Debt payoff & future ──────────────────────────────────────────────────────────────────────
-
-export function renderDebtPage({ loanResult, params, canEdit, status, today = new Date() }) {
-  if (!loanResult?.ok) return `${statusBanner(status)}${unavailable('The loan record could not be read from Connect. Please try again.')}`;
-  const loanContract = loanResult.loan;
-  const { loan } = loanContract;
-  const extraRaw = Number(String(params?.get?.('extra') || '').replace(/[$,\s]/g, ''));
-  const extraCents = Number.isFinite(extraRaw) && extraRaw > 0 && extraRaw <= 100000 ? Math.round(extraRaw * 100) : 0;
-  const p = loanProjection(loanContract, { extraCents, today });
-  const lender = loan.lender || 'the lender';
-
-  const statementForm = canEdit ? `<details class="panel panel-spaced edit-panel"${loan.balanceCents === null ? ' open' : ''}><summary>Record a loan statement</summary>
-      <form method="POST" action="/api/v1/connect-property-meta-write" class="form-grid rb-form">
-        <input type="hidden" name="loan_statement_form" value="1">
-        <label class="field"><span>Statement date</span><input type="date" name="statement_date" required></label>
-        <label class="field"><span>Principal balance ($)</span><input name="balance" inputmode="decimal" required></label>
-        <label class="field"><span>Interest rate (%)</span><input name="rate_percent" inputmode="decimal" value="${loan.interestRate !== null ? +(loan.interestRate * 100).toFixed(4) : ''}"></label>
-        <label class="field"><span>Monthly payment ($)</span><input name="monthly_payment" inputmode="decimal" value="${dollars(loan.monthlyPaymentCents)}"></label>
-        <div class="form-actions"><button type="submit">Save statement</button></div>
-      </form>
-      <p class="muted-line">Saved to the property’s loan record in Connect. The newest statement becomes the confirmed balance; later months’ payments roll it forward from there.</p></details>` : '';
-
-  if (!p.ok) {
-    return `${statusBanner(status)}<div class="panel"><h2>The payoff cannot be projected yet</h2><p class="muted-line">The loan record needs a confirmed balance, an interest rate, and a monthly payment${canEdit ? '. Record the latest statement below' : ''}.</p></div>${statementForm}`;
-  }
-
-  const { rolled } = p;
-  const years = byYear(p.base.months);
-  const recordPayment = loan.monthlyPaymentCents;
-  const paymentNote = rolled.lastReportedPaymentCents !== null && recordPayment !== null && rolled.lastReportedPaymentCents !== recordPayment
-    ? `<p class="status status-pending">The loan record lists a ${money(recordPayment)} monthly payment, but the ${monthLabel(rolled.lastReportedPeriod)} report shows ${money(rolled.lastReportedPaymentCents)}. The projection uses the reported payment; record the next statement to settle which is right.</p>` : '';
-
-  const cards = kpis([
-    ['Balance now', money(rolled.balanceCents), rolled.applied.length ? `Through ${monthLabel(rolled.throughMonth)} payments` : `Confirmed ${dayLabel(loan.balanceAsOfDate)}`],
-    ['Monthly payment', money(p.paymentCents), `${lender} at ${(p.rate * 100).toFixed(3).replace(/0+$/, '')}%`],
-    ['Paid off', p.payoffMonth ? monthLabel(p.payoffMonth) : 'Not at this payment', p.payoffMonth ? `${p.base.months.length} more payments` : 'The payment does not cover the interest', p.payoffMonth ? '' : 'warn'],
-    ['Interest still to pay', money(p.interestRemainingCents), 'At today’s rate and payment'],
-  ]);
-
-  const since = `<div class="panel panel-spaced list-panel"><h2>How the balance got here</h2>
-      <p class="muted-line">${e(lender)} confirmed ${money(loan.balanceCents)} on ${dayLabel(loan.balanceAsOfDate)}.${rolled.applied.length ? ' Each later month’s principal (payment less interest) comes off that balance.' : ' No payments have been reported since.'}</p>
-      ${rolled.applied.length ? `<div class="table-scroll"><table class="pm-table rb-num"><thead><tr><th>Month</th><th>Payment</th><th>Interest</th><th>Principal</th><th>Balance after</th></tr></thead><tbody>
-        ${rolled.applied.map((m) => `<tr><td>${monthLabel(m.period)}</td><td>${money(m.paymentCents)}</td><td>${money(m.interestCents)}</td><td>${money(m.principalCents)}</td><td>${money(m.balanceCents)}</td></tr>`).join('')}
-      </tbody></table></div>` : ''}
-      ${rolled.missingInterest.length ? `<p class="muted-line">Not applied: ${rolled.missingInterest.map(monthLabel).join(', ')} — the report gives the payment but not its interest.</p>` : ''}</div>`;
-
-  const schedule = years.length ? `<div class="panel panel-spaced list-panel"><h2>Payoff by year</h2><div class="table-scroll"><table class="pm-table rb-num"><thead><tr><th>Year</th><th>Payments</th><th>Interest</th><th>Principal</th><th>Balance at year end</th></tr></thead><tbody>
-      ${years.map((y) => `<tr><td>${y.year}${y.count < 12 ? `<small>${y.count} payment${y.count === 1 ? '' : 's'}</small>` : ''}</td><td>${money(y.paymentCents)}</td><td>${money(y.interestCents)}</td><td>${money(y.principalCents)}</td><td>${money(y.balanceCents)}</td></tr>`).join('')}
-    </tbody></table></div>
-    <p class="muted-line">Starts ${monthLabel(p.startMonth)} and assumes the rate stays at ${(p.rate * 100).toFixed(3).replace(/0+$/, '')}% with ${money(p.paymentCents)} paid each month.</p></div>` : '';
-
-  const extra = `<div class="panel panel-spaced list-panel"><h2>Paying extra principal</h2>
-      <form method="GET" action="/" class="inline-form rb-picker"><input type="hidden" name="section" value="property"><input type="hidden" name="page" value="debt">
-        <label>Extra each month ($) <input name="extra" inputmode="decimal" value="${extraCents ? (extraCents / 100).toFixed(0) : ''}" placeholder="500"></label><button type="submit" class="button-outline">Show</button></form>
-      ${p.extra ? `<p>${money(extraCents)} more each month pays the loan off in <b>${p.extra.payoffMonth ? monthLabel(p.extra.payoffMonth) : '—'}</b>, ${p.extra.monthsSaved} month${p.extra.monthsSaved === 1 ? '' : 's'} sooner, and saves <b>${money(p.extra.interestSavedCents)}</b> in interest.</p>` : '<p class="muted-line">Enter an amount to see how much sooner the loan is paid off and the interest it saves. Nothing is saved.</p>'}
-      ${p.payoffMonth ? `<p class="muted-line">When the loan is paid off, the ${money(p.paymentCents)} monthly payment (${money(p.paymentCents * 12)} a year) stays with the property.</p>` : ''}</div>`;
-
-  const statements = loanContract.balanceHistory.length ? `<div class="panel panel-spaced list-panel"><h2>Loan statements on record</h2><div class="table-scroll"><table class="pm-table rb-num"><thead><tr><th>Date</th><th>Principal balance</th><th>Rate</th></tr></thead><tbody>
-      ${[...loanContract.balanceHistory].reverse().map((h) => `<tr><td>${dayLabel(h.asOfDate)}</td><td>${money(h.balanceCents)}</td><td>${h.interestRate !== null ? `${(h.interestRate * 100).toFixed(3).replace(/0+$/, '')}%` : '—'}</td></tr>`).join('')}
-    </tbody></table></div></div>` : '';
-
-  return `${statusBanner(status)}<p class="lede">The property’s ${e(lender)} loan, from the last balance the lender confirmed, rolled forward with the monthly payments on the manager’s reports, and projected to payoff.</p>${paymentNote}${cards}${since}${schedule}${extra}${statements}${statementForm}`;
 }
 
 export const PROPERTY_BOOKS_STYLES = `

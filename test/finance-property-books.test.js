@@ -3,24 +3,8 @@ import { DatabaseSync } from 'node:sqlite';
 import worker from '../apps/finance/shell.js';
 import { resetEnsuredSchemasForTests } from '../apps/finance/finance-owned-schema.js';
 import {
-  amortize, byYear, loanProjection, loanStatementMeta, parseReceivablesPaste, reconcile, rollForwardLoan, signedCents, summarizeReceivables,
+  amortize, byYear, parseReceivablesPaste, reconcile, signedCents, summarizeReceivables,
 } from '../apps/finance/property-books-service.js';
-
-const LOAN = {
-  contract: 'connect.finance-property-loan.v1', dataClassification: 'aggregate', sourceProduct: 'connect',
-  consumerProduct: 'finance', currency: 'USD', propertyKey: 'ivanhoe', generatedAt: '2026-09-26T00:00:00Z',
-  loan: { lender: 'LCEF', balanceCents: 27969113, balanceAsOfDate: '2026-07-20', interestRate: 0.06375, monthlyPaymentCents: 428303 },
-  balanceHistory: [
-    { asOfDate: '2025-11-20', balanceCents: 29733600, interestRate: null },
-    { asOfDate: '2026-07-20', balanceCents: 27969113, interestRate: 0.06375 },
-  ],
-  payments: [
-    { period: '2026-06', paymentCents: 378303, interestCents: 95205 },
-    { period: '2026-07', paymentCents: 378303, interestCents: 94203 },
-    { period: '2026-08', paymentCents: 378303, interestCents: 94000 },
-    { period: '2026-09', paymentCents: 378303, interestCents: null },
-  ],
-};
 
 function makeDb() {
   const sqlite = new DatabaseSync(':memory:');
@@ -42,25 +26,19 @@ function makeDb() {
   };
 }
 
-function makeEnv({ role = 'admin', loan = LOAN } = {}) {
+function makeEnv({ role = 'admin' } = {}) {
   const db = makeDb();
-  const writes = [];
   const env = {
     ENVIRONMENT: 'staging', RELEASE_SHA: 't', FINANCE_DB: db, FINANCE_CONTRACT_API_KEY: 'k',
     CONNECT_SERVICE: {
       async fetch(req) {
         const url = new URL(req.url);
         if (url.pathname.endsWith('/staff-role-v1')) return new Response(JSON.stringify({ role, permissions: { finance: 'edit' }, identity: 'admin@example.org' }));
-        if (url.pathname.endsWith('/finance-property-loan-v1')) return loan ? new Response(JSON.stringify(loan)) : new Response('{}', { status: 500 });
-        if (url.pathname.endsWith('/finance-property-meta-write-v1')) {
-          writes.push(await req.json());
-          return role === 'admin' ? new Response(JSON.stringify({ ok: true })) : new Response(JSON.stringify({ error: 'Access denied' }), { status: 403 });
-        }
         return new Response('{}', { status: 404 });
       },
     },
   };
-  return { env, db, writes };
+  return { env, db };
 }
 const get = (env, query) => worker.fetch(new Request(`https://finance.test/?section=property${query}`, { headers: { 'Cf-Access-Jwt-Assertion': 'jwt' } }), env);
 const post = (env, path, fields) => worker.fetch(new Request(`https://finance.test${path}`, {
@@ -100,14 +78,6 @@ describe('Property books rules', () => {
     expect(reconcile({ statement_balance_cents: 1000000, deposits_in_transit_cents: 0, outstanding_checks_cents: 0, book_balance_cents: 990000 }).differenceCents).toBe(10000);
   });
 
-  it('rolls the confirmed balance forward only with later months that report their interest', () => {
-    const r = rollForwardLoan(LOAN);
-    expect(r.applied.map((m) => m.period)).toEqual(['2026-08']);
-    expect(r.balanceCents).toBe(27969113 - (378303 - 94000));
-    expect(r.missingInterest).toEqual(['2026-09']);
-    expect(r.lastReportedPaymentCents).toBe(378303);
-  });
-
   it('amortizes to a zero balance and reports when a payment cannot cover interest', () => {
     const a = amortize({ balanceCents: 1000000, annualRate: 0.06, paymentCents: 100000, startMonth: '2026-11' });
     expect(a.payable).toBe(true);
@@ -119,26 +89,6 @@ describe('Property books rules', () => {
     expect(amortize({ balanceCents: 1000000, annualRate: 0.24, paymentCents: 10000, startMonth: '2026-11' }).payable).toBe(false);
   });
 
-  it('projects payoff from the rolled balance, and extra principal pays off sooner', () => {
-    const p = loanProjection(LOAN, { extraCents: 50000 });
-    expect(p.ok).toBe(true);
-    expect(p.startMonth).toBe('2026-09');
-    expect(p.paymentCents).toBe(378303);
-    expect(p.payoffMonth > '2032-01' && p.payoffMonth < '2036-01').toBe(true);
-    expect(p.extra.monthsSaved).toBeGreaterThan(0);
-    expect(p.extra.interestSavedCents).toBeGreaterThan(0);
-  });
-
-  it('builds a loan statement update that joins the history and moves the confirmed balance', () => {
-    const form = new URLSearchParams({ statement_date: '2026-09-20', balance: '276,500.00', rate_percent: '6.375', monthly_payment: '3783.03' });
-    const { loan } = loanStatementMeta(form, LOAN.balanceHistory);
-    expect(loan).toMatchObject({ balance_cents: 27650000, balance_as_of_date: '2026-09-20', interest_rate_pct: 0.06375, monthly_payment_cents: 378303 });
-    expect(loan.balance_history.map((h) => h.as_of_date)).toEqual(['2025-11-20', '2026-07-20', '2026-09-20']);
-    const older = loanStatementMeta(new URLSearchParams({ statement_date: '2026-01-20', balance: '290000' }), LOAN.balanceHistory).loan;
-    expect(older.balance_cents).toBeUndefined();
-    expect(older.balance_history).toHaveLength(3);
-    expect(loanStatementMeta(new URLSearchParams({ statement_date: '2026-09-20' }), []).error).toContain('principal balance');
-  });
 });
 
 describe('Property books pages', () => {
@@ -189,37 +139,4 @@ describe('Property books pages', () => {
     expect(edit).toContain('value="11000.00"');
   });
 
-  it('renders the debt payoff from Connect’s loan record and flags a payment mismatch', async () => {
-    const { env } = makeEnv();
-    const html = await (await get(env, '&page=debt&extra=500')).text();
-    expect(html).toContain('How the balance got here');
-    expect(html).toContain('Payoff by year');
-    expect(html).toContain('LCEF confirmed $279,691');
-    expect(html).toContain('The loan record lists a $4,283 monthly payment');
-    expect(html).toContain('months sooner');
-    expect(html).toContain('Record a loan statement');
-    expect(html).not.toContain('NaN');
-    expect(html).not.toContain('undefined');
-  });
-
-  it('says so when the loan record cannot be read', async () => {
-    const { env } = makeEnv({ loan: null });
-    const html = await (await get(env, '&page=debt')).text();
-    expect(html).toContain('The loan record could not be read from Connect');
-  });
-
-  it('relays a loan statement into Connect’s loan record', async () => {
-    const { env, writes } = makeEnv();
-    const res = await post(env, '/api/v1/connect-property-meta-write', { loan_statement_form: '1', statement_date: '2026-09-20', balance: '276500', rate_percent: '6.375', monthly_payment: '3783.03' });
-    expect(res.headers.get('Location')).toBe('/?section=property&page=debt&status=ok');
-    expect(writes).toHaveLength(1);
-    expect(Object.keys(writes[0])).toEqual(['loan']);
-    expect(writes[0].loan).toMatchObject({ balance_cents: 27650000, balance_as_of_date: '2026-09-20', monthly_payment_cents: 378303 });
-    expect(writes[0].loan.balance_history).toHaveLength(3);
-    const bad = await post(env, '/api/v1/connect-property-meta-write', { loan_statement_form: '1', statement_date: '', balance: '1' });
-    expect(bad.headers.get('Location')).toContain('reason=invalid');
-    const denied = makeEnv({ role: 'finance' });
-    const refused = await post(denied.env, '/api/v1/connect-property-meta-write', { loan_statement_form: '1', statement_date: '2026-09-20', balance: '276500' });
-    expect(refused.headers.get('Location')).toContain('access_denied');
-  });
 });
